@@ -5,7 +5,7 @@
 #
 # Example:
 # ```
-# knit_register_command "hello"
+# knit_register_command "hello" "Says hello"
 # function hello {
 #   ...
 # }

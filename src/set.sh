@@ -16,6 +16,44 @@ _knit_set_new() {
 }
 
 # ------------------------------------------------------------------------------
+# Checks if a set with the given name is defined, i.e. the variable is defined,
+# and it is a sorted array.
+#
+# Example:
+# ```
+# _knit_set_exists MY_SET
+# ```
+#
+# @param array_name Name of the set.
+# ------------------------------------------------------------------------------
+_knit_set_exists() {
+    local array_name="$1"
+
+    declare_out=$(declare -p "$array_name")
+    if [ ! $? ]; then
+        return 1
+    fi
+
+    if [[ ! "$declare_out" =~ "declare -a" ]]; then
+        return 1
+    fi
+
+    local -n array_ref="$array_name"
+
+    # Check if the array is sorted in ascending order
+    for ((i = 1; i < ${#array_ref[@]}; i++)); do
+        if [[ "${array_ref[i-1]}" > "${array_ref[i]}" ]]; then
+            return 1  # The array is not sorted
+        fi
+        if [[ "${array_ref[i-1]}" = "${array_ref[i]}" ]]; then
+            return 1  # The array has non-unique elements
+        fi
+    done
+
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # Find an element in a sorted array using binary search.
 #
 # Example:

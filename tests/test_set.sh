@@ -14,6 +14,26 @@ setup() {
     [ "$set_size" -eq 0 ]
 }
 
+@test "checking that array exists" {
+   _knit_set_new MY_SET
+   _knit_set_exists MY_SET
+   # test with a set that is not defined
+   run _knit_set_exists MY_OTHER_SET
+   [ "$status" -eq 1 ]
+   # test with a variable that is not a list
+   local MY_OTHER_SET="AAA"
+   run _knit_set_exists MY_OTHER_SET
+   [ "$status" -eq 1 ]
+   # test with a list that is not sorted
+   local MY_OTHER_SET=("BBB" "AAA" "CCC")
+   run _knit_set_exists MY_OTHER_SET
+   [ "$status" -eq 1 ]
+   # test with a list that has double elements
+   local MY_OTHER_SET=("AAA" "BBB" "BBB" "CCC")
+   run _knit_set_exists MY_OTHER_SET
+   [ "$status" -eq 1 ]
+}
+
 @test "adding elements in a set" {
     _knit_set_new MY_SET
     _knit_set_add MY_SET "Matthieu" "Rob" "Phil" "Shane" "Amal"
