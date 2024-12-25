@@ -24,6 +24,28 @@ setup() {
     [ "$content" == "Amal Matthieu Phil Rob Shane" ]
 }
 
+@test "removing elements in a set" {
+    _knit_set_new MY_SET
+    _knit_set_add MY_SET "Matthieu" "Rob" "Phil" "Shane" "Amal"
+    _knit_set_remove MY_SET "Matthieu"
+    local content=$(echo "${MY_SET[@]}")
+    [ "$content" == "Amal Phil Rob Shane" ]
+    _knit_set_remove MY_SET "Amal" "Phil"
+    local content=$(echo "${MY_SET[@]}")
+    [ "$content" == "Rob Shane" ]
+    _knit_set_remove MY_SET "Shane"
+    local content=$(echo "${MY_SET[@]}")
+    [ "$content" == "Rob" ]
+}
+
+@test "removing element that is not in a set" {
+    _knit_set_new MY_SET
+    _knit_set_add MY_SET "Matthieu" "Rob" "Phil" "Shane" "Amal"
+    _knit_set_remove MY_SET "Marc"
+    local content=$(echo "${MY_SET[@]}")
+    [ "$content" == "Amal Matthieu Phil Rob Shane" ]
+}
+
 @test "finding an element that is in a set" {
     _knit_set_new MY_SET
     _knit_set_add MY_SET "Matthieu" "Rob" "Phil" "Shane" "Amal"
@@ -33,7 +55,7 @@ setup() {
     done
 }
 
-@test "find an element that is not in a set" {
+@test "finding an element that is not in a set" {
     _knit_set_new MY_SET
     _knit_set_add MY_SET "Matthieu" "Rob" "Phil" "Shane" "Amal"
     run _knit_set_find MY_SET "Marc"

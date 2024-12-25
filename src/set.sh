@@ -88,37 +88,38 @@ _knit_set_add() {
 }
 
 # ------------------------------------------------------------------------------
-# Remove an element from a set.
+# Remove one or more elements from a set.
 #
 # Example:
 # ```
-# _knit_set_remove MY_SET "Shane"
+# _knit_set_remove MY_SET "Shane" "Matthieu"
 # ```
 #
-# @param array_name Name of the set in which to add the element.
-# @param item Element to add to the set.
-# @return 0 if the element was removed, 1 if it was not found.
+# @param array_name Name of the set in which to remove the elements.
+# @param ...items Elements to remove from the set.
 # ------------------------------------------------------------------------------
 _knit_set_remove() {
     local array_name="$1"
-    local item="$2"
     local -n array_ref="$array_name"
+    shift
 
-    local low=0
-    local high=$(( ${#array_ref[@]} - 1 ))
-    local mid=0
+    for item in "$@"; do
 
-    while (( low <= high )); do
-        mid=$(( (low + high) / 2 ))
-        if [[ "${array_ref[mid]}" == "$item" ]]; then
-            array_ref=( "${array_ref[@]:0:mid}" "${array_ref[@]:mid+1}" )
-            return 0
-        elif [[ "${array_ref[mid]}" < "$item" ]]; then
-            low=$(( mid + 1 ))
-        else
-            high=$(( mid - 1 ))
-        fi
+        local low=0
+        local high=$(( ${#array_ref[@]} - 1 ))
+        local mid=0
+
+        while (( low <= high )); do
+            mid=$(( (low + high) / 2 ))
+            if [[ "${array_ref[mid]}" == "$item" ]]; then
+                array_ref=( "${array_ref[@]:0:mid}" "${array_ref[@]:mid+1}" )
+                break
+            elif [[ "${array_ref[mid]}" < "$item" ]]; then
+                low=$(( mid + 1 ))
+            else
+                high=$(( mid - 1 ))
+            fi
+        done
+
     done
-
-    return 1
 }
