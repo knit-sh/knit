@@ -90,7 +90,9 @@ _knit_find_flag() {
 # Indicates that the command "hello" requires a parameter --name.
 # ------------------------------------------------------------------------------
 knit_with_required() {
-    # TODO check that _KNIT_CURRENT_FUNCTION is set
+    if [[ ! -v _KNIT_CURRENT_FUNCTION ]]; then
+        knit_fatal "knit_with_required should be called after a knit_register_* function"
+    fi
     # TODO description could contain single quotes that should be escaped
     # TODO param could contain "-" characters that should be converted to "_"
     # TODO error if a parameter with the same name is already added
@@ -117,7 +119,9 @@ knit_with_required() {
 # but this parameter will be set to "Matthieu Dorier" if not provided.
 # ------------------------------------------------------------------------------
 knit_with_optional() {
-    # TODO check that _KNIT_CURRENT_FUNCTION is set
+    if [[ ! -v _KNIT_CURRENT_FUNCTION ]]; then
+        knit_fatal "knit_with_optional should be called after a knit_register_* function"
+    fi
     # TODO description could contain single quotes that should be escaped
     # TODO param could contain "-" characters that should be converted to "_"
     local fn=$_KNIT_CURRENT_FUNCTION
@@ -146,7 +150,9 @@ knit_with_optional() {
 # Indicates that the command "hello" could be provided a flag --capitalize.
 # ------------------------------------------------------------------------------
 knit_with_flag() {
-    # TODO check that _KNIT_CURRENT_FUNCTION is set
+    if [[ ! -v _KNIT_CURRENT_FUNCTION ]]; then
+        knit_fatal "knit_with_flag should be called after a knit_register_* function"
+    fi
     # TODO description could contain single quotes that should be escaped
     # TODO flag could contain "-" characters that should be converted to "_"
     # TODO check that default is either true or false

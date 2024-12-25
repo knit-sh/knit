@@ -29,7 +29,7 @@ _knit_set_new() {
 _knit_set_exists() {
     local array_name="$1"
 
-    declare_out=$(declare -p "$array_name")
+    declare_out=$(declare -p "$array_name" 2>&1)
     if [ ! $? ]; then
         return 1
     fi

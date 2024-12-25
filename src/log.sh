@@ -110,3 +110,14 @@ knit_critical() {
         _knit_log critical $@
     fi
 }
+
+# ------------------------------------------------------------------------------
+# Logging function for fatal error messages. Will be printed no matter the log
+# level, and the program will exit with an error value.
+#
+# @param ... Arguments for echo.
+# ------------------------------------------------------------------------------
+knit_fatal() {
+    _knit_log fatal $@
+    exit 1
+}

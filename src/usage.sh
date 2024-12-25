@@ -12,7 +12,18 @@ Options:
   -h, --help    Show this help message and exit.
   -v, --version Show the version of the script.
 
-Example:
-  $0 --help
+Commands:
 EOF
+    max_cmd_length=0
+    for str in "${_KNIT_COMMANDS[@]}"; do
+        str_length=${#str}
+        if (( str_length > max_cmd_length )); then
+            max_cmd_length=$str_length
+        fi
+    done
+    for cmd in "${_KNIT_COMMANDS[@]}"; do
+        local description_var="_KNIT_${cmd}_description"
+        local description="${!description_var}"
+        printf "  %${max_cmd_length}s %s\n" "$cmd" "$description"
+    done
 }
