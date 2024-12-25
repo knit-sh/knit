@@ -50,39 +50,41 @@ _knit_set_find() {
 }
 
 # ------------------------------------------------------------------------------
-# Add an element to a set.
+# Add one or more elements to a set.
 #
 # Example:
 # ```
-# _knit_set_add MY_SET "Shane"
+# _knit_set_add MY_SET "Shane" "Matthieu" "Rob"
 # ```
 #
 # @param array_name Name of the set in which to add the element.
-# @param item Element to add to the set.
-# @return 0 if the element was added, 1 if it was already present.
+# @param ...items Elements to add to the set.
 # ------------------------------------------------------------------------------
 _knit_set_add() {
+
     local array_name="$1"
-    local item="$2"
     local -n array_ref="$array_name"
+    shift
 
-    local low=0
-    local high=${#array_ref[@]}
-    local mid=0
+    for item in "$@"; do
 
-    while (( low < high )); do
-        mid=$(( (low + high) / 2 ))
-        if [[ "${array_ref[mid]}" == "$item" ]]; then
-            return 1
-        elif [[ "${array_ref[mid]}" < "$item" ]]; then
-            low=$(( mid + 1 ))
-        else
-            high=$mid
-        fi
+        local low=0
+        local high=${#array_ref[@]}
+        local mid=0
+
+        while (( low < high )); do
+            mid=$(( (low + high) / 2 ))
+            if [[ "${array_ref[mid]}" == "$item" ]]; then
+                break
+            elif [[ "${array_ref[mid]}" < "$item" ]]; then
+                low=$(( mid + 1 ))
+            else
+                high=$mid
+            fi
+        done
+        array_ref=( "${array_ref[@]:0:low}" "$item" "${array_ref[@]:low}" )
+
     done
-
-    array_ref=( "${array_ref[@]:0:low}" "$item" "${array_ref[@]:low}" )
-    return 0
 }
 
 # ------------------------------------------------------------------------------
