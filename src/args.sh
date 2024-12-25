@@ -24,8 +24,10 @@ _knit_find_option() {
     IFS=',' read -r -a option_array <<< "$options"
 
     # Iterate through the list
+    local i
     for ((i = 0; i < ${#list[@]}; i++)); do
         # Check if the current element matches any option
+        local option
         for option in "${option_array[@]}"; do
             if [[ "${list[i]}" == "$option" ]]; then
                 # Ensure there's a next element
@@ -66,7 +68,9 @@ _knit_find_flag() {
     IFS=',' read -r -a flag_array <<< "$flags"
 
     # Check each name against the list
+    local flag
     for flag in "${flag_array[@]}"; do
+        local item
         for item in "${list[@]}"; do
             if [[ "$item" == "$flag" ]]; then
                 return 0 # Found at least one flag
@@ -95,7 +99,7 @@ knit_with_required() {
     fi
     # TODO description could contain single quotes that should be escaped
     # TODO param could contain "-" characters that should be converted to "_"
-    # TODO error if a parameter with the same name is already added
+    # TODO error if a parameter with the same name is already added (as a required, optional, or flag)
     local fn=$_KNIT_CURRENT_FUNCTION
     local param=$1
     local description="$2"
@@ -124,6 +128,7 @@ knit_with_optional() {
     fi
     # TODO description could contain single quotes that should be escaped
     # TODO param could contain "-" characters that should be converted to "_"
+    # TODO error if a parameter with the same name is already added (as a required, optional, or flag)
     local fn=$_KNIT_CURRENT_FUNCTION
     local param=$1
     local default="$2"
@@ -155,7 +160,7 @@ knit_with_flag() {
     fi
     # TODO description could contain single quotes that should be escaped
     # TODO flag could contain "-" characters that should be converted to "_"
-    # TODO check that default is either true or false
+    # TODO error if a parameter with the same name is already added (as a required, optional, or flag)
     local fn=$_KNIT_CURRENT_FUNCTION
     local flag=$1
     local description="$3"
@@ -164,3 +169,16 @@ knit_with_flag() {
     eval "$description_var='$description'"
     _knit_set_add "_KNIT_${fn}_flags" $flag
 }
+
+# ------------------------------------------------------------------------------
+# This function retrieves a parameter (optional, required, or flag) from its
+# list of arguments. For flags will, it will print "true" or "false".
+#
+# @param name Name of the option or flag.
+# @param ... List of arguments in which to search.
+# ------------------------------------------------------------------------------
+knit_get_parameter() {
+    local option=$1; shift
+    _knit_find_option "--$option" $@
+}
+

@@ -14,9 +14,10 @@ Options:
 
 Commands:
 EOF
-    max_cmd_length=0
-    for str in "${_KNIT_COMMANDS[@]}"; do
-        str_length=${#str}
+    local max_cmd_length=0
+    local cmd
+    for cmd in "${_KNIT_COMMANDS[@]}"; do
+        str_length=${#cmd}
         if (( str_length > max_cmd_length )); then
             max_cmd_length=$str_length
         fi

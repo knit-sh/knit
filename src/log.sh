@@ -12,6 +12,7 @@ _KNIT_LOG_LEVEL=2
 knit_log_set_level() {
     local level="$1"
     local valid_levels=("trace" "debug" "info" "warning" "error" "critical")
+    local i
     for i in "${!valid_levels[@]}"; do
         if [[ "$level" == "${valid_levels[i]}" ]]; then
             _KNIT_LOG_LEVEL=$i

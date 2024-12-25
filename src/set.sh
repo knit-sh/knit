@@ -41,6 +41,7 @@ _knit_set_exists() {
     local -n array_ref="$array_name"
 
     # Check if the array is sorted in ascending order
+    local i
     for ((i = 1; i < ${#array_ref[@]}; i++)); do
         if [[ "${array_ref[i-1]}" > "${array_ref[i]}" ]]; then
             return 1  # The array is not sorted
@@ -104,6 +105,7 @@ _knit_set_add() {
     local -n array_ref="$array_name"
     shift
 
+    local item
     for item in "$@"; do
 
         local low=0
@@ -141,6 +143,7 @@ _knit_set_remove() {
     local -n array_ref="$array_name"
     shift
 
+    local item
     for item in "$@"; do
 
         local low=0
