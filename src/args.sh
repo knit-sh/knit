@@ -163,9 +163,9 @@ knit_with_flag() {
     # TODO error if a parameter with the same name is already added (as a required, optional, or flag)
     local fn=$_KNIT_CURRENT_FUNCTION
     local flag=$1
-    local description="$3"
+    local description="$2"
 
-    local description_var="_KNIT_${fn}_${param}_description"
+    local description_var="_KNIT_${fn}_${flag}_description"
     eval "$description_var='$description'"
     _knit_set_add "_KNIT_${fn}_flags" $flag
 }

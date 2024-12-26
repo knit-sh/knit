@@ -20,7 +20,10 @@ _knit_register() {
 }
 
 # ------------------------------------------------------------------------------
-# Register a command, i.e. an operation that should run on the login.
+# Register a command, i.e. an operation that should run on the login node.
+#
+# @param name Name of the command.
+# @param description Description of the command.
 #
 # Example:
 # ```
@@ -34,10 +37,22 @@ knit_register_command() {
     _knit_register "command" $@
 }
 
+# ------------------------------------------------------------------------------
+# Invoke a command. This function will check that the arguments expected by the
+# command are provided.
+#
+# @param name Name of the command to invoke.
+# @param ... Arguments to pass to the command.
+# ------------------------------------------------------------------------------
 _knit_invoke_command() {
     local name=$1
     shift
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        _knit_print_command_usage $name
+        exit 0
+    fi
     local args=("$@")
+    # Check if the first argument is -h or --help
     # Check that all the required arguments have been provided
     local required_args_varname="_KNIT_${name}_required"
     local -n required_args_ref="$required_args_varname"
@@ -87,4 +102,3 @@ _knit_invoke_command() {
     # Invoke the actual command
     eval "$name ${args[@]}"
 }
-
