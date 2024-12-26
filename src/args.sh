@@ -102,7 +102,6 @@ knit_with_required() {
         knit_fatal "knit_with_required should be called after a knit_register_* function"
     fi
     # TODO description could contain single quotes that should be escaped
-    # TODO param could contain "-" characters that should be converted to "_"
     # TODO error if a parameter with the same name is already added (as a required, optional, or flag)
     local fn=$_KNIT_CURRENT_FUNCTION
     local param=$(_knit_str_hyphens_to_underscores $1)
@@ -131,7 +130,6 @@ knit_with_optional() {
         knit_fatal "knit_with_optional should be called after a knit_register_* function"
     fi
     # TODO description could contain single quotes that should be escaped
-    # TODO param could contain "-" characters that should be converted to "_"
     # TODO error if a parameter with the same name is already added (as a required, optional, or flag)
     local fn=$_KNIT_CURRENT_FUNCTION
     local param=$(_knit_str_hyphens_to_underscores $1)
@@ -163,7 +161,6 @@ knit_with_flag() {
         knit_fatal "knit_with_flag should be called after a knit_register_* function"
     fi
     # TODO description could contain single quotes that should be escaped
-    # TODO flag could contain "-" characters that should be converted to "_"
     # TODO error if a parameter with the same name is already added (as a required, optional, or flag)
     local fn=$_KNIT_CURRENT_FUNCTION
     local flag=$(_knit_str_hyphens_to_underscores $1)
@@ -184,9 +181,5 @@ knit_with_flag() {
 knit_get_parameter() {
     local option=$1; shift
     _knit_find_option "--$option" $@
-    if [[ $? -ne 0 ]]; then
-        option=$(_knit_str_hyphens_to_underscores $option)
-        _knit_find_option "--$1" $@
-    fi
 }
 
