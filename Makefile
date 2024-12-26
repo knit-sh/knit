@@ -1,8 +1,8 @@
-KNIT_SOURCE = src/log.sh      \
-              src/set.sh      \
-              src/args.sh     \
-              src/register.sh \
-              src/usage.sh    \
+KNIT_SOURCE = src/log.sh   \
+              src/set.sh   \
+              src/args.sh  \
+              src/func.sh  \
+              src/usage.sh \
               src/main.sh
 
 KNIT_OUTPUT = knit.sh
