@@ -26,10 +26,12 @@ _knit_find_option() {
     # Iterate through the list
     local i
     for ((i = 0; i < ${#list[@]}; i++)); do
+        local arg=$(_knit_str_hyphens_to_underscores "${list[i]}")
         # Check if the current element matches any option
         local option
         for option in "${option_array[@]}"; do
-            if [[ "${list[i]}" == "$option" ]]; then
+            local formatted_option=$(_knit_str_hyphens_to_underscores $option)
+            if [[ "$arg" == "$formatted_option" ]]; then
                 # Ensure there's a next element
                 if ((i + 1 < ${#list[@]})); then
                     echo "${list[i + 1]}"  # Print the next element
@@ -70,9 +72,11 @@ _knit_find_flag() {
     # Check each name against the list
     local flag
     for flag in "${flag_array[@]}"; do
+        local formatted_flag=$(_knit_str_hyphens_to_underscores $flag)
         local item
         for item in "${list[@]}"; do
-            if [[ "$item" == "$flag" ]]; then
+            local arg=$(_knit_str_hyphens_to_underscores "$item")
+            if [[ "$arg" == "$formatted_flag" ]]; then
                 return 0 # Found at least one flag
             fi
         done
@@ -101,7 +105,7 @@ knit_with_required() {
     # TODO param could contain "-" characters that should be converted to "_"
     # TODO error if a parameter with the same name is already added (as a required, optional, or flag)
     local fn=$_KNIT_CURRENT_FUNCTION
-    local param=$1
+    local param=$(_knit_str_hyphens_to_underscores $1)
     local description="$2"
 
     local description_var="_KNIT_${fn}_${param}_description"
@@ -130,7 +134,7 @@ knit_with_optional() {
     # TODO param could contain "-" characters that should be converted to "_"
     # TODO error if a parameter with the same name is already added (as a required, optional, or flag)
     local fn=$_KNIT_CURRENT_FUNCTION
-    local param=$1
+    local param=$(_knit_str_hyphens_to_underscores $1)
     local default="$2"
     local description="$3"
 
@@ -162,7 +166,7 @@ knit_with_flag() {
     # TODO flag could contain "-" characters that should be converted to "_"
     # TODO error if a parameter with the same name is already added (as a required, optional, or flag)
     local fn=$_KNIT_CURRENT_FUNCTION
-    local flag=$1
+    local flag=$(_knit_str_hyphens_to_underscores $1)
     local description="$2"
 
     local description_var="_KNIT_${fn}_${flag}_description"
@@ -180,5 +184,9 @@ knit_with_flag() {
 knit_get_parameter() {
     local option=$1; shift
     _knit_find_option "--$option" $@
+    if [[ $? -ne 0 ]]; then
+        option=$(_knit_str_hyphens_to_underscores $option)
+        _knit_find_option "--$1" $@
+    fi
 }
 

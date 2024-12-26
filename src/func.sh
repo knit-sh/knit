@@ -47,12 +47,12 @@ knit_register_command() {
 _knit_invoke_command() {
     local name=$1
     shift
+    # Check if the first argument is -h or --help
     if [[ "$1" == "-h" || "$1" == "--help" ]]; then
         _knit_print_command_usage $name
         exit 0
     fi
     local args=("$@")
-    # Check if the first argument is -h or --help
     # Check that all the required arguments have been provided
     local required_args_varname="_KNIT_${name}_required"
     local -n required_args_ref="$required_args_varname"
@@ -63,9 +63,11 @@ _knit_invoke_command() {
         local value status
         value=$(_knit_find_option "--${option}" ${args[@]})
         status=$?
-        if [ $status -ne 0 ]; then
-            knit_fatal "Command '$name' requires an option --${option} (${description})"
+        if [ $status -eq 0 ]; then
+            continue
         fi
+        local other_format=$(_knit_str_underscores_to_hyphens $option)
+        knit_fatal "Command '$name' requires an option --${option} or --${other_format} (${description})"
     done
     # Add optional arguments that have not been provided
     local optional_args_varname="_KNIT_${name}_optional"

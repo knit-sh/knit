@@ -3,6 +3,7 @@ KNIT_SOURCE = src/log.sh   \
               src/args.sh  \
               src/func.sh  \
               src/usage.sh \
+              src/str.sh   \
               src/main.sh
 
 KNIT_OUTPUT = knit.sh
