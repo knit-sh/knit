@@ -12,7 +12,7 @@
 # ------------------------------------------------------------------------------
 _knit_set_new() {
     local array_name="$1"
-    eval "$array_name=()"
+    eval "${array_name}=()"
 }
 
 # ------------------------------------------------------------------------------
@@ -28,17 +28,18 @@ _knit_set_new() {
 # ------------------------------------------------------------------------------
 _knit_set_exists() {
     local array_name="$1"
+    local declare_out
 
-    declare_out=$(declare -p "$array_name" 2>&1)
+    declare_out=$(declare -p "${array_name}" 2>&1)
     if [ ! $? ]; then
         return 1
     fi
 
-    if [[ ! "$declare_out" =~ "declare -a" ]]; then
+    if [[ ! "${declare_out}" =~ "declare -a" ]]; then
         return 1
     fi
 
-    local -n array_ref="$array_name"
+    local -n array_ref="${array_name}"
 
     # Check if the array is sorted in ascending order
     local i
@@ -70,7 +71,7 @@ _knit_set_exists() {
 _knit_set_find() {
     local array_name="$1"
     local item="$2"
-    local -n array_ref="$array_name"
+    local -n array_ref="${array_name}"
 
     local low=0
     local high=$(( ${#array_ref[@]} - 1 ))
@@ -102,7 +103,7 @@ _knit_set_find() {
 _knit_set_add() {
 
     local array_name="$1"
-    local -n array_ref="$array_name"
+    local -n array_ref="${array_name}"
     shift
 
     local item
@@ -140,7 +141,8 @@ _knit_set_add() {
 # ------------------------------------------------------------------------------
 _knit_set_remove() {
     local array_name="$1"
-    local -n array_ref="$array_name"
+    # shellcheck disable=SC2178
+    local -n array_ref="${array_name}"
     shift
 
     local item

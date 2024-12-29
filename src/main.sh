@@ -1,6 +1,6 @@
 #!/bin/bash
 
-KNIT_VERSION=0.1.0
+declare -xr KNIT_VERSION=0.1.0
 
 # ------------------------------------------------------------------------------
 # This is the main function that invokes the Knit framework. Users should call
@@ -23,7 +23,7 @@ knit() {
             exit 0
         fi
         if _knit_set_find _KNIT_COMMANDS "$1"; then
-            _knit_invoke_command $@
+            _knit_invoke_command "$@"
         fi
     fi
 }

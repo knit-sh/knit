@@ -35,24 +35,20 @@ EOF
 # @param name Name of the command.
 # ------------------------------------------------------------------------------
 _knit_print_command_usage() {
-    local name=$1
+    local name=${1}
     local description_var="_KNIT_${name}_description"
     local description="${!description_var}"
     local required_args_varname="_KNIT_${name}_required"
-    local -n required_args_ref="$required_args_varname"
+    local -n required_args_ref="${required_args_varname}"
     local optional_args_varname="_KNIT_${name}_optional"
-    local -n optional_args_ref="$optional_args_varname"
+    local -n optional_args_ref="${optional_args_varname}"
     local flags_args_varname="_KNIT_${name}_flags"
-    local -n flags_args_ref="$flags_args_varname"
-    local all_opts=(
-        "${required_args_ref[@]}"
-        "${optional_args_ref[@]}"
-        "${flags_args_ref[@]}")
+    local -n flags_args_ref="${flags_args_varname}"
 
     cat << EOF
-Usage: $0 $command [OPTIONS]
+Usage: ${0} ${name} [OPTIONS]
 
-    $description
+    ${description}
 
 Options:
 EOF

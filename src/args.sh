@@ -21,17 +21,19 @@ _knit_find_option() {
     local list=("$@")    # The rest are the list to search
 
     # Convert the comma-separated options into an array
-    IFS=',' read -r -a option_array <<< "$options"
+    IFS=',' read -r -a option_array <<< "${options}"
 
     # Iterate through the list
     local i
     for ((i = 0; i < ${#list[@]}; i++)); do
-        local arg=$(_knit_str_hyphens_to_underscores "${list[i]}")
+        local arg
+        arg=$(_knit_str_hyphens_to_underscores "${list[i]}")
         # Check if the current element matches any option
         local option
         for option in "${option_array[@]}"; do
-            local formatted_option=$(_knit_str_hyphens_to_underscores $option)
-            if [[ "$arg" == "$formatted_option" ]]; then
+            local formatted_option
+            formatted_option=$(_knit_str_hyphens_to_underscores "${option}")
+            if [[ "${arg}" == "${formatted_option}" ]]; then
                 # Ensure there's a next element
                 if ((i + 1 < ${#list[@]})); then
                     echo "${list[i + 1]}"  # Print the next element
@@ -67,16 +69,18 @@ _knit_find_flag() {
     local list=("$@") # Store the remaining arguments as the list
 
     # Convert the comma-separated flags into an array
-    IFS=',' read -r -a flag_array <<< "$flags"
+    IFS=',' read -r -a flag_array <<< "${flags}"
 
     # Check each name against the list
     local flag
     for flag in "${flag_array[@]}"; do
-        local formatted_flag=$(_knit_str_hyphens_to_underscores $flag)
+        local formatted_flag
+        formatted_flag=$(_knit_str_hyphens_to_underscores "${flag}")
         local item
         for item in "${list[@]}"; do
-            local arg=$(_knit_str_hyphens_to_underscores "$item")
-            if [[ "$arg" == "$formatted_flag" ]]; then
+            local arg
+            arg=$(_knit_str_hyphens_to_underscores "${item}")
+            if [[ "${arg}" == "${formatted_flag}" ]]; then
                 return 0 # Found at least one flag
             fi
         done
@@ -104,12 +108,13 @@ knit_with_required() {
     # TODO description could contain single quotes that should be escaped
     # TODO error if a parameter with the same name is already added (as a required, optional, or flag)
     local fn=$_KNIT_CURRENT_FUNCTION
-    local param=$(_knit_str_hyphens_to_underscores $1)
+    local param
+    param=$(_knit_str_hyphens_to_underscores "$1")
     local description="$2"
 
     local description_var="_KNIT_${fn}_${param}_description"
-    eval "$description_var='$description'"
-    _knit_set_add "_KNIT_${fn}_required" $param
+    eval "${description_var}='${description}'"
+    _knit_set_add "_KNIT_${fn}_required" "${param}"
 }
 
 # ------------------------------------------------------------------------------
@@ -132,15 +137,16 @@ knit_with_optional() {
     # TODO description could contain single quotes that should be escaped
     # TODO error if a parameter with the same name is already added (as a required, optional, or flag)
     local fn=$_KNIT_CURRENT_FUNCTION
-    local param=$(_knit_str_hyphens_to_underscores $1)
+    local param
+    param=$(_knit_str_hyphens_to_underscores "$1")
     local default="$2"
     local description="$3"
 
     local description_var="_KNIT_${fn}_${param}_description"
-    eval "$description_var='$description'"
+    eval "${description_var}='$description'"
     local default_var="_KNIT_${fn}_${param}_default"
-    eval "$default_var='$default'"
-    _knit_set_add "_KNIT_${fn}_optional" $param
+    eval "${default_var}='${default}'"
+    _knit_set_add "_KNIT_${fn}_optional" "${param}"
 }
 
 # ------------------------------------------------------------------------------
@@ -163,12 +169,13 @@ knit_with_flag() {
     # TODO description could contain single quotes that should be escaped
     # TODO error if a parameter with the same name is already added (as a required, optional, or flag)
     local fn=$_KNIT_CURRENT_FUNCTION
-    local flag=$(_knit_str_hyphens_to_underscores $1)
+    local flag
+    flag=$(_knit_str_hyphens_to_underscores "$1")
     local description="$2"
 
     local description_var="_KNIT_${fn}_${flag}_description"
-    eval "$description_var='$description'"
-    _knit_set_add "_KNIT_${fn}_flags" $flag
+    eval "${description_var}='${description}'"
+    _knit_set_add "_KNIT_${fn}_flags" "${flag}"
 }
 
 # ------------------------------------------------------------------------------
@@ -180,6 +187,6 @@ knit_with_flag() {
 # ------------------------------------------------------------------------------
 knit_get_parameter() {
     local option=$1; shift
-    _knit_find_option "--$option" $@
+    _knit_find_option "--${option}" "$@"
 }
 

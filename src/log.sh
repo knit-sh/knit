@@ -14,7 +14,7 @@ knit_log_set_level() {
     local valid_levels=("trace" "debug" "info" "warning" "error" "critical")
     local i
     for i in "${!valid_levels[@]}"; do
-        if [[ "$level" == "${valid_levels[i]}" ]]; then
+        if [[ "${level}" == "${valid_levels[i]}" ]]; then
             _KNIT_LOG_LEVEL=$i
             return 0
         fi
@@ -35,9 +35,9 @@ knit_log_set_level() {
 # @param ... Arguments for echo.
 # ------------------------------------------------------------------------------
 _knit_log() {
-    local level=$1
+    local level="$1"
     shift
-    echo "[knit:$level] $@"
+    echo "[knit:$level] $*"
 }
 
 # ------------------------------------------------------------------------------
@@ -48,7 +48,7 @@ _knit_log() {
 # ------------------------------------------------------------------------------
 knit_trace() {
     if ((_KNIT_LOG_LEVEL <= 0)); then
-        _knit_log trace $@
+        _knit_log trace "$@"
     fi
 }
 
@@ -60,7 +60,7 @@ knit_trace() {
 # ------------------------------------------------------------------------------
 knit_debug() {
     if ((_KNIT_LOG_LEVEL <= 1)); then
-        _knit_log debug $@
+        _knit_log debug "$@"
     fi
 }
 
@@ -72,7 +72,7 @@ knit_debug() {
 # ------------------------------------------------------------------------------
 knit_info() {
     if ((_KNIT_LOG_LEVEL <= 2)); then
-        _knit_log info $@
+        _knit_log info "$@"
     fi
 }
 
@@ -84,7 +84,7 @@ knit_info() {
 # ------------------------------------------------------------------------------
 knit_warning() {
     if ((_KNIT_LOG_LEVEL <= 3)); then
-        _knit_log warning $@
+        _knit_log warning "$@"
     fi
 }
 
@@ -96,7 +96,7 @@ knit_warning() {
 # ------------------------------------------------------------------------------
 knit_error() {
     if ((_KNIT_LOG_LEVEL <= 4)); then
-        _knit_log error $@
+        _knit_log error "$@"
     fi
 }
 
@@ -108,7 +108,7 @@ knit_error() {
 # ------------------------------------------------------------------------------
 knit_critical() {
     if ((_KNIT_LOG_LEVEL <= 5)); then
-        _knit_log critical $@
+        _knit_log critical "$@"
     fi
 }
 
@@ -119,6 +119,6 @@ knit_critical() {
 # @param ... Arguments for echo.
 # ------------------------------------------------------------------------------
 knit_fatal() {
-    _knit_log fatal $@
+    _knit_log fatal "$@"
     exit 1
 }
