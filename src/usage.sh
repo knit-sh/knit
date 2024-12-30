@@ -8,13 +8,15 @@ _knit_print_usage() {
     cat << EOF
 Usage: $0 [OPTIONS]
 
-Options:
+Options
+-------
   -h, --help    Show this help message and exit.
   -v, --version Show the version of the script.
 
-Commands:
+Built-in commands
+-----------------
 EOF
-    local max_cmd_length=0
+    local max_cmd_length=6 # "submit" is 6 characters
     local cmd
     for cmd in "${_KNIT_COMMANDS[@]}"; do
         local str_length=${#cmd}
@@ -22,10 +24,48 @@ EOF
             max_cmd_length=${str_length}
         fi
     done
+    printf "  %${max_cmd_length}s   %s\n" "setup" "Setup a build."
+    printf "  %${max_cmd_length}s   %s\n" "submit" "Submit a job."
+    printf "  %${max_cmd_length}s   %s\n" "run" "Run an application."
+    printf "\nUser-defined commands\n"
+    printf -- "---------------------\n"
     for cmd in "${_KNIT_COMMANDS[@]}"; do
         local description_var="_KNIT_${cmd}_description"
         local description="${!description_var}"
-        printf "  %${max_cmd_length}s %s\n" "${cmd}" "${description}"
+        printf "  %${max_cmd_length}s   %s\n" "${cmd}" "${description}"
+    done
+}
+
+# ------------------------------------------------------------------------------
+# Print usage of the "setup" command.
+# ------------------------------------------------------------------------------
+_knit_print_setup_usage() {
+    cat << EOF
+Usage: $0 setup <build> <path> [OPTIONS]
+
+Options
+-------
+  -h, --help    Show this help message and exit.
+  -v, --version Show the version of the script.
+
+  <build>  Name of a build declared in this script (see list bellow).
+  <path>   Path in which to setup the build.
+
+Available builds
+----------------
+EOF
+    local max_cmd_length=0
+    local cmd
+    for cmd in "${_KNIT_BUILDS[@]}"; do
+        local str_length=${#cmd}
+        if (( str_length > max_cmd_length )); then
+            max_cmd_length=${str_length}
+        fi
+    done
+    for cmd in "${_KNIT_BUILDS[@]}"; do
+        local description_var="_KNIT_${cmd}_description"
+        local description="${!description_var}"
+        printf "  %${max_cmd_length}s   %s\n" "${cmd}" "${description}"
     done
 }
 
@@ -36,7 +76,7 @@ EOF
 # ------------------------------------------------------------------------------
 _knit_print_command_usage() {
     local name=$1
-    local prefix=${2:-$0}
+    local command=${2:-"$0 ${name}"}
     local description_var="_KNIT_${name}_description"
     local description="${!description_var}"
     local required_args_varname="_KNIT_${name}_required"
@@ -47,7 +87,7 @@ _knit_print_command_usage() {
     local -n flags_args_ref="${flags_args_varname}"
 
     cat << EOF
-Usage: ${prefix} ${name} [OPTIONS]
+Usage: ${command} [OPTIONS]
 
     ${description}
 

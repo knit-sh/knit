@@ -24,6 +24,17 @@ knit() {
         fi
         if _knit_set_find _KNIT_COMMANDS "$1"; then
             _knit_invoke_command "$@"
+        elif [[ $1 == "setup" ]]; then
+            shift
+            _knit_invoke_setup "$@"
+        elif [[ $1 == "submit" ]]; then
+            # TODO
+            knit_fatal "Command 'submit' is not yet implemented"
+        elif [[ $1 == "run" ]]; then
+            # TODO
+            knit_fatal "Command 'run' is not yet implemented"
+        else
+            knit_fatal "Unknown command '$1'"
         fi
     fi
 }

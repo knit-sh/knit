@@ -20,7 +20,7 @@ _knit_register() {
 }
 
 # ------------------------------------------------------------------------------
-# Register a command, i.e. an operation that should run on the login node.
+# Register a command, i.e. an operation that can run in any context.
 #
 # @param name Name of the command.
 # @param description Description of the command.
