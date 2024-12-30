@@ -38,7 +38,9 @@ knit_register_command() {
 }
 
 # ------------------------------------------------------------------------------
-# Check that the arguments expected by the command are provided.
+# Check that the arguments expected by the command are provided. This command
+# will fail with a fatal error (i.e. the script will stop) if a required
+# argument is not provided.
 #
 # @param name Name of the command.
 # @param ... Arguments to pass to the command.
@@ -67,9 +69,10 @@ _knit_check_command_arguments() {
 }
 
 # ------------------------------------------------------------------------------
-# Invoke a command.
+# Adds optional arguments that are not provided in the arguments, and converts
+# flags into --flag true or --flag false.
 #
-# @param name Name of the command to invoke.
+# @param name Name of the command.
 # @param ... Arguments to pass to the command.
 # ------------------------------------------------------------------------------
 _knit_expand_command_arguments() {
