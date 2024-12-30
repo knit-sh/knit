@@ -23,6 +23,10 @@ check: $(KNIT_TESTS) knit.sh
 	bats $(KNIT_TESTS)
 	@echo "All tests completed."
 
+.PHONY: shellcheck
+shellcheck:
+	shellcheck $(KNIT_SOURCE)
+
 .PHONY: clean
 clean:
 	@echo "Cleaning up..."

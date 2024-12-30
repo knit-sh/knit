@@ -19,13 +19,13 @@ EOF
     for cmd in "${_KNIT_COMMANDS[@]}"; do
         local str_length=${#cmd}
         if (( str_length > max_cmd_length )); then
-            max_cmd_length=$str_length
+            max_cmd_length=${str_length}
         fi
     done
     for cmd in "${_KNIT_COMMANDS[@]}"; do
         local description_var="_KNIT_${cmd}_description"
         local description="${!description_var}"
-        printf "  %${max_cmd_length}s %s\n" "$cmd" "$description"
+        printf "  %${max_cmd_length}s %s\n" "${cmd}" "${description}"
     done
 }
 
@@ -35,7 +35,7 @@ EOF
 # @param name Name of the command.
 # ------------------------------------------------------------------------------
 _knit_print_command_usage() {
-    local name=${1}
+    local name=$1
     local description_var="_KNIT_${name}_description"
     local description="${!description_var}"
     local required_args_varname="_KNIT_${name}_required"
@@ -46,7 +46,7 @@ _knit_print_command_usage() {
     local -n flags_args_ref="${flags_args_varname}"
 
     cat << EOF
-Usage: ${0} ${name} [OPTIONS]
+Usage: $0 ${name} [OPTIONS]
 
     ${description}
 
@@ -59,41 +59,46 @@ EOF
         local opt2="--${opt} <value>"
         local opt_length=${#opt2}
         if (( opt_length > max_opt_length )); then
-            max_opt_length=$opt_length
+            max_opt_length=${opt_length}
         fi
     done
     for opt in "${optional_args_ref[@]}"; do
         local opt2="--${opt} <value>"
         local opt_length=${#opt2}
         if (( opt_length > max_opt_length )); then
-            max_opt_length=$opt_length
+            max_opt_length=${opt_length}
         fi
     done
     for opt in "${flags_args_ref[@]}"; do
         local opt2="--${opt}"
         local opt_length=${#opt2}
-        #opt_length=$((opt_length + 8))
         if (( opt_length > max_opt_length )); then
-            max_opt_length=$opt_length
+            max_opt_length=${opt_length}
         fi
     done
 
     for opt in "${required_args_ref[@]}"; do
         local description_var="_KNIT_${name}_${opt}_description"
         local description="${!description_var}"
-        printf "  %${max_opt_length}s %s\n" "--$opt <value>" " [required] $description"
+        local opt2
+        opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
+        printf "  %${max_opt_length}s %s\n" "${opt2} <value>" " [required] ${description}"
     done
     for opt in "${optional_args_ref[@]}"; do
         local description_var="_KNIT_${name}_${opt}_description"
         local description="${!description_var}"
         local default_var="_KNIT_${name}_${opt}_default"
         local default="${!default_var}"
-        printf "  %${max_opt_length}s %s\n" "--$opt <value>" " [default: '$default'] $description"
+        local opt2
+        opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
+        printf "  %${max_opt_length}s %s\n" "${opt2} <value>" " [default: '${default}'] ${description}"
     done
     max_opt_length=$((max_opt_length - 8))
     for opt in "${flags_args_ref[@]}"; do
         local description_var="_KNIT_${name}_${opt}_description"
         local description="${!description_var}"
-        printf "  %${max_opt_length}s %s\n" "--$opt" "         [flag] $description"
+        local opt2
+        opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
+        printf "  %${max_opt_length}s %s\n" "${opt2}" "         [flag] ${description}"
     done
 }

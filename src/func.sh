@@ -68,7 +68,7 @@ _knit_invoke_command() {
         fi
         local other_format
         other_format=$(_knit_str_underscores_to_hyphens "${option}")
-        knit_fatal "Command '$i{name}' requires an option --${option} or --${other_format} (${description})"
+        knit_fatal "Command '${name}' requires an option --${option} or --${other_format} (${description})"
     done
     # Add optional arguments that have not been provided
     local optional_args_varname="_KNIT_${name}_optional"
@@ -77,7 +77,7 @@ _knit_invoke_command() {
         local status
         _knit_find_option "--${option}" "${args[@]}" > /dev/null
         status="$?"
-        if [ $status -eq 0 ]; then
+        if [ ${status} -eq 0 ]; then
             continue
         fi
         local default_value_varname="_KNIT_${name}_${option}_default"
@@ -103,5 +103,5 @@ _knit_invoke_command() {
         fi
     done
     # Invoke the actual command
-    "$name" "${args[@]}"
+    "${name}" "${args[@]}"
 }
