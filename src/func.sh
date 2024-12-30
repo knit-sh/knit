@@ -66,6 +66,28 @@ _knit_check_command_arguments() {
         other_format=$(_knit_str_underscores_to_hyphens "${option}")
         knit_fatal "Command '${name}' requires an option --${option} or --${other_format} (${description})"
     done
+    # Check that all the arguments provided are expected options or flags
+    local optional_args_varname="_KNIT_${name}_optional"
+    local flags_args_varname="_KNIT_${name}_flags"
+    for ((i=0; i<${#args[@]}; i++)); do
+        local arg="${args[i]}"
+        if [[ ${arg} != --* ]]; then
+            knit_fatal "Unexpected argument '${arg}' for command '${name}'"
+        fi
+        arg=$(_knit_str_hyphens_to_underscores "${arg:2}")
+        if _knit_set_find "${required_args_varname}" "${arg}"; then
+            ((i++))
+            continue
+        fi
+        if _knit_set_find "${optional_args_varname}" "${arg}"; then
+            ((i++))
+            continue
+        fi
+        if _knit_set_find "${flags_args_varname}" "${arg}"; then
+            continue
+        fi
+        knit_fatal "Unexpected argument '${arg}' for command '${name}'"
+    done
 }
 
 # ------------------------------------------------------------------------------
