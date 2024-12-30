@@ -36,6 +36,7 @@ EOF
 # ------------------------------------------------------------------------------
 _knit_print_command_usage() {
     local name=$1
+    local prefix=${2:-$0}
     local description_var="_KNIT_${name}_description"
     local description="${!description_var}"
     local required_args_varname="_KNIT_${name}_required"
@@ -46,7 +47,7 @@ _knit_print_command_usage() {
     local -n flags_args_ref="${flags_args_varname}"
 
     cat << EOF
-Usage: $0 ${name} [OPTIONS]
+Usage: ${prefix} ${name} [OPTIONS]
 
     ${description}
 
