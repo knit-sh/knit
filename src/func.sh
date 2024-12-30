@@ -38,20 +38,14 @@ knit_register_command() {
 }
 
 # ------------------------------------------------------------------------------
-# Invoke a command. This function will check that the arguments expected by the
-# command are provided.
+# Check that the arguments expected by the command are provided.
 #
-# @param name Name of the command to invoke.
+# @param name Name of the command.
 # @param ... Arguments to pass to the command.
 # ------------------------------------------------------------------------------
-_knit_invoke_command() {
+_knit_check_command_arguments() {
     local name="$1"
     shift
-    # Check if the first argument is -h or --help
-    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
-        _knit_print_command_usage "${name}"
-        exit 0
-    fi
     local args=("$@")
     # Check that all the required arguments have been provided
     local required_args_varname="_KNIT_${name}_required"
@@ -70,6 +64,18 @@ _knit_invoke_command() {
         other_format=$(_knit_str_underscores_to_hyphens "${option}")
         knit_fatal "Command '${name}' requires an option --${option} or --${other_format} (${description})"
     done
+}
+
+# ------------------------------------------------------------------------------
+# Invoke a command.
+#
+# @param name Name of the command to invoke.
+# @param ... Arguments to pass to the command.
+# ------------------------------------------------------------------------------
+_knit_expand_command_arguments() {
+    local name="$1"
+    shift
+    local args=("$@")
     # Add optional arguments that have not been provided
     local optional_args_varname="_KNIT_${name}_optional"
     local -n optional_args_ref="${optional_args_varname}"
@@ -84,7 +90,7 @@ _knit_invoke_command() {
         local -n default_value="${default_value_varname}"
         args+=("--${option}" "${default_value}")
     done
-    #  Handle flags (add them as option with value "true" or "false")
+    # Handle flags (add them as option with value "true" or "false")
     local flags_args_varname="_KNIT_${name}_flags"
     local -n flags_args_ref="${flags_args_varname}"
     local flag
@@ -102,6 +108,29 @@ _knit_invoke_command() {
             args+=("--${flag}" "false")
         fi
     done
+    # Print the resulting arguments
+    echo "${args[*]}"
+}
+
+# ------------------------------------------------------------------------------
+# Invoke a command.
+#
+# @param name Name of the command to invoke.
+# @param ... Arguments to pass to the command.
+# ------------------------------------------------------------------------------
+_knit_invoke_command() {
+    local name="$1"
+    shift
+    local args=("$@")
+    # Check if the first argument is -h or --help
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        _knit_print_command_usage "${name}"
+        exit 0
+    fi
+    # Check that all the required arguments have been provided
+    _knit_check_command_arguments "${name}" "${args[@]}"
+    # Add optional arguments and flags
+    read -r -a args <<< "$(_knit_expand_command_arguments "${name}" "${args[@]}")"
     # Invoke the actual command
     "${name}" "${args[@]}"
 }
