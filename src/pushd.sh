@@ -4,12 +4,12 @@
 # Silent version of pushd.
 # ------------------------------------------------------------------------------
 knit_pushd() {
-    command pushd "$@" > /dev/null
+    command pushd "$@" > /dev/null || return 1
 }
 
 # ------------------------------------------------------------------------------
 # Silent version of popd.
 # ------------------------------------------------------------------------------
 knit_popd() {
-    command popd "$@" > /dev/null
+    command popd "$@" > /dev/null || return 1
 }

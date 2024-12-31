@@ -28,8 +28,8 @@ sum() {
     echo $((x + y))
 }
 
-knit_register_build "mybuild" "My build."
-mybuild() {
+knit_register_setup "mysetup" "Build some software."
+mysetup() {
     export MYBUILD=mybuild
     echo "MYBUILD" >> somefile.txt
 }

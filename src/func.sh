@@ -17,6 +17,7 @@ _knit_register() {
     _knit_set_new "_KNIT_${name}_flags"
     eval "_KNIT_${name}_description='${description}'"
     _KNIT_CURRENT_FUNCTION="${name}"
+    _KNIT_CURRENT_FUNCTION_TYPE="${type}"
 }
 
 # ------------------------------------------------------------------------------

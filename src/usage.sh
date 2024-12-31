@@ -41,28 +41,28 @@ EOF
 # ------------------------------------------------------------------------------
 _knit_print_setup_usage() {
     cat << EOF
-Usage: $0 setup <build> <path> [OPTIONS]
+Usage: $0 setup <name> <path> [OPTIONS]
 
 Options
 -------
   -h, --help    Show this help message and exit.
   -v, --version Show the version of the script.
 
-  <build>  Name of a build declared in this script (see list bellow).
+  <name>   Name of a setup declared in this script (see list bellow).
   <path>   Path in which to setup the build.
 
-Available builds
+Available setups
 ----------------
 EOF
     local max_cmd_length=0
     local cmd
-    for cmd in "${_KNIT_BUILDS[@]}"; do
+    for cmd in "${_KNIT_SETUPS[@]}"; do
         local str_length=${#cmd}
         if (( str_length > max_cmd_length )); then
             max_cmd_length=${str_length}
         fi
     done
-    for cmd in "${_KNIT_BUILDS[@]}"; do
+    for cmd in "${_KNIT_SETUPS[@]}"; do
         local description_var="_KNIT_${cmd}_description"
         local description="${!description_var}"
         printf "  %${max_cmd_length}s   %s\n" "${cmd}" "${description}"
