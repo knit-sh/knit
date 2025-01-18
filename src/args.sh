@@ -90,6 +90,30 @@ _knit_find_flag() {
 }
 
 # ------------------------------------------------------------------------------
+# This function expands parameters of the form "--key=value" into "--key value".
+# Example:
+# ```
+# _knit_expand_keyval_args abc --def=ghi --jkl
+# ```
+# will print "abc --def ghi --jkl".
+#
+# @param ... List of arguments to expand.
+# ------------------------------------------------------------------------------
+_knit_expand_keyval_args() {
+    local result=()
+    for arg in "$@"; do
+        if [[ "$arg" == --*=* ]]; then
+            key="${arg%%=*}"
+            value="${arg#*=}"
+            result+=("$key" "$value")
+        else
+            result+=("$arg")
+        fi
+    done
+    echo "${result[@]}"
+}
+
+# ------------------------------------------------------------------------------
 # This function should be called right after a call to knit_register_command,
 # knit_register_job, or knit_register_app, to declare required parameters that
 # the command/job/app expects.
@@ -189,4 +213,3 @@ knit_get_parameter() {
     local option=$1; shift
     _knit_find_option "--${option}" "$@"
 }
-

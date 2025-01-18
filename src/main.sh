@@ -22,19 +22,20 @@ knit() {
             echo $KNIT_VERSION
             exit 0
         fi
-        if _knit_set_find _KNIT_COMMANDS "$1"; then
-            _knit_invoke_command "$@"
-        elif [[ $1 == "setup" ]]; then
+        local args=($(_knit_expand_keyval_args "$@"))
+        if _knit_set_find _KNIT_COMMANDS "${args[0]}"; then
+            _knit_invoke_command "${args[@]}"
+        elif [[ "${args[0]}" == "setup" ]]; then
             shift
-            _knit_invoke_setup "$@"
-        elif [[ $1 == "submit" ]]; then
+            _knit_invoke_setup "${args[@]}"
+        elif [[ "${args[0]}" == "submit" ]]; then
             # TODO
             knit_fatal "Command 'submit' is not yet implemented"
-        elif [[ $1 == "run" ]]; then
+        elif [[ "${args[0]}" == "run" ]]; then
             # TODO
             knit_fatal "Command 'run' is not yet implemented"
         else
-            knit_fatal "Unknown command '$1'"
+            knit_fatal "Unknown command '${args[0]}'"
         fi
     fi
 }

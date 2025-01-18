@@ -35,3 +35,9 @@ setup() {
     [ "$status" -eq 1 ]
 }
 
+@test "expand --key=value arguments" {
+    local args=("--abc" "--def=xyz" "keh")
+    run _knit_expand_keyval_args "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "--abc --def xyz keh" ]
+}
