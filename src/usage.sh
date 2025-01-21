@@ -16,7 +16,7 @@ Options
 Built-in commands
 -----------------
 EOF
-    local max_cmd_length=6 # "submit" is 6 characters
+    local max_cmd_length=10 # "bootstrap" is 10 characters
     local cmd
     for cmd in "${_KNIT_COMMANDS[@]}"; do
         local str_length=${#cmd}
@@ -24,6 +24,7 @@ EOF
             max_cmd_length=${str_length}
         fi
     done
+    printf "  %${max_cmd_length}s   %s\n" "bootstrap" "Bootstrap knit."
     printf "  %${max_cmd_length}s   %s\n" "setup" "Setup a build."
     printf "  %${max_cmd_length}s   %s\n" "submit" "Submit a job."
     printf "  %${max_cmd_length}s   %s\n" "run" "Run an application."
@@ -37,6 +38,19 @@ EOF
 }
 
 # ------------------------------------------------------------------------------
+# Print usage of the "bootstrap" command.
+# ------------------------------------------------------------------------------
+_knit_print_bootstrap_usage() {
+    cat << EOF
+Usage: $0 bootstrap [OPTIONS]
+
+Options
+-------
+  -h, --help    Show this help message and exit.
+EOF
+}
+
+# ------------------------------------------------------------------------------
 # Print usage of the "setup" command.
 # ------------------------------------------------------------------------------
 _knit_print_setup_usage() {
@@ -46,7 +60,6 @@ Usage: $0 setup <name> <path> [OPTIONS]
 Options
 -------
   -h, --help    Show this help message and exit.
-  -v, --version Show the version of the script.
 
   <name>   Name of a setup declared in this script (see list bellow).
   <path>   Path in which to setup the build.
@@ -86,14 +99,6 @@ _knit_print_command_usage() {
     local flags_args_varname="_KNIT_${name}_flags"
     local -n flags_args_ref="${flags_args_varname}"
 
-    cat << EOF
-Usage: ${command} [OPTIONS]
-
-    ${description}
-
-Options:
-EOF
-
     local max_opt_length=0
     local opt
     for opt in "${required_args_ref[@]}"; do
@@ -117,6 +122,17 @@ EOF
             max_opt_length=${opt_length}
         fi
     done
+
+        cat << EOF
+Usage: ${command} [OPTIONS]
+
+    ${description}
+
+EOF
+    if (( max_opt_length > 0 )); then
+        printf "Options\n"
+        printf "%s\n" "-------"
+    fi
 
     for opt in "${required_args_ref[@]}"; do
         local description_var="_KNIT_${name}_${opt}_description"

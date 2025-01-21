@@ -1,6 +1,7 @@
 #!/bin/bash
 
-_KNIT_LOG_LEVEL=2
+KNIT_LOG_LEVEL=${KNIT_LOG_LEVEL:-2}
+_KNIT_TRACE_FILE=("$(mktemp /tmp/knit.XXXXXX)")
 
 # ------------------------------------------------------------------------------
 # Set the log level.
@@ -15,7 +16,7 @@ knit_log_set_level() {
     local i
     for i in "${!valid_levels[@]}"; do
         if [[ "${level}" == "${valid_levels[i]}" ]]; then
-            _KNIT_LOG_LEVEL=$i
+            KNIT_LOG_LEVEL=$i
             return 0
         fi
     done
@@ -37,7 +38,7 @@ knit_log_set_level() {
 _knit_log() {
     local level="$1"
     shift
-    echo "[knit:$level] $*"
+    echo "[$level] $*" 1>&2
 }
 
 # ------------------------------------------------------------------------------
@@ -47,7 +48,7 @@ _knit_log() {
 # @param ... Arguments for echo.
 # ------------------------------------------------------------------------------
 knit_trace() {
-    if ((_KNIT_LOG_LEVEL <= 0)); then
+    if ((KNIT_LOG_LEVEL <= 0)); then
         _knit_log trace "$@"
     fi
 }
@@ -59,7 +60,7 @@ knit_trace() {
 # @param ... Arguments for echo.
 # ------------------------------------------------------------------------------
 knit_debug() {
-    if ((_KNIT_LOG_LEVEL <= 1)); then
+    if ((KNIT_LOG_LEVEL <= 1)); then
         _knit_log debug "$@"
     fi
 }
@@ -71,7 +72,7 @@ knit_debug() {
 # @param ... Arguments for echo.
 # ------------------------------------------------------------------------------
 knit_info() {
-    if ((_KNIT_LOG_LEVEL <= 2)); then
+    if ((KNIT_LOG_LEVEL <= 2)); then
         _knit_log info "$@"
     fi
 }
@@ -83,7 +84,7 @@ knit_info() {
 # @param ... Arguments for echo.
 # ------------------------------------------------------------------------------
 knit_warning() {
-    if ((_KNIT_LOG_LEVEL <= 3)); then
+    if ((KNIT_LOG_LEVEL <= 3)); then
         _knit_log warning "$@"
     fi
 }
@@ -95,7 +96,7 @@ knit_warning() {
 # @param ... Arguments for echo.
 # ------------------------------------------------------------------------------
 knit_error() {
-    if ((_KNIT_LOG_LEVEL <= 4)); then
+    if ((KNIT_LOG_LEVEL <= 4)); then
         _knit_log error "$@"
     fi
 }
@@ -107,7 +108,7 @@ knit_error() {
 # @param ... Arguments for echo.
 # ------------------------------------------------------------------------------
 knit_critical() {
-    if ((_KNIT_LOG_LEVEL <= 5)); then
+    if ((KNIT_LOG_LEVEL <= 5)); then
         _knit_log critical "$@"
     fi
 }
@@ -120,5 +121,6 @@ knit_critical() {
 # ------------------------------------------------------------------------------
 knit_fatal() {
     _knit_log fatal "$@"
+    _knit_log fatal "File ${_KNIT_TRACE_FILE} may contain more information"
     exit 1
 }

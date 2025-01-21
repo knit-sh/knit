@@ -25,13 +25,18 @@ knit() {
         local args=($(_knit_expand_keyval_args "$@"))
         if _knit_set_find _KNIT_COMMANDS "${args[0]}"; then
             _knit_invoke_command "${args[@]}"
+        elif [[ "${args[0]}" == "bootstrap" ]]; then
+            args=("${args[@]:1}")
+            _knit_bootstrap "${args[@]}"
         elif [[ "${args[0]}" == "setup" ]]; then
-            shift
+            args=("${args[@]:1}")
             _knit_invoke_setup "${args[@]}"
         elif [[ "${args[0]}" == "submit" ]]; then
+            args=("${args[@]:1}")
             # TODO
             knit_fatal "Command 'submit' is not yet implemented"
         elif [[ "${args[0]}" == "run" ]]; then
+            args=("${args[@]:1}")
             # TODO
             knit_fatal "Command 'run' is not yet implemented"
         else

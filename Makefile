@@ -1,11 +1,14 @@
-KNIT_SOURCE = src/log.sh   \
-              src/pushd.sh \
-              src/set.sh   \
-              src/args.sh  \
-              src/func.sh  \
-              src/setup.sh \
-              src/usage.sh \
-              src/str.sh   \
+KNIT_SOURCE = src/log.sh      \
+              src/pushd.sh    \
+              src/set.sh      \
+              src/args.sh     \
+              src/func.sh     \
+              src/setup.sh    \
+              src/usage.sh    \
+              src/str.sh      \
+              src/boostrap.sh \
+              src/spack.sh    \
+              src/frame.sh    \
               src/main.sh
 
 KNIT_OUTPUT = knit.sh
