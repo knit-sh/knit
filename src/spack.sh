@@ -1,6 +1,7 @@
 #!/bin/bash
 
 _KNIT_SPACK_VERSION="v0.23.0"
+_KNIT_SPACK_ROOT="${_KNIT_PREFIX}/spack"
 
 export SPACK_DISABLE_LOCAL_CONFIG=true
 export SPACK_USER_CACHE_PATH=/tmp/spack
@@ -10,22 +11,29 @@ export SPACK_USER_CACHE_PATH=/tmp/spack
 #
 # @param ref Commit hash or tag (default to _KNIT_SPACK_VERSION).
 # ------------------------------------------------------------------------------
-_knit_spack_clone() {
-    knit_info "Cloning Spack repository..."
-    git clone https://github.com/spack/spack.git ${_KNIT_PREFIX}/spack > ${_KNIT_TRACE_FILE} 2>&1
+_knit_bootstrap_spack() {
+    knit_info "Bootstrapping spack..."
+    knit_trace "Cloning spack repository..."
+    git clone https://github.com/spack/spack.git "${_KNIT_SPACK_ROOT}" > ${_KNIT_TRACE_FILE} 2>&1
     local ref=${1:-${_KNIT_SPACK_VERSION}}
     knit_pushd ${_KNIT_PREFIX}/spack
-    knit_info "Checking out ${ref}..."
+    knit_trace "Checking out spack ${ref}..."
     git checkout $ref > ${_KNIT_TRACE_FILE} 2>&1
     knit_popd
 }
 
+# ------------------------------------------------------------------------------
+# Install the specified specs using spack.
+#
+# @param ... Specs to install.
+# ------------------------------------------------------------------------------
 _knit_spack_install() {
     (
-        source ${_KNIT_PREFIX}/spack/share/spack/setup-env.sh
-        for arg in "$@"; do
-            knit_info "Installing package ${arg}..."
-            _knit_framed "spack install ${arg}"
+        source "${_KNIT_SPACK_ROOT}/share/spack/setup-env.sh"
+        local spec
+        for spec in "$@"; do
+            knit_info "Installing package ${spec}..."
+            _knit_framed "spack install ${spec}"
         done
     )
 }

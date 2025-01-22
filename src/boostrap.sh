@@ -20,9 +20,6 @@ _knit_bootstrap() {
     knit_trace "Creating ${_KNIT_PREFIX} directory"
     mkdir "${_KNIT_PREFIX}" > ${_KNIT_TRACE_FILE} 2>&1
 
-    knit_info "Downloading Spack"
-    _knit_spack_clone
-
-    knit_info "Installing required software"
-    _knit_spack_install newt sqlite
+    _knit_bootstrap_spack
+    _knit_bootstrap_jq
 }
