@@ -204,7 +204,7 @@ knit_register() {
     knit_trace "Registering function \"${name}\" with command \"${demangled_cmd}\"."
     local cmd=$(__knit_command_mangle "${demangled_cmd}")
     local parent_cmd=$(__knit_command_get_parents "$cmd")
-    if ! _knit_set_find _KNIT_COMMANDS "${parent_cmd}"; then
+    if [ ! -z "${parent_cmd}" ]  &&  ! _knit_set_find _KNIT_COMMANDS "${parent_cmd}"; then
         knit_fatal "Cannot register command \"${demangled_cmd}\" because its parent has not been registered."
     fi
     if _knit_set_find _KNIT_COMMANDS "${cmd}"; then
@@ -216,10 +216,12 @@ knit_register() {
     _knit_set_new "_KNIT_CMD_${cmd}_flags"
     eval "_KNIT_CMD_${cmd}_function=${name}"
     eval "_KNIT_CMD_${cmd}_description=${description}"
+    eval "_KNIT_CMD_${cmd}_is_hidden=false"
     eval "_KNIT_CMD_${cmd}_before_cb=()"
     eval "_KNIT_CMD_${cmd}_before_cb_args=()"
     eval "_KNIT_CMD_${cmd}_after_cb=()"
     eval "_KNIT_CMD_${cmd}_after_cb_args=()"
+    eval "_KNIT_CMD_${cmd}_sucommand_names=\"Subcommands\""
     _KNIT_CURRENT_FUNCTION="${name}"
     _KNIT_CURRENT_COMMAND="${cmd}"
     _KNIT_CURRENT_COMMAND_DEMANGLED="${demangled_cmd}"
@@ -239,6 +241,32 @@ knit_done() {
     unset _KNIT_CURRENT_FUNCTION
     unset _KNIT_CURRENT_COMMAND
     unset _KNIT_CURRENT_COMMAND_DEMANGLED
+}
+
+# ------------------------------------------------------------------------------
+# Mark a command as hidden, i.e. it will not appear in usage help messages.
+# ------------------------------------------------------------------------------
+knit_hidden() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_hidden should be used after a call to \"knit_register\"."
+    fi
+    knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as hidden."
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local cmd_hidden_name="_KNIT_CMD_${cmd}_is_hidden"
+    eval "${cmd_hidden_name}=true"
+}
+
+# ------------------------------------------------------------------------------
+# Change the names of subcommands for the command being registered
+# (default subcommand name is "Subcommands").
+# ------------------------------------------------------------------------------
+knit_with_subcommand_name() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_subcommand_name should be used after a call to \"knit_register\"."
+    fi
+    knit_trace "Changin subcommand names from ${_KNIT_CURRENT_COMMAND_DEMANGLED} as to $1."
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    eval "_KNIT_CMD_${cmd}_sucommand_names=\"$1\""
 }
 
 # ------------------------------------------------------------------------------
@@ -611,6 +639,10 @@ __knit_print_command_usage() {
     local max_subcommand_len=0
     local c
     for c in "${_KNIT_COMMANDS[@]}"; do
+        local hidden_var_name="_KNIT_CMD_${c}_is_hidden"
+        if [[ "${!hidden_var_name}" == "true" ]]; then
+            continue
+        fi
         if [[ "${c}" == "${cmd}" ]]; then
             continue
         fi
@@ -628,7 +660,10 @@ __knit_print_command_usage() {
         fi
     done
     if [ "${#subcommands[@]}" -gt "0" ]; then
-        printf "\nSubcommands\n-----------\n"
+        local sub_name="_KNIT_CMD_${cmd}_sucommand_names"
+        sub_name=${!sub_name}
+        local hrule=$(printf '%*s' "${#sub_name}" | tr ' ' '-')
+        printf "\n${sub_name}\n${hrule}\n"
         local i
         for ((i=0; i<${#subcommands[@]}; i++)); do
             local description_var="_KNIT_CMD_${subcommands_full[i]}_description"
@@ -693,9 +728,11 @@ _knit_invoke_command() {
 knit_log_set_level "trace"
 
 knit_register knit_empty "say" "Say something."
+knit_with_subcommand_name "Setups"
 knit_done
 
 knit_register knit_empty "say:good" "Say good something."
+knit_hidden
 knit_done
 
 knit_register "say_hello" "say:hello" "Say hello."
@@ -727,6 +764,8 @@ say_good_morning() {
 }
 knit_done
 
-_knit_invoke_command "say" "hello" "--name" "Matthieu"
+#_knit_invoke_command "say" "hello" "--name" "Matthieu"
 #_knit_invoke_command "say" "hello" "--help"
+
+_knit_invoke_command "$@"
 
