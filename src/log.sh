@@ -1,7 +1,7 @@
 #!/bin/bash
 
 KNIT_LOG_LEVEL=${KNIT_LOG_LEVEL:-2}
-_KNIT_TRACE_FILE=("$(mktemp /tmp/knit.XXXXXX)")
+#_KNIT_TRACE_FILE=("$(mktemp /tmp/knit.XXXXXX)")
 
 # ------------------------------------------------------------------------------
 # Set the log level.
@@ -121,6 +121,6 @@ knit_critical() {
 # ------------------------------------------------------------------------------
 knit_fatal() {
     _knit_log fatal "$@"
-    _knit_log fatal "File ${_KNIT_TRACE_FILE} may contain more information"
+ #   _knit_log fatal "File ${_KNIT_TRACE_FILE} may contain more information"
     exit 1
 }

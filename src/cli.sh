@@ -1,0 +1,595 @@
+#!/bin/bash
+
+source src/log.sh
+source src/set.sh
+source src/str.sh
+source src/args.sh
+
+_KNIT_COMMANDS=()
+
+# ------------------------------------------------------------------------------
+# Empty function to register commands with no behaviors.
+# ------------------------------------------------------------------------------
+knit_empty() {
+    :
+}
+
+# ------------------------------------------------------------------------------
+# Mangles a command, i.e. converts "command:subcommand:subcommand" into
+# "command__1__subcommand__1__subcommand" so the name can be used in variable
+# names. Also converts spaces into __1__.
+#
+# @param cmd Command to mangle.
+# ------------------------------------------------------------------------------
+__knit_command_mangle() {
+    local cmd="$@"
+    local mangled=$(echo "$cmd" | sed -E 's/[: ]+/__1__/g')
+    printf "%s" "${mangled}"
+}
+
+# ------------------------------------------------------------------------------
+# Demangles a command, i.e. converts "command__1__subcommand__1__subcommand"
+# back into "command:subcommand:subcommand".
+#
+# @param cmd Command to demangle.
+# ------------------------------------------------------------------------------
+__knit_command_demangle() {
+    local cmd="$1"
+    local demangled="${cmd//__1__/:}"
+    printf "%s" "${demangled}"
+}
+
+# ------------------------------------------------------------------------------
+# Prints a mangled command (or a command with ":" in it) with spaces between
+# subcommands.
+#
+# @param cmd Command to print with spaces.
+# ------------------------------------------------------------------------------
+__knit_command_with_space() {
+    local cmd="$1"
+    echo "$cmd" | sed -E 's/__1__|:/ /g'
+}
+
+# ------------------------------------------------------------------------------
+# Normalizes a parameter or command name, i.e. converts its hyphens into
+# underscores.
+#
+# @param name Name to normalize.
+# ------------------------------------------------------------------------------
+__knit_name_normalize() {
+    _knit_str_hyphens_to_underscores "$1"
+}
+
+# ------------------------------------------------------------------------------
+# Checks that a parameter or command name is valid, i.e. it has to start with a
+# letter, followed by any number of alphanumerical characters and hyphens and
+# underscores.
+#
+# @param param Parameter name to normalize.
+# ------------------------------------------------------------------------------
+__knit_name_is_valid() {
+    if [[ "$1" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# This function carries out all the checks for a parameter to be declared by
+# knit_with_required/optional/flag.
+#
+# @param suffix Suffix ("required", "optional", or "flag") to use for variables.
+# @param param Parameter name.
+# @param description Description of the parameter.
+# ------------------------------------------------------------------------------
+__knit_param_check_declaration() {
+    local suffix="$1"
+    local param="$2"
+    local description="$3"
+
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_${suffix} should be used after a call to \"knit_register\"."
+    fi
+
+    if ! __knit_name_is_valid "${param}"; then
+        knit_fatal "Parameter \"${param}\" does not have a valid name."
+    fi
+
+    if [ -z "${description}" ]; then
+        knit_warning "Not describing parameter \"${param}\" undermines its understandability."
+    fi
+
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local demangled_cmd="$(__knit_command_demangle "${cmd}")"
+    local normalized="$(__knit_name_normalize "${param}")"
+
+    if _knit_set_find "_KNIT_CMD_${cmd}_required" "${normalized}" \
+    || _knit_set_find "_KNIT_CMD_${cmd}_optional" "${normalized}" \
+    || _knit_set_find "_KNIT_CMD_${cmd}_flags"; then
+        knit_fatal "Parameter \"${param}\" already declared for \"${demangled_cmd}\"."
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# This function prints the name of the variable that contains the description of
+# a parameter for a given command.
+#
+# @param cmd Command to which the parameter belongs (must be mangled).
+# @param param Name of the parameter (must be normalized).
+# ------------------------------------------------------------------------------
+__knit_param_description_var() {
+    local cmd="$1"
+    local param="$2"
+    printf "%s" "_KNIT_CMD_${cmd}_2_${param}_description"
+}
+
+# ------------------------------------------------------------------------------
+# This function prints the description of a parameter for a given command.
+#
+# @param cmd Command to which the parameter belongs (must be mangled).
+# @param param Name of the parameter (must be normalized).
+# ------------------------------------------------------------------------------
+__knit_param_description() {
+    local description_var=$(__knit_param_description_var "$@")
+    printf "%s" "${!description_var}"
+}
+
+# ------------------------------------------------------------------------------
+# This function prints the name of the variable that contains the default value
+# of a parameter for a given command.
+#
+# @param cmd Command to which the parameter belongs (must be mangled).
+# @param param Name of the parameter (must be normalized).
+# ------------------------------------------------------------------------------
+__knit_param_default_var() {
+    local cmd="$1"
+    local param="$2"
+    printf "%s" "_KNIT_CMD_${cmd}_2_${param}_default"
+}
+
+# ------------------------------------------------------------------------------
+# This function prints the default value of a parameter for a given command.
+#
+# @param cmd Command to which the parameter belongs (must be mangled).
+# @param param Name of the parameter (must be normalized).
+# ------------------------------------------------------------------------------
+__knit_param_default() {
+    local default_var=$(__knit_param_default_var "$@")
+    printf "%s" "${!default_var}"
+}
+
+# ------------------------------------------------------------------------------
+# Register a function for use with a CLI. A call to this function should be
+# followed by any number of knit_with_* calls, followed by the declaration of
+# the function to register, then a call to knit_done.
+#
+# @param name Name of the function to register.
+# @param cmd Command (demangled).
+# @param description Description of the command.
+# ------------------------------------------------------------------------------
+knit_register() {
+    local name=$1 # e.g. "myfunction"
+    local demangled_cmd="$2"  # e.g. "command:subcommand"
+    local description=$(printf '%q' "$3")
+    if [[ -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_warning "You forgot to call \"knit_done\" after registering the previous command."
+    fi
+    knit_trace "Registering function \"${name}\" with command \"${demangled_cmd}\"."
+    local cmd=$(__knit_command_mangle "${demangled_cmd}")
+    if _knit_set_find _KNIT_COMMANDS "${cmd}"; then
+        knit_fatal "Command \"${demangled_cmd}\" is already registered."
+    fi
+    _knit_set_add _KNIT_COMMANDS "${cmd}"
+    _knit_set_new "_KNIT_CMD_${cmd}_required"
+    _knit_set_new "_KNIT_CMD_${cmd}_optional"
+    _knit_set_new "_KNIT_CMD_${cmd}_flags"
+    eval "_KNIT_CMD_${cmd}_function=${name}"
+    eval "_KNIT_CMD_${cmd}_description=${description}"
+    _KNIT_CURRENT_FUNCTION="${name}"
+    _KNIT_CURRENT_COMMAND="${cmd}"
+    _KNIT_CURRENT_COMMAND_DEMANGLED="${demangled_cmd}"
+}
+
+# ------------------------------------------------------------------------------
+# Finishes to register a function.
+# ------------------------------------------------------------------------------
+knit_done() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_warning "\"knit_done\" called without a matching \"knit_register\"."
+    fi
+    local name="${_KNIT_CURRENT_FUNCTION}"
+    if ! declare -F "${name}" > /dev/null; then
+        knit_fatal "Function \"${name}\" being registered is not defined."
+    fi
+    unset _KNIT_CURRENT_FUNCTION
+    unset _KNIT_CURRENT_COMMAND
+    unset _KNIT_CURRENT_COMMAND_DEMANGLED
+}
+
+# ------------------------------------------------------------------------------
+# This function should be called right after a call to knit_register (or one of
+# its variants) to declare required parameters that the command expects.
+#
+# Example:
+# ```
+# knit_register "say_hello" "greet" "Say hello to someone"
+# knit_with_required "name" "Name of the person to greet"
+# say_hello() {
+#    ...
+# }
+# ```
+# Indicates that the command "greet" requires a parameter --name.
+#
+# @param param Parameter name.
+# @param description Description of the parameter.
+# ------------------------------------------------------------------------------
+knit_with_required() {
+    __knit_param_check_declaration "required" "$1" "$2"
+    local param=$(__knit_name_normalize "$1")
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+    local description=$(printf '%q' "$2")
+    local description_var="$(__knit_param_description_var "${cmd}" "${param}")"
+    knit_trace "Adding required parameter \"$1\" to command \"${demangled_cmd}\"."
+    eval "${description_var}=${description}"
+    _knit_set_add "_KNIT_CMD_${cmd}_required" "${param}"
+}
+
+# ------------------------------------------------------------------------------
+# This function should be called right after a call to knit_register (or one of
+# its variants) to declare optional parameters for the command.
+#
+# Example:
+# ```
+# knit_register "say_hello" "greet" "Say hello to someone"
+# knit_with_optional "name" "world" "Name of the person to greet"
+# say_hello() {
+#    ...
+# }
+# ```
+# Indicates that the command "greet" has an optional parameter --name with
+# default value "world".
+#
+# @param param Parameter name.
+# @param default Default value.
+# @param description Description of the parameter.
+# ------------------------------------------------------------------------------
+knit_with_optional() {
+    __knit_param_check_declaration "optional" "$1" "$3"
+    local param=$(__knit_name_normalize "$1")
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+    local default=$(printf '%q' "$2")
+    local description=$(printf '%q' "$3")
+    local description_var="$(__knit_param_description_var "${cmd}" "${param}")"
+    local default_var="$(__knit_param_default_var "${cmd}" "${param}")"
+    knit_trace "Adding optional parameter \"$1\" to command \"${demangled_cmd}\"."
+    eval "${description_var}=$description"
+    eval "${default_var}=$default"
+    _knit_set_add "_KNIT_CMD_${cmd}_optional" "${param}"
+}
+
+# ------------------------------------------------------------------------------
+# This function should be called right after a call to knit_register (or one of
+# its variants) to declare flag parameters that the command may accept.
+#
+# Example:
+# ```
+# knit_register "say_hello" "greet" "Say hello to someone"
+# knit_with_flag "capitalize" "Make the output upper-case"
+# say_hello() {
+#    ...
+# }
+# ```
+#
+# @param param Parameter name.
+# @param description Description of the parameter.
+# ------------------------------------------------------------------------------
+knit_with_flag() {
+    __knit_param_check_declaration "flag" "$1" "$2"
+    local param=$(__knit_name_normalize "$1")
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+    local description=$(printf '%q' "$2")
+    local description_var="$(__knit_param_description_var "${cmd}" "${param}")"
+    knit_trace "Adding flag \"$1\" to command \"${demangled_cmd}\"."
+    eval "${description_var}=${description}"
+    _knit_set_add "_KNIT_CMD_${cmd}_flag" "${param}"
+}
+
+# ------------------------------------------------------------------------------
+# Check that the arguments expected by the command are provided. This function
+# will fail with a fatal error (i.e. the script will stop) if a required
+# argument is not provided, or if an argument provided does not match any
+# any expected.
+#
+# @param cmd Name of the command (mangled).
+# @param ... Arguments to pass to the command.
+# ------------------------------------------------------------------------------
+__knit_check_command_arguments() {
+    local cmd="$1"
+    local demangled_cmd=$(__knit_command_demangle "${cmd}")
+    shift
+    local args=("$@")
+    # Check that all the required arguments have been provided
+    local required_args_varname="_KNIT_CMD_${cmd}_required"
+    local -n required_args_ref="${required_args_varname}"
+    local option
+    for option in "${required_args_ref[@]}"; do
+        if _knit_find_option "--${option}" "${args[@]}" > /dev/null; then
+            continue
+        fi
+        local alt_format
+        alt_format=$(_knit_str_underscores_to_hyphens "${option}")
+        knit_fatal "Command \"${demangled_cmd}\" requires a --${option} or --${alt_format} option."
+    done
+    # Check that all the arguments provided are expected options or flags
+    local optional_args_varname="_KNIT_CMD_${cmd}_optional"
+    local flags_args_varname="_KNIT_CMD_${cmd}_flags"
+    for ((i=0; i<${#args[@]}; i++)); do
+        local arg="${args[i]}"
+        if [[ "${arg}" != --* ]]; then
+            knit_fatal "Unexpected argument \"${arg}\" passed to \"${demangled_cmd}\" command."
+        fi
+        arg="$(__knit_name_normalize "${arg:2}")"
+        if _knit_set_find "${required_args_varname}" "${arg}"; then
+            ((i++))
+            continue
+        fi
+        if _knit_set_find "${optional_args_varname}" "${arg}"; then
+            ((i++))
+            continue
+        fi
+        if _knit_set_find "${flags_args_varname}" "${arg}"; then
+            continue
+        fi
+        knit_fatal "Unexpected argument \"${arg}\" passed to \"${demangled_cmd}\" command."
+    done
+}
+
+# ------------------------------------------------------------------------------
+# Adds optional arguments that are not provided in the arguments, and converts
+# flags into --flag true or --flag false.
+#
+# @param name Name of the command.
+# @param ... Arguments to pass to the command.
+# ------------------------------------------------------------------------------
+__knit_expand_command_arguments() {
+    local cmd="$1"
+    shift
+    local args=("$@")
+    # Add optional arguments that have not been provided
+    local optional_args_varname="_KNIT_CMD_${cmd}_optional"
+    local -n optional_args_ref="${optional_args_varname}"
+    for option in "${optional_args_ref[@]}"; do
+        if _knit_find_option "--${option}" "${args[@]}" > /dev/null; then
+            continue
+        fi
+        local default_value_varname="_KNIT_${cmd}_${option}_default"
+        local -n default_value="${default_value_varname}"
+        local default_value="$(__knit_param_default "${cmd}" "${option}")"
+        args+=("--${option}" "${default_value}")
+    done
+    # Handle flags (add them as option with value "true" or "false")
+    local flags_args_varname="_KNIT_CMD_${cmd}_flags"
+    local -n flags_args_ref="${flags_args_varname}"
+    local flag
+    for flag in "${flags_args_ref[@]}"; do
+        if _knit_find_flag "--${flag}" "${args[@]}"; then
+            local i
+            for i in "${!args[@]}"; do
+                if [[ "${args[$i]}" == "--${flag}" ]]; then
+                    # Insert "true" after the flag
+                    args=("${args[@]:0:i+1}" "true" "${args[@]:i+1}")
+                    break
+                fi
+            done
+        else
+            args+=("--${flag}" "false")
+        fi
+    done
+    # Print the resulting arguments
+    echo "${args[*]}"
+}
+
+# ------------------------------------------------------------------------------
+# Print the number of required, optional, or flags parameters of a command.
+#
+# @param type Type of parameters, i.e. required, optional, or flags.
+# @param cmd Mangled command.
+# ------------------------------------------------------------------------------
+__knit_command_num_params() {
+    local type=$1 # "required", "optional", or "flags"
+    local cmd=$2
+    local list_name
+    list_name="_KNIT_CMD_${cmd}_${type}"
+    local count="$(eval echo "\${#$list_name[@]}")"
+    echo "${count}"
+}
+
+# ------------------------------------------------------------------------------
+# Print the help message for a command/subcommand.
+#
+# @param ...cmds Command and subcommand names
+# ------------------------------------------------------------------------------
+__knit_print_command_usage() {
+    local demanled_cmd="$@"
+    local cmd="$(__knit_command_mangle "${demangled_cmd}")"
+    printf "Usage: $0 ${demangled_cmd} [OPTIONS]\n\n"
+
+    local description_var="_KNIT_CMD_${cmd}_description"
+    printf "  %s\n\n" "${!description_var}"
+
+    printf "Options\n-------\n"
+    local max_param_len=4 # size of "help"
+    local required_args_varname="_KNIT_CMD_${cmd}_required"
+    local -n required_args_ref="${required_args_varname}"
+    local optional_args_varname="_KNIT_CMD_${cmd}_optional"
+    local -n optional_args_ref="${optional_args_varname}"
+    local flags_args_varname="_KNIT_CMD_${cmd}_flags"
+    local -n flags_args_ref="${flags_args_varname}"
+    local max_opt_length=0
+    local opt
+    for opt in "${required_args_ref[@]}"; do
+        local opt2="--${opt} <value>"
+        local opt_length=${#opt2}
+        if (( opt_length > max_opt_length )); then
+            max_opt_length=${opt_length}
+        fi
+    done
+    for opt in "${optional_args_ref[@]}"; do
+        local opt2="--${opt} <value>"
+        local opt_length=${#opt2}
+        if (( opt_length > max_opt_length )); then
+            max_opt_length=${opt_length}
+        fi
+    done
+    for opt in "${flags_args_ref[@]}"; do
+        local opt2="--${opt}"
+        local opt_length=${#opt2}
+        if (( opt_length > max_opt_length )); then
+            max_opt_length=${opt_length}
+        fi
+    done
+
+    printf "  %-${max_opt_length}s  %s\n" "--help" "Print this help message and exit."
+    for opt in "${required_args_ref[@]}"; do
+        local description="$(__knit_param_description "${cmd}" "${opt}")"
+        local opt2
+        opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
+        printf "  %-${max_opt_length}s  %s\n" "${opt2} <value>" "[required] ${description}"
+    done
+    for opt in "${optional_args_ref[@]}"; do
+        local description="$(__knit_param_description "${cmd}" "${opt}")"
+        local default="$(__knit_param_default "${cmd}" "${opt}")"
+        local opt2
+        opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
+        printf "  %-${max_opt_length}s  %s\n" "${opt2} <value>" "[default: '${default}'] ${description}"
+    done
+    max_opt_length=$((max_opt_length - 8))
+    for opt in "${flags_args_ref[@]}"; do
+        local description="$(__knit_param_description "${cmd}" "${opt}")"
+        local opt2
+        opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
+        printf "  %-${max_opt_length}s  %s\n" "${opt2}" "         [flag] ${description}"
+    done
+
+    local subcommands=()
+    local subcommands_full=()
+    local max_subcommand_len=0
+    local c
+    for c in "${_KNIT_COMMANDS[@]}"; do
+        if [[ "${c}" == "${cmd}" ]]; then
+            continue
+        fi
+        if [[ "${c:0:${#cmd}}" != "$cmd" ]]; then
+            continue
+        fi
+        local name="${c:$((${#cmd}+5))}"
+        if [[ "${name}" =~ "__1__" ]]; then
+            continue
+        fi
+        subcommands+=("${name}")
+        subcommands_full+=("${c}")
+        if ((max_subcommand_len < ${#name})); then
+            max_subcommand_len=${#name}
+        fi
+    done
+    if [ "${#subcommands[@]}" -gt "0" ]; then
+        printf "\nSubcommands\n-----------\n"
+        local i
+        for ((i=0; i<${#subcommands[@]}; i++)); do
+            local description_var="_KNIT_CMD_${subcommands_full[i]}_description"
+            local description="${!description_var}"
+            printf "  %$((max_subcommand_len))s   %s\n" "${subcommands[i]}" "${description}"
+        done
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# Invoke a command.
+#
+# Example:
+# ```
+# _knit_invoke_command "say" "hello" "--name" "Matthieu"
+# ```
+# Will invoke the command "say:hello" with arguments "--name" and "Matthieu".
+#
+# @param ...commands Commands and subcommands.
+# @param ...args Arguments for the command.
+# ------------------------------------------------------------------------------
+_knit_invoke_command() {
+    # find the command and subcommands
+    local demangled_cmd=""
+    while [[ $# -gt 0 ]]; do
+        if [[ $1 == --* ]]; then
+            break
+        fi
+        if [[ -n "${demangled_cmd}" ]]; then
+            demangled_cmd+=" "
+        fi
+        demangled_cmd+="$1"
+        shift
+    done
+    # create the mangled command name
+    local cmd="$(__knit_command_mangle "${demangled_cmd}")"
+    # check if the command exists
+    if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
+        knit_fatal "Unknown command \"${demangled_cmd}\"."
+    fi
+    # get the name of the corresponding function
+    local func_name_var="_KNIT_CMD_${cmd}_function"
+    local func="${!func_name_var}"
+    # check if the first argument is --help
+    if [ "$1" = "--help" ]; then
+        __knit_print_command_usage "${cmd}"
+        return 0
+    fi
+    # check the arguments
+    __knit_check_command_arguments "${cmd}" "$@"
+    # expand missing optional arguments and flags
+    local args
+    args=($(__knit_expand_command_arguments "${cmd}" "$@"))
+    # call the function
+    $func "${args[@]}"
+}
+
+#knit_log_set_level "trace"
+
+knit_register knit_empty "say" "Say something."
+knit_done
+
+knit_register knit_empty "say:good" "Say good something."
+knit_done
+
+knit_register "say_hello" "say:hello" "Say hello."
+knit_with_required "name" "Name of the person to greet."
+knit_with_optional "greeting" "Hello" "How to greet the person."
+knit_with_flag "king" "Whether the person is a king."
+say_hello() {
+    echo "Hello world"
+}
+knit_done
+
+knit_register "say_hi" "say:hi" "Say hi."
+knit_with_required "name" "Name of the person to greet."
+knit_with_optional "greeting" "Hello" "How to greet the person."
+knit_with_flag "king" "Whether the person is a king."
+say_hi() {
+    echo "Hello world"
+}
+knit_done
+
+knit_register "say_good_morning" "say:good:morning" "Say good morning."
+knit_with_required "name" "Name of the person to greet."
+knit_with_optional "greeting" "Hello" "How to greet the person."
+knit_with_flag "king" "Whether the person is a king."
+say_good_morning() {
+    echo "Hello world"
+}
+knit_done
+
+#_knit_invoke_command "say" "hello" "--name" "Matthieu"
+_knit_invoke_command "say" "hello" "--help"
+
