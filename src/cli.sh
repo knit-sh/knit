@@ -3,7 +3,6 @@
 source src/log.sh
 source src/set.sh
 source src/str.sh
-source src/args.sh
 
 _KNIT_COMMANDS=()
 
@@ -106,7 +105,7 @@ __knit_param_check_declaration() {
 
     if _knit_set_find "_KNIT_CMD_${cmd}_required" "${normalized}" \
     || _knit_set_find "_KNIT_CMD_${cmd}_optional" "${normalized}" \
-    || _knit_set_find "_KNIT_CMD_${cmd}_flags"; then
+    || _knit_set_find "_KNIT_CMD_${cmd}_flags" "${normalized}"; then
         knit_fatal "Parameter \"${param}\" already declared for \"${demangled_cmd}\"."
     fi
 }
@@ -357,7 +356,7 @@ knit_with_flag() {
     local description_var="$(__knit_param_description_var "${cmd}" "${param}")"
     knit_trace "Adding flag \"$1\" to command \"${demangled_cmd}\"."
     eval "${description_var}=${description}"
-    _knit_set_add "_KNIT_CMD_${cmd}_flag" "${param}"
+    _knit_set_add "_KNIT_CMD_${cmd}_flags" "${param}"
 }
 
 # ------------------------------------------------------------------------------
@@ -491,7 +490,7 @@ __knit_check_command_arguments() {
     local -n required_args_ref="${required_args_varname}"
     local option
     for option in "${required_args_ref[@]}"; do
-        if _knit_find_option "--${option}" "${args[@]}" > /dev/null; then
+        if knit_get_parameter "${option}" "${args[@]}" > /dev/null; then
             continue
         fi
         local alt_format
@@ -523,6 +522,37 @@ __knit_check_command_arguments() {
 }
 
 # ------------------------------------------------------------------------------
+# This function takes a flag and checks if it appears in the remaining list of
+# arguments, returning 0 if it does, 1 otherwise.
+#
+# Example:
+# ```
+# _knit_find_option "--help" aaa bbb ccc --help ddd
+# ```
+# will return 0 because "--help" was found.
+#
+# @param flag Flag to find.
+# @param ... List of arguments to search from.
+# @return 0 if the flag was found, 1 otherwise.
+# ------------------------------------------------------------------------------
+__knit_find_flag() {
+    local flag="$1"
+    shift
+    local list=("$@")
+
+    local formatted_flag=$(_knit_str_hyphens_to_underscores "${flag}")
+    local item
+    for item in "${list[@]}"; do
+        local arg=$(_knit_str_hyphens_to_underscores "${item}")
+        if [[ "${arg}" == "${formatted_flag}" ]]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# ------------------------------------------------------------------------------
 # Adds optional arguments that are not provided in the arguments, and converts
 # flags into --flag true or --flag false.
 #
@@ -537,11 +567,9 @@ __knit_expand_command_arguments() {
     local optional_args_varname="_KNIT_CMD_${cmd}_optional"
     local -n optional_args_ref="${optional_args_varname}"
     for option in "${optional_args_ref[@]}"; do
-        if _knit_find_option "--${option}" "${args[@]}" > /dev/null; then
+        if knit_get_parameter "${option}" "${args[@]}" > /dev/null; then
             continue
         fi
-        local default_value_varname="_KNIT_${cmd}_${option}_default"
-        local -n default_value="${default_value_varname}"
         local default_value="$(__knit_param_default "${cmd}" "${option}")"
         args+=("--${option}" "${default_value}")
     done
@@ -550,7 +578,7 @@ __knit_expand_command_arguments() {
     local -n flags_args_ref="${flags_args_varname}"
     local flag
     for flag in "${flags_args_ref[@]}"; do
-        if _knit_find_flag "--${flag}" "${args[@]}"; then
+        if __knit_find_flag "--${flag}" "${args[@]}"; then
             local i
             for i in "${!args[@]}"; do
                 if [[ "${args[$i]}" == "--${flag}" ]]; then
@@ -564,7 +592,9 @@ __knit_expand_command_arguments() {
         fi
     done
     # Print the resulting arguments
-    echo "${args[*]}"
+    for arg in "${args[@]}"; do
+        printf "%q " "${arg}"
+    done
 }
 
 # ------------------------------------------------------------------------------
@@ -715,14 +745,43 @@ _knit_invoke_command() {
     # check the arguments
     __knit_check_command_arguments "${cmd}" "$@"
     # expand missing optional arguments and flags
-    local args
-    args=($(__knit_expand_command_arguments "${cmd}" "$@"))
+    local args=$(__knit_expand_command_arguments "${cmd}" "$@")
+    eval "args=(${args})"
     # call the "before" callbacks
     __knit_execute_before_commands "${cmd}" "${args[@]}"
     # call the function
     $func "${args[@]}"
     # call the "after" callbacks
     __knit_execute_after_commands "${cmd}" "${args[@]}"
+}
+
+# ------------------------------------------------------------------------------
+# Search the list of arguments for a specific parameter. If found, the function
+# will print the value associated with the parameter (flags will lead to this
+# function printing "true" or "false"). If not found, this function will print
+# nothing and return 1.
+#
+# @param param Parameter to search for (without the -- prefix).
+# @param ... Arguments in which to search for the parameter.
+# ------------------------------------------------------------------------------
+knit_get_parameter() {
+    local param
+    param="$(_knit_str_hyphens_to_underscores "--$1")"
+    shift
+    local list=("$@")
+    local i
+    for ((i=0; i < ${#list[@]}; i++)); do
+        local arg="$(_knit_str_hyphens_to_underscores "${list[i]}")"
+        if [[ "${arg}" == "${param}" ]]; then
+            if ((i + 1 < ${#list[@]})); then
+                printf "%s" "${list[i+1]}"
+                return 0
+            else
+                return 1
+            fi
+        fi
+    done
+    return 1
 }
 
 knit_log_set_level "trace"
@@ -739,10 +798,17 @@ knit_register "say_hello" "say:hello" "Say hello."
 knit_with_required "name" "Name of the person to greet."
 knit_with_optional "greeting" "Hello" "How to greet the person."
 knit_with_flag "king" "Whether the person is a king."
-_knit_run_before echo "This runs" before
-_knit_run_after echo "This runs after"
+_knit_run_before echo "Someone is entering the castle..."
+_knit_run_after echo "Someone is leaving the castle..."
 say_hello() {
-    echo "Hello world"
+    local name=$(knit_get_parameter "name" "$@")
+    local greeting=$(knit_get_parameter "greeting" "$@")
+    local king=$(knit_get_parameter "king" "$@")
+    if [[ "${king}" == "true" ]]; then
+        echo "${greeting} ${name}, your highness"
+    else
+        echo "${greeting} ${name}"
+    fi
 }
 knit_done
 
