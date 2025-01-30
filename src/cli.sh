@@ -160,6 +160,32 @@ __knit_param_default() {
 }
 
 # ------------------------------------------------------------------------------
+# Takes a command in the form "aaa:bbb:ccc" or "aaa bbb ccc" or
+# "aaa__1__bbb__1__cccc" and return the parent commands (e.g. "aaa:bbb" or
+# "aaa bbb" or "aaa__1__bbb".
+# ------------------------------------------------------------------------------
+__knit_command_get_parents() {
+    local cmd="$@"
+    if [[ "$cmd" =~ ^(.*)([[:space:]]|:|__1__)[^[:space:]:__1__]*$ ]]; then
+        printf "%s" "${BASH_REMATCH[1]}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# Takes a command in the form "aaa:bbb:ccc" or "aaa bbb ccc" or
+# "aaa__1__bbb__1__cccc" and return the last command (e.g. "ccc" in all the
+# cases above).
+# ------------------------------------------------------------------------------
+__knit_command_get_last() {
+    local cmd="$@"
+    if [[ "$cmd" =~ (.*)([[:space:]]|:|__1__)([^[:space:]:__1__]+)$ ]]; then
+        printf "%s" "${BASH_REMATCH[3]}"
+    else
+        printf "%s" "${cmd}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # Register a function for use with a CLI. A call to this function should be
 # followed by any number of knit_with_* calls, followed by the declaration of
 # the function to register, then a call to knit_done.
@@ -177,6 +203,10 @@ knit_register() {
     fi
     knit_trace "Registering function \"${name}\" with command \"${demangled_cmd}\"."
     local cmd=$(__knit_command_mangle "${demangled_cmd}")
+    local parent_cmd=$(__knit_command_get_parents "$cmd")
+    if ! _knit_set_find _KNIT_COMMANDS "${parent_cmd}"; then
+        knit_fatal "Cannot register command \"${demangled_cmd}\" because its parent has not been registered."
+    fi
     if _knit_set_find _KNIT_COMMANDS "${cmd}"; then
         knit_fatal "Command \"${demangled_cmd}\" is already registered."
     fi
@@ -186,6 +216,10 @@ knit_register() {
     _knit_set_new "_KNIT_CMD_${cmd}_flags"
     eval "_KNIT_CMD_${cmd}_function=${name}"
     eval "_KNIT_CMD_${cmd}_description=${description}"
+    eval "_KNIT_CMD_${cmd}_before_cb=()"
+    eval "_KNIT_CMD_${cmd}_before_cb_args=()"
+    eval "_KNIT_CMD_${cmd}_after_cb=()"
+    eval "_KNIT_CMD_${cmd}_after_cb_args=()"
     _KNIT_CURRENT_FUNCTION="${name}"
     _KNIT_CURRENT_COMMAND="${cmd}"
     _KNIT_CURRENT_COMMAND_DEMANGLED="${demangled_cmd}"
@@ -299,6 +333,118 @@ knit_with_flag() {
 }
 
 # ------------------------------------------------------------------------------
+# In the context of a knit_register, install a callback to run before the
+# command currently being registered.
+#
+# Example:
+# ```
+# knit_register ...
+# knit_run_before echo "Running before command"
+# ```
+# ------------------------------------------------------------------------------
+_knit_run_before() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "_knit_run_before should be used after a call to \"knit_register\"."
+    fi
+    knit_trace "Adding callback to run before ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local cb_list_name="_KNIT_CMD_${cmd}_before_cb"
+    local -n cb_list_ref=${cb_list_name}
+    local cb_args_list_name="_KNIT_CMD_${cmd}_before_cb_args"
+    local -n cb_args_list_ref=${cb_args_list_name}
+    local cb="$1"
+    shift
+    local cb_args=""
+    for arg in "$@"; do
+        cb_args+="\"${arg}\" "
+    done
+    cb_args="$(printf "%q" "${cb_args% }")"
+    cb_list_ref+=("${cb}")
+    cb_args_list_ref+=("${cb_args}")
+}
+
+# ------------------------------------------------------------------------------
+# Evaluate the callbacks installed before a command. The callbacks are called
+# with the calling command name (demangled) as context, as well as the list of
+# parameters passed to the command.
+#
+# @param cmd Command (mangled name) for which to execute the before callbacks.
+# @param ... Arguments of the command.
+# ------------------------------------------------------------------------------
+__knit_execute_before_commands() {
+    local cmd="$1"
+    shift
+    local demanled_cmd=$(__knit_command_demangle "${cmd}")
+    knit_trace "Executing callbacks before ${demanled_cmd}."
+    local cb_list_name="_KNIT_CMD_${cmd}_before_cb"
+    local cb_args_list_name="_KNIT_CMD_${cmd}_before_cb_args"
+    local -n cb_list_ref="${cb_list_name}"
+    local -n cb_args_list_ref="${cb_args_list_name}"
+    for ((i=0; i<${#cb_list_ref[@]}; i++)); do
+        local cb="${cb_list_ref[i]}"
+        local cb_args
+        eval "cb_args=${cb_args_list_ref[i]}"
+        eval "${cb} ${cb_args[@]} $@"
+    done
+}
+
+# ------------------------------------------------------------------------------
+# In the context of a knit_register, install a callback to run after the
+# command currently being registered.
+#
+# Example:
+# ```
+# knit_register ...
+# knit_run_after echo "Running after command"
+# ```
+# ------------------------------------------------------------------------------
+_knit_run_after() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "_knit_run_after should be used after a call to \"knit_register\"."
+    fi
+    knit_trace "Adding callback to run after ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local cb_list_name="_KNIT_CMD_${cmd}_after_cb"
+    local -n cb_list_ref=${cb_list_name}
+    local cb_args_list_name="_KNIT_CMD_${cmd}_after_cb_args"
+    local -n cb_args_list_ref=${cb_args_list_name}
+    local cb="$1"
+    shift
+    local cb_args=""
+    for arg in "$@"; do
+        cb_args+="\"${arg}\" "
+    done
+    cb_args="$(printf "%q" "${cb_args% }")"
+    cb_list_ref+=("${cb}")
+    cb_args_list_ref+=("${cb_args}")
+}
+
+# ------------------------------------------------------------------------------
+# Evaluate the callbacks installed after a command. The callbacks are called
+# with the calling command name (demangled) as context, as well as the list of
+# parameters passed to the command.
+#
+# @param cmd Command (mangled name) for which to execute the after callbacks.
+# @param ... Arguments of the command.
+# ------------------------------------------------------------------------------
+__knit_execute_after_commands() {
+    local cmd="$1"
+    shift
+    local demanled_cmd=$(__knit_command_demangle "${cmd}")
+    knit_trace "Executing callbacks after ${demanled_cmd}."
+    local cb_list_name="_KNIT_CMD_${cmd}_after_cb"
+    local cb_args_list_name="_KNIT_CMD_${cmd}_after_cb_args"
+    local -n cb_list_ref="${cb_list_name}"
+    local -n cb_args_list_ref="${cb_args_list_name}"
+    for ((i=0; i<${#cb_list_ref[@]}; i++)); do
+        local cb="${cb_list_ref[i]}"
+        local cb_args
+        eval "cb_args=${cb_args_list_ref[i]}"
+        eval "${cb} ${cb_args[@]} $@"
+    done
+}
+
+# ------------------------------------------------------------------------------
 # Check that the arguments expected by the command are provided. This function
 # will fail with a fatal error (i.e. the script will stop) if a required
 # argument is not provided, or if an argument provided does not match any
@@ -391,21 +537,6 @@ __knit_expand_command_arguments() {
     done
     # Print the resulting arguments
     echo "${args[*]}"
-}
-
-# ------------------------------------------------------------------------------
-# Print the number of required, optional, or flags parameters of a command.
-#
-# @param type Type of parameters, i.e. required, optional, or flags.
-# @param cmd Mangled command.
-# ------------------------------------------------------------------------------
-__knit_command_num_params() {
-    local type=$1 # "required", "optional", or "flags"
-    local cmd=$2
-    local list_name
-    list_name="_KNIT_CMD_${cmd}_${type}"
-    local count="$(eval echo "\${#$list_name[@]}")"
-    echo "${count}"
 }
 
 # ------------------------------------------------------------------------------
@@ -551,11 +682,15 @@ _knit_invoke_command() {
     # expand missing optional arguments and flags
     local args
     args=($(__knit_expand_command_arguments "${cmd}" "$@"))
+    # call the "before" callbacks
+    __knit_execute_before_commands "${cmd}" "${args[@]}"
     # call the function
     $func "${args[@]}"
+    # call the "after" callbacks
+    __knit_execute_after_commands "${cmd}" "${args[@]}"
 }
 
-#knit_log_set_level "trace"
+knit_log_set_level "trace"
 
 knit_register knit_empty "say" "Say something."
 knit_done
@@ -567,6 +702,8 @@ knit_register "say_hello" "say:hello" "Say hello."
 knit_with_required "name" "Name of the person to greet."
 knit_with_optional "greeting" "Hello" "How to greet the person."
 knit_with_flag "king" "Whether the person is a king."
+_knit_run_before echo "This runs" before
+_knit_run_after echo "This runs after"
 say_hello() {
     echo "Hello world"
 }
@@ -590,6 +727,6 @@ say_good_morning() {
 }
 knit_done
 
-#_knit_invoke_command "say" "hello" "--name" "Matthieu"
-_knit_invoke_command "say" "hello" "--help"
+_knit_invoke_command "say" "hello" "--name" "Matthieu"
+#_knit_invoke_command "say" "hello" "--help"
 
