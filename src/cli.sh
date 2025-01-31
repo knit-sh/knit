@@ -215,6 +215,7 @@ knit_register() {
     _knit_set_new "_KNIT_CMD_${cmd}_flags"
     eval "_KNIT_CMD_${cmd}_function=${name}"
     eval "_KNIT_CMD_${cmd}_description=${description}"
+    eval "_KNIT_CMD_${cmd}_extra=''"
     eval "_KNIT_CMD_${cmd}_is_hidden=false"
     eval "_KNIT_CMD_${cmd}_before_cb=()"
     eval "_KNIT_CMD_${cmd}_before_cb_args=()"
@@ -360,6 +361,20 @@ knit_with_flag() {
 }
 
 # ------------------------------------------------------------------------------
+# Adds a description for extra parameters coming after "--".
+#
+# @param description Description of the extra parameters.
+# ------------------------------------------------------------------------------
+knit_with_extra() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_extra should be used after a call to \"knit_register\"."
+    fi
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local description="$(printf "%q" "$1")"
+    eval "_KNIT_CMD_${cmd}_extra=${description}"
+}
+
+# ------------------------------------------------------------------------------
 # In the context of a knit_register, install a callback to run before the
 # command currently being registered.
 #
@@ -500,8 +515,15 @@ __knit_check_command_arguments() {
     # Check that all the arguments provided are expected options or flags
     local optional_args_varname="_KNIT_CMD_${cmd}_optional"
     local flags_args_varname="_KNIT_CMD_${cmd}_flags"
+    local extra_varname="_KNIT_CMD_${cmd}_extra"
     for ((i=0; i<${#args[@]}; i++)); do
         local arg="${args[i]}"
+        if [[ "${arg}" == "--" ]]; then
+            if [ -z "${!extra_varname}" ]; then
+                knit_fatal "Unexpected extra arguments passed to \"${demangled_cmd}\" command."
+            fi
+            break
+        fi
         if [[ "${arg}" != --* ]]; then
             knit_fatal "Unexpected argument \"${arg}\" passed to \"${demangled_cmd}\" command."
         fi
@@ -543,6 +565,9 @@ __knit_find_flag() {
     local formatted_flag=$(_knit_str_hyphens_to_underscores "${flag}")
     local item
     for item in "${list[@]}"; do
+        if [[ "${item}" == "--" ]]; then
+            break
+        fi
         local arg=$(_knit_str_hyphens_to_underscores "${item}")
         if [[ "${arg}" == "${formatted_flag}" ]]; then
             return 0
@@ -562,7 +587,20 @@ __knit_find_flag() {
 __knit_expand_command_arguments() {
     local cmd="$1"
     shift
-    local args=("$@")
+    # Separate arguments and extra (after -- )
+    local args=()
+    local extra_args=()
+    local done_with_args="false"
+    for arg in "$@"; do
+        if [[ "${arg}" == "--" ]]; then
+            done_with_args="true"
+            extra_args+=("${arg}")
+        elif [[ "${done_with_args}" == "false" ]]; then
+            args+=("${arg}")
+        else
+            extra_args+=("${arg}")
+        fi
+    done
     # Add optional arguments that have not been provided
     local optional_args_varname="_KNIT_CMD_${cmd}_optional"
     local -n optional_args_ref="${optional_args_varname}"
@@ -592,7 +630,7 @@ __knit_expand_command_arguments() {
         fi
     done
     # Print the resulting arguments
-    for arg in "${args[@]}"; do
+    for arg in "${args[@]}" "${extra_args[@]}"; do
         printf "%q " "${arg}"
     done
 }
@@ -605,7 +643,12 @@ __knit_expand_command_arguments() {
 __knit_print_command_usage() {
     local demanled_cmd="$@"
     local cmd="$(__knit_command_mangle "${demangled_cmd}")"
-    printf "Usage: $0 ${demangled_cmd} [OPTIONS]\n\n"
+    local extra_var="_KNIT_CMD_${cmd}_extra"
+    if [ -z "${!extra_var}" ]; then
+        printf "Usage: $0 ${demangled_cmd} [OPTIONS]\n\n"
+    else
+        printf "Usage: $0 ${demangled_cmd} [OPTIONS] -- [EXTRA]\n\n"
+    fi
 
     local description_var="_KNIT_CMD_${cmd}_description"
     printf "  %s\n\n" "${!description_var}"
@@ -661,7 +704,7 @@ __knit_print_command_usage() {
         local description="$(__knit_param_description "${cmd}" "${opt}")"
         local opt2
         opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
-        printf "  %-${max_opt_length}s  %s\n" "${opt2}" "         [flag] ${description}"
+        printf "  %-${max_opt_length}s  %s\n" "${opt2}" "        [flag] ${description}"
     done
 
     local subcommands=()
@@ -700,6 +743,12 @@ __knit_print_command_usage() {
             local description="${!description_var}"
             printf "  %$((max_subcommand_len))s   %s\n" "${subcommands[i]}" "${description}"
         done
+    fi
+
+    if [ -n "${!extra_var}" ]; then
+        printf "\nExtra"
+        printf "\n-----\n"
+        printf "  ${!extra_var}\n"
     fi
 }
 
@@ -771,6 +820,9 @@ knit_get_parameter() {
     local list=("$@")
     local i
     for ((i=0; i < ${#list[@]}; i++)); do
+        if [[ "${list[i]}" == "--" ]]; then
+            break
+        fi
         local arg="$(_knit_str_hyphens_to_underscores "${list[i]}")"
         if [[ "${arg}" == "${param}" ]]; then
             if ((i + 1 < ${#list[@]})); then
@@ -782,6 +834,32 @@ knit_get_parameter() {
         fi
     done
     return 1
+}
+
+# ------------------------------------------------------------------------------
+# Print the index at which extra arguments start (i.e. arguments passed after
+# "--" in the list of arguments). This index will be the size of the list if no
+# extra arguments are found. The way this function can be used is as follows.
+#
+# ```
+# local args=("$@")
+# local extra_index=$(knit_extra_index "${args[@]}")
+# local extra=("${args[@]:extra_index}")
+# ```
+#
+# @param ... List of arguments.
+# ------------------------------------------------------------------------------
+knit_extra_index() {
+    local list=("$@")
+    local index="${#list[@]}"
+    local i
+    for ((i=0; i<${#list[@]}; i++)) do
+        if [[ "${list[i]}" == "--" ]]; then
+            index=$((i+1))
+            break
+        fi
+    done
+    echo "${index}"
 }
 
 knit_log_set_level "trace"
@@ -798,6 +876,7 @@ knit_register "say_hello" "say:hello" "Say hello."
 knit_with_required "name" "Name of the person to greet."
 knit_with_optional "greeting" "Hello" "How to greet the person."
 knit_with_flag "king" "Whether the person is a king."
+knit_with_extra "Some extra arguments."
 _knit_run_before echo "Someone is entering the castle..."
 _knit_run_after echo "Someone is leaving the castle..."
 say_hello() {
@@ -809,6 +888,13 @@ say_hello() {
     else
         echo "${greeting} ${name}"
     fi
+    local args=("$@")
+    local extra_index=$(knit_extra_index "$@")
+    local extra=("${args[@]:extra_index}")
+    echo "Extra arguments are the following: ${extra[@]}"
+    for e in "${extra[@]}"; do
+        echo "---- ${e}"
+    done
 }
 knit_done
 
