@@ -1,9 +1,5 @@
 #!/bin/bash
 
-source src/log.sh
-source src/set.sh
-source src/str.sh
-
 _KNIT_COMMANDS=()
 
 # ------------------------------------------------------------------------------
@@ -198,9 +194,13 @@ knit_register() {
     local demangled_cmd="$2"  # e.g. "command:subcommand"
     local description=$(printf '%q' "$3")
     if [[ -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_done
         knit_warning "You forgot to call \"knit_done\" after registering the previous command."
     fi
     knit_trace "Registering function \"${name}\" with command \"${demangled_cmd}\"."
+    if [[ ! "${demangled_cmd}" =~ ^[a-zA-Z0-9_:]+$ ]]; then
+        knit_fatal "Invalid character found in command name \"${demangled_cmd}\"."
+    fi
     local cmd=$(__knit_command_mangle "${demangled_cmd}")
     local parent_cmd=$(__knit_command_get_parents "$cmd")
     if [ ! -z "${parent_cmd}" ]  &&  ! _knit_set_find _KNIT_COMMANDS "${parent_cmd}"; then
@@ -650,7 +650,9 @@ __knit_print_command_usage() {
     local demanled_cmd="$@"
     local cmd="$(__knit_command_mangle "${demangled_cmd}")"
     local extra_var="_KNIT_CMD_${cmd}_extra"
-    if [ -z "${!extra_var}" ]; then
+    if [[ "${demanled_cmd}" == "__main__" ]]; then
+        printf "Usage: $0 [OPTIONS]\n\n"
+    elif [ -z "${!extra_var}" ]; then
         printf "Usage: $0 ${demangled_cmd} [OPTIONS]\n\n"
     else
         printf "Usage: $0 ${demangled_cmd} [OPTIONS] -- [EXTRA]\n\n"
@@ -717,27 +719,44 @@ __knit_print_command_usage() {
     local subcommands_full=()
     local max_subcommand_len=0
     local c
-    for c in "${_KNIT_COMMANDS[@]}"; do
-        local hidden_var_name="_KNIT_CMD_${c}_is_hidden"
-        if [[ "${!hidden_var_name}" == "true" ]]; then
-            continue
-        fi
-        if [[ "${c}" == "${cmd}" ]]; then
-            continue
-        fi
-        if [[ "${c:0:${#cmd}}" != "$cmd" ]]; then
-            continue
-        fi
-        local name="${c:$((${#cmd}+5))}"
-        if [[ "${name}" =~ "__1__" ]]; then
-            continue
-        fi
-        subcommands+=("${name}")
-        subcommands_full+=("${c}")
-        if ((max_subcommand_len < ${#name})); then
-            max_subcommand_len=${#name}
-        fi
-    done
+    if [[ "${cmd}" != "__main__" ]]; then # non-root command
+        for c in "${_KNIT_COMMANDS[@]}"; do
+            local hidden_var_name="_KNIT_CMD_${c}_is_hidden"
+            if [[ "${!hidden_var_name}" == "true" ]]; then
+                continue
+            fi
+            if [[ "${c}" == "${cmd}" ]]; then
+                continue
+            fi
+            if [[ "${c:0:${#cmd}}" != "$cmd" ]]; then
+                continue
+            fi
+            local name="${c:$((${#cmd}+5))}"
+            if [[ "${name}" =~ "__1__" ]]; then
+                continue
+            fi
+            subcommands+=("${name}")
+            subcommands_full+=("${c}")
+            if ((max_subcommand_len < ${#name})); then
+                max_subcommand_len=${#name}
+            fi
+        done
+    else # root command
+        for c in "${_KNIT_COMMANDS[@]}"; do
+            local hidden_var_name="_KNIT_CMD_${c}_is_hidden"
+            if [[ "${!hidden_var_name}" == "true" ]]; then
+                continue
+            fi
+            if [[ "${c}" =~ "__1__" ]]; then
+                continue
+            fi
+            subcommands+=("${c}")
+            subcommands_full+=("${c}")
+            if ((max_subcommand_len < ${#c})); then
+                max_subcommand_len=${#c}
+            fi
+        done
+    fi
     if [ "${#subcommands[@]}" -gt "0" ]; then
         local sub_name="_KNIT_CMD_${cmd}_sucommand_names"
         sub_name=${!sub_name}
@@ -866,4 +885,9 @@ knit_extra_index() {
         fi
     done
     echo "${index}"
+}
+
+knit_set_program_description() {
+    local description="$(printf "%q" "$1")"
+    eval "_KNIT_CMD___main___description=${description}"
 }

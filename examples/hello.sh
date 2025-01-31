@@ -2,7 +2,20 @@
 
 source knit.sh
 
-knit_register_command "hello" "Greet somebody."
+knit_register sum "sum" "Add two numbers."
+knit_with_required "x" "First value"
+knit_with_required "y" "Second value"
+sum() {
+    local x=$(knit_get_parameter "x" $@)
+    local y=$(knit_get_parameter "y" $@)
+    echo $((x + y))
+}
+knit_done
+
+knit_register knit_empty "say" "Say something."
+knit_done
+
+knit_register hello "say:hello" "Greet somebody."
 knit_with_required "the-name" "Name of the person to greet."
 knit_with_optional "greeting" "Hello" "How to greet them."
 knit_with_flag "prof" "Whether they are a professor."
@@ -18,20 +31,12 @@ hello() {
     fi
     echo $message
 }
+knit_done
 
-knit_register_command "sum" "Add two numbers."
-knit_with_required "x" "First value"
-knit_with_required "y" "Second value"
-sum() {
-    local x=$(knit_get_parameter "x" $@)
-    local y=$(knit_get_parameter "y" $@)
-    echo $((x + y))
+knit_register bye "say:good_bye" "Greet somebody."
+bye() {
+    echo "Good bye"
 }
-
-knit_register_setup "mysetup" "Build some software."
-mysetup() {
-    export MYBUILD=mybuild
-    echo "MYBUILD" >> somefile.txt
-}
+knit_done
 
 knit $@
