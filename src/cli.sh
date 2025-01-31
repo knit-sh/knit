@@ -596,7 +596,13 @@ __knit_expand_command_arguments() {
             done_with_args="true"
             extra_args+=("${arg}")
         elif [[ "${done_with_args}" == "false" ]]; then
-            args+=("${arg}")
+            if [[ "$arg" == --*=* ]]; then
+                local key="${arg%%=*}"
+                local value="${arg#*=}"
+                args+=("${key}" "${value}")
+            else
+                args+=("${arg}")
+            fi
         else
             extra_args+=("${arg}")
         fi
@@ -794,7 +800,7 @@ _knit_invoke_command() {
     # check the arguments
     __knit_check_command_arguments "${cmd}" "$@"
     # expand missing optional arguments and flags
-    local args=$(__knit_expand_command_arguments "${cmd}" "$@")
+    args=$(__knit_expand_command_arguments "${cmd}" "$@")
     eval "args=(${args})"
     # call the "before" callbacks
     __knit_execute_before_commands "${cmd}" "${args[@]}"
@@ -861,63 +867,3 @@ knit_extra_index() {
     done
     echo "${index}"
 }
-
-knit_log_set_level "trace"
-
-knit_register knit_empty "say" "Say something."
-knit_with_subcommand_name "Setups"
-knit_done
-
-knit_register knit_empty "say:good" "Say good something."
-knit_hidden
-knit_done
-
-knit_register "say_hello" "say:hello" "Say hello."
-knit_with_required "name" "Name of the person to greet."
-knit_with_optional "greeting" "Hello" "How to greet the person."
-knit_with_flag "king" "Whether the person is a king."
-knit_with_extra "Some extra arguments."
-_knit_run_before echo "Someone is entering the castle..."
-_knit_run_after echo "Someone is leaving the castle..."
-say_hello() {
-    local name=$(knit_get_parameter "name" "$@")
-    local greeting=$(knit_get_parameter "greeting" "$@")
-    local king=$(knit_get_parameter "king" "$@")
-    if [[ "${king}" == "true" ]]; then
-        echo "${greeting} ${name}, your highness"
-    else
-        echo "${greeting} ${name}"
-    fi
-    local args=("$@")
-    local extra_index=$(knit_extra_index "$@")
-    local extra=("${args[@]:extra_index}")
-    echo "Extra arguments are the following: ${extra[@]}"
-    for e in "${extra[@]}"; do
-        echo "---- ${e}"
-    done
-}
-knit_done
-
-knit_register "say_hi" "say:hi" "Say hi."
-knit_with_required "name" "Name of the person to greet."
-knit_with_optional "greeting" "Hello" "How to greet the person."
-knit_with_flag "king" "Whether the person is a king."
-say_hi() {
-    echo "Hello world"
-}
-knit_done
-
-knit_register "say_good_morning" "say:good:morning" "Say good morning."
-knit_with_required "name" "Name of the person to greet."
-knit_with_optional "greeting" "Hello" "How to greet the person."
-knit_with_flag "king" "Whether the person is a king."
-say_good_morning() {
-    echo "Hello world"
-}
-knit_done
-
-#_knit_invoke_command "say" "hello" "--name" "Matthieu"
-#_knit_invoke_command "say" "hello" "--help"
-
-_knit_invoke_command "$@"
-

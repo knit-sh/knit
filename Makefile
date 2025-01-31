@@ -1,14 +1,8 @@
 KNIT_SOURCE = src/log.sh      \
-              src/boostrap.sh \
-              src/db.sh       \
-              src/pushd.sh    \
               src/set.sh      \
-              src/args.sh     \
-              src/func.sh     \
-              src/setup.sh    \
-              src/usage.sh    \
               src/str.sh      \
-              src/spack.sh    \
+              src/pushd.sh    \
+              src/cli.sh      \
               src/frame.sh    \
               src/main.sh
 
