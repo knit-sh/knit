@@ -1,5 +1,7 @@
 __KNIT_SQLITE_SOURCE_NAME="sqlite-autoconf-3480000"
 __KNIT_SQLITE_SOURCE_URL="https://www.sqlite.org/2025/${__KNIT_SQLITE_SOURCE_NAME}.tar.gz"
+__KNIT_SQLITE_EXE="${_KNIT_PREFIX}/sqlite/bin/sqlite3"
+__KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
 
 # ------------------------------------------------------------------------------
 # Download and build Sqlite3, and install it in the .knit directory.
@@ -40,4 +42,22 @@ _knit_bootstrap_sqlite() {
     rm -rf "${__KNIT_SQLITE_SOURCE_NAME}" "${__KNIT_SQLITE_SOURCE_NAME}.tar.gz" > ${_KNIT_TRACE_FILE} 2>&1
 
     knit_popd # from "${_KNIT_PREFIX}"
+
+    knit_trace "Creating database and tables..."
+    _knit_sqlite3 <<EOF
+CREATE TABLE IF NOT EXISTS metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+EOF
+
+}
+
+# ------------------------------------------------------------------------------
+# Invoke Knit's sqlite3-installed program on the main database.
+#
+# @param ... Parameters to forward to the sqlite3 command.
+# ------------------------------------------------------------------------------
+_knit_sqlite3() {
+    ${__KNIT_SQLITE_EXE} "${__KNIT_DATABASE}" "$@"
 }
