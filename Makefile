@@ -4,6 +4,9 @@ KNIT_SOURCE = src/log.sh      \
               src/pushd.sh    \
               src/cli.sh      \
               src/frame.sh    \
+              src/boostrap.sh \
+              src/spack.sh    \
+              src/sqlite.sh   \
               src/main.sh
 
 KNIT_OUTPUT = knit.sh

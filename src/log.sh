@@ -1,7 +1,7 @@
 #!/bin/bash
 
 KNIT_LOG_LEVEL=${KNIT_LOG_LEVEL:-2}
-#_KNIT_TRACE_FILE=("$(mktemp /tmp/knit.XXXXXX)")
+_KNIT_TRACE_FILE=("$(mktemp /tmp/knit.out.XXXXXX)")
 
 # ------------------------------------------------------------------------------
 # Set the log level.

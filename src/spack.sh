@@ -1,10 +1,11 @@
 #!/bin/bash
 
-_KNIT_SPACK_VERSION="v0.23.0"
-_KNIT_SPACK_ROOT="${_KNIT_PREFIX}/spack"
+KNIT_SPACK_VERSION="v0.23.0"
+__KNIT_SPACK_ROOT="${_KNIT_PREFIX}/spack"
 
-export SPACK_DISABLE_LOCAL_CONFIG=true
-export SPACK_USER_CACHE_PATH=/tmp/spack
+#export SPACK_DISABLE_LOCAL_CONFIG=true
+#export SPACK_USER_CACHE_PATH=/tmp/spack
+export SPACK_USER_CONFIG_PATH="${_KNIT_PREFIX}/.spack"
 
 # ------------------------------------------------------------------------------
 # Clone Spack from Github and checkout the specified ref (commit hash or tag).
@@ -12,10 +13,9 @@ export SPACK_USER_CACHE_PATH=/tmp/spack
 # @param ref Commit hash or tag (default to _KNIT_SPACK_VERSION).
 # ------------------------------------------------------------------------------
 _knit_bootstrap_spack() {
-    knit_info "Bootstrapping spack..."
     knit_trace "Cloning spack repository..."
-    git clone https://github.com/spack/spack.git "${_KNIT_SPACK_ROOT}" > ${_KNIT_TRACE_FILE} 2>&1
-    local ref=${1:-${_KNIT_SPACK_VERSION}}
+    git clone https://github.com/spack/spack.git "${__KNIT_SPACK_ROOT}" > ${_KNIT_TRACE_FILE} 2>&1
+    local ref=${1:-${KNIT_SPACK_VERSION}}
     knit_pushd ${_KNIT_PREFIX}/spack
     knit_trace "Checking out spack ${ref}..."
     git checkout $ref > ${_KNIT_TRACE_FILE} 2>&1

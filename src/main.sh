@@ -17,12 +17,8 @@ knit_done
 # ------------------------------------------------------------------------------
 knit() {
     if [[ "$1" == "--help" ]]; then
-        (
-            _knit_invoke_command "__main__" "--help"
-        )
+        _knit_invoke_command "__main__" "--help"
     else
-        (
-            _knit_invoke_command "$@"
-        )
+        _knit_invoke_command "$@"
     fi
 }
