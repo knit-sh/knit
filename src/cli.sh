@@ -226,9 +226,7 @@ knit_register() {
     eval "_KNIT_CMD_${cmd}_extra=''"
     eval "_KNIT_CMD_${cmd}_is_hidden=false"
     eval "_KNIT_CMD_${cmd}_before_cb=()"
-    eval "_KNIT_CMD_${cmd}_before_cb_args=()"
     eval "_KNIT_CMD_${cmd}_after_cb=()"
-    eval "_KNIT_CMD_${cmd}_after_cb_args=()"
     eval "_KNIT_CMD_${cmd}_sucommand_names=\"Subcommands\""
     _KNIT_CURRENT_FUNCTION="${name}"
     _KNIT_CURRENT_COMMAND="${cmd}"
@@ -411,18 +409,11 @@ _knit_run_before() {
     knit_trace "Adding callback to run before ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local cb_list_name="_KNIT_CMD_${cmd}_before_cb"
+    # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"
-    local cb_args_list_name="_KNIT_CMD_${cmd}_before_cb_args"
-    local -n cb_args_list_ref="${cb_args_list_name}"
-    local cb="$1"
-    shift
-    local cb_args=""
-    for arg in "$@"; do
-        cb_args+="\"${arg}\" "
-    done
-    cb_args="$(printf "%q" "${cb_args% }")"
+    local cb
+    cb=$(printf "%q " "$@")
     cb_list_ref+=("${cb}")
-    cb_args_list_ref+=("${cb_args}")
 }
 
 # ------------------------------------------------------------------------------
@@ -440,16 +431,10 @@ __knit_execute_before_commands() {
     demangled_cmd=$(__knit_command_demangle "${cmd}")
     knit_trace "Executing callbacks before ${demanled_cmd}."
     local cb_list_name="_KNIT_CMD_${cmd}_before_cb"
-    local cb_args_list_name="_KNIT_CMD_${cmd}_before_cb_args"
     # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"
-    # shellcheck disable=SC2178
-    local -n cb_args_list_ref="${cb_args_list_name}"
-    for ((i = 0; i < ${#cb_list_ref[@]}; i++)); do
-        local cb="${cb_list_ref[i]}"
-        local cb_args
-        eval "cb_args=${cb_args_list_ref[i]}"
-        eval "${cb} ${cb_args[@]} $@"
+    for cb in "${cb_list_ref[@]}"; do
+        eval "${cb} $*"
     done
 }
 
@@ -470,20 +455,11 @@ _knit_run_after() {
     knit_trace "Adding callback to run after ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local cb_list_name="_KNIT_CMD_${cmd}_after_cb"
-    local cb_args_list_name="_KNIT_CMD_${cmd}_after_cb_args"
     # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"
-    # shellcheck disable=SC2178
-    local -n cb_args_list_ref="${cb_args_list_name}"
-    local cb="$1"
-    shift
-    local cb_args=""
-    for arg in "$@"; do
-        cb_args+="\"${arg}\" "
-    done
-    cb_args=$(printf "%q" "${cb_args% }")
+    local cb
+    cb=$(printf "%q " "$@")
     cb_list_ref+=("${cb}")
-    cb_args_list_ref+=("${cb_args}")
 }
 
 # ------------------------------------------------------------------------------
@@ -501,16 +477,10 @@ __knit_execute_after_commands() {
     demangled_cmd=$(__knit_command_demangle "${cmd}")
     knit_trace "Executing callbacks after ${demanled_cmd}."
     local cb_list_name="_KNIT_CMD_${cmd}_after_cb"
-    local cb_args_list_name="_KNIT_CMD_${cmd}_after_cb_args"
     # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"
-    # shellcheck disable=SC2178
-    local -n cb_args_list_ref="${cb_args_list_name}"
-    for ((i=0; i<${#cb_list_ref[@]}; i++)); do
-        local cb="${cb_list_ref[i]}"
-        local cb_args
-        eval "cb_args=${cb_args_list_ref[i]}"
-        eval "${cb} ${cb_args[@]} $@"
+    for cb in "${cb_list_ref[@]}"; do
+        eval "${cb} $*"
     done
 }
 

@@ -19,6 +19,8 @@ knit_register hello "say:hello" "Greet somebody."
 knit_with_required "the-name" "Name of the person to greet."
 knit_with_optional "greeting" "Hello" "How to greet them."
 knit_with_flag "prof" "Whether they are a professor."
+_knit_run_before echo "Hello world" Something
+_knit_run_after echo "Good bye" ABD
 hello() {
     local name=$(knit_get_parameter "the-name" $@)
     local greeting=$(knit_get_parameter "greeting" $@)
