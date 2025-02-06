@@ -17,8 +17,9 @@ knit_empty() {
 # @param cmd Command to mangle.
 # ------------------------------------------------------------------------------
 __knit_command_mangle() {
-    local cmd="$@"
-    local mangled=$(echo "$cmd" | sed -E 's/[: ]+/__1__/g')
+    local cmd="$*"
+    local mangled
+    mangled=$(echo "$cmd" | sed -E 's/[: ]+/__1__/g')
     printf "%s" "${mangled}"
 }
 
@@ -96,8 +97,10 @@ __knit_param_check_declaration() {
     fi
 
     local cmd="${_KNIT_CURRENT_COMMAND}"
-    local demangled_cmd="$(__knit_command_demangle "${cmd}")"
-    local normalized="$(__knit_name_normalize "${param}")"
+    local demangled_cmd
+    demangled_cmd=$(__knit_command_demangle "${cmd}")
+    local normalized
+    normalized=$(__knit_name_normalize "${param}")
 
     if _knit_set_find "_KNIT_CMD_${cmd}_required" "${normalized}" \
     || _knit_set_find "_KNIT_CMD_${cmd}_optional" "${normalized}" \
@@ -126,7 +129,8 @@ __knit_param_description_var() {
 # @param param Name of the parameter (must be normalized).
 # ------------------------------------------------------------------------------
 __knit_param_description() {
-    local description_var=$(__knit_param_description_var "$@")
+    local description_var
+    description_var=$(__knit_param_description_var "$@")
     printf "%s" "${!description_var}"
 }
 
@@ -150,7 +154,8 @@ __knit_param_default_var() {
 # @param param Name of the parameter (must be normalized).
 # ------------------------------------------------------------------------------
 __knit_param_default() {
-    local default_var=$(__knit_param_default_var "$@")
+    local default_var
+    default_var=$(__knit_param_default_var "$@")
     printf "%s" "${!default_var}"
 }
 
@@ -160,7 +165,7 @@ __knit_param_default() {
 # "aaa bbb" or "aaa__1__bbb".
 # ------------------------------------------------------------------------------
 __knit_command_get_parents() {
-    local cmd="$@"
+    local cmd="$*"
     if [[ "$cmd" =~ ^(.*)([[:space:]]|:|__1__)[^[:space:]:__1__]*$ ]]; then
         printf "%s" "${BASH_REMATCH[1]}"
     fi
@@ -172,7 +177,7 @@ __knit_command_get_parents() {
 # cases above).
 # ------------------------------------------------------------------------------
 __knit_command_get_last() {
-    local cmd="$@"
+    local cmd="$*"
     if [[ "$cmd" =~ (.*)([[:space:]]|:|__1__)([^[:space:]:__1__]+)$ ]]; then
         printf "%s" "${BASH_REMATCH[3]}"
     else
@@ -192,7 +197,8 @@ __knit_command_get_last() {
 knit_register() {
     local name=$1 # e.g. "myfunction"
     local demangled_cmd="$2"  # e.g. "command:subcommand"
-    local description=$(printf '%q' "$3")
+    local description
+    description=$(printf '%q' "$3")
     if [[ -v _KNIT_CURRENT_COMMAND ]]; then
         knit_done
         knit_warning "You forgot to call \"knit_done\" after registering the previous command."
@@ -201,9 +207,11 @@ knit_register() {
     if [[ ! "${demangled_cmd}" =~ ^[a-zA-Z0-9_:]+$ ]]; then
         knit_fatal "Invalid character found in command name \"${demangled_cmd}\"."
     fi
-    local cmd=$(__knit_command_mangle "${demangled_cmd}")
-    local parent_cmd=$(__knit_command_get_parents "$cmd")
-    if [ ! -z "${parent_cmd}" ]  &&  ! _knit_set_find _KNIT_COMMANDS "${parent_cmd}"; then
+    local cmd
+    cmd=$(__knit_command_mangle "${demangled_cmd}")
+    local parent_cmd
+    parent_cmd=$(__knit_command_get_parents "$cmd")
+    if [ -n "${parent_cmd}" ]  &&  ! _knit_set_find _KNIT_COMMANDS "${parent_cmd}"; then
         knit_fatal "Cannot register command \"${demangled_cmd}\" because its parent has not been registered."
     fi
     if _knit_set_find _KNIT_COMMANDS "${cmd}"; then
@@ -288,11 +296,14 @@ knit_with_subcommand_name() {
 # ------------------------------------------------------------------------------
 knit_with_required() {
     __knit_param_check_declaration "required" "$1" "$2"
-    local param=$(__knit_name_normalize "$1")
+    local param
+    param=$(__knit_name_normalize "$1")
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
-    local description=$(printf '%q' "$2")
-    local description_var="$(__knit_param_description_var "${cmd}" "${param}")"
+    local description
+    description=$(printf '%q' "$2")
+    local description_var
+    description_var=$(__knit_param_description_var "${cmd}" "${param}")
     knit_trace "Adding required parameter \"$1\" to command \"${demangled_cmd}\"."
     eval "${description_var}=${description}"
     _knit_set_add "_KNIT_CMD_${cmd}_required" "${param}"
@@ -319,13 +330,18 @@ knit_with_required() {
 # ------------------------------------------------------------------------------
 knit_with_optional() {
     __knit_param_check_declaration "optional" "$1" "$3"
-    local param=$(__knit_name_normalize "$1")
+    local param
+    param=$(__knit_name_normalize "$1")
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
-    local default=$(printf '%q' "$2")
-    local description=$(printf '%q' "$3")
-    local description_var="$(__knit_param_description_var "${cmd}" "${param}")"
-    local default_var="$(__knit_param_default_var "${cmd}" "${param}")"
+    local default
+    default=$(printf '%q' "$2")
+    local description
+    description=$(printf '%q' "$3")
+    local description_var
+    description_var=$(__knit_param_description_var "${cmd}" "${param}")
+    local default_var
+    default_var=$(__knit_param_default_var "${cmd}" "${param}")
     knit_trace "Adding optional parameter \"$1\" to command \"${demangled_cmd}\"."
     eval "${description_var}=$description"
     eval "${default_var}=$default"
@@ -350,11 +366,14 @@ knit_with_optional() {
 # ------------------------------------------------------------------------------
 knit_with_flag() {
     __knit_param_check_declaration "flag" "$1" "$2"
-    local param=$(__knit_name_normalize "$1")
+    local param
+    param=$(__knit_name_normalize "$1")
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
-    local description=$(printf '%q' "$2")
-    local description_var="$(__knit_param_description_var "${cmd}" "${param}")"
+    local description
+    description=$(printf '%q' "$2")
+    local description_var
+    description_var=$(__knit_param_description_var "${cmd}" "${param}")
     knit_trace "Adding flag \"$1\" to command \"${demangled_cmd}\"."
     eval "${description_var}=${description}"
     _knit_set_add "_KNIT_CMD_${cmd}_flags" "${param}"
@@ -370,7 +389,8 @@ knit_with_extra() {
         knit_fatal "knit_with_extra should be used after a call to \"knit_register\"."
     fi
     local cmd="${_KNIT_CURRENT_COMMAND}"
-    local description="$(printf "%q" "$1")"
+    local description
+    description=$(printf "%q" "$1")
     eval "_KNIT_CMD_${cmd}_extra=${description}"
 }
 
@@ -391,9 +411,9 @@ _knit_run_before() {
     knit_trace "Adding callback to run before ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local cb_list_name="_KNIT_CMD_${cmd}_before_cb"
-    local -n cb_list_ref=${cb_list_name}
+    local -n cb_list_ref="${cb_list_name}"
     local cb_args_list_name="_KNIT_CMD_${cmd}_before_cb_args"
-    local -n cb_args_list_ref=${cb_args_list_name}
+    local -n cb_args_list_ref="${cb_args_list_name}"
     local cb="$1"
     shift
     local cb_args=""
@@ -416,13 +436,16 @@ _knit_run_before() {
 __knit_execute_before_commands() {
     local cmd="$1"
     shift
-    local demanled_cmd=$(__knit_command_demangle "${cmd}")
+    local demanled_cmd
+    demangled_cmd=$(__knit_command_demangle "${cmd}")
     knit_trace "Executing callbacks before ${demanled_cmd}."
     local cb_list_name="_KNIT_CMD_${cmd}_before_cb"
     local cb_args_list_name="_KNIT_CMD_${cmd}_before_cb_args"
+    # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"
+    # shellcheck disable=SC2178
     local -n cb_args_list_ref="${cb_args_list_name}"
-    for ((i=0; i<${#cb_list_ref[@]}; i++)); do
+    for ((i = 0; i < ${#cb_list_ref[@]}; i++)); do
         local cb="${cb_list_ref[i]}"
         local cb_args
         eval "cb_args=${cb_args_list_ref[i]}"
@@ -447,16 +470,18 @@ _knit_run_after() {
     knit_trace "Adding callback to run after ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local cb_list_name="_KNIT_CMD_${cmd}_after_cb"
-    local -n cb_list_ref=${cb_list_name}
     local cb_args_list_name="_KNIT_CMD_${cmd}_after_cb_args"
-    local -n cb_args_list_ref=${cb_args_list_name}
+    # shellcheck disable=SC2178
+    local -n cb_list_ref="${cb_list_name}"
+    # shellcheck disable=SC2178
+    local -n cb_args_list_ref="${cb_args_list_name}"
     local cb="$1"
     shift
     local cb_args=""
     for arg in "$@"; do
         cb_args+="\"${arg}\" "
     done
-    cb_args="$(printf "%q" "${cb_args% }")"
+    cb_args=$(printf "%q" "${cb_args% }")
     cb_list_ref+=("${cb}")
     cb_args_list_ref+=("${cb_args}")
 }
@@ -472,11 +497,14 @@ _knit_run_after() {
 __knit_execute_after_commands() {
     local cmd="$1"
     shift
-    local demanled_cmd=$(__knit_command_demangle "${cmd}")
+    local demanled_cmd
+    demangled_cmd=$(__knit_command_demangle "${cmd}")
     knit_trace "Executing callbacks after ${demanled_cmd}."
     local cb_list_name="_KNIT_CMD_${cmd}_after_cb"
     local cb_args_list_name="_KNIT_CMD_${cmd}_after_cb_args"
+    # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"
+    # shellcheck disable=SC2178
     local -n cb_args_list_ref="${cb_args_list_name}"
     for ((i=0; i<${#cb_list_ref[@]}; i++)); do
         local cb="${cb_list_ref[i]}"
@@ -497,7 +525,8 @@ __knit_execute_after_commands() {
 # ------------------------------------------------------------------------------
 __knit_check_command_arguments() {
     local cmd="$1"
-    local demangled_cmd=$(__knit_command_demangle "${cmd}")
+    local demangled_cmd
+    demangled_cmd=$(__knit_command_demangle "${cmd}")
     shift
     local args=("$@")
     # Check that all the required arguments have been provided
@@ -562,13 +591,15 @@ __knit_find_flag() {
     shift
     local list=("$@")
 
-    local formatted_flag=$(_knit_str_hyphens_to_underscores "${flag}")
+    local formatted_flag
     local item
+    local arg
+    formatted_flag=$(_knit_str_hyphens_to_underscores "${flag}")
     for item in "${list[@]}"; do
         if [[ "${item}" == "--" ]]; then
             break
         fi
-        local arg=$(_knit_str_hyphens_to_underscores "${item}")
+        arg=$(_knit_str_hyphens_to_underscores "${item}")
         if [[ "${arg}" == "${formatted_flag}" ]]; then
             return 0
         fi
@@ -614,7 +645,8 @@ __knit_expand_command_arguments() {
         if knit_get_parameter "${option}" "${args[@]}" > /dev/null; then
             continue
         fi
-        local default_value="$(__knit_param_default "${cmd}" "${option}")"
+        local default_value
+        default_value=$(__knit_param_default "${cmd}" "${option}")
         args+=("--${option}" "${default_value}")
     done
     # Handle flags (add them as option with value "true" or "false")
@@ -647,70 +679,71 @@ __knit_expand_command_arguments() {
 # @param ...cmds Command and subcommand names
 # ------------------------------------------------------------------------------
 __knit_print_command_usage() {
-    local demanled_cmd="$@"
-    local cmd="$(__knit_command_mangle "${demangled_cmd}")"
+    local demanled_cmd="$*"
+    local cmd
+    cmd=$(__knit_command_mangle "${demangled_cmd}")
     local extra_var="_KNIT_CMD_${cmd}_extra"
     if [[ "${demanled_cmd}" == "__main__" ]]; then
-        printf "Usage: $0 [OPTIONS]\n\n"
+        printf "Usage: %s [OPTIONS]\n\n" "$0"
     elif [ -z "${!extra_var}" ]; then
-        printf "Usage: $0 ${demangled_cmd} [OPTIONS]\n\n"
+        printf "Usage: %s %s [OPTIONS]\n\n" "$0" "${demangled_cmd}"
     else
-        printf "Usage: $0 ${demangled_cmd} [OPTIONS] -- [EXTRA]\n\n"
+        printf "Usage: %s %s [OPTIONS] -- [EXTRA]\n\n" "$0" "${demangled_cmd}"
     fi
 
     local description_var="_KNIT_CMD_${cmd}_description"
     printf "  %s\n\n" "${!description_var}"
 
     printf "Options\n-------\n"
-    local max_param_len=4 # size of "help"
     local required_args_varname="_KNIT_CMD_${cmd}_required"
     local -n required_args_ref="${required_args_varname}"
     local optional_args_varname="_KNIT_CMD_${cmd}_optional"
     local -n optional_args_ref="${optional_args_varname}"
     local flags_args_varname="_KNIT_CMD_${cmd}_flags"
     local -n flags_args_ref="${flags_args_varname}"
-    local max_opt_length=0
+    local max_opt_length=4 # size of "help"
     local opt
+    local opt2
     for opt in "${required_args_ref[@]}"; do
-        local opt2="--${opt} <value>"
+        opt2="--${opt} <value>"
         local opt_length=${#opt2}
         if (( opt_length > max_opt_length )); then
             max_opt_length=${opt_length}
         fi
     done
     for opt in "${optional_args_ref[@]}"; do
-        local opt2="--${opt} <value>"
+        opt2="--${opt} <value>"
         local opt_length=${#opt2}
         if (( opt_length > max_opt_length )); then
             max_opt_length=${opt_length}
         fi
     done
     for opt in "${flags_args_ref[@]}"; do
-        local opt2="--${opt}"
+        opt2="--${opt}"
         local opt_length=${#opt2}
         if (( opt_length > max_opt_length )); then
             max_opt_length=${opt_length}
         fi
     done
 
+    local description
+    local default
+
     printf "  %-${max_opt_length}s  %s\n" "--help" "Print this help message and exit."
     for opt in "${required_args_ref[@]}"; do
-        local description="$(__knit_param_description "${cmd}" "${opt}")"
-        local opt2
+        description=$(__knit_param_description "${cmd}" "${opt}")
         opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
         printf "  %-${max_opt_length}s  %s\n" "${opt2} <value>" "[required] ${description}"
     done
     for opt in "${optional_args_ref[@]}"; do
-        local description="$(__knit_param_description "${cmd}" "${opt}")"
-        local default="$(__knit_param_default "${cmd}" "${opt}")"
-        local opt2
+        description=$(__knit_param_description "${cmd}" "${opt}")
+        default=$(__knit_param_default "${cmd}" "${opt}")
         opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
         printf "  %-${max_opt_length}s  %s\n" "${opt2} <value>" "[default: '${default}'] ${description}"
     done
     max_opt_length=$((max_opt_length - 8))
     for opt in "${flags_args_ref[@]}"; do
-        local description="$(__knit_param_description "${cmd}" "${opt}")"
-        local opt2
+        description=$(__knit_param_description "${cmd}" "${opt}")
         opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
         printf "  %-${max_opt_length}s  %s\n" "${opt2}" "        [flag] ${description}"
     done
@@ -760,8 +793,9 @@ __knit_print_command_usage() {
     if [ "${#subcommands[@]}" -gt "0" ]; then
         local sub_name="_KNIT_CMD_${cmd}_sucommand_names"
         sub_name=${!sub_name}
-        local hrule=$(printf '%*s' "${#sub_name}" | tr ' ' '-')
-        printf "\n${sub_name}\n${hrule}\n"
+        local hrule
+        hrule=$(printf "%*s" "${#sub_name}" "" | tr ' ' '-')
+        printf "\n%s\n%s\n" "${sub_name}" "${hrule}"
         local i
         for ((i=0; i<${#subcommands[@]}; i++)); do
             local description_var="_KNIT_CMD_${subcommands_full[i]}_description"
@@ -773,7 +807,7 @@ __knit_print_command_usage() {
     if [ -n "${!extra_var}" ]; then
         printf "\nExtra"
         printf "\n-----\n"
-        printf "  ${!extra_var}\n"
+        printf "  %s\n" "${!extra_var}"
     fi
 }
 
@@ -803,7 +837,8 @@ _knit_invoke_command() {
         shift
     done
     # create the mangled command name
-    local cmd="$(__knit_command_mangle "${demangled_cmd}")"
+    local cmd
+    cmd=$(__knit_command_mangle "${demangled_cmd}")
     # check if the command exists
     if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
         knit_fatal "Unknown command \"${demangled_cmd}\"."
@@ -819,6 +854,7 @@ _knit_invoke_command() {
     # check the arguments
     __knit_check_command_arguments "${cmd}" "$@"
     # expand missing optional arguments and flags
+    local args
     args=$(__knit_expand_command_arguments "${cmd}" "$@")
     eval "args=(${args})"
     # call the "before" callbacks
@@ -840,7 +876,7 @@ _knit_invoke_command() {
 # ------------------------------------------------------------------------------
 knit_get_parameter() {
     local param
-    param="$(_knit_str_hyphens_to_underscores "--$1")"
+    param=$(_knit_str_hyphens_to_underscores "--$1")
     shift
     local list=("$@")
     local i
@@ -848,7 +884,8 @@ knit_get_parameter() {
         if [[ "${list[i]}" == "--" ]]; then
             break
         fi
-        local arg="$(_knit_str_hyphens_to_underscores "${list[i]}")"
+        local arg
+        arg=$(_knit_str_hyphens_to_underscores "${list[i]}")
         if [[ "${arg}" == "${param}" ]]; then
             if ((i + 1 < ${#list[@]})); then
                 printf "%s" "${list[i+1]}"
@@ -888,6 +925,7 @@ knit_extra_index() {
 }
 
 knit_set_program_description() {
-    local description="$(printf "%q" "$1")"
+    local description
+    description=$(printf "%q" "$1")
     eval "_KNIT_CMD___main___description=${description}"
 }

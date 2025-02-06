@@ -4,7 +4,7 @@
 # Silent version of pushd.
 # ------------------------------------------------------------------------------
 knit_pushd() {
-    knit_trace "Entering $(realpath $1)"
+    knit_trace "Entering $(realpath "$1")"
     command pushd "$@" > /dev/null || return 1
 }
 

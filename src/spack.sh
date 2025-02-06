@@ -14,11 +14,11 @@ export SPACK_USER_CONFIG_PATH="${_KNIT_PREFIX}/.spack"
 # ------------------------------------------------------------------------------
 _knit_bootstrap_spack() {
     knit_trace "Cloning spack repository..."
-    git clone https://github.com/spack/spack.git "${__KNIT_SPACK_ROOT}" > ${_KNIT_TRACE_FILE} 2>&1
-    local ref=${1:-${KNIT_SPACK_VERSION}}
-    knit_pushd ${_KNIT_PREFIX}/spack
+    git clone https://github.com/spack/spack.git "${__KNIT_SPACK_ROOT}" > "${_KNIT_TRACE_FILE}" 2>&1
+    local ref="${1:-${KNIT_SPACK_VERSION}}"
+    knit_pushd "${_KNIT_PREFIX}/spack"
     knit_trace "Checking out spack ${ref}..."
-    git checkout $ref > ${_KNIT_TRACE_FILE} 2>&1
+    git checkout "$ref" > "${_KNIT_TRACE_FILE}" 2>&1
     knit_popd
 }
 
@@ -29,7 +29,8 @@ _knit_bootstrap_spack() {
 # ------------------------------------------------------------------------------
 _knit_spack_install() {
     (
-        source "${_KNIT_SPACK_ROOT}/share/spack/setup-env.sh"
+        # shellcheck disable=SC1091
+        source "${__KNIT_SPACK_ROOT}/share/spack/setup-env.sh"
         local spec
         for spec in "$@"; do
             knit_info "Installing package ${spec}..."

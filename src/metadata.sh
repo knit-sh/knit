@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # ------------------------------------------------------------------------------
 # Registration of the metadata command.
 # ------------------------------------------------------------------------------
@@ -11,8 +13,10 @@ knit_register _knit_metadata_store "metadata:store" "Store a key/value pair of m
 knit_with_required "key" "Key."
 knit_with_required "value" "Value."
 _knit_metadata_store() {
-    local key=$(knit_get_parameter "key" "$@")
-    local value=$(knit_get_parameter "value" "$@")
+    local key
+    local value
+    key=$(knit_get_parameter "key" "$@")
+    value=$(knit_get_parameter "value" "$@")
     _knit_sqlite3 "$(printf "INSERT INTO metadata (key, value) VALUES ('%q', '%q');" "${key}" "${value}")"
 }
 knit_done
@@ -23,7 +27,8 @@ knit_done
 knit_register _knit_metadata_load "metadata:load" "Load the value associated with a key in the metadata."
 knit_with_required "key" "Key."
 _knit_metadata_load() {
-    local key=$(knit_get_parameter "key" "$@")
+    local key
+    key=$(knit_get_parameter "key" "$@")
     _knit_sqlite3 "$(printf "SELECT value FROM metadata WHERE key = '%q';" "${key}")"
 }
 knit_done
@@ -33,6 +38,6 @@ knit_done
 # ------------------------------------------------------------------------------
 knit_register _knit_metadata_show "metadata:show" "Show all the stored metadata."
 _knit_metadata_show() {
-    _knit_sqlite3 -header -column "$(printf "SELECT * FROM metadata;" "${key}")"
+    _knit_sqlite3 -header -column "$(printf "SELECT * FROM metadata;")"
 }
 knit_done

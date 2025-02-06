@@ -6,7 +6,7 @@ _KNIT_PREFIX="$(pwd)/.knit"
 __knit_bootstrap_on_exit() {
     if [ -z "${__KNIT_BOOTSTRAP_COMPLETED}" ]; then
         knit_warning "Bootstrap did not complete successfully, deleting ${_KNIT_PREFIX}"
-        rm -rf "${_KNIT_PREFIX}" > ${_KNIT_TRACE_FILE} 2>&1
+        rm -rf "${_KNIT_PREFIX}" > "${_KNIT_TRACE_FILE}" 2>&1
     fi
 }
 
@@ -19,15 +19,17 @@ knit_register _knit_bootstrap "bootstrap" "Bootstrap the Knit framework."
 knit_with_flag "spack" "Whether to download spack."
 knit_with_optional "project" "" "Name of the project to use when submitting jobs."
 _knit_bootstrap() {
-    local project="$(knit_get_parameter "project" "$@")"
-    local need_spack="$(knit_get_parameter "spack" "$@")"
+    local project
+    local need_spack
+    project="$(knit_get_parameter "project" "$@")"
+    need_spack="$(knit_get_parameter "spack" "$@")"
 
     # Create directory
     if [ -d "${_KNIT_PREFIX}" ]; then
         knit_fatal "Knit is already bootstrapped."
     fi
     knit_trace "Creating ${_KNIT_PREFIX} directory"
-    mkdir "${_KNIT_PREFIX}" > ${_KNIT_TRACE_FILE} 2>&1
+    mkdir "${_KNIT_PREFIX}" > "${_KNIT_TRACE_FILE}" 2>&1
     trap __knit_bootstrap_on_exit EXIT
 
     if [[ "${need_spack}" == "true" ]]; then
