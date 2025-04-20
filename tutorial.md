@@ -1,38 +1,29 @@
 # Tutorial
 
 In this document, we will run through how to use Knit to make an experiment
-reproducible. For this, we will use [this repository]() as the HPC code to
-run. This code is a simple [Game of Life]() simulation written in C and
-parallelized using MPI. Once built and installed as explained in its
-[README]() file, it can be run as follows.
+reproducible. For this, we will use
+[this repository](https://github.com/knit-sh/julia-fractal-example) as the
+HPC code to run. This code is a simple
+[Julia fractal](https://en.wikipedia.org/wiki/Julia_set) renderer written
+in C++ and trivially parallelized using MPI. Once built and installed as
+explained in its
+[README](https://github.com/knit-sh/julia-fractal-example/blob/main/README.md)
+file, it can be run as follows.
 
 ```bash
-$ game-of-life <s> <p> <i>
+$ mpirun -np <N> julia-fractal <w> <h> <r> <i> <m> <o>
 ```
 
-Where `s` is the size of the grid (the grid will be a square of `s` by `s`),
-`p` is the initial probability (between 0 and 1) for any cell to be alive,
-and `i` is the number of iterations.
-
-When executed, this code will run `i` iterations from an initially random
-grid, and print the number of cells alive at the end.
-
-The code can be run with MPI as follows.
-
-```bash
-$ mpiexec ... game-of-life <s> <p> <i>
-```
-
-The number of processes used should be a square number (e.g., 1, 4, 9, 16...)
-as the program will arrange them in a cartesian grid. Each process will
-handle a subgrid of size `s` by `s`, and the process with rank 0 will
-print the number of cells alive at the end of the simulation.
+Where `w` and `h` are the dimensions of the grid (and resulting image),
+`r` and `i` are the real and imaginary part of the Julia set's constant,
+`m` is the maximum number of iterations to check for divergence, and
+`o` is an optional PNG file name in which to store the image.
 
 In the rest of this tutorial, we will assume that you have built and installed
 this example simulation and that you can run it "manually" on a cluster or
-supercomputer (i.e., you can submit an interactive job and run the simulation
+supercomputer (i.e., you can submit an interactive job and run the program
 as an MPI application in it). We will walk our way backward, from wrapping
-up the simulation in a Knit application, to scripting the job that will run
+up the program in a Knit application, to scripting the job that will run
 it, then scripting the way it is built.
 
 
@@ -65,13 +56,13 @@ your experiment using `knit_set_program_description`, so let's do that now.
 
 source knit.sh
 
-knit_set_program_description "Game of life tutorial experiment."
+knit_set_program_description "Julia set tutorial experiment."
 knit $@
 ```
 
 Run `./tutorial.sh --help` again and you will see that the warning has now changed
 to your description. We can now also *bootstrap* our experiment, that is, install
-any software the Knit itself requires (not our code yet), and create the databases
+any software that Knit itself requires (not our code yet), and create the databases
 and directory structures needed.
 
 ```bash
@@ -93,15 +84,22 @@ execution in a database.
 The following is an *app* wrapper for our `game-of-life` binary.
 
 ```bash
-knit_register_app "game_of_life" "game_of_life_fn" "Game of life simulation."
-knit_with_required "grid-size" "integer" "Grid size in each process."
-knit_with_required "alive-ratio" "real" "Initial ratio of live cells (between 0 and 1)."
-knit_with_required "iterations" "integer" "Number of iterations."
-game_of_life_fn() {
-    local size=$(knit_get_parameter "grid-size" $@)
-    local ratio=$(knit_get_parameter "alive-ratio" $@)
-    local iterations=$(knit_get_parameter "iterations" $@)
-    game-of-life "${size}" "${ratio}" "${iterations}"
+knit_register_app "julia" "julia_fractal_fn" "Julia fractal computation."
+knit_with_required "grid-width" "integer" "Width of the grid (and image)."
+knit_with_required "grid-height" "integer" "Height of the grid (and image)."
+knit_with_required "c-real" "Real part of the parameter of the Julia set."
+knit_with_required "c-imaginary" "Imaginary part of the parameter of the Julia set."
+knit_with_optional "max-iterations" "integer" 1000 "Max number of iterations for convergence."
+knit_with_optional "output-filename" "string" "" "Path to the output PNG file."
+julia_fractal_fn() {
+    local w h m r i o
+    w=$(knit_get_parameter "grid-width" $@)
+    h=$(knit_get_parameter "grid-height" $@)
+    m=$(knit_get_parameter "max-iterations" $@)
+    r=$(knit_get_parameter "c-real" $@)
+    i=$(knit_get_parameter "c-imaginary" $@)
+    o=$(knit_get_parameter "output_filename" $@)
+    julia-fractal "${w}" "${h}" "${r}" "${i}" "${m}" "${o}"
 }
 knit_done
 ```
@@ -115,61 +113,152 @@ Next come a series of calls to `knit_with_required`. These calls tell Knit the
 parameters that are required by the application, providing a name, a type
 (types can be `integer`, `real`, `boolean`, or `string`), and a description.
 
-We then define the `game_of_life_fn` function wrapping the simulation. It uses
+We then define the `julia_fractal_fn` function wrapping our program. It uses
 `knit_get_parameter` to extract parameters from its list of arguments, and calls
-the `game-of-life` binary.
+the `julia-fractal` binary.
 
-You may now call again `./tutorial.sh --help`, you will find the `game_of_life`
-application listed. Call `./tutorial.sh game_of_life --help` to show its usage.
+You may now call again `./tutorial.sh --help`, you will find the `julia`
+application listed. Call `./tutorial.sh julia --help` to show its usage.
 Finally, call the following to run the application.
 
 ```bash
-$ ./tutorial.sh game_of_life --size 32 --alive 0.2 --iterations 10
+$ ./tutorial.sh julia --grid-width 800 --grid-height 600 \
+                      --c-real -0.8 --c-imaginary 0.156  \
+                      --max-iterations 1000 \
+                      --output-filename julia.png
 ```
 
-If this command fails because `game-of-life` could not be found, simply add its
+If this command fails because `julia-fractal` could not be found, simply add its
 path to your `PATH` environment variable, for now. We will learn later how to
 properly setup the required dependencies and environment variables.
 
+The above command simply prints a UUID, instead of the `julia-fractal` program's
+standard output. Run the command a few times and you will see that this UUID is
+different each time. The next section will explain what these UUIDs are and how
+to get the output of the call.
+
+So far all we have done is wrap an executable within a Bash function and defined
+its parameters. You will note that contrary to the executable itself, the function
+required *named parameters`, i.e. `--grid-width 800` instead of just `800`.
+Knit only uses named parameters, forcing users to make their program's input as
+descriptive as possible. We recommend using parameter names that are as explicit
+as possible, as these parameter names will turn into columns in database tables.
 
 ## First step into Knit's database
 
-Another way of running the previously defined  application is as follows.
+Earlier we have invoked the `julia-fractal` executable through Knit. We only got
+a UUID printed on our terminal. So where has the actual output gone? Well, this is
+where some of the magic of Knit happens. Run the following command to find out,
+replacing the UUID with one of the UUIDs printed by one of your runs.
 
 ```bash
-$ ./tutorial.sh run game_of_life --size 32 --alive 0.2 --iterations 10
-```
-
-Contrary to `./tutorial.sh game_of_life`, you will see that this command simply
-prints a UUID, instead of the game-of-life program's standard output. Run the
-command a few times and you will see that this UUID is different each time.
-
-So where has the output gone? Well, this is where the magic of Knit happens.
-Run the following command to find out, replacing the UUID with one of the UUIDs
-printed by one of your runs.
-
-```bash
-$ ./tutorial.sh db stdout game_of_life --id <uuid>
+$ ./tutorial.sh stdout --id <uuid>
 ```
 
 This command will print the corresponding run's output.
 Next, run the following command.
 
 ```bash
-$ ./tutorial.sh db show game_of_life
+$ ./tutorial.sh db show julia
 ```
 
-This command will print a table of the runs we have done of the `game_of_life`
-app. Columns include the parameters that were passed, the runtime, and the path
+This command will print a table of the runs we have done of the `julia` app.
+Columns include the parameters that were passed, the runtime, and the path
 of the files where their standard output and errors have been redirected.
 
-Feel free to run `./tutorial.sh db show game_of_life --help` for a list of options
-that you can use to display information from this database.
+Feel free to run `./tutorial.sh db show julia --help` for a list of options
+that you can use to display information from this database's table.
 
 You now understand the power of Knit: not only does it make scripting an experiment
 more descriptive and more understandable, it also records what your experiment is
 doing in a database.
 
-## Making a `job`
 
+## Invoking an `app` from a `job`
 
+Typically on a supercomputer, application binaries are invoked within a job. We
+will therefore define such a job in our `tutorial.sh` script. After the definition
+of the `julia` app, add the following.
+
+```
+knit_register_job "myjob" "my_job_fn" "Job for a julia fractal computation."
+knit_with_params_from "julia" "c-real" "c-imaginary"
+my_job_fn() {
+    local r i
+    r=$(knit_get_parameter "c-real" $@)
+    i=$(knit_get_parameter "c-imaginary" $@)
+    knit julia --grid-width 800 --grid-height 600 \
+               --c-real ${r} --c-imaginary ${i}   \
+               --max-iterations 1000              \
+               --output-filename julia.png
+}
+knit_done
+```
+
+Just like with an `app`, a `job` can be declared with a list of parameters,
+required or optional. Here, to avoid repetitions, `knit_with_params_from` is
+used to tell Knit that the job takes the same `c-real` and `c-imaginary`
+parameters as the `julia` app. Inside the function defining the job, we
+hard-coded the remaining parameters.
+
+You may now submit a job as follows.
+```
+./tutorial.sh submit myjob --c-real -0.8 --c-imaginary 0.156
+```
+
+Once again, you will get a UUID as the output. Contrary to an app, a job runs
+in the background after the `submit` command has been issued. On a local machine
+with no job scheduler, this simply means that the above command started a
+background process in which the job's function actually executes. We will see
+later how it works on a real supercomputer with job schedulers such as Slurm.
+
+And again, we have a database table storing jobs we have submitted. The
+following will show the table for our `myjob` jobs.
+
+```bash
+$ ./tutorial.sh db show myjob
+```
+
+## Emmitting results
+
+A typical job or application will often not just take a bunch of parameters, it
+may also emmit results. If you have manually executed the `julia-fractal`
+program, or checked its output from one of our previous runs, you should have
+seen that it displays a message like "Number of grid points within the set: 181".
+This is the number of points for which the program reached the maximum number of
+iterations without diverging (this is not strictly the number of points in the set,
+but we will call it that nonetheless).
+
+We will change our job definition as follows.
+
+```
+knit_register_job "myjob" "my_job_fn" "Job for a julia fractal computation."
+knit_with_params_from "julia" "c-real" "c-imaginary"
+knit_with_output "points-in-set" "integer" "Number of grid points within the set."
+my_job_fn() {
+    local r i uuid result
+    r=$(knit_get_parameter "c-real" $@)
+    i=$(knit_get_parameter "c-imaginary" $@)
+    uuid=$(knit julia --grid-width 800 --grid-height 600 \
+                      --c-real ${r} --c-imaginary ${i}   \
+                      --max-iterations 1000              \
+                      --output-filename julia.png)
+    result=$(knit stdout --id "${uuid}"                    \
+            | grep "Number of grid points within the set:" \
+            | awk '{print $NF}')
+    knit_output "points-in-set" "${result}"
+}
+knit_done
+```
+
+Here we have assigned the UUID returned by `knit julia`, and used it to access its
+output with `knit stdout`. We pipe this output to `grep` and `awk` to extract the
+value, which we then set using `knit_output`.
+
+By submitting another `myjob` and examining the database using
+`./tutorial.sh db show myjob`, you will find that the table now has another column
+named "points-in-set" for the result of the job.
+
+`knit_with_output` may be used multiple times to defined as many output columns as
+needed. Knit will issue a warning if `knit_output` is not called for one of the
+expected outputs.
