@@ -318,7 +318,7 @@ and jobs.
 
 ```bash
 knit_register_setup "mysetup" "my_setup_fn" "Setup for the julia program."
-knit_with_spack_specs cmake mpi libpng
+knit_with_spack_specs "cmake" "mpi" "libpng"
 knit_with_optional "julia-version" "string" "main" "Tag, branch, or commit to checkout."
 my_setup_fn() {
     local version prefix
