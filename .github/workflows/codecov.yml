@@ -12,31 +12,20 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
-
-      - name: Copy coverage config to project root
-        run: cp .github/codecov/Gemfile .github/codecov/.simplecov .
-
-      - name: Install Ruby dependencies
-        run: bundle install
-
-      - name: Install bats
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats
+          sudo apt-get install -y bats kcov
 
       - name: Build knit.sh
         run: make
 
       - name: Run tests with coverage
-        run: bashcov -- bats tests/
+        run: kcov --include-path=. coverage/ bats tests/
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage/coverage.xml
+          files: coverage/bats/cobertura.xml
           fail_ci_if_error: true
