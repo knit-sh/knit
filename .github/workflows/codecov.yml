@@ -12,31 +12,29 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
-
-      - name: Copy coverage config to project root
-        run: cp .github/codecov/Gemfile .github/codecov/.simplecov .
-
-      - name: Install Ruby dependencies
-        run: bundle install
-
-      - name: Install bats
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats
+          sudo apt-get install -y bats cmake pkg-config libdw-dev libcurl4-openssl-dev
+
+      - name: Build and install kcov
+        run: |
+          wget -q https://github.com/SimonKagstrom/kcov/archive/refs/tags/v43.tar.gz
+          tar xzf v43.tar.gz
+          cmake -S kcov-43 -B kcov-43/build
+          make -C kcov-43/build -j"$(nproc)"
+          sudo make -C kcov-43/build install
+          rm -rf kcov-43 v43.tar.gz
 
       - name: Build knit.sh for coverage
         run: make coverage
 
       - name: Run tests with coverage
-        run: bashcov -- bats tests/
+        run: kcov --include-path=src coverage/ bats tests/
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage/coverage.xml
+          files: coverage/*/cobertura.xml
           fail_ci_if_error: true
