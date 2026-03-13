@@ -92,10 +92,11 @@ __knit_name_is_valid() {
 # @fn __knit_param_check_declaration()
 #
 # This function carries out all the checks for a parameter to be declared by
-# knit_with_required/optional/flag.
+# knit_with_required/optional/flag. The parameter name must include a type
+# annotation in the form "name:type" (e.g. "width:integer").
 #
 # @param suffix Suffix ("required", "optional", or "flag") to use for variables.
-# @param param Parameter name.
+# @param param Parameter name followed by ":type".
 # @param description Description of the parameter.
 # ------------------------------------------------------------------------------
 __knit_param_check_declaration() {
@@ -107,24 +108,40 @@ __knit_param_check_declaration() {
         knit_fatal "knit_with_${suffix} should be used after a call to \"knit_register\"."
     fi
 
-    if ! __knit_name_is_valid "${param}"; then
-        knit_fatal "Parameter \"${param}\" does not have a valid name."
+    # Extract name and type from "name:type" format (flags are implicitly boolean)
+    local param_name param_type
+    if [[ "${suffix}" == "flag" ]]; then
+        param_name="${param}"
+        param_type="boolean"
+    elif [[ "${param}" == *:* ]]; then
+        param_name="${param%%:*}"
+        param_type="${param#*:}"
+    else
+        knit_fatal "Parameter \"${param}\" is missing a type annotation (expected \"name:type\")."
+    fi
+
+    if ! __knit_name_is_valid "${param_name}"; then
+        knit_fatal "Parameter \"${param_name}\" does not have a valid name."
+    fi
+
+    if ! knit_type_exists "${param_type}"; then
+        knit_fatal "Parameter \"${param_name}\" has unknown type \"${param_type}\"."
     fi
 
     if [ -z "${description}" ]; then
-        knit_warning "Not describing parameter \"${param}\" undermines its understandability."
+        knit_warning "Not describing parameter \"${param_name}\" undermines its understandability."
     fi
 
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local demangled_cmd
     demangled_cmd=$(__knit_command_demangle "${cmd}")
     local normalized
-    normalized=$(__knit_name_normalize "${param}")
+    normalized=$(__knit_name_normalize "${param_name}")
 
     if _knit_set_find "_KNIT_CMD_${cmd}_required" "${normalized}" \
     || _knit_set_find "_KNIT_CMD_${cmd}_optional" "${normalized}" \
     || _knit_set_find "_KNIT_CMD_${cmd}_flags" "${normalized}"; then
-        knit_fatal "Parameter \"${param}\" already declared for \"${demangled_cmd}\"."
+        knit_fatal "Parameter \"${param_name}\" already declared for \"${demangled_cmd}\"."
     fi
 }
 
@@ -173,6 +190,21 @@ __knit_param_default_var() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_param_type_var()
+#
+# This function prints the name of the variable that contains the type of a
+# parameter for a given command.
+#
+# @param cmd Command to which the parameter belongs (must be mangled).
+# @param param Name of the parameter (must be normalized).
+# ------------------------------------------------------------------------------
+__knit_param_type_var() {
+    local cmd="$1"
+    local param="$2"
+    printf "%s" "_KNIT_CMD_${cmd}_2_${param}_type"
+}
+
+# ------------------------------------------------------------------------------
 # @fn __knit_param_default()
 #
 # This function prints the default value of a parameter for a given command.
@@ -184,6 +216,20 @@ __knit_param_default() {
     local default_var
     default_var=$(__knit_param_default_var "$@")
     printf "%s" "${!default_var}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_param_type()
+#
+# This function prints the type of a parameter for a given command.
+#
+# @param cmd Command to which the parameter belongs (must be mangled).
+# @param param Name of the parameter (must be normalized).
+# ------------------------------------------------------------------------------
+__knit_param_type() {
+    local type_var
+    type_var=$(__knit_param_type_var "$@")
+    printf "%s" "${!type_var}"
 }
 
 # ------------------------------------------------------------------------------
@@ -319,33 +365,43 @@ knit_with_subcommand_title() {
 # @fn knit_with_required()
 #
 # This function should be called right after a call to knit_register (or one of
-# its variants) to declare required parameters that the command expects.
+# its variants) to declare required parameters that the command expects. The
+# parameter name may include a type annotation using the "name:type" syntax
+# (e.g. "width:integer"). If no type is given, "string" is assumed.
 #
 # Example:
 # ```
 # knit_register "say_hello" "greet" "Say hello to someone"
-# knit_with_required "name" "Name of the person to greet"
+# knit_with_required "name:string" "Name of the person to greet"
+# knit_with_required "count:integer" "Number of times to greet"
 # say_hello() {
 #    ...
 # }
 # ```
-# Indicates that the command "greet" requires a parameter --name.
+# Indicates that the command "greet" requires a parameter --name (string) and
+# --count (integer).
 #
-# @param param Parameter name.
+# @param param Parameter name followed by ":type".
 # @param description Description of the parameter.
 # ------------------------------------------------------------------------------
 knit_with_required() {
     __knit_param_check_declaration "required" "$1" "$2"
+    local param_spec="$1"
+    local param_name="${param_spec%%:*}"
+    local param_type="${param_spec#*:}"
     local param
-    param=$(__knit_name_normalize "$1")
+    param=$(__knit_name_normalize "${param_name}")
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
     local description
     description=$(printf '%q' "$2")
     local description_var
     description_var=$(__knit_param_description_var "${cmd}" "${param}")
-    knit_trace "Adding required parameter \"$1\" to command \"${demangled_cmd}\"."
+    local type_var
+    type_var=$(__knit_param_type_var "${cmd}" "${param}")
+    knit_trace "Adding required parameter \"${param_name}\" (type: ${param_type}) to command \"${demangled_cmd}\"."
     eval "${description_var}=${description}"
+    eval "${type_var}=${param_type}"
     _knit_set_add "_KNIT_CMD_${cmd}_required" "${param}"
 }
 
@@ -353,27 +409,33 @@ knit_with_required() {
 # @fn knit_with_optional()
 #
 # This function should be called right after a call to knit_register (or one of
-# its variants) to declare optional parameters for the command.
+# its variants) to declare optional parameters for the command. The parameter
+# name may include a type annotation using the "name:type" syntax (e.g.
+# "count:integer"). If no type is given, "string" is assumed.
 #
 # Example:
 # ```
 # knit_register "say_hello" "greet" "Say hello to someone"
-# knit_with_optional "name" "world" "Name of the person to greet"
+# knit_with_optional "name:string" "world" "Name of the person to greet"
+# knit_with_optional "count:integer" "1" "Number of times to greet"
 # say_hello() {
 #    ...
 # }
 # ```
-# Indicates that the command "greet" has an optional parameter --name with
-# default value "world".
+# Indicates that the command "greet" has an optional parameter --name (string,
+# default "world") and --count (integer, default "1").
 #
-# @param param Parameter name.
+# @param param Parameter name followed by ":type".
 # @param default Default value.
 # @param description Description of the parameter.
 # ------------------------------------------------------------------------------
 knit_with_optional() {
     __knit_param_check_declaration "optional" "$1" "$3"
+    local param_spec="$1"
+    local param_name="${param_spec%%:*}"
+    local param_type="${param_spec#*:}"
     local param
-    param=$(__knit_name_normalize "$1")
+    param=$(__knit_name_normalize "${param_name}")
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
     local default
@@ -384,9 +446,12 @@ knit_with_optional() {
     description_var=$(__knit_param_description_var "${cmd}" "${param}")
     local default_var
     default_var=$(__knit_param_default_var "${cmd}" "${param}")
-    knit_trace "Adding optional parameter \"$1\" to command \"${demangled_cmd}\"."
+    local type_var
+    type_var=$(__knit_param_type_var "${cmd}" "${param}")
+    knit_trace "Adding optional parameter \"${param_name}\" (type: ${param_type}) to command \"${demangled_cmd}\"."
     eval "${description_var}=$description"
     eval "${default_var}=$default"
+    eval "${type_var}=${param_type}"
     _knit_set_add "_KNIT_CMD_${cmd}_optional" "${param}"
 }
 

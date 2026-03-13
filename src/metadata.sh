@@ -12,8 +12,8 @@ knit_done
 # Store a key/value pair in the metadata table of the experiment.
 # ------------------------------------------------------------------------------
 knit_register _knit_metadata_store "metadata:store" "Store a key/value pair of metadata."
-knit_with_required "key" "Key."
-knit_with_required "value" "Value."
+knit_with_required "key:string" "Key."
+knit_with_required "value:string" "Value."
 # ------------------------------------------------------------------------------
 # @fn _knit_metadata_store()
 #
@@ -32,7 +32,7 @@ knit_done
 # Load the value associated with a key from the metadata table.
 # ------------------------------------------------------------------------------
 knit_register _knit_metadata_load "metadata:load" "Load the value associated with a key in the metadata."
-knit_with_required "key" "Key."
+knit_with_required "key:string" "Key."
 # ------------------------------------------------------------------------------
 # @fn _knit_metadata_load()
 #

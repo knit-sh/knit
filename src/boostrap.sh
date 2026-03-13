@@ -26,7 +26,7 @@ __knit_bootstrap_on_exit() {
 # ------------------------------------------------------------------------------
 knit_register _knit_bootstrap "bootstrap" "Bootstrap the Knit framework."
 knit_with_flag "spack" "Whether to download spack."
-knit_with_optional "project" "" "Name of the project to use when submitting jobs."
+knit_with_optional "project:string" "" "Name of the project to use when submitting jobs."
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap()
 #

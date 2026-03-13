@@ -3,8 +3,8 @@
 source knit.sh
 
 knit_register sum "sum" "Add two numbers."
-knit_with_required "x" "First value"
-knit_with_required "y" "Second value"
+knit_with_required "x:integer" "First value"
+knit_with_required "y:integer" "Second value"
 sum() {
     local x=$(knit_get_parameter "x" $@)
     local y=$(knit_get_parameter "y" $@)
@@ -16,8 +16,8 @@ knit_register knit_empty "say" "Say something."
 knit_done
 
 knit_register hello "say:hello" "Greet somebody."
-knit_with_required "the-name" "Name of the person to greet."
-knit_with_optional "greeting" "Hello" "How to greet them."
+knit_with_required "the-name:string" "Name of the person to greet."
+knit_with_optional "greeting:string" "Hello" "How to greet them."
 knit_with_flag "prof" "Whether they are a professor."
 _knit_run_before echo "Hello world" Something
 _knit_run_after echo "Good bye" ABD
