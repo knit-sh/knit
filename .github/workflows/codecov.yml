@@ -26,11 +26,11 @@ jobs:
           sudo make -C kcov-43/build install
           rm -rf kcov-43 v43.tar.gz
 
-      - name: Build knit.sh
-        run: make
+      - name: Build knit.sh for coverage
+        run: make coverage
 
       - name: Run tests with coverage
-        run: kcov --include-path=. coverage/ bats tests/
+        run: kcov --include-path=src coverage/ bats tests/
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5

@@ -39,6 +39,10 @@ doccheck:
 	done; \
 	exit $$status
 
+.PHONY: coverage
+coverage: $(KNIT_SOURCE)
+	@for f in $(KNIT_SOURCE); do echo "source $$f"; done > $(KNIT_OUTPUT)
+
 .PHONY: clean
 clean:
 	@echo "Cleaning up..."
