@@ -30,7 +30,17 @@ jobs:
         run: make coverage
 
       - name: Run tests with coverage
-        run: kcov --include-path=src coverage/ bats tests/
+        run: kcov --include-path=src coverage/ bats tests/test_*.sh
+
+      - name: Fix coverage paths
+        run: |
+          # kcov records <source> as an absolute path to src/ and filenames
+          # as bare names (e.g. "log.sh"). Codecov needs paths relative to the
+          # repo root (e.g. "src/log.sh"). Fix by setting <source> to the repo
+          # root and prepending "src/" to each filename.
+          xml=$(find coverage -name cobertura.xml -path '*/bats*/cobertura.xml' | head -1)
+          sed -i "s|<source>.*</source>|<source>.</source>|" "$xml"
+          sed -i 's|filename="\([^"]*\)"|filename="src/\1"|g' "$xml"
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
