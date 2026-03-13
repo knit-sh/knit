@@ -24,6 +24,7 @@ jobs:
           cmake -S kcov-43 -B kcov-43/build
           make -C kcov-43/build -j"$(nproc)"
           sudo make -C kcov-43/build install
+          rm -rf kcov-43 v43.tar.gz
 
       - name: Build knit.sh
         run: make
@@ -35,5 +36,5 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage/bats/cobertura.xml
+          files: coverage/*/cobertura.xml
           fail_ci_if_error: true
