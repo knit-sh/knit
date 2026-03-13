@@ -21,7 +21,7 @@ jobs:
         run: cp .github/codecov/Gemfile .github/codecov/.simplecov .
 
       - name: Install Ruby dependencies
-        run: bundle update --bundler && bundle install
+        run: bundle install
 
       - name: Install bats
         run: |
