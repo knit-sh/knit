@@ -15,7 +15,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 'latest'
+          ruby-version: '3.3'
 
       - name: Copy coverage config to project root
         run: cp .github/codecov/Gemfile .github/codecov/.simplecov .
