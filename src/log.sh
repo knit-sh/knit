@@ -177,3 +177,11 @@ knit_fatal() {
     _knit_log fatal "More info may be found in %s" "$_KNIT_TRACE_FILE"
     exit 1
 }
+
+case "${KNIT_LOG_LEVEL}" in
+    trace|debug|info|warning|error|critical) ;;
+    *)
+        knit_warning "KNIT_LOG_LEVEL=\"%s\" is not valid, resetting to \"info\"." "${KNIT_LOG_LEVEL}"
+        KNIT_LOG_LEVEL=info
+        ;;
+esac
