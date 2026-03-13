@@ -2,7 +2,16 @@
 
 ## @file log.sh
 
+# ------------------------------------------------------------------------------
+# Log level. trace=0, debug=1, info=2, warning=3, error=4, critical=5.
+# ------------------------------------------------------------------------------
+declare -i KNIT_LOG_LEVEL
 KNIT_LOG_LEVEL=${KNIT_LOG_LEVEL:-2}
+
+# ------------------------------------------------------------------------------
+# The trace file is the file used to redirect the output of programs.
+# ------------------------------------------------------------------------------
+declare _KNIT_TRACE_FILE
 _KNIT_TRACE_FILE=("$(mktemp /tmp/knit.out.XXXXXX)")
 
 # ------------------------------------------------------------------------------
@@ -144,5 +153,6 @@ knit_critical() {
 # ------------------------------------------------------------------------------
 knit_fatal() {
     _knit_log fatal "$@"
+    _knit_log fatal "More info may be found in %s" "$_KNIT_TRACE_FILE"
     exit 1
 }

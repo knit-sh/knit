@@ -76,6 +76,18 @@ to record something in the database). Users may use commands starting with a
 single underscore to define commands that are private to the experiment and not
 meant to be called by Knit reproducers.
 
+### Documentation
+
+Doxygen is used for documentation, using .doxygen/doxygen-bash.sed to parse the
+bash files and produce an output that Doxygen is happy with.
+
+Comment blocks should start and end with `# ----` (extend the line to 78
+characters). Comment blocks for function should include `# @fn function()`.
+Due to limitations of doxygen-bash.sed, variable should be first declared
+with a `declare` keyword, then assigned to on the next line (declaring and
+assigning in the same line makes doxygen-bash.sed produce an output that
+doxygen does not understand).
+
 ## Contribution requirements
 
 - All the functions should be unit-tested. The tests directory contains test
