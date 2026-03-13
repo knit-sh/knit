@@ -1,0 +1,88 @@
+name: ShellCheck
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck
+        id: shellcheck
+        run: |
+          files=$(make -n shellcheck | sed 's/^shellcheck //')
+          set +e
+          output=$(shellcheck -f gcc $files 2>&1)
+          status=$?
+          set -e
+          if [ $status -ne 0 ]; then
+            echo "errors<<SHELLCHECK_EOF" >> "$GITHUB_OUTPUT"
+            echo "$output" >> "$GITHUB_OUTPUT"
+            echo "SHELLCHECK_EOF" >> "$GITHUB_OUTPUT"
+            # Emit GitHub annotations
+            echo "$output" | while IFS= read -r line; do
+              if [[ "$line" =~ ^([^:]+):([0-9]+):[0-9]+:\ (warning|error|note):\ (.*)$ ]]; then
+                file="${BASH_REMATCH[1]}"
+                lineno="${BASH_REMATCH[2]}"
+                severity="${BASH_REMATCH[3]}"
+                msg="${BASH_REMATCH[4]}"
+                if [ "$severity" = "note" ]; then
+                  severity="notice"
+                fi
+                echo "::${severity} file=${file},line=${lineno}::${msg}"
+              fi
+            done
+            exit 1
+          fi
+
+      - name: Post review on PR
+        if: failure() && steps.shellcheck.outputs.errors != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[0].number' 2>/dev/null || true)
+          if [ -z "$pr" ] || [ "$pr" = "null" ]; then
+            echo "No associated PR found, skipping review."
+            exit 0
+          fi
+
+          # Build review comments from shellcheck output
+          comments="[]"
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^([^:]+):([0-9]+):[0-9]+:\ (warning|error|note):\ (.*)$ ]]; then
+              file="${BASH_REMATCH[1]}"
+              lineno="${BASH_REMATCH[2]}"
+              msg="${BASH_REMATCH[4]}"
+              comments=$(echo "$comments" | jq \
+                --arg path "$file" \
+                --argjson line "$lineno" \
+                --arg body "shellcheck: $msg" \
+                '. + [{"path": $path, "line": $line, "body": $body}]')
+            fi
+          done <<< "${{ steps.shellcheck.outputs.errors }}"
+
+          num_comments=$(echo "$comments" | jq 'length')
+          if [ "$num_comments" -eq 0 ]; then
+            exit 0
+          fi
+
+          # Try posting with line comments; fall back to body-only review
+          jq -n \
+            --argjson comments "$comments" \
+            '{"event": "COMMENT", "body": "shellcheck found issues in this PR.", "comments": $comments}' \
+          | gh api "repos/$GITHUB_REPOSITORY/pulls/$pr/reviews" --input - 2>/dev/null \
+          || jq -n \
+            --argjson comments "$comments" \
+            '{"event": "COMMENT", "body": ("shellcheck found issues:\n\n" + ($comments | map("- `" + .path + ":" + (.line|tostring) + "`: " + .body) | join("\n")))}' \
+          | gh api "repos/$GITHUB_REPOSITORY/pulls/$pr/reviews" --input -

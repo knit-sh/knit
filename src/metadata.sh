@@ -12,6 +12,11 @@ knit_done
 knit_register _knit_metadata_store "metadata:store" "Store a key/value pair of metadata."
 knit_with_required "key" "Key."
 knit_with_required "value" "Value."
+# ------------------------------------------------------------------------------
+# @fn _knit_metadata_store()
+#
+# Store a key/value pair in the metadata table.
+# ------------------------------------------------------------------------------
 _knit_metadata_store() {
     local key
     local value
@@ -26,6 +31,11 @@ knit_done
 # ------------------------------------------------------------------------------
 knit_register _knit_metadata_load "metadata:load" "Load the value associated with a key in the metadata."
 knit_with_required "key" "Key."
+# ------------------------------------------------------------------------------
+# @fn _knit_metadata_load()
+#
+# Load the value associated with a key from the metadata table.
+# ------------------------------------------------------------------------------
 _knit_metadata_load() {
     local key
     key=$(knit_get_parameter "key" "$@")
@@ -37,6 +47,11 @@ knit_done
 # Show the content of the metadata table of the experiment.
 # ------------------------------------------------------------------------------
 knit_register _knit_metadata_show "metadata:show" "Show all the stored metadata."
+# ------------------------------------------------------------------------------
+# @fn _knit_metadata_show()
+#
+# Show the content of the metadata table.
+# ------------------------------------------------------------------------------
 _knit_metadata_show() {
     _knit_sqlite3 -header -column "$(printf "SELECT * FROM metadata;")"
 }

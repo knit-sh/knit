@@ -1,6 +1,8 @@
 #!/bin/bash
 
 # ------------------------------------------------------------------------------
+# @fn _knit_str_hyphens_to_underscores()
+#
 # Function to convert hyphens to underscores
 # ------------------------------------------------------------------------------
 _knit_str_hyphens_to_underscores() {
@@ -9,6 +11,8 @@ _knit_str_hyphens_to_underscores() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_str_underscores_to_hyphens()
+#
 # Function to convert underscores to hyphens
 # ------------------------------------------------------------------------------
 _knit_str_underscores_to_hyphens() {

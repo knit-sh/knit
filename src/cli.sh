@@ -1,8 +1,13 @@
 #!/bin/bash
 
+# ------------------------------------------------------------------------------
+# List of registered commands.
+# ------------------------------------------------------------------------------
 _KNIT_COMMANDS=()
 
 # ------------------------------------------------------------------------------
+# @fn knit_empty()
+#
 # Empty function to register commands with no behaviors.
 # ------------------------------------------------------------------------------
 knit_empty() {
@@ -10,6 +15,8 @@ knit_empty() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_command_mangle()
+#
 # Mangles a command, i.e. converts "command:subcommand:subcommand" into
 # "command__1__subcommand__1__subcommand" so the name can be used in variable
 # names. Also converts spaces into __1__.
@@ -24,6 +31,8 @@ __knit_command_mangle() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_command_demangle()
+#
 # Demangles a command, i.e. converts "command__1__subcommand__1__subcommand"
 # back into "command:subcommand:subcommand".
 #
@@ -36,6 +45,8 @@ __knit_command_demangle() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_command_with_space()
+#
 # Prints a mangled command (or a command with ":" in it) with spaces between
 # subcommands.
 #
@@ -47,6 +58,8 @@ __knit_command_with_space() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_name_normalize()
+#
 # Normalizes a parameter or command name, i.e. converts its hyphens into
 # underscores.
 #
@@ -57,6 +70,8 @@ __knit_name_normalize() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_name_is_valid()
+#
 # Checks that a parameter or command name is valid, i.e. it has to start with a
 # letter, followed by any number of alphanumerical characters and hyphens and
 # underscores.
@@ -72,6 +87,8 @@ __knit_name_is_valid() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_param_check_declaration()
+#
 # This function carries out all the checks for a parameter to be declared by
 # knit_with_required/optional/flag.
 #
@@ -110,6 +127,8 @@ __knit_param_check_declaration() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_param_description_var()
+#
 # This function prints the name of the variable that contains the description of
 # a parameter for a given command.
 #
@@ -123,6 +142,8 @@ __knit_param_description_var() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_param_description()
+#
 # This function prints the description of a parameter for a given command.
 #
 # @param cmd Command to which the parameter belongs (must be mangled).
@@ -135,6 +156,8 @@ __knit_param_description() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_param_default_var()
+#
 # This function prints the name of the variable that contains the default value
 # of a parameter for a given command.
 #
@@ -148,6 +171,8 @@ __knit_param_default_var() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_param_default()
+#
 # This function prints the default value of a parameter for a given command.
 #
 # @param cmd Command to which the parameter belongs (must be mangled).
@@ -160,6 +185,8 @@ __knit_param_default() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_command_get_parents()
+#
 # Takes a command in the form "aaa:bbb:ccc" or "aaa bbb ccc" or
 # "aaa__1__bbb__1__cccc" and return the parent commands (e.g. "aaa:bbb" or
 # "aaa bbb" or "aaa__1__bbb".
@@ -172,6 +199,8 @@ __knit_command_get_parents() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_command_get_last()
+#
 # Takes a command in the form "aaa:bbb:ccc" or "aaa bbb ccc" or
 # "aaa__1__bbb__1__cccc" and return the last command (e.g. "ccc" in all the
 # cases above).
@@ -186,6 +215,8 @@ __knit_command_get_last() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_register()
+#
 # Register a function for use with a CLI. A call to this function should be
 # followed by any number of knit_with_* calls, followed by the declaration of
 # the function to register, then a call to knit_done.
@@ -234,6 +265,8 @@ knit_register() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_done()
+#
 # Finishes to register a function.
 # ------------------------------------------------------------------------------
 knit_done() {
@@ -250,6 +283,8 @@ knit_done() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_hidden()
+#
 # Mark a command as hidden, i.e. it will not appear in usage help messages.
 # ------------------------------------------------------------------------------
 knit_hidden() {
@@ -263,6 +298,8 @@ knit_hidden() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_with_subcommand_name()
+#
 # Change the names of subcommands for the command being registered
 # (default subcommand name is "Subcommands").
 # ------------------------------------------------------------------------------
@@ -276,6 +313,8 @@ knit_with_subcommand_name() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_with_required()
+#
 # This function should be called right after a call to knit_register (or one of
 # its variants) to declare required parameters that the command expects.
 #
@@ -308,6 +347,8 @@ knit_with_required() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_with_optional()
+#
 # This function should be called right after a call to knit_register (or one of
 # its variants) to declare optional parameters for the command.
 #
@@ -347,6 +388,8 @@ knit_with_optional() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_with_flag()
+#
 # This function should be called right after a call to knit_register (or one of
 # its variants) to declare flag parameters that the command may accept.
 #
@@ -378,6 +421,8 @@ knit_with_flag() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_with_extra()
+#
 # Adds a description for extra parameters coming after "--".
 #
 # @param description Description of the extra parameters.
@@ -393,6 +438,8 @@ knit_with_extra() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_run_before()
+#
 # In the context of a knit_register, install a callback to run before the
 # command currently being registered.
 #
@@ -417,6 +464,8 @@ _knit_run_before() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_execute_before_commands()
+#
 # Evaluate the callbacks installed before a command. The callbacks are called
 # with the calling command name (demangled) as context, as well as the list of
 # parameters passed to the command.
@@ -439,6 +488,8 @@ __knit_execute_before_commands() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_run_after()
+#
 # In the context of a knit_register, install a callback to run after the
 # command currently being registered.
 #
@@ -463,6 +514,8 @@ _knit_run_after() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_execute_after_commands()
+#
 # Evaluate the callbacks installed after a command. The callbacks are called
 # with the calling command name (demangled) as context, as well as the list of
 # parameters passed to the command.
@@ -485,6 +538,8 @@ __knit_execute_after_commands() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_check_command_arguments()
+#
 # Check that the arguments expected by the command are provided. This function
 # will fail with a fatal error (i.e. the script will stop) if a required
 # argument is not provided, or if an argument provided does not match any
@@ -543,6 +598,8 @@ __knit_check_command_arguments() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_find_flag()
+#
 # This function takes a flag and checks if it appears in the remaining list of
 # arguments, returning 0 if it does, 1 otherwise.
 #
@@ -579,6 +636,8 @@ __knit_find_flag() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_expand_command_arguments()
+#
 # Adds optional arguments that are not provided in the arguments, and converts
 # flags into --flag true or --flag false.
 #
@@ -644,6 +703,8 @@ __knit_expand_command_arguments() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_print_command_usage()
+#
 # Print the help message for a command/subcommand.
 #
 # @param ...cmds Command and subcommand names
@@ -782,6 +843,8 @@ __knit_print_command_usage() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_invoke_command()
+#
 # Invoke a command.
 #
 # Example:
@@ -836,6 +899,8 @@ _knit_invoke_command() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_get_parameter()
+#
 # Search the list of arguments for a specific parameter. If found, the function
 # will print the value associated with the parameter (flags will lead to this
 # function printing "true" or "false"). If not found, this function will print
@@ -869,6 +934,8 @@ knit_get_parameter() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_extra_index()
+#
 # Print the index at which extra arguments start (i.e. arguments passed after
 # "--" in the list of arguments). This index will be the size of the list if no
 # extra arguments are found. The way this function can be used is as follows.
@@ -894,6 +961,11 @@ knit_extra_index() {
     echo "${index}"
 }
 
+# ------------------------------------------------------------------------------
+# @fn knit_set_program_description()
+#
+# Set the description of the program.
+# ------------------------------------------------------------------------------
 knit_set_program_description() {
     local description
     description=$(printf "%q" "$1")

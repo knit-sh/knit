@@ -1,4 +1,11 @@
 # knit
+
+[![Tests](https://github.com/knit-sh/knit/actions/workflows/tests.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/tests.yml)
+[![ShellCheck](https://github.com/knit-sh/knit/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/shellcheck.yml)
+[![Documentation Check](https://github.com/knit-sh/knit/actions/workflows/doccheck.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/doccheck.yml)
+[![Code Coverage](https://github.com/knit-sh/knit/actions/workflows/codecov.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/codecov.yml)
+[![codecov](https://codecov.io/gh/knit-sh/knit/branch/main/graph/badge.svg)](https://codecov.io/gh/knit-sh/knit)
+
 Knit is a framework to help write reproducible and portable HPC experiments
 
 # Contributing

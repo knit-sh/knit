@@ -1,7 +1,14 @@
 #!/bin/bash
 
+# ------------------------------------------------------------------------------
+# Prefix directory for Knit's local installation.
+# ------------------------------------------------------------------------------
 _KNIT_PREFIX="$(pwd)/.knit"
 
+# ------------------------------------------------------------------------------
+# @fn __knit_bootstrap_on_exit()
+#
+# Clean up on exit if bootstrap did not complete successfully.
 # ------------------------------------------------------------------------------
 __knit_bootstrap_on_exit() {
     if [ -z "${__KNIT_BOOTSTRAP_COMPLETED}" ]; then
@@ -18,6 +25,13 @@ __knit_bootstrap_on_exit() {
 knit_register _knit_bootstrap "bootstrap" "Bootstrap the Knit framework."
 knit_with_flag "spack" "Whether to download spack."
 knit_with_optional "project" "" "Name of the project to use when submitting jobs."
+# ------------------------------------------------------------------------------
+# @fn _knit_bootstrap()
+#
+# Bootstrap the Knit framework.
+#
+# @param ... Arguments for bootstrap.
+# ------------------------------------------------------------------------------
 _knit_bootstrap() {
     local project
     local need_spack

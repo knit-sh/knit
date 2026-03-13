@@ -1,11 +1,25 @@
 #!/bin/bash
 
+# ------------------------------------------------------------------------------
+# Name of the SQLite source archive.
+# ------------------------------------------------------------------------------
 __KNIT_SQLITE_SOURCE_NAME="sqlite-autoconf-3480000"
+# ------------------------------------------------------------------------------
+# URL to download the SQLite source archive.
+# ------------------------------------------------------------------------------
 __KNIT_SQLITE_SOURCE_URL="https://www.sqlite.org/2025/${__KNIT_SQLITE_SOURCE_NAME}.tar.gz"
+# ------------------------------------------------------------------------------
+# Path to the SQLite executable.
+# ------------------------------------------------------------------------------
 __KNIT_SQLITE_EXE="${_KNIT_PREFIX}/sqlite/bin/sqlite3"
+# ------------------------------------------------------------------------------
+# Path to the Knit database file.
+# ------------------------------------------------------------------------------
 __KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_sqlite()
+#
 # Download and build Sqlite3, and install it in the .knit directory.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_sqlite() {
@@ -50,12 +64,14 @@ EOF
 
 }
 
+# shellcheck disable=SC2120
 # ------------------------------------------------------------------------------
+# @fn _knit_sqlite3()
+#
 # Invoke Knit's sqlite3-installed program on the main database.
 #
 # @param ... Parameters to forward to the sqlite3 command.
 # ------------------------------------------------------------------------------
-# shellcheck disable=SC2120
 _knit_sqlite3() {
     ${__KNIT_SQLITE_EXE} "${__KNIT_DATABASE}" "$@"
 }

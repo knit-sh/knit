@@ -1,0 +1,42 @@
+name: Code Coverage
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 'latest'
+
+      - name: Copy coverage config to project root
+        run: cp .github/codecov/Gemfile .github/codecov/.simplecov .
+
+      - name: Install Ruby dependencies
+        run: bundle update --bundler && bundle install
+
+      - name: Install bats
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+
+      - name: Build knit.sh
+        run: make
+
+      - name: Run tests with coverage
+        run: bashcov -- bats tests/
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/coverage.xml
+          fail_ci_if_error: true

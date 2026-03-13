@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# ------------------------------------------------------------------------------
+# Version of the Knit framework.
+# ------------------------------------------------------------------------------
 declare -xr KNIT_VERSION=0.1.0
 
 knit_register knit_empty "__main__" \
@@ -8,6 +11,8 @@ knit_hidden
 knit_done
 
 # ------------------------------------------------------------------------------
+# @fn knit()
+#
 # This is the main function that invokes the Knit framework. Users should call
 # it as follows at the end of their bash script to forward all arguments to it.
 #

@@ -31,6 +31,14 @@ check: $(KNIT_TESTS) knit.sh
 shellcheck:
 	shellcheck $(KNIT_SOURCE)
 
+.PHONY: doccheck
+doccheck:
+	@status=0; \
+	for f in src/*.sh; do \
+		bash maint/doccheck.sh "$$f" || status=1; \
+	done; \
+	exit $$status
+
 .PHONY: clean
 clean:
 	@echo "Cleaning up..."

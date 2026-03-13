@@ -1,6 +1,8 @@
 #!/bin/bash
 
 # ------------------------------------------------------------------------------
+# @fn _knit_set_new()
+#
 # Create a new empty set (sorted array).
 #
 # Example:
@@ -16,6 +18,8 @@ _knit_set_new() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_set_exists()
+#
 # Checks if a set with the given name is defined, i.e. the variable is defined,
 # and it is a sorted array.
 #
@@ -56,6 +60,8 @@ _knit_set_exists() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_set_find()
+#
 # Find an element in a sorted array using binary search.
 #
 # Example:
@@ -90,6 +96,8 @@ _knit_set_find() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_set_add()
+#
 # Add one or more elements to a set.
 #
 # Example:
@@ -129,6 +137,8 @@ _knit_set_add() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_set_remove()
+#
 # Remove one or more elements from a set.
 #
 # Example:

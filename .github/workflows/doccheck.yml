@@ -1,0 +1,78 @@
+name: Documentation Check
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  doccheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run doccheck
+        id: doccheck
+        run: |
+          set +e
+          output=$(make doccheck 2>&1)
+          status=$?
+          set -e
+          if [ $status -ne 0 ]; then
+            echo "errors<<DOCCHECK_EOF" >> "$GITHUB_OUTPUT"
+            echo "$output" >> "$GITHUB_OUTPUT"
+            echo "DOCCHECK_EOF" >> "$GITHUB_OUTPUT"
+            # Emit GitHub annotations
+            echo "$output" | while IFS= read -r line; do
+              if [[ "$line" =~ ^([^:]+):([0-9]+):\ (.*)$ ]]; then
+                file="${BASH_REMATCH[1]}"
+                lineno="${BASH_REMATCH[2]}"
+                msg="${BASH_REMATCH[3]}"
+                echo "::error file=${file},line=${lineno}::${msg}"
+              fi
+            done
+            exit 1
+          fi
+
+      - name: Post review on PR
+        if: failure() && steps.doccheck.outputs.errors != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[0].number' 2>/dev/null || true)
+          if [ -z "$pr" ] || [ "$pr" = "null" ]; then
+            echo "No associated PR found, skipping review."
+            exit 0
+          fi
+
+          # Build review comments from doccheck output
+          comments="[]"
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^([^:]+):([0-9]+):\ (.*)$ ]]; then
+              file="${BASH_REMATCH[1]}"
+              lineno="${BASH_REMATCH[2]}"
+              msg="${BASH_REMATCH[3]}"
+              comments=$(echo "$comments" | jq \
+                --arg path "$file" \
+                --argjson line "$lineno" \
+                --arg body "doccheck: $msg" \
+                '. + [{"path": $path, "line": $line, "body": $body}]')
+            fi
+          done <<< "${{ steps.doccheck.outputs.errors }}"
+
+          num_comments=$(echo "$comments" | jq 'length')
+          if [ "$num_comments" -eq 0 ]; then
+            exit 0
+          fi
+
+          # Try posting with line comments; fall back to body-only review
+          jq -n \
+            --argjson comments "$comments" \
+            '{"event": "COMMENT", "body": "doccheck found undocumented functions or variables in this PR.", "comments": $comments}' \
+          | gh api "repos/$GITHUB_REPOSITORY/pulls/$pr/reviews" --input - 2>/dev/null \
+          || jq -n \
+            --argjson comments "$comments" \
+            '{"event": "COMMENT", "body": ("doccheck found issues:\n\n" + ($comments | map("- `" + .path + ":" + (.line|tostring) + "`: " + .body) | join("\n")))}' \
+          | gh api "repos/$GITHUB_REPOSITORY/pulls/$pr/reviews" --input -

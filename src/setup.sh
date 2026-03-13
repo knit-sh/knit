@@ -1,8 +1,13 @@
 #!/bin/bash
 
+# ------------------------------------------------------------------------------
+# Array of registered setup names.
+# ------------------------------------------------------------------------------
 _KNIT_SETUPS=()
 
 # ------------------------------------------------------------------------------
+# @fn knit_register_setup()
+#
 # Register a setup i.e. an operation that aims to build some software and create
 # and environment.
 #
@@ -22,6 +27,8 @@ knit_register_setup() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_invoke_setup()
+#
 # Invoke a specific setup.
 #
 # @param name Name of the setup to invoke.

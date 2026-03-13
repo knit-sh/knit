@@ -1,6 +1,8 @@
 #!/bin/bash
 
 # ------------------------------------------------------------------------------
+# @fn __knit_framed_begin()
+#
 # Prepare for framed output. This function is used in _knit_framed and should
 # not be used on its own.
 #
@@ -30,6 +32,8 @@ __knit_framed_begin() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_frame_clear()
+#
 # Clear the frame. This function is used in _knit_framed and should not be used
 # on its own.
 #
@@ -45,6 +49,8 @@ __knit_frame_clear() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_framed_update()
+#
 # Update the content of the frame. This function is used in _knit_framed and
 # should not be used on its own. It will take the last nlines lines of the
 # specified file and print them in the frame (truncated if they are too long).
@@ -92,6 +98,8 @@ __knit_framed_update() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_framed()
+#
 # Run a command and put a frame around its output, showing only the last 10
 # lines of output and updating them as the command runs.
 #

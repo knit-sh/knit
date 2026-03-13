@@ -1,6 +1,8 @@
 #!/bin/bash
 
 # ------------------------------------------------------------------------------
+# @fn _knit_find_option()
+#
 # This function takes a comma-separated list of options and searches the list of
 # additional arguments to find one of the options. If it finds one, it echos the
 # next element in the list, and returns 0. Otherwise, it returns 1.
@@ -49,6 +51,8 @@ _knit_find_option() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_find_flag()
+#
 # This function takes a comma-separated list of flags and searches the list of
 # additional arguments to find one of the flags. If it finds one, it returns 0.
 # Otherwise, it returns 1.
@@ -90,6 +94,8 @@ _knit_find_flag() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_expand_keyval_args()
+#
 # This function expands parameters of the form "--key=value" into "--key value".
 # Example:
 # ```
@@ -114,6 +120,8 @@ _knit_expand_keyval_args() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_with_required()
+#
 # This function should be called right after a call to knit_register_command,
 # knit_register_job, or knit_register_app, to declare required parameters that
 # the command/job/app expects.
@@ -142,6 +150,8 @@ knit_with_required() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_with_optional()
+#
 # This function should be called right after a call to knit_register_command,
 # knit_register_job, or knit_register_app, to declare optional parameters that
 # the command/job/app may have.
@@ -174,6 +184,8 @@ knit_with_optional() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_with_flag()
+#
 # This function should be called right after a call to knit_register_command,
 # knit_register_job, or knit_register_app, to declare flags that
 # the command/job/app may have. Flags are options without a value. The presence
@@ -203,6 +215,8 @@ knit_with_flag() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_get_parameter()
+#
 # This function retrieves a parameter (optional, required, or flag) from its
 # list of arguments. For flags will, it will print "true" or "false".
 #

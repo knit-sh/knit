@@ -1,6 +1,12 @@
 #!/bin/bash
 
+# ------------------------------------------------------------------------------
+# Version of Spack to use.
+# ------------------------------------------------------------------------------
 KNIT_SPACK_VERSION="v0.23.0"
+# ------------------------------------------------------------------------------
+# Root directory for the Spack installation.
+# ------------------------------------------------------------------------------
 __KNIT_SPACK_ROOT="${_KNIT_PREFIX}/spack"
 
 #export SPACK_DISABLE_LOCAL_CONFIG=true
@@ -8,6 +14,8 @@ __KNIT_SPACK_ROOT="${_KNIT_PREFIX}/spack"
 export SPACK_USER_CONFIG_PATH="${_KNIT_PREFIX}/.spack"
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_spack()
+#
 # Clone Spack from Github and checkout the specified ref (commit hash or tag).
 #
 # @param ref Commit hash or tag (default to _KNIT_SPACK_VERSION).
@@ -23,6 +31,8 @@ _knit_bootstrap_spack() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_spack_install()
+#
 # Install the specified specs using spack.
 #
 # @param ... Specs to install.
