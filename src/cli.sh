@@ -64,7 +64,7 @@ __knit_name_normalize() {
 # @param param Parameter name to normalize.
 # ------------------------------------------------------------------------------
 __knit_name_is_valid() {
-    if [[ "$1" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]; then
+    if [[ "$1" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
         return 0
     else
         return 1
