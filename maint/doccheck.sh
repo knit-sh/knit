@@ -3,6 +3,8 @@
 # Check that functions and global variables in a bash source file have proper
 # Doxygen comment blocks.
 #
+# Each file must contain a '## @file filename' comment matching its basename.
+#
 # A valid comment block starts and ends with a separator line (# -----...) and
 # must appear immediately before the function or variable declaration.
 # For functions, the block must also contain @fn function_name().
@@ -37,6 +39,28 @@ fi
 mapfile -t lines < "$file"
 total=${#lines[@]}
 errors=0
+
+# Check for ## @file <basename>
+basename="$(basename "$file")"
+file_tag_re="^##[[:space:]]+@file[[:space:]]+(.*)"
+found_file_tag=0
+
+for ((i = 0; i < total; i++)); do
+    if [[ "${lines[$i]}" =~ $file_tag_re ]]; then
+        found_file_tag=1
+        tag_name="${BASH_REMATCH[1]}"
+        if [ "$tag_name" != "$basename" ]; then
+            echo "${file}:$((i + 1)): @file tag says '${tag_name}' but file is '${basename}'."
+            errors=$((errors + 1))
+        fi
+        break
+    fi
+done
+
+if [ "$found_file_tag" -eq 0 ]; then
+    echo "${file}:1: missing '## @file ${basename}'."
+    errors=$((errors + 1))
+fi
 
 # Returns 0 if the line is a separator (# followed by at least 4 dashes).
 is_separator() {
