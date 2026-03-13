@@ -3,16 +3,37 @@
 ## @file log.sh
 
 # ------------------------------------------------------------------------------
-# Log level. trace=0, debug=1, info=2, warning=3, error=4, critical=5.
+# Log level. Valid values: trace, debug, info, warning, error, critical.
 # ------------------------------------------------------------------------------
-declare -i KNIT_LOG_LEVEL
-KNIT_LOG_LEVEL=${KNIT_LOG_LEVEL:-2}
+declare -x KNIT_LOG_LEVEL
+KNIT_LOG_LEVEL=${KNIT_LOG_LEVEL:-info}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_log_level_to_int()
+#
+# Convert a log level string to its integer value.
+# trace=0, debug=1, info=2, warning=3, error=4, critical=5.
+# Returns 2 (info) for unrecognized values.
+#
+# @param level Log level string.
+# ------------------------------------------------------------------------------
+__knit_log_level_to_int() {
+    case "$1" in
+        trace)    printf 0 ;;
+        debug)    printf 1 ;;
+        info)     printf 2 ;;
+        warning)  printf 3 ;;
+        error)    printf 4 ;;
+        critical) printf 5 ;;
+        *)        printf 2 ;;
+    esac
+}
 
 # ------------------------------------------------------------------------------
 # The trace file is the file used to redirect the output of programs.
 # ------------------------------------------------------------------------------
 declare _KNIT_TRACE_FILE
-_KNIT_TRACE_FILE=("$(mktemp /tmp/knit.out.XXXXXX)")
+_KNIT_TRACE_FILE="$(mktemp /tmp/knit.out.XXXXXX)"
 
 # ------------------------------------------------------------------------------
 # @fn knit_log_set_level()
@@ -25,15 +46,15 @@ _KNIT_TRACE_FILE=("$(mktemp /tmp/knit.out.XXXXXX)")
 # ------------------------------------------------------------------------------
 knit_log_set_level() {
     local level="$1"
-    local valid_levels=("trace" "debug" "info" "warning" "error" "critical")
-    local i
-    for i in "${!valid_levels[@]}"; do
-        if [[ "${level}" == "${valid_levels[i]}" ]]; then
-            KNIT_LOG_LEVEL=$i
+    case "${level}" in
+        trace|debug|info|warning|error|critical)
+            KNIT_LOG_LEVEL="${level}"
             return 0
-        fi
-    done
-    return 1
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
 # ------------------------------------------------------------------------------
@@ -68,7 +89,7 @@ _knit_log() {
 # @param ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_trace() {
-    if ((KNIT_LOG_LEVEL <= 0)); then
+    if (( $(__knit_log_level_to_int "${KNIT_LOG_LEVEL}") <= 0 )); then
         _knit_log trace "$@"
     fi
 }
@@ -82,7 +103,7 @@ knit_trace() {
 # @param ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_debug() {
-    if ((KNIT_LOG_LEVEL <= 1)); then
+    if (( $(__knit_log_level_to_int "${KNIT_LOG_LEVEL}") <= 1 )); then
         _knit_log debug "$@"
     fi
 }
@@ -96,7 +117,7 @@ knit_debug() {
 # @param ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_info() {
-    if ((KNIT_LOG_LEVEL <= 2)); then
+    if (( $(__knit_log_level_to_int "${KNIT_LOG_LEVEL}") <= 2 )); then
         _knit_log info "$@"
     fi
 }
@@ -110,7 +131,7 @@ knit_info() {
 # @param ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_warning() {
-    if ((KNIT_LOG_LEVEL <= 3)); then
+    if (( $(__knit_log_level_to_int "${KNIT_LOG_LEVEL}") <= 3 )); then
         _knit_log warning "$@"
     fi
 }
@@ -124,7 +145,7 @@ knit_warning() {
 # @param ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_error() {
-    if ((KNIT_LOG_LEVEL <= 4)); then
+    if (( $(__knit_log_level_to_int "${KNIT_LOG_LEVEL}") <= 4 )); then
         _knit_log error "$@"
     fi
 }
@@ -138,7 +159,7 @@ knit_error() {
 # @param ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_critical() {
-    if ((KNIT_LOG_LEVEL <= 5)); then
+    if (( $(__knit_log_level_to_int "${KNIT_LOG_LEVEL}") <= 5 )); then
         _knit_log critical "$@"
     fi
 }
