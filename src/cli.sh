@@ -5,7 +5,7 @@
 # ------------------------------------------------------------------------------
 # List of registered commands.
 # ------------------------------------------------------------------------------
-_KNIT_COMMANDS=()
+declare -A _KNIT_COMMANDS
 
 # ------------------------------------------------------------------------------
 # @fn knit_empty()
@@ -559,16 +559,15 @@ __knit_check_command_arguments() {
     local args=("$@")
     # Check that all the required arguments have been provided
     local required_args_varname="_KNIT_CMD_${cmd}_required"
-    local -n required_args_ref="${required_args_varname}"
     local option
-    for option in "${required_args_ref[@]}"; do
+    while read -r option; do
         if knit_get_parameter "${option}" "${args[@]}" > /dev/null; then
             continue
         fi
         local alt_format
         alt_format=$(_knit_str_underscores_to_hyphens "${option}")
         knit_fatal "Command \"${demangled_cmd}\" requires a --${option} or --${alt_format} option."
-    done
+    done < <(_knit_set_iter "${required_args_varname}")
     # Check that all the arguments provided are expected options or flags
     local optional_args_varname="_KNIT_CMD_${cmd}_optional"
     local flags_args_varname="_KNIT_CMD_${cmd}_flags"
@@ -672,20 +671,18 @@ __knit_expand_command_arguments() {
     done
     # Add optional arguments that have not been provided
     local optional_args_varname="_KNIT_CMD_${cmd}_optional"
-    local -n optional_args_ref="${optional_args_varname}"
-    for option in "${optional_args_ref[@]}"; do
+    while read -r option; do
         if knit_get_parameter "${option}" "${args[@]}" > /dev/null; then
             continue
         fi
         local default_value
         default_value=$(__knit_param_default "${cmd}" "${option}")
         args+=("--${option}" "${default_value}")
-    done
+    done < <(_knit_set_iter "${optional_args_varname}")
     # Handle flags (add them as option with value "true" or "false")
     local flags_args_varname="_KNIT_CMD_${cmd}_flags"
-    local -n flags_args_ref="${flags_args_varname}"
     local flag
-    for flag in "${flags_args_ref[@]}"; do
+    while read -r flag; do
         if __knit_find_flag "--${flag}" "${args[@]}"; then
             local i
             for i in "${!args[@]}"; do
@@ -698,7 +695,7 @@ __knit_expand_command_arguments() {
         else
             args+=("--${flag}" "false")
         fi
-    done
+    done < <(_knit_set_iter "${flags_args_varname}")
     # Print the resulting arguments
     for arg in "${args[@]}" "${extra_args[@]}"; do
         printf "%q " "${arg}"
@@ -730,64 +727,61 @@ __knit_print_command_usage() {
 
     printf "Options\n-------\n"
     local required_args_varname="_KNIT_CMD_${cmd}_required"
-    local -n required_args_ref="${required_args_varname}"
     local optional_args_varname="_KNIT_CMD_${cmd}_optional"
-    local -n optional_args_ref="${optional_args_varname}"
     local flags_args_varname="_KNIT_CMD_${cmd}_flags"
-    local -n flags_args_ref="${flags_args_varname}"
     local max_opt_length=4 # size of "help"
     local opt
     local opt2
-    for opt in "${required_args_ref[@]}"; do
+    while read -r opt; do
         opt2="--${opt} <value>"
         local opt_length=${#opt2}
         if (( opt_length > max_opt_length )); then
             max_opt_length=${opt_length}
         fi
-    done
-    for opt in "${optional_args_ref[@]}"; do
+    done < <(_knit_set_iter "${required_args_varname}")
+    while read -r opt; do
         opt2="--${opt} <value>"
         local opt_length=${#opt2}
         if (( opt_length > max_opt_length )); then
             max_opt_length=${opt_length}
         fi
-    done
-    for opt in "${flags_args_ref[@]}"; do
+    done < <(_knit_set_iter "${optional_args_varname}")
+    while read -r opt; do
         opt2="--${opt}"
         local opt_length=${#opt2}
         if (( opt_length > max_opt_length )); then
             max_opt_length=${opt_length}
         fi
-    done
+    done < <(_knit_set_iter "${flags_args_varname}")
 
     local description
     local default
 
     printf "  %-${max_opt_length}s  %s\n" "--help" "Print this help message and exit."
-    for opt in "${required_args_ref[@]}"; do
+    while read -r opt; do
         description=$(__knit_param_description "${cmd}" "${opt}")
         opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
         printf "  %-${max_opt_length}s  %s\n" "${opt2} <value>" "[required] ${description}"
-    done
-    for opt in "${optional_args_ref[@]}"; do
+    done < <(_knit_set_iter "${required_args_varname}")
+    while read -r opt; do
         description=$(__knit_param_description "${cmd}" "${opt}")
         default=$(__knit_param_default "${cmd}" "${opt}")
         opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
         printf "  %-${max_opt_length}s  %s\n" "${opt2} <value>" "[default: '${default}'] ${description}"
-    done
+    done < <(_knit_set_iter "${optional_args_varname}")
     max_opt_length=$((max_opt_length - 8))
-    for opt in "${flags_args_ref[@]}"; do
+    while read -r opt; do
         description=$(__knit_param_description "${cmd}" "${opt}")
         opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
         printf "  %-${max_opt_length}s  %s\n" "${opt2}" "        [flag] ${description}"
-    done
+    done < <(_knit_set_iter "${flags_args_varname}")
 
     local subcommands=()
     local subcommands_full=()
     local max_subcommand_len=0
     local c
     if [[ "${cmd}" != "__main__" ]]; then # non-root command
-        for c in "${_KNIT_COMMANDS[@]}"; do
+        while read -r c; do
             local hidden_var_name="_KNIT_CMD_${c}_is_hidden"
             if [[ "${!hidden_var_name}" == "true" ]]; then
                 continue
@@ -807,9 +801,9 @@ __knit_print_command_usage() {
             if ((max_subcommand_len < ${#name})); then
                 max_subcommand_len=${#name}
             fi
-        done
+        done < <(_knit_set_iter _KNIT_COMMANDS)
     else # root command
-        for c in "${_KNIT_COMMANDS[@]}"; do
+        while read -r c; do
             local hidden_var_name="_KNIT_CMD_${c}_is_hidden"
             if [[ "${!hidden_var_name}" == "true" ]]; then
                 continue
@@ -822,7 +816,7 @@ __knit_print_command_usage() {
             if ((max_subcommand_len < ${#c})); then
                 max_subcommand_len=${#c}
             fi
-        done
+        done < <(_knit_set_iter _KNIT_COMMANDS)
     fi
     if [ "${#subcommands[@]}" -gt "0" ]; then
         local sub_name="_KNIT_CMD_${cmd}_sucommand_title"
