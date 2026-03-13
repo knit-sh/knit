@@ -1,6 +1,7 @@
 KNIT_SOURCE = src/log.sh      \
               src/set.sh      \
               src/str.sh      \
+              src/types.sh    \
               src/pushd.sh    \
               src/cli.sh      \
               src/frame.sh    \
