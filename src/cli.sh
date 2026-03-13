@@ -258,7 +258,7 @@ knit_register() {
     eval "_KNIT_CMD_${cmd}_is_hidden=false"
     eval "_KNIT_CMD_${cmd}_before_cb=()"
     eval "_KNIT_CMD_${cmd}_after_cb=()"
-    eval "_KNIT_CMD_${cmd}_sucommand_names=\"Subcommands\""
+    eval "_KNIT_CMD_${cmd}_sucommand_title=\"Subcommands\""
     _KNIT_CURRENT_FUNCTION="${name}"
     _KNIT_CURRENT_COMMAND="${cmd}"
     _KNIT_CURRENT_COMMAND_DEMANGLED="${demangled_cmd}"
@@ -298,18 +298,19 @@ knit_hidden() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn knit_with_subcommand_name()
+# @fn knit_with_subcommand_title()
 #
-# Change the names of subcommands for the command being registered
-# (default subcommand name is "Subcommands").
+# Change the title of subcommands for the command being registered
+# (default subcommand name is "Subcommands"). This is the title displayed when
+# calling --help.
 # ------------------------------------------------------------------------------
-knit_with_subcommand_name() {
+knit_with_subcommand_title() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_subcommand_name should be used after a call to \"knit_register\"."
     fi
-    knit_trace "Changin subcommand names from ${_KNIT_CURRENT_COMMAND_DEMANGLED} as to $1."
+    knit_trace "Changing subcommand title from '${_KNIT_CURRENT_COMMAND_DEMANGLED}' to '$1'."
     local cmd="${_KNIT_CURRENT_COMMAND}"
-    eval "_KNIT_CMD_${cmd}_sucommand_names=\"$1\""
+    eval "_KNIT_CMD_${cmd}_sucommand_title=\"$1\""
 }
 
 # ------------------------------------------------------------------------------
@@ -822,7 +823,7 @@ __knit_print_command_usage() {
         done
     fi
     if [ "${#subcommands[@]}" -gt "0" ]; then
-        local sub_name="_KNIT_CMD_${cmd}_sucommand_names"
+        local sub_name="_KNIT_CMD_${cmd}_sucommand_title"
         sub_name=${!sub_name}
         local hrule
         hrule=$(printf "%*s" "${#sub_name}" "" | tr ' ' '-')
