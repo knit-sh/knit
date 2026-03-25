@@ -157,7 +157,7 @@ __knit_param_check_declaration() {
 __knit_param_description_var() {
     local cmd="$1"
     local param="$2"
-    printf "%s" "_KNIT_CMD_${cmd}_2_${param}_description"
+    printf "_KNIT_CMD_%s_2_%s_description" "${cmd}" "${param}"
 }
 
 # ------------------------------------------------------------------------------
@@ -186,7 +186,7 @@ __knit_param_description() {
 __knit_param_default_var() {
     local cmd="$1"
     local param="$2"
-    printf "%s" "_KNIT_CMD_${cmd}_2_${param}_default"
+    printf "_KNIT_CMD_%s_2_%s_default" "${cmd}" "${param}"
 }
 
 # ------------------------------------------------------------------------------
@@ -201,7 +201,7 @@ __knit_param_default_var() {
 __knit_param_type_var() {
     local cmd="$1"
     local param="$2"
-    printf "%s" "_KNIT_CMD_${cmd}_2_${param}_type"
+    printf "_KNIT_CMD_%s_2_%s_type" "${cmd}" "${param}"
 }
 
 # ------------------------------------------------------------------------------

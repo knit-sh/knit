@@ -2,6 +2,8 @@
 
 source knit.sh
 
+knit_set_program_description "Hello World example"
+
 knit_register sum "sum" "Add two numbers."
 knit_with_required "x:integer" "First value"
 knit_with_required "y:integer" "Second value"

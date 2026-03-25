@@ -47,7 +47,7 @@ setup() {
 @test "_knit_log outputs formatted message to stderr" {
     local output
     output=$(_knit_log info "hello %s" "world" 2>&1)
-    [[ "$output" == *"[knit:info]]"* ]]
+    [[ "$output" == *"[knit:info]"* ]]
     [[ "$output" == *"hello world"* ]]
 }
 
@@ -57,7 +57,7 @@ setup() {
     KNIT_LOG_LEVEL=trace
     local output
     output=$(knit_trace "hello" 2>&1)
-    [[ "$output" == *"[knit:trace]]"*"hello"* ]]
+    [[ "$output" == *"[knit:trace]"*"hello"* ]]
 }
 
 @test "knit_trace is silent at debug level" {
@@ -73,14 +73,14 @@ setup() {
     KNIT_LOG_LEVEL=debug
     local output
     output=$(knit_debug "hello" 2>&1)
-    [[ "$output" == *"[knit:debug]]"*"hello"* ]]
+    [[ "$output" == *"[knit:debug]"*"hello"* ]]
 }
 
 @test "knit_debug prints at trace level" {
     KNIT_LOG_LEVEL=trace
     local output
     output=$(knit_debug "hello" 2>&1)
-    [[ "$output" == *"[knit:debug]]"*"hello"* ]]
+    [[ "$output" == *"[knit:debug]"*"hello"* ]]
 }
 
 @test "knit_debug is silent at info level" {
@@ -96,7 +96,7 @@ setup() {
     KNIT_LOG_LEVEL=info
     local output
     output=$(knit_info "hello" 2>&1)
-    [[ "$output" == *"[knit:info]]"*"hello"* ]]
+    [[ "$output" == *"[knit:info]"*"hello"* ]]
 }
 
 @test "knit_info is silent at warning level" {
@@ -112,7 +112,7 @@ setup() {
     KNIT_LOG_LEVEL=warning
     local output
     output=$(knit_warning "hello" 2>&1)
-    [[ "$output" == *"[knit:warning]]"*"hello"* ]]
+    [[ "$output" == *"[knit:warning]"*"hello"* ]]
 }
 
 @test "knit_warning is silent at error level" {
@@ -128,7 +128,7 @@ setup() {
     KNIT_LOG_LEVEL=error
     local output
     output=$(knit_error "hello" 2>&1)
-    [[ "$output" == *"[knit:error]]"*"hello"* ]]
+    [[ "$output" == *"[knit:error]"*"hello"* ]]
 }
 
 @test "knit_error is silent at critical level" {
@@ -144,7 +144,7 @@ setup() {
     KNIT_LOG_LEVEL=critical
     local output
     output=$(knit_critical "hello" 2>&1)
-    [[ "$output" == *"[knit:critical]]"*"hello"* ]]
+    [[ "$output" == *"[knit:critical]"*"hello"* ]]
 }
 
 # --- knit_fatal ---
