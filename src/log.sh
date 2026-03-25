@@ -74,7 +74,7 @@ knit_log_set_level() {
 _knit_log() {
     local level="$1";
     shift
-    printf "[knit:%s]] " "$level" 1>&2
+    printf "[knit:%s] " "$level" 1>&2
     # shellcheck disable=SC2059 # forwarding arguments to printf
     printf "${@}" 1>&2
     printf "\n"
