@@ -109,3 +109,101 @@ teardown() {
     run __knit_db_check_table "runs" "count:integer" "id:uuid"
     [ "$status" -eq 2 ]
 }
+
+# ---------- __knit_db_migrate_table ----------
+
+@test "migrate table fails when table does not exist" {
+    run __knit_db_migrate_table "absent" "id:uuid"
+    [ "$status" -ne 0 ]
+}
+
+@test "migrate table fails with zero columns" {
+    __knit_db_create_table "runs" "id:uuid"
+    run __knit_db_migrate_table "runs"
+    [ "$status" -ne 0 ]
+}
+
+@test "migrate table fails when new column has no default" {
+    __knit_db_create_table "runs" "id:uuid"
+    run __knit_db_migrate_table "runs" "id:uuid" "count:integer"
+    [ "$status" -ne 0 ]
+}
+
+@test "migrate table is a no-op when schema is unchanged" {
+    __knit_db_create_table "runs" "id:uuid" "count:integer"
+    sqlite3 "${__KNIT_DATABASE}" "INSERT INTO runs (id, count) VALUES ('550e8400-e29b-41d4-a716-446655440000', 1);"
+    __knit_db_migrate_table "runs" "id:uuid" "count:integer"
+    local rows
+    rows=$(sqlite3 "${__KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")
+    [ "$rows" -eq 1 ]
+}
+
+@test "migrate table adds a new column" {
+    __knit_db_create_table "runs" "id:uuid"
+    __knit_db_migrate_table "runs" "id:uuid" "label:string=unknown"
+    local col
+    col=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2 | sed -n '2p')
+    [ "$col" = "label" ]
+}
+
+@test "migrate table fills new column with default for existing rows" {
+    __knit_db_create_table "runs" "id:uuid"
+    sqlite3 "${__KNIT_DATABASE}" "INSERT INTO runs (id) VALUES ('550e8400-e29b-41d4-a716-446655440000');"
+    __knit_db_migrate_table "runs" "id:uuid" "label:string=unknown"
+    local val
+    val=$(sqlite3 "${__KNIT_DATABASE}" "SELECT label FROM runs;")
+    [ "$val" = "unknown" ]
+}
+
+@test "migrate table drops a column" {
+    __knit_db_create_table "runs" "id:uuid" "count:integer"
+    __knit_db_migrate_table "runs" "id:uuid"
+    local ncols
+    ncols=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('runs');" | wc -l)
+    [ "$ncols" -eq 1 ]
+}
+
+@test "migrate table preserves existing row values" {
+    __knit_db_create_table "runs" "id:uuid" "count:integer"
+    sqlite3 "${__KNIT_DATABASE}" "INSERT INTO runs (id, count) VALUES ('550e8400-e29b-41d4-a716-446655440000', 42);"
+    __knit_db_migrate_table "runs" "id:uuid" "count:integer" "label:string=x"
+    local val
+    val=$(sqlite3 "${__KNIT_DATABASE}" "SELECT count FROM runs;")
+    [ "$val" -eq 42 ]
+}
+
+@test "migrate table changes column type" {
+    __knit_db_create_table "runs" "id:uuid" "score:integer"
+    __knit_db_migrate_table "runs" "id:uuid" "score:real"
+    local col_type
+    col_type=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f3 | sed -n '2p')
+    [ "$col_type" = "REAL" ]
+}
+
+@test "migrate table handles multiple simultaneous changes" {
+    __knit_db_create_table "runs" "id:uuid" "old_col:integer"
+    sqlite3 "${__KNIT_DATABASE}" "INSERT INTO runs (id, old_col) VALUES ('550e8400-e29b-41d4-a716-446655440000', 7);"
+    __knit_db_migrate_table "runs" "id:uuid" "new_col:string=hello"
+    local names col_val
+    names=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2 | tr '\n' ',')
+    col_val=$(sqlite3 "${__KNIT_DATABASE}" "SELECT new_col FROM runs;")
+    [ "$names" = "id,new_col," ]
+    [ "$col_val" = "hello" ]
+}
+
+@test "migrate table normalizes hyphen in column name" {
+    __knit_db_create_table "runs" "id:uuid"
+    __knit_db_migrate_table "runs" "id:uuid" "my-col:string=x"
+    local col
+    col=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2 | sed -n '2p')
+    [ "$col" = "my_col" ]
+}
+
+@test "migrate table default value with single quote is handled correctly" {
+    __knit_db_create_table "runs" "id:uuid"
+    sqlite3 "${__KNIT_DATABASE}" "INSERT INTO runs (id) VALUES ('550e8400-e29b-41d4-a716-446655440000');"
+    __knit_db_migrate_table "runs" "id:uuid" "label:string=it's here"
+    local val
+    val=$(sqlite3 "${__KNIT_DATABASE}" "SELECT label FROM runs;")
+    [ "$val" = "it's here" ]
+}

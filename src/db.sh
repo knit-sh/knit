@@ -138,3 +138,156 @@ __knit_db_check_table() {
 
     return 0
 }
+
+# ------------------------------------------------------------------------------
+# @fn __knit_db_migrate_table()
+#
+# Migrate an existing table to a new column schema. Each column specification
+# may be "name:type" (for columns that already exist or are being retyped) or
+# "name:type=default" (required for columns not present in the current schema,
+# so that existing rows can be back-filled with the given default value).
+# Columns absent from the new spec are dropped. Column names are normalized
+# (hyphens converted to underscores). If the current schema already matches the
+# desired schema the function returns 0 without touching the database.
+#
+# The default value is always treated as a SQL string literal; SQLite's type
+# affinity coercion handles integer/real columns correctly.
+#
+# Example:
+# ```
+# __knit_db_migrate_table "runs" "id:uuid" "count:integer=0" "label:string"
+# ```
+#
+# @param table_name Name of the table to migrate.
+# @param ...specs   One or more "name:type" or "name:type=default" specs.
+# @return 0 if the migration was applied or no migration was needed.
+# ------------------------------------------------------------------------------
+__knit_db_migrate_table() {
+    local table_name="$1"
+    shift
+
+    if [[ $# -eq 0 ]]; then
+        knit_fatal "__knit_db_migrate_table requires at least one column specification."
+    fi
+
+    # Check table exists
+    local exists
+    exists=$(_knit_sqlite3 \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$(__knit_sql_escape "${table_name}")';" )
+    if [[ "${exists}" -eq 0 ]]; then
+        knit_fatal "Table \"${table_name}\" does not exist in the database."
+    fi
+
+    # Parse desired specs
+    local desired_names=()
+    local desired_knit_types=()
+    local desired_sqlite_types=()
+    local desired_defaults=()
+    local desired_has_default=()
+    local spec col_name rest col_type col_default has_def sqlite_type
+    for spec in "$@"; do
+        if [[ "${spec}" != *:* ]]; then
+            knit_fatal "Column specification \"${spec}\" is missing a type (expected \"name:type\" or \"name:type=default\")."
+        fi
+        col_name="${spec%%:*}"
+        rest="${spec#*:}"
+        if [[ "${rest}" == *=* ]]; then
+            col_type="${rest%%=*}"
+            col_default="${rest#*=}"
+            has_def="1"
+        else
+            col_type="${rest}"
+            col_default=""
+            has_def="0"
+        fi
+        col_name=$(_knit_str_hyphens_to_underscores "${col_name}")
+        sqlite_type=$(__knit_type_to_sqlite "${col_type}") \
+            || knit_fatal "Column \"${col_name}\" has unknown type \"${col_type}\"."
+        desired_names+=("${col_name}")
+        desired_knit_types+=("${col_type}")
+        desired_sqlite_types+=("${sqlite_type}")
+        desired_defaults+=("${col_default}")
+        desired_has_default+=("${has_def}")
+    done
+
+    # Get current column names
+    local current_names=()
+    while IFS='|' read -r _cid col_name _rest; do
+        current_names+=("${col_name}")
+    done < <(_knit_sqlite3 "PRAGMA table_info('$(__knit_sql_escape "${table_name}")');" )
+
+    # Validate: new columns must have defaults; record which columns are new
+    local i is_new cur
+    local new_columns=()
+    for (( i = 0; i < ${#desired_names[@]}; i++ )); do
+        is_new=1
+        for cur in "${current_names[@]}"; do
+            if [[ "${cur}" == "${desired_names[$i]}" ]]; then
+                is_new=0
+                break
+            fi
+        done
+        if [[ "${is_new}" -eq 1 && "${desired_has_default[$i]}" == "0" ]]; then
+            knit_fatal "New column \"${desired_names[$i]}\" requires a default value (use \"name:type=default\")."
+        fi
+        new_columns+=("${is_new}")
+    done
+
+    # Check if migration is actually needed (use clean name:knit_type specs)
+    local clean_specs=()
+    for (( i = 0; i < ${#desired_names[@]}; i++ )); do
+        clean_specs+=("${desired_names[$i]}:${desired_knit_types[$i]}")
+    done
+    if __knit_db_check_table "${table_name}" "${clean_specs[@]}"; then
+        knit_trace "Table \"${table_name}\" already matches desired schema; no migration needed."
+        return 0
+    fi
+
+    # Log dropped columns
+    local found
+    for cur in "${current_names[@]}"; do
+        found=0
+        for (( i = 0; i < ${#desired_names[@]}; i++ )); do
+            if [[ "${desired_names[$i]}" == "${cur}" ]]; then
+                found=1; break
+            fi
+        done
+        if [[ "${found}" -eq 0 ]]; then
+            knit_trace "Dropping column \"${cur}\" from table \"${table_name}\"."
+        fi
+    done
+
+    # Build column definitions for CREATE TABLE
+    local col_defs=()
+    for (( i = 0; i < ${#desired_names[@]}; i++ )); do
+        col_defs+=("$(__knit_db_sql_ident "${desired_names[$i]}") ${desired_sqlite_types[$i]}")
+    done
+
+    # Build INSERT column list and SELECT expressions
+    local insert_cols=()
+    local select_exprs=()
+    for (( i = 0; i < ${#desired_names[@]}; i++ )); do
+        insert_cols+=("$(__knit_db_sql_ident "${desired_names[$i]}")")
+        if [[ "${new_columns[$i]}" == "0" ]]; then
+            select_exprs+=("$(__knit_db_sql_ident "${desired_names[$i]}")")
+        else
+            knit_trace "Adding column \"${desired_names[$i]}\" with default \"${desired_defaults[$i]}\" to table \"${table_name}\"."
+            select_exprs+=("'$(__knit_sql_escape "${desired_defaults[$i]}")'")
+        fi
+    done
+
+    local cols_sql insert_cols_sql select_exprs_sql tmp_name
+    cols_sql=$(IFS=', '; printf '%s' "${col_defs[*]}")
+    insert_cols_sql=$(IFS=', '; printf '%s' "${insert_cols[*]}")
+    select_exprs_sql=$(IFS=', '; printf '%s' "${select_exprs[*]}")
+    tmp_name="${table_name}__knit_tmp"
+
+    _knit_sqlite3 <<EOF
+BEGIN;
+ALTER TABLE $(__knit_db_sql_ident "${table_name}") RENAME TO $(__knit_db_sql_ident "${tmp_name}");
+CREATE TABLE $(__knit_db_sql_ident "${table_name}") (${cols_sql});
+INSERT INTO $(__knit_db_sql_ident "${table_name}") (${insert_cols_sql}) SELECT ${select_exprs_sql} FROM $(__knit_db_sql_ident "${tmp_name}");
+DROP TABLE $(__knit_db_sql_ident "${tmp_name}");
+COMMIT;
+EOF
+}
