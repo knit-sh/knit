@@ -15,16 +15,13 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats cmake pkg-config libdw-dev libcurl4-openssl-dev
+          sudo apt-get install -y bats
 
-      - name: Build and install kcov
+      - name: Install kcov
         run: |
-          wget -q https://github.com/SimonKagstrom/kcov/archive/refs/tags/v43.tar.gz
-          tar xzf v43.tar.gz
-          cmake -S kcov-43 -B kcov-43/build
-          make -C kcov-43/build -j"$(nproc)"
-          sudo make -C kcov-43/build install
-          rm -rf kcov-43 v43.tar.gz
+          wget -q https://github.com/SimonKagstrom/kcov/releases/download/v42/kcov-amd64.tar.gz
+          sudo tar xzf kcov-amd64.tar.gz -C /
+          rm kcov-amd64.tar.gz
 
       - name: Build knit.sh for coverage
         run: make coverage
