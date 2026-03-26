@@ -304,6 +304,59 @@ setup() {
     [ "$status" -eq 1 ]
 }
 
+# ---------- __knit_push_done_cb ----------
+
+@test "__knit_push_done_cb fails outside of knit_register" {
+    run __knit_push_done_cb echo "hello"
+    [ "$status" -eq 1 ]
+}
+
+@test "__knit_push_done_cb callback is invoked at knit_done" {
+    _KNIT_PDC_CALLED=false
+    _pdc_mark_called() { _KNIT_PDC_CALLED=true; }
+    pdc_fn_a() { :; }
+    knit_register pdc_fn_a "pdc_a" "Test."
+    __knit_push_done_cb _pdc_mark_called
+    knit_done
+    [ "${_KNIT_PDC_CALLED}" = "true" ]
+}
+
+@test "__knit_push_done_cb multiple callbacks run in reverse order" {
+    declare -ga _KNIT_PDC_ORDER=()
+    _pdc_order_append() { _KNIT_PDC_ORDER+=("$1"); }
+    pdc_fn_b() { :; }
+    knit_register pdc_fn_b "pdc_b" "Test."
+    __knit_push_done_cb _pdc_order_append "first"
+    __knit_push_done_cb _pdc_order_append "second"
+    __knit_push_done_cb _pdc_order_append "third"
+    knit_done
+    [ "${_KNIT_PDC_ORDER[0]}" = "third" ]
+    [ "${_KNIT_PDC_ORDER[1]}" = "second" ]
+    [ "${_KNIT_PDC_ORDER[2]}" = "first" ]
+}
+
+@test "__knit_push_done_cb _KNIT_DONE_CBS is unset after knit_done" {
+    pdc_fn_c() { :; }
+    knit_register pdc_fn_c "pdc_c" "Test."
+    __knit_push_done_cb echo "cb"
+    knit_done
+    [[ ! -v _KNIT_DONE_CBS ]]
+}
+
+@test "__knit_push_done_cb callbacks do not carry over to next registration" {
+    _KNIT_PDC_COUNT=0
+    _pdc_increment() { _KNIT_PDC_COUNT=$(( _KNIT_PDC_COUNT + 1 )); }
+    pdc_fn_d() { :; }
+    knit_register pdc_fn_d "pdc_d" "Test."
+    __knit_push_done_cb _pdc_increment
+    pdc_fn_e() { :; }
+    knit_register pdc_fn_e "pdc_e" "Test."
+    # implicit knit_done fired for pdc_d: count becomes 1
+    knit_done
+    # explicit knit_done for pdc_e: no callbacks pushed, count stays 1
+    [ "${_KNIT_PDC_COUNT}" -eq 1 ]
+}
+
 # ---------- knit_hidden ----------
 
 @test "knit_hidden marks a command as hidden" {

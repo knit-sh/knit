@@ -307,6 +307,7 @@ knit_register() {
     eval "_KNIT_CMD_${cmd}_before_cb=()"
     eval "_KNIT_CMD_${cmd}_after_cb=()"
     eval "_KNIT_CMD_${cmd}_sucommand_title=\"Subcommands\""
+    _KNIT_DONE_CBS=()
     _KNIT_CURRENT_FUNCTION="${name}"
     _KNIT_CURRENT_COMMAND="${cmd}"
     _KNIT_CURRENT_COMMAND_DEMANGLED="${demangled_cmd}"
@@ -325,6 +326,11 @@ knit_done() {
     if ! declare -F "${name}" > /dev/null; then
         knit_fatal "Function \"${name}\" being registered is not defined."
     fi
+    local i
+    for (( i=${#_KNIT_DONE_CBS[@]}-1; i>=0; i-- )); do
+        eval "${_KNIT_DONE_CBS[$i]}"
+    done
+    unset _KNIT_DONE_CBS
     unset _KNIT_CURRENT_FUNCTION
     unset _KNIT_CURRENT_COMMAND
     unset _KNIT_CURRENT_COMMAND_DEMANGLED
@@ -579,6 +585,25 @@ _knit_run_after() {
     local cb
     cb=$(printf "%q " "$@")
     cb_list_ref+=("${cb}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_push_done_cb()
+#
+# In the context of a knit_register, push a callback to be called at the next
+# call to knit_done. Multiple callbacks may be pushed; they are all called in
+# reverse order of installation. The callback list is cleared after knit_done.
+#
+# @param ... Callback function and its arguments.
+# ------------------------------------------------------------------------------
+__knit_push_done_cb() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "__knit_push_done_cb should be used after a call to \"knit_register\"."
+    fi
+    knit_trace "Pushing done callback in ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
+    local cb
+    cb=$(printf "%q " "$@")
+    _KNIT_DONE_CBS+=("${cb}")
 }
 
 # ------------------------------------------------------------------------------
