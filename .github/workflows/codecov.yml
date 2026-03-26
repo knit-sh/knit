@@ -15,13 +15,28 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats
+          sudo apt-get install -y bats libdw-dev libcurl4-openssl-dev
 
-      - name: Install kcov
+      - name: Cache kcov
+        id: cache-kcov
+        uses: actions/cache@v4
+        with:
+          path: ~/.kcov
+          key: kcov-v43-${{ runner.os }}
+
+      - name: Build and install kcov
+        if: steps.cache-kcov.outputs.cache-hit != 'true'
         run: |
-          wget -q https://github.com/SimonKagstrom/kcov/releases/download/v42/kcov-amd64.tar.gz
-          sudo tar xzf kcov-amd64.tar.gz -C /
-          rm kcov-amd64.tar.gz
+          sudo apt-get install -y cmake pkg-config
+          wget -q https://github.com/SimonKagstrom/kcov/archive/refs/tags/v43.tar.gz
+          tar xzf v43.tar.gz
+          cmake -S kcov-43 -B kcov-43/build -DCMAKE_INSTALL_PREFIX="${HOME}/.kcov"
+          make -C kcov-43/build -j"$(nproc)"
+          make -C kcov-43/build install
+          rm -rf kcov-43 v43.tar.gz
+
+      - name: Add kcov to PATH
+        run: echo "${HOME}/.kcov/bin" >> "${GITHUB_PATH}"
 
       - name: Build knit.sh for coverage
         run: make coverage
