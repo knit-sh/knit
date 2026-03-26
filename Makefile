@@ -8,6 +8,7 @@ KNIT_SOURCE = src/log.sh      \
               src/boostrap.sh \
               src/spack.sh    \
               src/sqlite.sh   \
+              src/db.sh       \
               src/metadata.sh \
               src/main.sh
 

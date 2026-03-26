@@ -31,7 +31,7 @@ setup() {
 }
 
 @test "resolve canonical type returns itself" {
-    for t in integer real boolean string path file filename date time datetime; do
+    for t in integer real boolean string path file filename date time datetime uuid; do
         local result
         result=$(__knit_type_resolve_alias "$t")
         [ "$result" = "$t" ]
@@ -53,7 +53,7 @@ setup() {
 # ---------- knit_type_exists ----------
 
 @test "built-in types exist" {
-    for t in integer real boolean string path file filename date time datetime; do
+    for t in integer real boolean string path file filename date time datetime uuid; do
         knit_type_exists "$t"
     done
 }
@@ -316,9 +316,84 @@ setup() {
     [ "$status" -eq 1 ]
 }
 
+# ---------- knit_type_check: uuid ----------
+
+@test "type check uuid valid" {
+    knit_type_check "uuid" "550e8400-e29b-41d4-a716-446655440000"
+    knit_type_check "uuid" "00000000-0000-0000-0000-000000000000"
+    knit_type_check "uuid" "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"
+}
+
+@test "type check uuid invalid" {
+    run knit_type_check "uuid" "not-a-uuid"
+    [ "$status" -eq 1 ]
+    run knit_type_check "uuid" "550e8400-e29b-41d4-a716"
+    [ "$status" -eq 1 ]
+    run knit_type_check "uuid" ""
+    [ "$status" -eq 1 ]
+    run knit_type_check "uuid" "550e8400-e29b-41d4-a716-44665544000g"
+    [ "$status" -eq 1 ]
+}
+
 # ---------- knit_type_check: unknown type ----------
 
 @test "type check with unknown type fails" {
     run knit_type_check "unknown" "value"
     [ "$status" -eq 1 ]
+}
+
+# ---------- __knit_type_to_sqlite ----------
+
+@test "type to sqlite integer returns INTEGER" {
+    local result
+    result=$(__knit_type_to_sqlite "integer")
+    [ "$result" = "INTEGER" ]
+}
+
+@test "type to sqlite int alias returns INTEGER" {
+    local result
+    result=$(__knit_type_to_sqlite "int")
+    [ "$result" = "INTEGER" ]
+}
+
+@test "type to sqlite real returns REAL" {
+    local result
+    result=$(__knit_type_to_sqlite "real")
+    [ "$result" = "REAL" ]
+}
+
+@test "type to sqlite boolean returns TEXT" {
+    local result
+    result=$(__knit_type_to_sqlite "boolean")
+    [ "$result" = "TEXT" ]
+}
+
+@test "type to sqlite string returns TEXT" {
+    local result
+    result=$(__knit_type_to_sqlite "string")
+    [ "$result" = "TEXT" ]
+}
+
+@test "type to sqlite date returns TEXT" {
+    local result
+    result=$(__knit_type_to_sqlite "date")
+    [ "$result" = "TEXT" ]
+}
+
+@test "type to sqlite uuid returns TEXT" {
+    local result
+    result=$(__knit_type_to_sqlite "uuid")
+    [ "$result" = "TEXT" ]
+}
+
+@test "type to sqlite enum returns TEXT" {
+    knit_define_enum "color" "red" "green"
+    local result
+    result=$(__knit_type_to_sqlite "color")
+    [ "$result" = "TEXT" ]
+}
+
+@test "type to sqlite unknown type fails" {
+    run __knit_type_to_sqlite "unknown"
+    [ "$status" -ne 0 ]
 }

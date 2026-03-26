@@ -27,6 +27,7 @@ __KNIT_BUILTIN_TYPES=(
     [date]=1
     [time]=1
     [datetime]=1
+    [uuid]=1
 )
 
 # ------------------------------------------------------------------------------
@@ -260,9 +261,42 @@ knit_type_check() {
             __knit_type_check_date "${__date_part}" \
                 && __knit_type_check_time "${__time_part}"
             ;;
+        uuid)
+            local uuid_re='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+            [[ "${value}" =~ ${uuid_re} ]]
+            ;;
         *)
             # Enum type
             _knit_set_find "__KNIT_ENUM_${resolved}" "${value}"
             ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_type_to_sqlite()
+#
+# Map a Knit type name (or alias) to its corresponding SQLite type affinity.
+# Returns INTEGER for integer, REAL for real, and TEXT for all other types
+# (including boolean, string, path, file, filename, date, time, datetime, uuid,
+# and user-defined enums).
+#
+# Example:
+# ```
+# __knit_type_to_sqlite "integer"  # prints: INTEGER
+# __knit_type_to_sqlite "real"     # prints: REAL
+# __knit_type_to_sqlite "uuid"     # prints: TEXT
+# __knit_type_to_sqlite "int"      # prints: INTEGER (alias resolved)
+# ```
+#
+# @param type_name Knit type name or alias.
+# @return 0 on success, 1 if the type is unknown.
+# ------------------------------------------------------------------------------
+__knit_type_to_sqlite() {
+    local resolved
+    resolved=$(__knit_type_resolve_alias "$1") || return 1
+    case "${resolved}" in
+        integer) printf 'INTEGER' ;;
+        real)    printf 'REAL' ;;
+        *)       printf 'TEXT' ;;
     esac
 }
