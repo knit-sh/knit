@@ -76,6 +76,157 @@ setup() {
     [ "$status" -eq 1 ]
 }
 
+# ---------- knit_with_output type annotations ----------
+
+@test "knit_with_output accepts name:type syntax" {
+    knit_register knit_empty "out_cmd_1" "A test command."
+    knit_with_output "result:integer" "0" "The result."
+    knit_done
+}
+
+@test "knit_with_output rejects missing type" {
+    knit_register knit_empty "out_cmd_2" "A test command."
+    run knit_with_output "result" "0" "The result."
+    [ "$status" -eq 1 ]
+    knit_done
+}
+
+@test "knit_with_output rejects unknown type" {
+    knit_register knit_empty "out_cmd_3" "A test command."
+    run knit_with_output "result:nosuchtype" "0" "The result."
+    [ "$status" -eq 1 ]
+    knit_done
+}
+
+@test "knit_with_output fails outside of knit_register" {
+    run knit_with_output "result:integer" "0" "The result."
+    [ "$status" -eq 1 ]
+}
+
+@test "knit_with_output rejects invalid output name" {
+    knit_register knit_empty "out_cmd_4" "A test command."
+    run knit_with_output "invalid name:string" "x" "Bad name."
+    [ "$status" -eq 1 ]
+    knit_done
+}
+
+@test "knit_with_output rejects duplicate output name" {
+    knit_register knit_empty "out_cmd_5" "A test command."
+    knit_with_output "result:integer" "0" "First declaration."
+    run knit_with_output "result:integer" "1" "Duplicate."
+    [ "$status" -eq 1 ]
+    knit_done
+}
+
+# ---------- knit_output ----------
+
+@test "knit_output fails outside of registered command" {
+    run knit_output "result" "42"
+    [ "$status" -eq 1 ]
+}
+
+@test "knit_output fails for undeclared output name" {
+    ko_fail_fn() { knit_output "undeclared" "1"; }
+    knit_register ko_fail_fn "ko_fail_cmd" "Test."
+    knit_with_output "result:integer" "0" "The result."
+    knit_done
+    run _knit_invoke_command "ko_fail_cmd"
+    [ "$status" -eq 1 ]
+}
+
+@test "knit_output fails on type mismatch" {
+    ko_type_fn() { knit_output "result" "not_an_integer"; }
+    knit_register ko_type_fn "ko_type_cmd" "Test."
+    knit_with_output "result:integer" "0" "The result."
+    knit_done
+    run _knit_invoke_command "ko_type_cmd"
+    [ "$status" -eq 1 ]
+}
+
+@test "knit_output sets value in output array" {
+    ko_set_fn() { knit_output "result" "42"; }
+    knit_register ko_set_fn "ko_set_cmd" "Test."
+    knit_with_output "result:integer" "0" "The result."
+    knit_done
+    _knit_invoke_command "ko_set_cmd"
+    [ "${_KNIT_CMD_ko_set_cmd_output_value[result]}" = "42" ]
+}
+
+@test "knit_output normalizes hyphen to underscore in name" {
+    ko_hyp_fn() { knit_output "my-result" "7"; }
+    knit_register ko_hyp_fn "ko_hyp_cmd" "Test."
+    knit_with_output "my-result:integer" "0" "The result."
+    knit_done
+    _knit_invoke_command "ko_hyp_cmd"
+    [ "${_KNIT_CMD_ko_hyp_cmd_output_value[my_result]}" = "7" ]
+}
+
+@test "knit_output nested invocation preserves outer context" {
+    ko_inner_fn() { knit_output "inner_out" "inner_val"; }
+    knit_register ko_inner_fn "ko_inner_cmd" "Test."
+    knit_with_output "inner_out:string" "" "Inner output."
+    knit_done
+    ko_outer_fn() {
+        _knit_invoke_command "ko_inner_cmd"
+        knit_output "outer_out" "outer_val"
+    }
+    knit_register ko_outer_fn "ko_outer_cmd" "Test."
+    knit_with_output "outer_out:string" "" "Outer output."
+    knit_done
+    _knit_invoke_command "ko_outer_cmd"
+    [ "${_KNIT_CMD_ko_inner_cmd_output_value[inner_out]}" = "inner_val" ]
+    [ "${_KNIT_CMD_ko_outer_cmd_output_value[outer_out]}" = "outer_val" ]
+}
+
+# ---------- __knit_output_description_var / __knit_output_default_var / __knit_output_type_var ----------
+
+@test "__knit_output_description_var returns expected variable name" {
+    local result
+    result=$(__knit_output_description_var "mycmd" "myoutput")
+    [ "$result" = "_KNIT_CMD_mycmd_3_myoutput_description" ]
+}
+
+@test "__knit_output_default_var returns expected variable name" {
+    local result
+    result=$(__knit_output_default_var "mycmd" "myoutput")
+    [ "$result" = "_KNIT_CMD_mycmd_3_myoutput_default" ]
+}
+
+@test "__knit_output_type_var returns expected variable name" {
+    local result
+    result=$(__knit_output_type_var "mycmd" "myoutput")
+    [ "$result" = "_KNIT_CMD_mycmd_3_myoutput_type" ]
+}
+
+# ---------- __knit_output_description / __knit_output_default / __knit_output_type ----------
+
+@test "__knit_output_description returns stored description" {
+    knit_register knit_empty "od_cmd" "Test."
+    knit_with_output "score:real" "0.0" "The score."
+    knit_done
+    local result
+    result=$(__knit_output_description "od_cmd" "score")
+    [ "$result" = "The score." ]
+}
+
+@test "__knit_output_default returns stored default value" {
+    knit_register knit_empty "odef_cmd" "Test."
+    knit_with_output "count:integer" "42" "A count."
+    knit_done
+    local result
+    result=$(__knit_output_default "odef_cmd" "count")
+    [ "$result" = "42" ]
+}
+
+@test "__knit_output_type returns stored type" {
+    knit_register knit_empty "ot_cmd" "Test."
+    knit_with_output "count:integer" "0" "A count."
+    knit_done
+    local result
+    result=$(__knit_output_type "ot_cmd" "count")
+    [ "$result" = "integer" ]
+}
+
 # ---------- knit_empty ----------
 
 @test "knit_empty returns 0" {

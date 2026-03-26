@@ -8,6 +8,11 @@
 declare -gA _KNIT_COMMANDS
 
 # ------------------------------------------------------------------------------
+# Stack of currently-executing command names (mangled). Used by knit_output.
+# ------------------------------------------------------------------------------
+declare -ga _KNIT_EXECUTING_COMMAND=()
+
+# ------------------------------------------------------------------------------
 # @fn knit_empty()
 #
 # Empty function to register commands with no behaviors.
@@ -233,6 +238,93 @@ __knit_param_type() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_output_description_var()
+#
+# This function prints the name of the variable that contains the description
+# of an output for a given command.
+#
+# @param cmd Command to which the output belongs (must be mangled).
+# @param output Name of the output (must be normalized).
+# ------------------------------------------------------------------------------
+__knit_output_description_var() {
+    local cmd="$1"
+    local output="$2"
+    printf "_KNIT_CMD_%s_3_%s_description" "${cmd}" "${output}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_output_description()
+#
+# This function prints the description of an output for a given command.
+#
+# @param cmd Command to which the output belongs (must be mangled).
+# @param output Name of the output (must be normalized).
+# ------------------------------------------------------------------------------
+__knit_output_description() {
+    local description_var
+    description_var=$(__knit_output_description_var "$@")
+    printf "%s" "${!description_var}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_output_default_var()
+#
+# This function prints the name of the variable that contains the default value
+# of an output for a given command.
+#
+# @param cmd Command to which the output belongs (must be mangled).
+# @param output Name of the output (must be normalized).
+# ------------------------------------------------------------------------------
+__knit_output_default_var() {
+    local cmd="$1"
+    local output="$2"
+    printf "_KNIT_CMD_%s_3_%s_default" "${cmd}" "${output}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_output_default()
+#
+# This function prints the default value of an output for a given command.
+#
+# @param cmd Command to which the output belongs (must be mangled).
+# @param output Name of the output (must be normalized).
+# ------------------------------------------------------------------------------
+__knit_output_default() {
+    local default_var
+    default_var=$(__knit_output_default_var "$@")
+    printf "%s" "${!default_var}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_output_type_var()
+#
+# This function prints the name of the variable that contains the type of an
+# output for a given command.
+#
+# @param cmd Command to which the output belongs (must be mangled).
+# @param output Name of the output (must be normalized).
+# ------------------------------------------------------------------------------
+__knit_output_type_var() {
+    local cmd="$1"
+    local output="$2"
+    printf "_KNIT_CMD_%s_3_%s_type" "${cmd}" "${output}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_output_type()
+#
+# This function prints the type of an output for a given command.
+#
+# @param cmd Command to which the output belongs (must be mangled).
+# @param output Name of the output (must be normalized).
+# ------------------------------------------------------------------------------
+__knit_output_type() {
+    local type_var
+    type_var=$(__knit_output_type_var "$@")
+    printf "%s" "${!type_var}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn __knit_command_get_parents()
 #
 # Takes a command in the form "aaa:bbb:ccc" or "aaa bbb ccc" or
@@ -300,6 +392,8 @@ knit_register() {
     _knit_set_new "_KNIT_CMD_${cmd}_required"
     _knit_set_new "_KNIT_CMD_${cmd}_optional"
     _knit_set_new "_KNIT_CMD_${cmd}_flags"
+    _knit_set_new "_KNIT_CMD_${cmd}_outputs"
+    eval "declare -gA _KNIT_CMD_${cmd}_output_value=()"
     eval "_KNIT_CMD_${cmd}_function=${name}"
     eval "_KNIT_CMD_${cmd}_description=${description}"
     eval "_KNIT_CMD_${cmd}_extra=''"
@@ -492,6 +586,70 @@ knit_with_flag() {
     knit_trace "Adding flag \"$1\" to command \"${demangled_cmd}\"."
     eval "${description_var}=${description}"
     _knit_set_add "_KNIT_CMD_${cmd}_flags" "${param}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_with_output()
+#
+# This function should be called right after a call to knit_register (or one of
+# its variants) to declare an output that the command produces. The output name
+# must include a type annotation using the "name:type" syntax (e.g.
+# "result:integer").
+#
+# Example:
+# ```
+# knit_register "compute" "compute" "Compute something."
+# knit_with_output "result:real" "0.0" "The computed result."
+# compute() {
+#    ...
+# }
+# ```
+#
+# @param param Output name followed by ":type".
+# @param default Default value.
+# @param description Description of the output.
+# ------------------------------------------------------------------------------
+knit_with_output() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_output should be used after a call to \"knit_register\"."
+    fi
+    local param_spec="$1"
+    if [[ "${param_spec}" != *:* ]]; then
+        knit_fatal "Output \"${param_spec}\" is missing a type annotation (expected \"name:type\")."
+    fi
+    local param_name="${param_spec%%:*}"
+    local param_type="${param_spec#*:}"
+    if ! __knit_name_is_valid "${param_name}"; then
+        knit_fatal "Output \"${param_name}\" does not have a valid name."
+    fi
+    if ! knit_type_exists "${param_type}"; then
+        knit_fatal "Output \"${param_name}\" has unknown type \"${param_type}\"."
+    fi
+    if [ -z "$3" ]; then
+        knit_warning "Not describing output \"${param_name}\" undermines its understandability."
+    fi
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+    local output
+    output=$(__knit_name_normalize "${param_name}")
+    if _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${output}"; then
+        knit_fatal "Output \"${param_name}\" already declared for \"${demangled_cmd}\"."
+    fi
+    local default
+    default=$(printf '%q' "$2")
+    local description
+    description=$(printf '%q' "$3")
+    local description_var
+    description_var=$(__knit_output_description_var "${cmd}" "${output}")
+    local default_var
+    default_var=$(__knit_output_default_var "${cmd}" "${output}")
+    local type_var
+    type_var=$(__knit_output_type_var "${cmd}" "${output}")
+    knit_trace "Adding output \"${param_name}\" (type: ${param_type}) to command \"${demangled_cmd}\"."
+    eval "${description_var}=${description}"
+    eval "${default_var}=${default}"
+    eval "${type_var}=${param_type}"
+    _knit_set_add "_KNIT_CMD_${cmd}_outputs" "${output}"
 }
 
 # ------------------------------------------------------------------------------
@@ -980,9 +1138,13 @@ _knit_invoke_command() {
     # call the "before" callbacks
     __knit_execute_before_commands "${cmd}" "${args[@]}"
     # call the function
+    _KNIT_EXECUTING_COMMAND+=("${cmd}")
     $func "${args[@]}"
+    local func_status=$?
+    unset '_KNIT_EXECUTING_COMMAND[-1]'
     # call the "after" callbacks
     __knit_execute_after_commands "${cmd}" "${args[@]}"
+    return "${func_status}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1018,6 +1180,42 @@ knit_get_parameter() {
         fi
     done
     return 1
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_output()
+#
+# Record a named output value from within a registered command function.
+# Fails if called outside of an executing command, if the name was not declared
+# with knit_with_output, or if the value does not match the declared type.
+#
+# @param name  Output name (hyphens and underscores are interchangeable).
+# @param value Value to record.
+# ------------------------------------------------------------------------------
+knit_output() {
+    local name="$1"
+    local value="$2"
+    if [[ ${#_KNIT_EXECUTING_COMMAND[@]} -eq 0 ]]; then
+        knit_fatal "knit_output should be called from within a registered command function."
+    fi
+    local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
+    local demangled_cmd
+    demangled_cmd=$(__knit_command_demangle "${cmd}")
+    local normalized
+    normalized=$(__knit_name_normalize "${name}")
+    if ! _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${normalized}"; then
+        knit_fatal "\"${name}\" is not a declared output of command \"${demangled_cmd}\"."
+    fi
+    local type_var
+    type_var=$(__knit_output_type_var "${cmd}" "${normalized}")
+    local type="${!type_var}"
+    if ! knit_type_check "${type}" "${value}"; then
+        knit_fatal "Output \"${name}\" expects type \"${type}\" but got \"${value}\"."
+    fi
+    knit_trace "Setting output \"${name}\" = \"${value}\" for command \"${demangled_cmd}\"."
+    local -n output_ref="_KNIT_CMD_${cmd}_output_value"
+    # shellcheck disable=SC2034 # output_ref is a nameref
+    output_ref["${normalized}"]="${value}"
 }
 
 # ------------------------------------------------------------------------------
