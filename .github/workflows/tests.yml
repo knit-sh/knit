@@ -13,7 +13,7 @@ jobs:
       - name: Install bats
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats
+          sudo apt-get install -y bats sqlite3
 
       - name: Build knit.sh
         run: make

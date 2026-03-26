@@ -15,7 +15,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats libdw-dev libcurl4-openssl-dev
+          sudo apt-get install -y bats sqlite3 libdw-dev libcurl4-openssl-dev
 
       - name: Cache kcov
         id: cache-kcov

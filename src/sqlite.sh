@@ -66,6 +66,23 @@ EOF
 
 }
 
+# ------------------------------------------------------------------------------
+# @fn __knit_sql_escape()
+#
+# Escape a string for safe interpolation into a SQL single-quoted literal by
+# replacing every single quote with two single quotes, per the SQL standard.
+#
+# Example:
+# ```
+# __knit_sql_escape "it's"   # prints: it''s
+# ```
+#
+# @param value String to escape.
+# ------------------------------------------------------------------------------
+__knit_sql_escape() {
+    printf '%s' "${1//\'/\'\'}"
+}
+
 # shellcheck disable=SC2120
 # ------------------------------------------------------------------------------
 # @fn _knit_sqlite3()
