@@ -5,7 +5,7 @@
 # ------------------------------------------------------------------------------
 # List of registered commands.
 # ------------------------------------------------------------------------------
-declare -A _KNIT_COMMANDS
+declare -gA _KNIT_COMMANDS
 
 # ------------------------------------------------------------------------------
 # @fn knit_empty()
@@ -650,11 +650,11 @@ __knit_check_command_arguments() {
         fi
         arg="$(__knit_name_normalize "${arg:2}")"
         if _knit_set_find "${required_args_varname}" "${arg}"; then
-            ((i++))
+            i=$((i+1))
             continue
         fi
         if _knit_set_find "${optional_args_varname}" "${arg}"; then
-            ((i++))
+            i=$((i+1))
             continue
         fi
         if _knit_set_find "${flags_args_varname}" "${arg}"; then
