@@ -1,7 +1,19 @@
 #!/usr/bin/env bats
 
 setup() {
+    if ! command -v sqlite3 &>/dev/null; then
+        skip "sqlite3 not available"
+    fi
+
     source knit.sh
+
+    # Override the sqlite executable and database path for testing
+    __KNIT_SQLITE_EXE="sqlite3"
+    __KNIT_DATABASE="$(mktemp --suffix=.db)"
+}
+
+teardown() {
+    rm -f "${__KNIT_DATABASE}"
 }
 
 @test "finding an option that exists" {
@@ -905,4 +917,115 @@ setup() {
 @test "knit_set_program_description handles special characters" {
     knit_set_program_description "A program with 'quotes' and spaces."
     [ "${_KNIT_CMD___main___description}" = "A program with 'quotes' and spaces." ]
+}
+
+# ---------- knit_with_table ----------
+
+@test "knit_with_table defaults to colon-separated command name" {
+    knit_register knit_empty "foo" "A parent command."
+    knit_done
+    knit_register knit_empty "foo:bar" "A subcommand."
+    knit_with_table
+    knit_done
+    local result
+    result=$(sqlite3 "${__KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='foo:bar';")
+    [ "$result" -eq 1 ]
+}
+
+@test "knit_with_table accepts an explicit table name" {
+    knit_register knit_empty "mycmd" "A command."
+    knit_with_table "my_runs"
+    knit_done
+    local result
+    result=$(sqlite3 "${__KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='my_runs';")
+    [ "$result" -eq 1 ]
+}
+
+@test "knit_with_table for a simple command defaults to command name" {
+    knit_register knit_empty "run" "Run something."
+    knit_with_table
+    knit_done
+    local result
+    result=$(sqlite3 "${__KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='run';")
+    [ "$result" -eq 1 ]
+}
+
+@test "two commands with distinct table names both succeed" {
+    knit_register knit_empty "cmd1" "First command."
+    knit_with_table "table1"
+    knit_done
+
+    knit_register knit_empty "cmd2" "Second command."
+    knit_with_table "table2"
+    knit_done
+
+    local r1 r2
+    r1=$(sqlite3 "${__KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='table1';")
+    r2=$(sqlite3 "${__KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='table2';")
+    [ "$r1" -eq 1 ]
+    [ "$r2" -eq 1 ]
+}
+
+@test "two commands sharing a table name causes a fatal error" {
+    knit_register knit_empty "cmd1" "First command."
+    knit_with_table "shared"
+    knit_done
+
+    knit_register knit_empty "cmd2" "Second command."
+    run knit_with_table "shared"
+    [ "$status" -ne 0 ]
+}
+
+@test "knit_with_table outside registration context causes a fatal error" {
+    run knit_with_table "mytable"
+    [ "$status" -ne 0 ]
+}
+
+@test "table created by knit_with_table has id as first column" {
+    knit_register knit_empty "mycmd" "A command."
+    knit_with_required "count:integer" "A count."
+    knit_with_table
+    knit_done
+    local first_col
+    first_col=$(sqlite3 "${__KNIT_DATABASE}" \
+        "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | head -1)
+    [ "$first_col" = "id" ]
+}
+
+@test "table contains columns for all params flags and outputs" {
+    knit_register knit_empty "mycmd" "A command."
+    knit_with_required "iters:integer" "Iterations."
+    knit_with_optional "label:string" "none" "A label."
+    knit_with_flag "verbose" "Verbose mode."
+    knit_with_output "score:real" "0.0" "The score."
+    knit_with_table
+    knit_done
+    local names
+    names=$(sqlite3 "${__KNIT_DATABASE}" \
+        "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
+    [ "$names" = "id,iters,label,verbose,score," ]
+}
+
+@test "optional parameter default is used as migration default" {
+    # Create the table first with only the id column (simulating old schema)
+    knit_register knit_empty "mycmd" "A command."
+    knit_with_table
+    knit_done
+    sqlite3 "${__KNIT_DATABASE}" \
+        "INSERT INTO mycmd (id) VALUES ('550e8400-e29b-41d4-a716-446655440000');"
+
+    # Now add an optional parameter and re-run setup directly
+    _knit_set_add "_KNIT_CMD_mycmd_optional" "label"
+    eval "_KNIT_CMD_mycmd_2_label_type=string"
+    eval "_KNIT_CMD_mycmd_2_label_default=mydefault"
+    _knit_db_setup_table "mycmd" "mycmd"
+
+    local val
+    val=$(sqlite3 "${__KNIT_DATABASE}" "SELECT label FROM mycmd;")
+    [ "$val" = "mydefault" ]
 }

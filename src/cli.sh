@@ -670,6 +670,59 @@ knit_with_extra() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_with_table()
+#
+# Declare a database table for recording invocations of the command currently
+# being registered. Must be called between knit_register and knit_done.
+#
+# If no table name is given, the demangled command name is used (e.g.
+# "foo:bar" for a subcommand "foo bar"). An error is raised if the same table
+# name is claimed by more than one command.
+#
+# At knit_done time a callback checks whether the table already exists with the
+# correct schema. If absent it is created; if the schema has changed it is
+# migrated. The table always has an "id" (uuid) column first, followed by all
+# required parameters, optional parameters, flags, and outputs, each group
+# sorted alphabetically.
+#
+# Example:
+# ```
+# knit_register my_func "run" "Run an experiment."
+# knit_with_required "count:integer" "Number of iterations."
+# knit_with_table           # uses table name "run"
+# knit_with_table "my_runs" # uses table name "my_runs"
+# my_func() { ... }
+# knit_done
+# ```
+#
+# @param table_name Optional name of the database table. Defaults to the
+#                   colon-separated command name.
+# ------------------------------------------------------------------------------
+knit_with_table() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_table must be called between knit_register and knit_done."
+    fi
+
+    local table_name
+    if [[ $# -ge 1 && -n "$1" ]]; then
+        table_name="$1"
+    else
+        table_name="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+    fi
+
+    if [[ -v _KNIT_DB_REGISTERED_TABLES["${table_name}"] ]]; then
+        knit_fatal "Table \"${table_name}\" is already used by command \"${_KNIT_DB_REGISTERED_TABLES[${table_name}]}\"."
+    fi
+
+    _KNIT_DB_REGISTERED_TABLES["${table_name}"]="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    eval "_KNIT_CMD_${cmd}_table=$(printf '%q' "${table_name}")"
+
+    __knit_push_done_cb _knit_db_setup_table "${cmd}" "${table_name}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_run_before()
 #
 # In the context of a knit_register, install a callback to run before the

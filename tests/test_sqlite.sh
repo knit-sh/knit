@@ -16,35 +16,35 @@ teardown() {
     rm -f "${__KNIT_DATABASE}"
 }
 
-# ---------- __knit_sql_escape ----------
+# ---------- _knit_sql_escape ----------
 
 @test "sql escape returns plain string unchanged" {
     local result
-    result=$(__knit_sql_escape "hello")
+    result=$(_knit_sql_escape "hello")
     [ "$result" = "hello" ]
 }
 
 @test "sql escape doubles single quotes" {
     local result
-    result=$(__knit_sql_escape "it's")
+    result=$(_knit_sql_escape "it's")
     [ "$result" = "it''s" ]
 }
 
 @test "sql escape handles multiple single quotes" {
     local result
-    result=$(__knit_sql_escape "it's a 'test'")
+    result=$(_knit_sql_escape "it's a 'test'")
     [ "$result" = "it''s a ''test''" ]
 }
 
 @test "sql escape handles string with no special characters" {
     local result
-    result=$(__knit_sql_escape "hello world 123")
+    result=$(_knit_sql_escape "hello world 123")
     [ "$result" = "hello world 123" ]
 }
 
 @test "sql escape handles empty string" {
     local result
-    result=$(__knit_sql_escape "")
+    result=$(_knit_sql_escape "")
     [ -z "$result" ]
 }
 
