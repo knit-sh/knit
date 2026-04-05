@@ -10,6 +10,7 @@ KNIT_SOURCE = src/log.sh      \
               src/sqlite.sh   \
               src/db.sh       \
               src/metadata.sh \
+              src/setup.sh    \
               src/main.sh
 
 KNIT_OUTPUT = knit.sh

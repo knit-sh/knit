@@ -799,25 +799,6 @@ _knit_run_after() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn __knit_push_done_cb()
-#
-# In the context of a knit_register, push a callback to be called at the next
-# call to knit_done. Multiple callbacks may be pushed; they are all called in
-# reverse order of installation. The callback list is cleared after knit_done.
-#
-# @param ... Callback function and its arguments.
-# ------------------------------------------------------------------------------
-__knit_push_done_cb() {
-    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
-        knit_fatal "__knit_push_done_cb should be used after a call to \"knit_register\"."
-    fi
-    knit_trace "Pushing done callback in ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
-    local cb
-    cb=$(printf "%q " "$@")
-    _KNIT_DONE_CBS+=("${cb}")
-}
-
-# ------------------------------------------------------------------------------
 # @fn __knit_execute_after_commands()
 #
 # Evaluate the callbacks installed after a command. The callbacks are called
@@ -842,7 +823,26 @@ __knit_execute_after_commands() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn __knit_check_command_arguments()
+# @fn __knit_push_done_cb()
+#
+# In the context of a knit_register, push a callback to be called at the next
+# call to knit_done. Multiple callbacks may be pushed; they are all called in
+# reverse order of installation. The callback list is cleared after knit_done.
+#
+# @param ... Callback function and its arguments.
+# ------------------------------------------------------------------------------
+__knit_push_done_cb() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "__knit_push_done_cb should be used after a call to \"knit_register\"."
+    fi
+    knit_trace "Pushing done callback in ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
+    local cb
+    cb=$(printf "%q " "$@")
+    _KNIT_DONE_CBS+=("${cb}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_check_command_arguments()
 #
 # Check that the arguments expected by the command are provided. This function
 # will fail with a fatal error (i.e. the script will stop) if a required
@@ -852,7 +852,7 @@ __knit_execute_after_commands() {
 # @param cmd Name of the command (mangled).
 # @param ... Arguments to pass to the command.
 # ------------------------------------------------------------------------------
-__knit_check_command_arguments() {
+_knit_check_command_arguments() {
     local cmd="$1"
     local demangled_cmd
     demangled_cmd=$(__knit_command_demangle "${cmd}")
@@ -1183,7 +1183,7 @@ _knit_invoke_command() {
         return 0
     fi
     # check the arguments
-    __knit_check_command_arguments "${cmd}" "$@"
+    _knit_check_command_arguments "${cmd}" "$@"
     # expand missing optional arguments and flags
     local args
     args=$(__knit_expand_command_arguments "${cmd}" "$@")

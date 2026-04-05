@@ -698,49 +698,49 @@ teardown() {
     __knit_find_flag "--dry_run" "--dry-run"
 }
 
-# ---------- __knit_check_command_arguments ----------
+# ---------- _knit_check_command_arguments ----------
 
-@test "__knit_check_command_arguments passes when all required args are present" {
+@test "_knit_check_command_arguments passes when all required args are present" {
     knit_register knit_empty "ca_cmd" "Test."
     knit_with_required "name:string" "A name."
     knit_done
-    __knit_check_command_arguments "ca_cmd" "--name" "Alice"
+    _knit_check_command_arguments "ca_cmd" "--name" "Alice"
 }
 
-@test "__knit_check_command_arguments fails when required arg is missing" {
+@test "_knit_check_command_arguments fails when required arg is missing" {
     knit_register knit_empty "ca_cmd2" "Test."
     knit_with_required "name:string" "A name."
     knit_done
-    run __knit_check_command_arguments "ca_cmd2"
+    run _knit_check_command_arguments "ca_cmd2"
     [ "$status" -eq 1 ]
 }
 
-@test "__knit_check_command_arguments fails for unexpected argument" {
+@test "_knit_check_command_arguments fails for unexpected argument" {
     knit_register knit_empty "ca_cmd3" "Test."
     knit_done
-    run __knit_check_command_arguments "ca_cmd3" "--unknown" "value"
+    run _knit_check_command_arguments "ca_cmd3" "--unknown" "value"
     [ "$status" -eq 1 ]
 }
 
-@test "__knit_check_command_arguments fails for extra args when not declared" {
+@test "_knit_check_command_arguments fails for extra args when not declared" {
     knit_register knit_empty "ca_cmd4" "Test."
     knit_done
-    run __knit_check_command_arguments "ca_cmd4" "--" "extra_arg"
+    run _knit_check_command_arguments "ca_cmd4" "--" "extra_arg"
     [ "$status" -eq 1 ]
 }
 
-@test "__knit_check_command_arguments passes with extra args when declared" {
+@test "_knit_check_command_arguments passes with extra args when declared" {
     knit_register knit_empty "ca_cmd5" "Test."
     knit_with_extra "Extra arguments."
     knit_done
-    __knit_check_command_arguments "ca_cmd5" "--" "extra_arg"
+    _knit_check_command_arguments "ca_cmd5" "--" "extra_arg"
 }
 
-@test "__knit_check_command_arguments accepts flags without values" {
+@test "_knit_check_command_arguments accepts flags without values" {
     knit_register knit_empty "ca_cmd6" "Test."
     knit_with_flag "verbose" "Verbose mode."
     knit_done
-    __knit_check_command_arguments "ca_cmd6" "--verbose"
+    _knit_check_command_arguments "ca_cmd6" "--verbose"
 }
 
 # ---------- __knit_expand_command_arguments ----------
