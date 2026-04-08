@@ -10,10 +10,14 @@ setup() {
     # Override the sqlite executable and database path for testing
     __KNIT_SQLITE_EXE="sqlite3"
     __KNIT_DATABASE="$(mktemp --suffix=.db)"
+
+    # Satisfy the bootstrap check — tests in this file work with a live DB
+    _KNIT_IS_BOOTSTRAPPED="1"
 }
 
 teardown() {
     rm -f "${__KNIT_DATABASE}"
+    _KNIT_IS_BOOTSTRAPPED=""
 }
 
 @test "finding an option that exists" {

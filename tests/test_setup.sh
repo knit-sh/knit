@@ -10,12 +10,16 @@ setup() {
     __KNIT_SQLITE_EXE="sqlite3"
     __KNIT_DATABASE="$(mktemp --suffix=.db)"
     __KNIT_TEST_TMPDIR="$(mktemp -d)"
+
+    # Satisfy the bootstrap check — tests in this file work with a live DB
+    _KNIT_IS_BOOTSTRAPPED="1"
 }
 
 teardown() {
     rm -f "${__KNIT_DATABASE}"
     rm -rf "${__KNIT_TEST_TMPDIR}"
     unset KNIT_SETUP_PREFIX
+    _KNIT_IS_BOOTSTRAPPED=""
 }
 
 # ---------- knit_register_setup ----------

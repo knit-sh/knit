@@ -8,7 +8,7 @@
 # Base name (without directories) of the experiment script that sourced
 # knit.sh. Useful for constructing user-facing messages.
 # ------------------------------------------------------------------------------
-declare KNIT_SCRIPT_NAME
+declare -g KNIT_SCRIPT_NAME
 # shellcheck disable=SC2034 # used in error messages across other source files
 KNIT_SCRIPT_NAME="$(basename "$0")"
 
@@ -21,7 +21,7 @@ KNIT_SCRIPT_NAME="$(basename "$0")"
 # between a legitimate pre-bootstrap invocation (during bootstrap itself) and
 # an erroneous one (calling a DB-backed command before bootstrap has run).
 # ------------------------------------------------------------------------------
-declare _KNIT_IS_BOOTSTRAPPING
+declare -g _KNIT_IS_BOOTSTRAPPING
 _KNIT_IS_BOOTSTRAPPING="false"
 if [[ "${1:-}" == "bootstrap" ]]; then
     _KNIT_IS_BOOTSTRAPPING="true"

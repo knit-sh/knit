@@ -14,7 +14,7 @@ _KNIT_PREFIX="$(pwd)/.knit"
 # the positive result has been confirmed and the filesystem need not be
 # re-checked.
 # ------------------------------------------------------------------------------
-declare _KNIT_IS_BOOTSTRAPPED
+declare -g _KNIT_IS_BOOTSTRAPPED
 _KNIT_IS_BOOTSTRAPPED=""
 
 # ------------------------------------------------------------------------------
