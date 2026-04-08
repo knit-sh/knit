@@ -18,5 +18,8 @@ jobs:
       - name: Build knit.sh
         run: make
 
+      - name: Build Docker images
+        run: make build-images
+
       - name: Run tests
         run: make check

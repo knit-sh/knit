@@ -7,10 +7,18 @@ INTEGRATION_DIR = /shared/knit/tests/integration
 # All test drivers, sorted so they run in order.
 EXPERIMENTS := $(sort $(wildcard experiments/*/test.sh))
 
-.PHONY: check-slurm check-pbs check-all
+.PHONY: check-slurm check-pbs check-all build-images
 .PHONY: cluster-up-slurm cluster-down-slurm
 .PHONY: cluster-up-pbs cluster-down-pbs
 .PHONY: run-slurm run-pbs
+
+# ---------------------------------------------------------------------------
+# Image build (separated so CI can cache/pre-build before the test step)
+# ---------------------------------------------------------------------------
+
+build-images:
+	docker compose -f $(SLURM_COMPOSE) build
+	docker compose -f $(PBS_COMPOSE) build
 
 # ---------------------------------------------------------------------------
 # Full cycles
@@ -27,7 +35,7 @@ check-all: check-slurm check-pbs
 # ---------------------------------------------------------------------------
 
 cluster-up-slurm:
-	docker compose -f $(SLURM_COMPOSE) up -d --build
+	docker compose -f $(SLURM_COMPOSE) up -d
 	docker exec slurm-login \
 	    bash $(INTEGRATION_DIR)/lib/wait-for-cluster.sh slurm
 
@@ -35,7 +43,7 @@ cluster-down-slurm:
 	docker compose -f $(SLURM_COMPOSE) down -v
 
 cluster-up-pbs:
-	docker compose -f $(PBS_COMPOSE) up -d --build
+	docker compose -f $(PBS_COMPOSE) up -d
 	docker exec pbs-login \
 	    bash $(INTEGRATION_DIR)/lib/wait-for-cluster.sh pbs
 

@@ -25,7 +25,7 @@ knit.sh: $(KNIT_SOURCE)
 
 KNIT_TESTS := $(wildcard tests/test_*.sh)
 
-.PHONY: check check-unit check-integration
+.PHONY: check check-unit check-integration build-images
 check: check-unit check-integration
 
 check-unit: $(KNIT_TESTS) knit.sh
@@ -37,6 +37,9 @@ check-integration: knit.sh
 	@echo "Running integration tests..."
 	$(MAKE) -C tests/integration check-all
 	@echo "Integration tests completed."
+
+build-images:
+	$(MAKE) -C tests/integration build-images
 
 .PHONY: shellcheck
 shellcheck:
