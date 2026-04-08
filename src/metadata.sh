@@ -20,6 +20,10 @@ knit_with_required "value:string" "Value."
 # Store a key/value pair in the metadata table.
 # ------------------------------------------------------------------------------
 _knit_metadata_store() {
+    if ! _knit_is_bootstrapped; then
+        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
+        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
+    fi
     local key
     local value
     key=$(knit_get_parameter "key" "$@")
@@ -39,6 +43,10 @@ knit_with_required "key:string" "Key."
 # Load the value associated with a key from the metadata table.
 # ------------------------------------------------------------------------------
 _knit_metadata_load() {
+    if ! _knit_is_bootstrapped; then
+        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
+        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
+    fi
     local key
     key=$(knit_get_parameter "key" "$@")
     _knit_sqlite3 "SELECT value FROM metadata WHERE key = '$(_knit_sql_escape "${key}")';"
@@ -55,6 +63,10 @@ knit_register _knit_metadata_show "metadata:show" "Show all the stored metadata.
 # Show the content of the metadata table.
 # ------------------------------------------------------------------------------
 _knit_metadata_show() {
+    if ! _knit_is_bootstrapped; then
+        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
+        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
+    fi
     _knit_sqlite3 -header -column "$(printf "SELECT * FROM metadata;")"
 }
 knit_done

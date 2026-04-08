@@ -1,0 +1,109 @@
+# =============================================================================
+# OpenPBS Mini-Cluster — Docker Compose (knit integration tests)
+#
+# Topology
+# --------
+#   pbs-login     — PBS server, scheduler, and comm daemon (submit jobs here)
+#   pbs-compute1  — PBS MOM (execution) node
+#   pbs-compute2  — PBS MOM (execution) node
+#
+# Volume mounts:
+#   /shared/knit  — knit repo root (read-only); knit.sh at /shared/knit/knit.sh
+#   /shared/runs  — per-experiment working directories (read-write)
+#
+# Quick start
+# -----------
+#   docker compose up -d --build
+#   docker exec -it pbs-login bash
+#   su - hpcuser
+#
+# To pin a specific PBS version:
+#   docker compose build --build-arg PBS_VERSION=23.06.06
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Login / Server node
+  # Runs: pbs_server  pbs_sched  pbs_comm
+  # ---------------------------------------------------------------------------
+  pbs-login:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PBS_VERSION: ${PBS_VERSION:-23.06.06}
+    image: openpbs-cluster:latest
+    hostname: pbs-login
+    container_name: pbs-login
+    environment:
+      PBS_SERVER: pbs-login
+    volumes:
+      - ../../../../:/shared/knit:ro   # knit repo root (read-only)
+      - ./shared:/shared/runs          # per-experiment working directories
+    networks:
+      pbs-net:
+        aliases:
+          - pbs-login
+    privileged: true
+    entrypoint: ["/entrypoint-server.sh"]
+
+  # ---------------------------------------------------------------------------
+  # Compute node 1
+  # ---------------------------------------------------------------------------
+  pbs-compute1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PBS_VERSION: ${PBS_VERSION:-23.06.06}
+    image: openpbs-cluster:latest
+    hostname: pbs-compute1
+    container_name: pbs-compute1
+    environment:
+      PBS_SERVER: pbs-login
+    volumes:
+      - ../../../../:/shared/knit:ro
+      - ./shared:/shared/runs
+    networks:
+      pbs-net:
+        aliases:
+          - pbs-compute1
+    privileged: true
+    entrypoint: ["/entrypoint-mom.sh"]
+    depends_on:
+      - pbs-login
+
+  # ---------------------------------------------------------------------------
+  # Compute node 2
+  # ---------------------------------------------------------------------------
+  pbs-compute2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PBS_VERSION: ${PBS_VERSION:-23.06.06}
+    image: openpbs-cluster:latest
+    hostname: pbs-compute2
+    container_name: pbs-compute2
+    environment:
+      PBS_SERVER: pbs-login
+    volumes:
+      - ../../../../:/shared/knit:ro
+      - ./shared:/shared/runs
+    networks:
+      pbs-net:
+        aliases:
+          - pbs-compute2
+    privileged: true
+    entrypoint: ["/entrypoint-mom.sh"]
+    depends_on:
+      - pbs-login
+
+# ---------------------------------------------------------------------------
+# Network
+# ---------------------------------------------------------------------------
+networks:
+  pbs-net:
+    driver: bridge
+    name: pbs-net

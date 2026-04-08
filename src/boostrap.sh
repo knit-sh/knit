@@ -8,6 +8,38 @@
 _KNIT_PREFIX="$(pwd)/.knit"
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_IS_BOOTSTRAPPED
+#
+# Cache for _knit_is_bootstrapped(). Empty means "not yet checked"; "1" means
+# the positive result has been confirmed and the filesystem need not be
+# re-checked.
+# ------------------------------------------------------------------------------
+declare _KNIT_IS_BOOTSTRAPPED
+_KNIT_IS_BOOTSTRAPPED=""
+
+# ------------------------------------------------------------------------------
+# @fn _knit_is_bootstrapped()
+#
+# Return 0 if the experiment has been bootstrapped (i.e. _KNIT_PREFIX exists),
+# 1 otherwise.
+#
+# The positive result is cached in _KNIT_IS_BOOTSTRAPPED so that repeated
+# calls within the same session avoid redundant filesystem accesses.  The
+# negative result is never cached: the directory may be created at any moment
+# by a bootstrap invocation in the same session.
+# ------------------------------------------------------------------------------
+_knit_is_bootstrapped() {
+    if [[ "${_KNIT_IS_BOOTSTRAPPED}" == "1" ]]; then
+        return 0
+    fi
+    if [[ -d "${_KNIT_PREFIX}" ]]; then
+        _KNIT_IS_BOOTSTRAPPED="1"
+        return 0
+    fi
+    return 1
+}
+
+# ------------------------------------------------------------------------------
 # @fn __knit_bootstrap_on_exit()
 #
 # Clean up on exit if bootstrap did not complete successfully.

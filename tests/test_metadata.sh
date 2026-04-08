@@ -13,10 +13,14 @@ setup() {
 
     sqlite3 "${__KNIT_DATABASE}" \
         "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT);"
+
+    # Satisfy the bootstrap check — tests in this file work with a live DB
+    _KNIT_IS_BOOTSTRAPPED="1"
 }
 
 teardown() {
     rm -f "${__KNIT_DATABASE}"
+    _KNIT_IS_BOOTSTRAPPED=""
 }
 
 # ---------- _knit_metadata_store ----------
@@ -87,4 +91,54 @@ teardown() {
     [[ "$result" == *"1"* ]]
     [[ "$result" == *"beta"* ]]
     [[ "$result" == *"2"* ]]
+}
+
+# ---------- bootstrap guard ----------
+
+@test "metadata store fails when experiment is not bootstrapped and not bootstrapping" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="false"
+    run _knit_metadata_store --key "k" --value "v"
+    [ "$status" -ne 0 ]
+}
+
+@test "metadata store is a no-op when bootstrapping and experiment is not yet bootstrapped" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="true"
+    run _knit_metadata_store --key "k" --value "v"
+    [ "$status" -eq 0 ]
+}
+
+@test "metadata load fails when experiment is not bootstrapped and not bootstrapping" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="false"
+    run _knit_metadata_load --key "k"
+    [ "$status" -ne 0 ]
+}
+
+@test "metadata load is a no-op when bootstrapping and experiment is not yet bootstrapped" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="true"
+    run _knit_metadata_load --key "k"
+    [ "$status" -eq 0 ]
+}
+
+@test "metadata show fails when experiment is not bootstrapped and not bootstrapping" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="false"
+    run _knit_metadata_show
+    [ "$status" -ne 0 ]
+}
+
+@test "metadata show is a no-op when bootstrapping and experiment is not yet bootstrapped" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="true"
+    run _knit_metadata_show
+    [ "$status" -eq 0 ]
 }

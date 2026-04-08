@@ -1,4 +1,5 @@
-KNIT_SOURCE = src/log.sh      \
+KNIT_SOURCE = src/global.sh   \
+              src/log.sh      \
               src/set.sh      \
               src/str.sh      \
               src/types.sh    \
@@ -24,11 +25,18 @@ knit.sh: $(KNIT_SOURCE)
 
 KNIT_TESTS := $(wildcard tests/test_*.sh)
 
-.PHONY: check
-check: $(KNIT_TESTS) knit.sh
-	@echo "Running all Bats tests..."
+.PHONY: check check-unit check-integration
+check: check-unit check-integration
+
+check-unit: $(KNIT_TESTS) knit.sh
+	@echo "Running unit tests..."
 	bats $(KNIT_TESTS)
-	@echo "All tests completed."
+	@echo "Unit tests completed."
+
+check-integration: knit.sh
+	@echo "Running integration tests..."
+	$(MAKE) -C tests/integration check-all
+	@echo "Integration tests completed."
 
 .PHONY: shellcheck
 shellcheck:

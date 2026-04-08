@@ -1,0 +1,93 @@
+# =============================================================================
+# Docker Compose — Slurm learning cluster (knit integration tests)
+#
+# Topology:
+#   slurm-login     — Slurm controller (slurmctld) + login node
+#   slurm-compute1  — Slurm worker node (slurmd)
+#   slurm-compute2  — Slurm worker node (slurmd)
+#
+# All three containers are built from the same Dockerfile.
+# The SLURM_VERSION build arg can be overridden at build time:
+#   docker compose build --build-arg SLURM_VERSION=24.05.4
+#
+# Volume mounts:
+#   /shared/knit  — knit repo root (read-only); knit.sh at /shared/knit/knit.sh
+#   /shared/runs  — per-experiment working directories (read-write)
+#
+# Quick start:
+#   docker compose up -d --build
+#   docker exec -it slurm-login bash
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Controller / login node
+  # ---------------------------------------------------------------------------
+  slurm-login:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SLURM_VERSION: ${SLURM_VERSION:-24.05.4}
+    image: slurm-learn:latest
+    hostname: slurm-login
+    container_name: slurm-login
+    privileged: true          # required: munge needs /dev/urandom, slurmd needs
+                              # process visibility beyond the container boundary
+    networks:
+      - slurm-net
+    volumes:
+      - ../../../../:/shared/knit:ro   # knit repo root (read-only)
+      - ./shared:/shared/runs          # per-experiment working directories
+    environment:
+      - SLURM_CONF=/etc/slurm/slurm.conf
+    entrypoint: ["/entrypoint-controller.sh"]
+    ports:
+      - "6817:6817"
+
+  # ---------------------------------------------------------------------------
+  # Compute node 1
+  # ---------------------------------------------------------------------------
+  slurm-compute1:
+    image: slurm-learn:latest
+    hostname: slurm-compute1
+    container_name: slurm-compute1
+    privileged: true
+    networks:
+      - slurm-net
+    volumes:
+      - ../../../../:/shared/knit:ro
+      - ./shared:/shared/runs
+    environment:
+      - SLURM_CONF=/etc/slurm/slurm.conf
+    entrypoint: ["/entrypoint-worker.sh"]
+    depends_on:
+      - slurm-login
+
+  # ---------------------------------------------------------------------------
+  # Compute node 2
+  # ---------------------------------------------------------------------------
+  slurm-compute2:
+    image: slurm-learn:latest
+    hostname: slurm-compute2
+    container_name: slurm-compute2
+    privileged: true
+    networks:
+      - slurm-net
+    volumes:
+      - ../../../../:/shared/knit:ro
+      - ./shared:/shared/runs
+    environment:
+      - SLURM_CONF=/etc/slurm/slurm.conf
+    entrypoint: ["/entrypoint-worker.sh"]
+    depends_on:
+      - slurm-login
+
+# =============================================================================
+# Network
+# =============================================================================
+networks:
+  slurm-net:
+    driver: bridge
+    name: slurm-net

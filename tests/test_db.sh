@@ -10,10 +10,14 @@ setup() {
     # Override the sqlite executable and database path for testing
     __KNIT_SQLITE_EXE="sqlite3"
     __KNIT_DATABASE="$(mktemp --suffix=.db)"
+
+    # Satisfy the bootstrap check — tests in this file work with a live DB
+    _KNIT_IS_BOOTSTRAPPED="1"
 }
 
 teardown() {
     rm -f "${__KNIT_DATABASE}"
+    _KNIT_IS_BOOTSTRAPPED=""
 }
 
 # ---------- _knit_db_create_table ----------
@@ -315,4 +319,31 @@ __test_register_cmd() {
     local preserved
     preserved=$(sqlite3 "${__KNIT_DATABASE}" "SELECT count FROM mycmd;")
     [ "$preserved" -eq 7 ]
+}
+
+# ---------- bootstrap guard ----------
+
+@test "setup table is a no-op when bootstrapping and experiment is not yet bootstrapped" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="true"
+    # knit_done fires _knit_db_setup_table — must return 0 without creating any table
+    knit_register knit_empty "guarded" "cmd"
+    knit_with_table
+    run knit_done
+    [ "$status" -eq 0 ]
+    local result
+    result=$(sqlite3 "${__KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='guarded';")
+    [ "$result" -eq 0 ]
+}
+
+@test "setup table fails when experiment is not bootstrapped and not bootstrapping" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="false"
+    knit_register knit_empty "guarded2" "cmd"
+    knit_with_table
+    run knit_done
+    [ "$status" -ne 0 ]
 }
