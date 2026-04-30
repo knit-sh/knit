@@ -761,9 +761,9 @@ _knit_run_before() {
 __knit_execute_before_commands() {
     local cmd="$1"
     shift
-    local demanled_cmd
+    local demangled_cmd
     demangled_cmd=$(__knit_command_demangle "${cmd}")
-    knit_trace "Executing callbacks before ${demanled_cmd}."
+    knit_trace "Executing callbacks before ${demangled_cmd}."
     local cb_list_name="_KNIT_CMD_${cmd}_before_cb"
     # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"
@@ -811,9 +811,9 @@ _knit_run_after() {
 __knit_execute_after_commands() {
     local cmd="$1"
     shift
-    local demanled_cmd
+    local demangled_cmd
     demangled_cmd=$(__knit_command_demangle "${cmd}")
-    knit_trace "Executing callbacks after ${demanled_cmd}."
+    knit_trace "Executing callbacks after ${demangled_cmd}."
     local cb_list_name="_KNIT_CMD_${cmd}_after_cb"
     # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"

@@ -6,18 +6,40 @@
 # Name of the SQLite source archive.
 # ------------------------------------------------------------------------------
 __KNIT_SQLITE_SOURCE_NAME="sqlite-autoconf-3480000"
+
 # ------------------------------------------------------------------------------
 # URL to download the SQLite source archive.
 # ------------------------------------------------------------------------------
 __KNIT_SQLITE_SOURCE_URL="https://www.sqlite.org/2025/${__KNIT_SQLITE_SOURCE_NAME}.tar.gz"
+
 # ------------------------------------------------------------------------------
 # Path to the SQLite executable.
 # ------------------------------------------------------------------------------
 __KNIT_SQLITE_EXE="${_KNIT_PREFIX}/sqlite/bin/sqlite3"
+
 # ------------------------------------------------------------------------------
 # Path to the Knit database file.
 # ------------------------------------------------------------------------------
 __KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
+
+# ------------------------------------------------------------------------------
+# @fn __knit_sqlite_framed_run()
+#
+# Run a command with its combined stdout/stderr written to _KNIT_TRACE_FILE and,
+# when KNIT_LOG_LEVEL is trace, also displayed live in a 10-line frame.
+# Returns the exit status of the command.
+#
+# @param title Title shown on the frame's top border.
+# @param ... Command and arguments to execute.
+# ------------------------------------------------------------------------------
+__knit_sqlite_framed_run() {
+    local title="$1"
+    shift
+    "$@" 2>&1 | tee "${_KNIT_TRACE_FILE}" | \
+        knit_framed 10 -1 --title "${title}" --log-level trace --cleanup
+    local -a pipe_status=("${PIPESTATUS[@]}")
+    return "${pipe_status[0]}"
+}
 
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_sqlite()
@@ -28,31 +50,36 @@ _knit_bootstrap_sqlite() {
     knit_pushd "${_KNIT_PREFIX}"
 
     knit_trace "Downloading sqlite source..."
-    if ! curl -L -O "${__KNIT_SQLITE_SOURCE_URL}" > "${_KNIT_TRACE_FILE}" 2>&1 ; then
+    if ! __knit_sqlite_framed_run "sqlite: download" \
+            curl -L -O "${__KNIT_SQLITE_SOURCE_URL}" ; then
         knit_fatal "Could not download sqlite sources. See ${_KNIT_TRACE_FILE} for more information."
     fi
 
     knit_trace "Extracting sqlite source..."
-    if ! tar -xvf "${__KNIT_SQLITE_SOURCE_NAME}.tar.gz" > "${_KNIT_TRACE_FILE}" 2>&1 ; then
+    if ! __knit_sqlite_framed_run "sqlite: extract" \
+            tar -xvf "${__KNIT_SQLITE_SOURCE_NAME}.tar.gz" ; then
         knit_fatal "Could not extract sqlite sources. See ${_KNIT_TRACE_FILE} for more information."
     fi
 
     knit_trace "Building sqlite..."
     mkdir "${__KNIT_SQLITE_SOURCE_NAME}/build"
     knit_pushd "${__KNIT_SQLITE_SOURCE_NAME}/build"
-    if ! ../configure --prefix="${_KNIT_PREFIX}/sqlite" > "${_KNIT_TRACE_FILE}" 2>&1 ; then
+    if ! __knit_sqlite_framed_run "sqlite: configure" \
+            ../configure --prefix="${_KNIT_PREFIX}/sqlite" ; then
         knit_fatal "Could not configure sqlite sources. See ${_KNIT_TRACE_FILE} for more information."
     fi
-    if ! make > "${_KNIT_TRACE_FILE}" 2>&1 ; then
+    if ! __knit_sqlite_framed_run "sqlite: make" \
+            make ; then
         knit_fatal "Could not build sqlite sources. See ${_KNIT_TRACE_FILE} for more information."
     fi
-    if ! make install > "${_KNIT_TRACE_FILE}" 2>&1 ; then
+    if ! __knit_sqlite_framed_run "sqlite: make install" \
+            make install ; then
         knit_fatal "Could not install sqlite. See ${_KNIT_TRACE_FILE} for more information."
     fi
     knit_popd # from "${__KNIT_SQLITE_SOURCE_NAME}/build"
 
     knit_trace "Deleting sqlite sources and archive..."
-    rm -rf "${__KNIT_SQLITE_SOURCE_NAME}" "${__KNIT_SQLITE_SOURCE_NAME}.tar.gz" > "${_KNIT_TRACE_FILE}" 2>&1
+    rm -rf "${__KNIT_SQLITE_SOURCE_NAME}" "${__KNIT_SQLITE_SOURCE_NAME}.tar.gz" 2>"${_KNIT_TRACE_FILE}"
 
     knit_popd # from "${_KNIT_PREFIX}"
 

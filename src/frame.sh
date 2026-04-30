@@ -19,8 +19,39 @@
 # @param --frame-bg-color Background color of the frame borders (key in _KNIT_COLORS).
 # @param --text-color Foreground color of the text inside the frame (key in _KNIT_COLORS).
 # @param --text-bg-color Background color of the text inside the frame (key in _KNIT_COLORS).
+# @param --log-level Minimum log level required to display the frame (trace, debug, info,
+#                    warning, error, critical). If KNIT_LOG_LEVEL is above this level,
+#                    stdin is drained silently and nothing is output.
 # ------------------------------------------------------------------------------
 knit_framed() {
+    local log_level
+    log_level=$(knit_get_parameter "log-level" "$@") || log_level=""
+    if [[ -n "$log_level" ]]; then
+        case "$log_level" in
+            trace|debug|info|warning|error|critical) ;;
+            *)
+                knit_warning "Unknown log level '%s' for --log-level; ignoring." "$log_level"
+                log_level=""
+                ;;
+        esac
+    fi
+    if [[ -n "$log_level" ]] && \
+       (( $(__knit_log_level_to_int "${KNIT_LOG_LEVEL}") > $(__knit_log_level_to_int "$log_level") )); then
+        cat > /dev/null
+        return 0
+    fi
+
+    # Detect --cleanup before the TTY check so both paths can honour it.
+    local cleanup=false
+    local __arg
+    for __arg in "$@"; do
+        if [[ "$__arg" == "--cleanup" ]]; then
+            cleanup=true
+            break
+        fi
+    done
+    unset __arg
+
     # If not running in a TTY, forward stdin to stdout unchanged.
     if [[ ! -t 1 ]]; then
         cat
@@ -36,15 +67,6 @@ knit_framed() {
     local width=${2:-$default_width}
     local title
     title=$(knit_get_parameter "title" "$@") || title=""
-    local cleanup=false
-    local __arg
-    for __arg in "$@"; do
-        if [[ "$__arg" == "--cleanup" ]]; then
-            cleanup=true
-            break
-        fi
-    done
-    unset __arg
 
     local frame_color frame_bg_color text_color text_bg_color
     frame_color=$(knit_get_parameter    "frame-color"    "$@") || frame_color=""
@@ -145,6 +167,7 @@ knit_framed() {
 
     # Print blank lines so the initial draw_frame has room to move back up.
     for ((i = 0; i < height; i++)); do echo; done
+
     __knit_draw_frame
 
     # Stream input line by line, redrawing after each.
@@ -153,9 +176,8 @@ knit_framed() {
         __knit_draw_frame
     done
 
-    # If --cleanup was requested, move back up and erase the frame.
     if [[ "$cleanup" == "true" ]]; then
         printf "\033[%dA" "$height"
-        printf "\033[J"
+        printf '\033[J'
     fi
 }

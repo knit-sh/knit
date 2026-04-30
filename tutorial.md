@@ -82,7 +82,7 @@ run via `mpiexec` or equivalent) must be wrapped in a Knit *app*. This construct
 makes Knit aware of the application and allows it to record information about its
 execution in a database.
 
-The following is an *app* wrapper for our `game-of-life` binary.
+The following is an *app* wrapper for our `julia-fractal` binary.
 
 ```bash
 knit_register_app "julia" "julia_fractal_fn" "Julia fractal computation."

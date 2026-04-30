@@ -77,7 +77,7 @@ _knit_log() {
     printf "[knit:%s] " "$level" 1>&2
     # shellcheck disable=SC2059 # forwarding arguments to printf
     printf "${@}" 1>&2
-    printf "\n"
+    printf "\n" 1>&2
 }
 
 # ------------------------------------------------------------------------------
