@@ -72,7 +72,7 @@ $ ./tutorial.sh bootstrap
 You should find that your script has created a hidden *.knit* folder in the root folder.
 
 
-## Making out first `app`
+## Making our first `app`
 
 From now on, any piece of code that this tutorial will give should be placed after
 `source knit.sh`, and before the final `knit $@`.
