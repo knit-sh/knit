@@ -8,6 +8,11 @@
 declare -gA _KNIT_COMMANDS
 
 # ------------------------------------------------------------------------------
+# Set of defined parameter set names (normalized).
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_PARAMETER_SETS
+
+# ------------------------------------------------------------------------------
 # Stack of currently-executing command names (mangled). Used by knit_output.
 # ------------------------------------------------------------------------------
 declare -ga _KNIT_EXECUTING_COMMAND=()
@@ -109,8 +114,8 @@ __knit_param_check_declaration() {
     local param="$2"
     local description="$3"
 
-    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
-        knit_fatal "knit_with_${suffix} should be used after a call to \"knit_register\"."
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]] && [[ ! -v _KNIT_CURRENT_PARAMETER_SET ]]; then
+        knit_fatal "knit_with_${suffix} should be used after a call to \"knit_register\" or \"knit_define_parameter_set\"."
     fi
 
     # Extract name and type from "name:type" format (flags are implicitly boolean)
@@ -137,16 +142,21 @@ __knit_param_check_declaration() {
         knit_warning "Not describing parameter \"${param_name}\" undermines its understandability."
     fi
 
-    local cmd="${_KNIT_CURRENT_COMMAND}"
-    local demangled_cmd
-    demangled_cmd=$(__knit_command_demangle "${cmd}")
+    local context_name ns
+    if [[ -v _KNIT_CURRENT_PARAMETER_SET ]]; then
+        context_name="${_KNIT_CURRENT_PARAMETER_SET}"
+        ns="_KNIT_PSET_${_KNIT_CURRENT_PARAMETER_SET}"
+    else
+        context_name=$(__knit_command_demangle "${_KNIT_CURRENT_COMMAND}")
+        ns="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}"
+    fi
     local normalized
     normalized=$(__knit_name_normalize "${param_name}")
 
-    if _knit_set_find "_KNIT_CMD_${cmd}_required" "${normalized}" \
-    || _knit_set_find "_KNIT_CMD_${cmd}_optional" "${normalized}" \
-    || _knit_set_find "_KNIT_CMD_${cmd}_flags" "${normalized}"; then
-        knit_fatal "Parameter \"${param_name}\" already declared for \"${demangled_cmd}\"."
+    if _knit_set_find "${ns}_required" "${normalized}" \
+    || _knit_set_find "${ns}_optional" "${normalized}" \
+    || _knit_set_find "${ns}_flags"    "${normalized}"; then
+        knit_fatal "Parameter \"${param_name}\" already declared for \"${context_name}\"."
     fi
 }
 
@@ -410,9 +420,13 @@ knit_register() {
 # ------------------------------------------------------------------------------
 # @fn knit_done()
 #
-# Finishes to register a function.
+# Finishes to register a function or a parameter set.
 # ------------------------------------------------------------------------------
 knit_done() {
+    if [[ -v _KNIT_CURRENT_PARAMETER_SET ]]; then
+        unset _KNIT_CURRENT_PARAMETER_SET
+        return 0
+    fi
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_warning "\"knit_done\" called without a matching \"knit_register\"."
     fi
@@ -428,6 +442,40 @@ knit_done() {
     unset _KNIT_CURRENT_FUNCTION
     unset _KNIT_CURRENT_COMMAND
     unset _KNIT_CURRENT_COMMAND_DEMANGLED
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_define_parameter_set()
+#
+# Begins the definition of a named parameter set. A call to this function should
+# be followed by any number of knit_with_required, knit_with_optional, and
+# knit_with_flag calls, then a call to knit_done. The resulting set can then be
+# imported into one or more commands with knit_with_parameter_set.
+#
+# @param name Name of the parameter set (letters, digits, hyphens, underscores).
+# ------------------------------------------------------------------------------
+knit_define_parameter_set() {
+    local set_name="$1"
+    if [[ -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_done
+        knit_warning "You forgot to call \"knit_done\" before defining a parameter set."
+    fi
+    if [[ -v _KNIT_CURRENT_PARAMETER_SET ]]; then
+        knit_fatal "Cannot define parameter set \"${set_name}\" inside another parameter set definition."
+    fi
+    if ! __knit_name_is_valid "${set_name}"; then
+        knit_fatal "Parameter set name \"${set_name}\" is not valid."
+    fi
+    local normalized
+    normalized=$(__knit_name_normalize "${set_name}")
+    if [[ -v "_KNIT_PARAMETER_SETS[${normalized}]" ]]; then
+        knit_fatal "Parameter set \"${set_name}\" is already defined."
+    fi
+    _KNIT_PARAMETER_SETS["${normalized}"]=1
+    _knit_set_new "_KNIT_PSET_${normalized}_required"
+    _knit_set_new "_KNIT_PSET_${normalized}_optional"
+    _knit_set_new "_KNIT_PSET_${normalized}_flags"
+    _KNIT_CURRENT_PARAMETER_SET="${normalized}"
 }
 
 # ------------------------------------------------------------------------------
@@ -491,18 +539,20 @@ knit_with_required() {
     local param_type="${param_spec#*:}"
     local param
     param=$(__knit_name_normalize "${param_name}")
-    local cmd="${_KNIT_CURRENT_COMMAND}"
-    local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+    local ns demangled_cmd
+    if [[ -v _KNIT_CURRENT_PARAMETER_SET ]]; then
+        ns="_KNIT_PSET_${_KNIT_CURRENT_PARAMETER_SET}"
+        demangled_cmd="${_KNIT_CURRENT_PARAMETER_SET}"
+    else
+        ns="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}"
+        demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+    fi
     local description
     description=$(printf '%q' "$2")
-    local description_var
-    description_var=$(__knit_param_description_var "${cmd}" "${param}")
-    local type_var
-    type_var=$(__knit_param_type_var "${cmd}" "${param}")
-    knit_trace "Adding required parameter \"${param_name}\" (type: ${param_type}) to command \"${demangled_cmd}\"."
-    eval "${description_var}=${description}"
-    eval "${type_var}=${param_type}"
-    _knit_set_add "_KNIT_CMD_${cmd}_required" "${param}"
+    knit_trace "Adding required parameter \"${param_name}\" (type: ${param_type}) to \"${demangled_cmd}\"."
+    eval "${ns}_2_${param}_description=${description}"
+    eval "${ns}_2_${param}_type=${param_type}"
+    _knit_set_add "${ns}_required" "${param}"
 }
 
 # ------------------------------------------------------------------------------
@@ -536,23 +586,23 @@ knit_with_optional() {
     local param_type="${param_spec#*:}"
     local param
     param=$(__knit_name_normalize "${param_name}")
-    local cmd="${_KNIT_CURRENT_COMMAND}"
-    local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+    local ns demangled_cmd
+    if [[ -v _KNIT_CURRENT_PARAMETER_SET ]]; then
+        ns="_KNIT_PSET_${_KNIT_CURRENT_PARAMETER_SET}"
+        demangled_cmd="${_KNIT_CURRENT_PARAMETER_SET}"
+    else
+        ns="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}"
+        demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+    fi
     local default
     default=$(printf '%q' "$2")
     local description
     description=$(printf '%q' "$3")
-    local description_var
-    description_var=$(__knit_param_description_var "${cmd}" "${param}")
-    local default_var
-    default_var=$(__knit_param_default_var "${cmd}" "${param}")
-    local type_var
-    type_var=$(__knit_param_type_var "${cmd}" "${param}")
-    knit_trace "Adding optional parameter \"${param_name}\" (type: ${param_type}) to command \"${demangled_cmd}\"."
-    eval "${description_var}=$description"
-    eval "${default_var}=$default"
-    eval "${type_var}=${param_type}"
-    _knit_set_add "_KNIT_CMD_${cmd}_optional" "${param}"
+    knit_trace "Adding optional parameter \"${param_name}\" (type: ${param_type}) to \"${demangled_cmd}\"."
+    eval "${ns}_2_${param}_description=$description"
+    eval "${ns}_2_${param}_default=$default"
+    eval "${ns}_2_${param}_type=${param_type}"
+    _knit_set_add "${ns}_optional" "${param}"
 }
 
 # ------------------------------------------------------------------------------
@@ -577,15 +627,79 @@ knit_with_flag() {
     __knit_param_check_declaration "flag" "$1" "$2"
     local param
     param=$(__knit_name_normalize "$1")
-    local cmd="${_KNIT_CURRENT_COMMAND}"
-    local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+    local ns demangled_cmd
+    if [[ -v _KNIT_CURRENT_PARAMETER_SET ]]; then
+        ns="_KNIT_PSET_${_KNIT_CURRENT_PARAMETER_SET}"
+        demangled_cmd="${_KNIT_CURRENT_PARAMETER_SET}"
+    else
+        ns="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}"
+        demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+    fi
     local description
     description=$(printf '%q' "$2")
-    local description_var
-    description_var=$(__knit_param_description_var "${cmd}" "${param}")
-    knit_trace "Adding flag \"$1\" to command \"${demangled_cmd}\"."
-    eval "${description_var}=${description}"
-    _knit_set_add "_KNIT_CMD_${cmd}_flags" "${param}"
+    knit_trace "Adding flag \"$1\" to \"${demangled_cmd}\"."
+    eval "${ns}_2_${param}_description=${description}"
+    _knit_set_add "${ns}_flags" "${param}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_with_parameter_set()
+#
+# Import all parameters from a previously defined parameter set into the command
+# currently being registered. May be called multiple times with different sets.
+# Conflicts between the set's parameters and parameters already declared for the
+# command are reported as fatal errors.
+#
+# @param name Name of the parameter set to import.
+# ------------------------------------------------------------------------------
+knit_with_parameter_set() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_parameter_set should be used after a call to \"knit_register\"."
+    fi
+    local set_name="$1"
+    local normalized
+    normalized=$(__knit_name_normalize "${set_name}")
+    if [[ ! -v "_KNIT_PARAMETER_SETS[${normalized}]" ]]; then
+        knit_fatal "Parameter set \"${set_name}\" is not defined."
+    fi
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+    local pset_ns="_KNIT_PSET_${normalized}"
+    local cmd_ns="_KNIT_CMD_${cmd}"
+    local param
+
+    while IFS= read -r param; do
+        if _knit_set_find "${cmd_ns}_required" "${param}" \
+        || _knit_set_find "${cmd_ns}_optional" "${param}" \
+        || _knit_set_find "${cmd_ns}_flags"    "${param}"; then
+            knit_fatal "Parameter \"${param}\" from set \"${set_name}\" conflicts with an existing parameter of \"${demangled_cmd}\"."
+        fi
+        eval "${cmd_ns}_2_${param}_description=\"\${${pset_ns}_2_${param}_description}\""
+        eval "${cmd_ns}_2_${param}_type=\"\${${pset_ns}_2_${param}_type}\""
+        _knit_set_add "${cmd_ns}_required" "${param}"
+    done < <(_knit_set_iter "${pset_ns}_required")
+
+    while IFS= read -r param; do
+        if _knit_set_find "${cmd_ns}_required" "${param}" \
+        || _knit_set_find "${cmd_ns}_optional" "${param}" \
+        || _knit_set_find "${cmd_ns}_flags"    "${param}"; then
+            knit_fatal "Parameter \"${param}\" from set \"${set_name}\" conflicts with an existing parameter of \"${demangled_cmd}\"."
+        fi
+        eval "${cmd_ns}_2_${param}_description=\"\${${pset_ns}_2_${param}_description}\""
+        eval "${cmd_ns}_2_${param}_type=\"\${${pset_ns}_2_${param}_type}\""
+        eval "${cmd_ns}_2_${param}_default=\"\${${pset_ns}_2_${param}_default}\""
+        _knit_set_add "${cmd_ns}_optional" "${param}"
+    done < <(_knit_set_iter "${pset_ns}_optional")
+
+    while IFS= read -r param; do
+        if _knit_set_find "${cmd_ns}_required" "${param}" \
+        || _knit_set_find "${cmd_ns}_optional" "${param}" \
+        || _knit_set_find "${cmd_ns}_flags"    "${param}"; then
+            knit_fatal "Parameter \"${param}\" from set \"${set_name}\" conflicts with an existing parameter of \"${demangled_cmd}\"."
+        fi
+        eval "${cmd_ns}_2_${param}_description=\"\${${pset_ns}_2_${param}_description}\""
+        _knit_set_add "${cmd_ns}_flags" "${param}"
+    done < <(_knit_set_iter "${pset_ns}_flags")
 }
 
 # ------------------------------------------------------------------------------
