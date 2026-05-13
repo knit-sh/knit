@@ -86,16 +86,43 @@ __knit_name_normalize() {
 #
 # Checks that a parameter or command name is valid, i.e. it has to start with a
 # letter, followed by any number of alphanumerical characters and hyphens and
-# underscores.
+# underscores. The names "true", "false", "null", "and", "or", and "not" are
+# reserved for use in --when constraint expressions and are not allowed.
 #
 # @param param Parameter name to normalize.
 # ------------------------------------------------------------------------------
 __knit_name_is_valid() {
-    if [[ "$1" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
-        return 0
-    else
+    if [[ ! "$1" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
         return 1
     fi
+    case "$1" in
+        true|false|null|and|or|not) return 1 ;;
+    esac
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_preprocess_constraint()
+#
+# Preprocess a user-written constraint expression for use with jq. Bare
+# identifiers (parameter names) are prefixed with "." so they refer to jq
+# object fields. jq keywords and identifiers inside string literals are left
+# unchanged. Requires Perl.
+#
+# Example:
+# ```
+# __knit_preprocess_constraint "x > 42 and z == \"foo\""
+# # prints: .x > 42 and .z == "foo"
+# ```
+#
+# @param expr Constraint expression to preprocess.
+# ------------------------------------------------------------------------------
+__knit_preprocess_constraint() {
+    local expr="$1"
+    printf '%s' "${expr}" | perl -pe '
+        my %kw = map { $_ => 1 } qw(true false null and or not);
+        s/"[^"\\]*(?:\\.[^"\\]*)*"(*SKIP)(*FAIL)|(?<![.\w])([a-zA-Z_][a-zA-Z0-9_]*)/$kw{$1} ? $1 : ".$1"/ge
+    '
 }
 
 # ------------------------------------------------------------------------------
@@ -553,6 +580,14 @@ knit_with_required() {
     eval "${ns}_2_${param}_description=${description}"
     eval "${ns}_2_${param}_type=${param_type}"
     _knit_set_add "${ns}_required" "${param}"
+    local when_expr
+    when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+    if [[ -n "${when_expr}" ]]; then
+        local preprocessed
+        preprocessed=$(__knit_preprocess_constraint "${when_expr}")
+        eval "${ns}_2_${param}_when=$(printf '%q' "${preprocessed}")"
+        eval "${ns}_2_${param}_when_raw=$(printf '%q' "${when_expr}")"
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -603,6 +638,14 @@ knit_with_optional() {
     eval "${ns}_2_${param}_default=$default"
     eval "${ns}_2_${param}_type=${param_type}"
     _knit_set_add "${ns}_optional" "${param}"
+    local when_expr
+    when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+    if [[ -n "${when_expr}" ]]; then
+        local preprocessed
+        preprocessed=$(__knit_preprocess_constraint "${when_expr}")
+        eval "${ns}_2_${param}_when=$(printf '%q' "${preprocessed}")"
+        eval "${ns}_2_${param}_when_raw=$(printf '%q' "${when_expr}")"
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -640,6 +683,14 @@ knit_with_flag() {
     knit_trace "Adding flag \"$1\" to \"${demangled_cmd}\"."
     eval "${ns}_2_${param}_description=${description}"
     _knit_set_add "${ns}_flags" "${param}"
+    local when_expr
+    when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+    if [[ -n "${when_expr}" ]]; then
+        local preprocessed
+        preprocessed=$(__knit_preprocess_constraint "${when_expr}")
+        eval "${ns}_2_${param}_when=$(printf '%q' "${preprocessed}")"
+        eval "${ns}_2_${param}_when_raw=$(printf '%q' "${when_expr}")"
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -676,6 +727,10 @@ knit_with_parameter_set() {
         fi
         eval "${cmd_ns}_2_${param}_description=\"\${${pset_ns}_2_${param}_description}\""
         eval "${cmd_ns}_2_${param}_type=\"\${${pset_ns}_2_${param}_type}\""
+        if [[ -v "${pset_ns}_2_${param}_when" ]]; then
+            eval "${cmd_ns}_2_${param}_when=\"\${${pset_ns}_2_${param}_when}\""
+            eval "${cmd_ns}_2_${param}_when_raw=\"\${${pset_ns}_2_${param}_when_raw}\""
+        fi
         _knit_set_add "${cmd_ns}_required" "${param}"
     done < <(_knit_set_iter "${pset_ns}_required")
 
@@ -688,6 +743,10 @@ knit_with_parameter_set() {
         eval "${cmd_ns}_2_${param}_description=\"\${${pset_ns}_2_${param}_description}\""
         eval "${cmd_ns}_2_${param}_type=\"\${${pset_ns}_2_${param}_type}\""
         eval "${cmd_ns}_2_${param}_default=\"\${${pset_ns}_2_${param}_default}\""
+        if [[ -v "${pset_ns}_2_${param}_when" ]]; then
+            eval "${cmd_ns}_2_${param}_when=\"\${${pset_ns}_2_${param}_when}\""
+            eval "${cmd_ns}_2_${param}_when_raw=\"\${${pset_ns}_2_${param}_when_raw}\""
+        fi
         _knit_set_add "${cmd_ns}_optional" "${param}"
     done < <(_knit_set_iter "${pset_ns}_optional")
 
@@ -698,6 +757,10 @@ knit_with_parameter_set() {
             knit_fatal "Parameter \"${param}\" from set \"${set_name}\" conflicts with an existing parameter of \"${demangled_cmd}\"."
         fi
         eval "${cmd_ns}_2_${param}_description=\"\${${pset_ns}_2_${param}_description}\""
+        if [[ -v "${pset_ns}_2_${param}_when" ]]; then
+            eval "${cmd_ns}_2_${param}_when=\"\${${pset_ns}_2_${param}_when}\""
+            eval "${cmd_ns}_2_${param}_when_raw=\"\${${pset_ns}_2_${param}_when_raw}\""
+        fi
         _knit_set_add "${cmd_ns}_flags" "${param}"
     done < <(_knit_set_iter "${pset_ns}_flags")
 }
@@ -976,6 +1039,7 @@ _knit_check_command_arguments() {
     local required_args_varname="_KNIT_CMD_${cmd}_required"
     local option
     while read -r option; do
+        if [[ -v "_KNIT_CMD_${cmd}_2_${option}_when" ]]; then continue; fi
         if knit_get_parameter "${option}" "${args[@]}" > /dev/null; then
             continue
         fi
@@ -1176,19 +1240,34 @@ __knit_print_command_usage() {
     while read -r opt; do
         description=$(__knit_param_description "${cmd}" "${opt}")
         opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
-        printf "  %-${max_opt_length}s  %s\n" "${opt2} <value>" "[required] ${description}"
+        local when_raw_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
+        local annotation="required"
+        if [[ -v "${when_raw_var}" ]]; then
+            annotation="required, when: ${!when_raw_var}"
+        fi
+        printf "  %-${max_opt_length}s  [%s] %s\n" "${opt2} <value>" "${annotation}" "${description}"
     done < <(_knit_set_iter "${required_args_varname}")
     while read -r opt; do
         description=$(__knit_param_description "${cmd}" "${opt}")
         default=$(__knit_param_default "${cmd}" "${opt}")
         opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
-        printf "  %-${max_opt_length}s  %s\n" "${opt2} <value>" "[default: '${default}'] ${description}"
+        local when_raw_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
+        local annotation="default: '${default}'"
+        if [[ -v "${when_raw_var}" ]]; then
+            annotation="default: '${default}', when: ${!when_raw_var}"
+        fi
+        printf "  %-${max_opt_length}s  [%s] %s\n" "${opt2} <value>" "${annotation}" "${description}"
     done < <(_knit_set_iter "${optional_args_varname}")
     max_opt_length=$((max_opt_length - 8))
     while read -r opt; do
         description=$(__knit_param_description "${cmd}" "${opt}")
         opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
-        printf "  %-${max_opt_length}s  %s\n" "${opt2}" "        [flag] ${description}"
+        local when_raw_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
+        local annotation="flag"
+        if [[ -v "${when_raw_var}" ]]; then
+            annotation="flag, when: ${!when_raw_var}"
+        fi
+        printf "  %-${max_opt_length}s  %s\n" "${opt2}" "        [${annotation}] ${description}"
     done < <(_knit_set_iter "${flags_args_varname}")
 
     local subcommands=()
@@ -1255,6 +1334,108 @@ __knit_print_command_usage() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_build_constraint_json()
+#
+# Build a jq JSON object from an expanded argument list, using type metadata to
+# emit integers/reals/booleans as JSON native types and all other values as
+# strings. Arguments must be in expanded --key value form (flags already
+# converted to "true"/"false" by __knit_expand_command_arguments).
+#
+# @param cmd Mangled command name (used for type lookups).
+# @param ... Expanded argument list.
+# ------------------------------------------------------------------------------
+__knit_build_constraint_json() {
+    local cmd="$1"
+    shift
+    local jq_args=("-n")
+    local i=1
+    while (( i <= $# )); do
+        local key="${!i}"
+        [[ "${key}" == "--" ]] && break
+        key="${key#--}"
+        key=$(__knit_name_normalize "${key}")
+        i=$(( i + 1 ))
+        local val="${!i}"
+        i=$(( i + 1 ))
+        local type_var="_KNIT_CMD_${cmd}_2_${key}_type"
+        local param_type="${!type_var:-string}"
+        case "${param_type}" in
+            integer|real|boolean) jq_args+=("--argjson" "${key}" "${val}") ;;
+            *)                    jq_args+=("--arg"      "${key}" "${val}") ;;
+        esac
+    done
+    _knit_jq "${jq_args[@]}" "\$ARGS.named"
+}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_check_constraints()
+#
+# Evaluate all --when constraints declared for a command against the provided
+# arguments. For each constrained parameter:
+#   - If the condition evaluates to true and the parameter is required but absent
+#     from the original (user-provided) arguments, a fatal error is raised.
+#   - If the condition evaluates to false and the parameter is present in the
+#     original arguments, a fatal error is raised.
+# Returns 0 immediately when the experiment is not bootstrapped (jq unavailable).
+#
+# @param cmd Mangled command name.
+# @param orig_ref Name of bash array holding the original (pre-expansion) args.
+# @param exp_ref  Name of bash array holding the expanded args.
+# ------------------------------------------------------------------------------
+__knit_check_constraints() {
+    if ! _knit_is_bootstrapped; then return 0; fi
+    local cmd="$1"
+    local -n _orig_ref="$2"
+    local -n _exp_ref="$3"
+
+    # Early exit if no constrained params exist (avoids needless jq invocation).
+    local _has_constraints=false
+    local _set_name _param
+    for _set_name in required optional flags; do
+        while IFS= read -r _param; do
+            [[ -v "_KNIT_CMD_${cmd}_2_${_param}_when" ]] && { _has_constraints=true; break 2; }
+        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_${_set_name}")
+    done
+    [[ "${_has_constraints}" == "false" ]] && return 0
+
+    local demangled_cmd
+    demangled_cmd=$(__knit_command_demangle "${cmd}")
+
+    local json
+    json=$(__knit_build_constraint_json "${cmd}" "${_exp_ref[@]}")
+
+    local set_name param when_var when_expr cond_result user_provided
+    for set_name in required optional flags; do
+        while IFS= read -r param; do
+            when_var="_KNIT_CMD_${cmd}_2_${param}_when"
+            [[ ! -v "${when_var}" ]] && continue
+            when_expr="${!when_var}"
+            cond_result=$(_knit_jq -n --argjson _obj "${json}" "\$_obj | ${when_expr}")
+            if [[ "${cond_result}" != "true" && "${cond_result}" != "false" ]]; then
+                knit_fatal "Constraint expression for --${param} in \"${demangled_cmd}\" did not evaluate to a boolean."
+            fi
+            user_provided=false
+            if [[ "${set_name}" == "flags" ]]; then
+                __knit_find_flag "--${param}" "${_orig_ref[@]}" && user_provided=true
+            else
+                knit_get_parameter "${param}" "${_orig_ref[@]}" > /dev/null && user_provided=true
+            fi
+            if [[ "${cond_result}" == "true" ]]; then
+                if [[ "${set_name}" == "required" && "${user_provided}" == "false" ]]; then
+                    local alt_format
+                    alt_format=$(_knit_str_underscores_to_hyphens "${param}")
+                    knit_fatal "Command \"${demangled_cmd}\" requires --${param} or --${alt_format} when the constraint is satisfied."
+                fi
+            else
+                if [[ "${user_provided}" == "true" ]]; then
+                    knit_fatal "Parameter --${param} must not be provided for command \"${demangled_cmd}\" when the constraint is not satisfied."
+                fi
+            fi
+        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_${set_name}")
+    done
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_invoke_command()
 #
 # Invoke a command.
@@ -1299,9 +1480,13 @@ _knit_invoke_command() {
     # check the arguments
     _knit_check_command_arguments "${cmd}" "$@"
     # expand missing optional arguments and flags
+    # shellcheck disable=SC2034 # passed by name to __knit_check_constraints
+    local -a original_args=("$@")
     local args
     args=$(__knit_expand_command_arguments "${cmd}" "$@")
     eval "args=(${args})"
+    # validate --when constraints
+    __knit_check_constraints "${cmd}" original_args args
     # call the "before" callbacks
     __knit_execute_before_commands "${cmd}" "${args[@]}"
     # call the function

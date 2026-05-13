@@ -88,6 +88,9 @@ _knit_bootstrap() {
     knit_trace "Bootstrapping sqlite..."
     _knit_bootstrap_sqlite
 
+    knit_trace "Bootstrapping jq..."
+    _knit_bootstrap_jq
+
     knit_trace "Writing initial metadata..."
     knit metadata store --key "__project__" --value "${project}"
 
