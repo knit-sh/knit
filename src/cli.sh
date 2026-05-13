@@ -405,8 +405,6 @@ __knit_command_get_last() {
 knit_register() {
     local name=$1 # e.g. "myfunction"
     local demangled_cmd="$2"  # e.g. "command:subcommand"
-    local description
-    description=$(printf '%q' "$3")
     if [[ -v _KNIT_CURRENT_COMMAND ]]; then
         knit_done
         knit_warning "You forgot to call \"knit_done\" after registering the previous command."
@@ -430,14 +428,14 @@ knit_register() {
     _knit_set_new "_KNIT_CMD_${cmd}_optional"
     _knit_set_new "_KNIT_CMD_${cmd}_flags"
     _knit_set_new "_KNIT_CMD_${cmd}_outputs"
-    eval "declare -gA _KNIT_CMD_${cmd}_output_value=()"
-    eval "_KNIT_CMD_${cmd}_function=${name}"
-    eval "_KNIT_CMD_${cmd}_description=${description}"
-    eval "_KNIT_CMD_${cmd}_extra=''"
-    eval "_KNIT_CMD_${cmd}_is_hidden=false"
-    eval "_KNIT_CMD_${cmd}_before_cb=()"
-    eval "_KNIT_CMD_${cmd}_after_cb=()"
-    eval "_KNIT_CMD_${cmd}_sucommand_title=\"Subcommands\""
+    declare -gA "_KNIT_CMD_${cmd}_output_value"
+    printf -v "_KNIT_CMD_${cmd}_function"        '%s' "${name}"
+    printf -v "_KNIT_CMD_${cmd}_description"     '%s' "$3"
+    printf -v "_KNIT_CMD_${cmd}_extra"           '%s' ''
+    printf -v "_KNIT_CMD_${cmd}_is_hidden"       '%s' 'false'
+    declare -ga "_KNIT_CMD_${cmd}_before_cb"
+    declare -ga "_KNIT_CMD_${cmd}_after_cb"
+    printf -v "_KNIT_CMD_${cmd}_sucommand_title" '%s' 'Subcommands'
     _KNIT_DONE_CBS=()
     _KNIT_CURRENT_FUNCTION="${name}"
     _KNIT_CURRENT_COMMAND="${cmd}"
@@ -463,6 +461,7 @@ knit_done() {
     fi
     local i
     for (( i=${#_KNIT_DONE_CBS[@]}-1; i>=0; i-- )); do
+        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by __knit_push_done_cb
         eval "${_KNIT_DONE_CBS[$i]}"
     done
     unset _KNIT_DONE_CBS
@@ -517,7 +516,7 @@ knit_hidden() {
     knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as hidden."
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local cmd_hidden_name="_KNIT_CMD_${cmd}_is_hidden"
-    eval "${cmd_hidden_name}=true"
+    printf -v "${cmd_hidden_name}" '%s' 'true'
 }
 
 # ------------------------------------------------------------------------------
@@ -533,7 +532,7 @@ knit_with_subcommand_title() {
     fi
     knit_trace "Changing subcommand title from '${_KNIT_CURRENT_COMMAND_DEMANGLED}' to '$1'."
     local cmd="${_KNIT_CURRENT_COMMAND}"
-    eval "_KNIT_CMD_${cmd}_sucommand_title=\"$1\""
+    printf -v "_KNIT_CMD_${cmd}_sucommand_title" '%s' "$1"
 }
 
 # ------------------------------------------------------------------------------
@@ -574,19 +573,17 @@ knit_with_required() {
         ns="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}"
         demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
     fi
-    local description
-    description=$(printf '%q' "$2")
     knit_trace "Adding required parameter \"${param_name}\" (type: ${param_type}) to \"${demangled_cmd}\"."
-    eval "${ns}_2_${param}_description=${description}"
-    eval "${ns}_2_${param}_type=${param_type}"
+    printf -v "${ns}_2_${param}_description" '%s' "$2"
+    printf -v "${ns}_2_${param}_type"        '%s' "${param_type}"
     _knit_set_add "${ns}_required" "${param}"
     local when_expr
     when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
     if [[ -n "${when_expr}" ]]; then
         local preprocessed
         preprocessed=$(__knit_preprocess_constraint "${when_expr}")
-        eval "${ns}_2_${param}_when=$(printf '%q' "${preprocessed}")"
-        eval "${ns}_2_${param}_when_raw=$(printf '%q' "${when_expr}")"
+        printf -v "${ns}_2_${param}_when"     '%s' "${preprocessed}"
+        printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
     fi
 }
 
@@ -629,22 +626,18 @@ knit_with_optional() {
         ns="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}"
         demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
     fi
-    local default
-    default=$(printf '%q' "$2")
-    local description
-    description=$(printf '%q' "$3")
     knit_trace "Adding optional parameter \"${param_name}\" (type: ${param_type}) to \"${demangled_cmd}\"."
-    eval "${ns}_2_${param}_description=$description"
-    eval "${ns}_2_${param}_default=$default"
-    eval "${ns}_2_${param}_type=${param_type}"
+    printf -v "${ns}_2_${param}_description" '%s' "$3"
+    printf -v "${ns}_2_${param}_default"     '%s' "$2"
+    printf -v "${ns}_2_${param}_type"        '%s' "${param_type}"
     _knit_set_add "${ns}_optional" "${param}"
     local when_expr
     when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
     if [[ -n "${when_expr}" ]]; then
         local preprocessed
         preprocessed=$(__knit_preprocess_constraint "${when_expr}")
-        eval "${ns}_2_${param}_when=$(printf '%q' "${preprocessed}")"
-        eval "${ns}_2_${param}_when_raw=$(printf '%q' "${when_expr}")"
+        printf -v "${ns}_2_${param}_when"     '%s' "${preprocessed}"
+        printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
     fi
 }
 
@@ -678,18 +671,16 @@ knit_with_flag() {
         ns="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}"
         demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
     fi
-    local description
-    description=$(printf '%q' "$2")
     knit_trace "Adding flag \"$1\" to \"${demangled_cmd}\"."
-    eval "${ns}_2_${param}_description=${description}"
+    printf -v "${ns}_2_${param}_description" '%s' "$2"
     _knit_set_add "${ns}_flags" "${param}"
     local when_expr
     when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
     if [[ -n "${when_expr}" ]]; then
         local preprocessed
         preprocessed=$(__knit_preprocess_constraint "${when_expr}")
-        eval "${ns}_2_${param}_when=$(printf '%q' "${preprocessed}")"
-        eval "${ns}_2_${param}_when_raw=$(printf '%q' "${when_expr}")"
+        printf -v "${ns}_2_${param}_when"     '%s' "${preprocessed}"
+        printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
     fi
 }
 
@@ -725,11 +716,15 @@ knit_with_parameter_set() {
         || _knit_set_find "${cmd_ns}_flags"    "${param}"; then
             knit_fatal "Parameter \"${param}\" from set \"${set_name}\" conflicts with an existing parameter of \"${demangled_cmd}\"."
         fi
-        eval "${cmd_ns}_2_${param}_description=\"\${${pset_ns}_2_${param}_description}\""
-        eval "${cmd_ns}_2_${param}_type=\"\${${pset_ns}_2_${param}_type}\""
+        local _src_desc="${pset_ns}_2_${param}_description"
+        local _src_type="${pset_ns}_2_${param}_type"
+        printf -v "${cmd_ns}_2_${param}_description" '%s' "${!_src_desc}"
+        printf -v "${cmd_ns}_2_${param}_type"        '%s' "${!_src_type}"
         if [[ -v "${pset_ns}_2_${param}_when" ]]; then
-            eval "${cmd_ns}_2_${param}_when=\"\${${pset_ns}_2_${param}_when}\""
-            eval "${cmd_ns}_2_${param}_when_raw=\"\${${pset_ns}_2_${param}_when_raw}\""
+            local _src_when="${pset_ns}_2_${param}_when"
+            local _src_raw="${pset_ns}_2_${param}_when_raw"
+            printf -v "${cmd_ns}_2_${param}_when"     '%s' "${!_src_when}"
+            printf -v "${cmd_ns}_2_${param}_when_raw" '%s' "${!_src_raw}"
         fi
         _knit_set_add "${cmd_ns}_required" "${param}"
     done < <(_knit_set_iter "${pset_ns}_required")
@@ -740,12 +735,17 @@ knit_with_parameter_set() {
         || _knit_set_find "${cmd_ns}_flags"    "${param}"; then
             knit_fatal "Parameter \"${param}\" from set \"${set_name}\" conflicts with an existing parameter of \"${demangled_cmd}\"."
         fi
-        eval "${cmd_ns}_2_${param}_description=\"\${${pset_ns}_2_${param}_description}\""
-        eval "${cmd_ns}_2_${param}_type=\"\${${pset_ns}_2_${param}_type}\""
-        eval "${cmd_ns}_2_${param}_default=\"\${${pset_ns}_2_${param}_default}\""
+        local _src_desc="${pset_ns}_2_${param}_description"
+        local _src_type="${pset_ns}_2_${param}_type"
+        local _src_dflt="${pset_ns}_2_${param}_default"
+        printf -v "${cmd_ns}_2_${param}_description" '%s' "${!_src_desc}"
+        printf -v "${cmd_ns}_2_${param}_type"        '%s' "${!_src_type}"
+        printf -v "${cmd_ns}_2_${param}_default"     '%s' "${!_src_dflt}"
         if [[ -v "${pset_ns}_2_${param}_when" ]]; then
-            eval "${cmd_ns}_2_${param}_when=\"\${${pset_ns}_2_${param}_when}\""
-            eval "${cmd_ns}_2_${param}_when_raw=\"\${${pset_ns}_2_${param}_when_raw}\""
+            local _src_when="${pset_ns}_2_${param}_when"
+            local _src_raw="${pset_ns}_2_${param}_when_raw"
+            printf -v "${cmd_ns}_2_${param}_when"     '%s' "${!_src_when}"
+            printf -v "${cmd_ns}_2_${param}_when_raw" '%s' "${!_src_raw}"
         fi
         _knit_set_add "${cmd_ns}_optional" "${param}"
     done < <(_knit_set_iter "${pset_ns}_optional")
@@ -756,10 +756,13 @@ knit_with_parameter_set() {
         || _knit_set_find "${cmd_ns}_flags"    "${param}"; then
             knit_fatal "Parameter \"${param}\" from set \"${set_name}\" conflicts with an existing parameter of \"${demangled_cmd}\"."
         fi
-        eval "${cmd_ns}_2_${param}_description=\"\${${pset_ns}_2_${param}_description}\""
+        local _src_desc="${pset_ns}_2_${param}_description"
+        printf -v "${cmd_ns}_2_${param}_description" '%s' "${!_src_desc}"
         if [[ -v "${pset_ns}_2_${param}_when" ]]; then
-            eval "${cmd_ns}_2_${param}_when=\"\${${pset_ns}_2_${param}_when}\""
-            eval "${cmd_ns}_2_${param}_when_raw=\"\${${pset_ns}_2_${param}_when_raw}\""
+            local _src_when="${pset_ns}_2_${param}_when"
+            local _src_raw="${pset_ns}_2_${param}_when_raw"
+            printf -v "${cmd_ns}_2_${param}_when"     '%s' "${!_src_when}"
+            printf -v "${cmd_ns}_2_${param}_when_raw" '%s' "${!_src_raw}"
         fi
         _knit_set_add "${cmd_ns}_flags" "${param}"
     done < <(_knit_set_iter "${pset_ns}_flags")
@@ -812,10 +815,6 @@ knit_with_output() {
     if _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${output}"; then
         knit_fatal "Output \"${param_name}\" already declared for \"${demangled_cmd}\"."
     fi
-    local default
-    default=$(printf '%q' "$2")
-    local description
-    description=$(printf '%q' "$3")
     local description_var
     description_var=$(__knit_output_description_var "${cmd}" "${output}")
     local default_var
@@ -823,9 +822,9 @@ knit_with_output() {
     local type_var
     type_var=$(__knit_output_type_var "${cmd}" "${output}")
     knit_trace "Adding output \"${param_name}\" (type: ${param_type}) to command \"${demangled_cmd}\"."
-    eval "${description_var}=${description}"
-    eval "${default_var}=${default}"
-    eval "${type_var}=${param_type}"
+    printf -v "${description_var}" '%s' "$3"
+    printf -v "${default_var}"     '%s' "$2"
+    printf -v "${type_var}"        '%s' "${param_type}"
     _knit_set_add "_KNIT_CMD_${cmd}_outputs" "${output}"
 }
 
@@ -841,9 +840,7 @@ knit_with_extra() {
         knit_fatal "knit_with_extra should be used after a call to \"knit_register\"."
     fi
     local cmd="${_KNIT_CURRENT_COMMAND}"
-    local description
-    description=$(printf "%q" "$1")
-    eval "_KNIT_CMD_${cmd}_extra=${description}"
+    printf -v "_KNIT_CMD_${cmd}_extra" '%s' "$1"
 }
 
 # ------------------------------------------------------------------------------
@@ -894,7 +891,7 @@ knit_with_table() {
     _KNIT_DB_REGISTERED_TABLES["${table_name}"]="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
 
     local cmd="${_KNIT_CURRENT_COMMAND}"
-    eval "_KNIT_CMD_${cmd}_table=$(printf '%q' "${table_name}")"
+    printf -v "_KNIT_CMD_${cmd}_table" '%s' "${table_name}"
 
     __knit_push_done_cb _knit_db_setup_table "${cmd}" "${table_name}"
 }
@@ -945,6 +942,7 @@ __knit_execute_before_commands() {
     # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"
     for cb in "${cb_list_ref[@]}"; do
+        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by _knit_run_before
         eval "${cb} $*"
     done
 }
@@ -995,6 +993,7 @@ __knit_execute_after_commands() {
     # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"
     for cb in "${cb_list_ref[@]}"; do
+        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by _knit_run_after
         eval "${cb} $*"
     done
 }
@@ -1175,9 +1174,9 @@ __knit_expand_command_arguments() {
             args+=("--${flag}" "false")
         fi
     done < <(_knit_set_iter "${flags_args_varname}")
-    # Print the resulting arguments
+    # Print the resulting arguments NUL-separated so the caller can use readarray -d ''
     for arg in "${args[@]}" "${extra_args[@]}"; do
-        printf "%q " "${arg}"
+        printf '%s\0' "${arg}"
     done
 }
 
@@ -1482,9 +1481,8 @@ _knit_invoke_command() {
     # expand missing optional arguments and flags
     # shellcheck disable=SC2034 # passed by name to __knit_check_constraints
     local -a original_args=("$@")
-    local args
-    args=$(__knit_expand_command_arguments "${cmd}" "$@")
-    eval "args=(${args})"
+    local -a args
+    readarray -d '' -t args < <(__knit_expand_command_arguments "${cmd}" "$@")
     # validate --when constraints
     __knit_check_constraints "${cmd}" original_args args
     # call the "before" callbacks
@@ -1604,7 +1602,5 @@ knit_extra_index() {
 # Set the description of the program.
 # ------------------------------------------------------------------------------
 knit_set_program_description() {
-    local description
-    description=$(printf "%q" "$1")
-    eval "_KNIT_CMD___main___description=${description}"
+    printf -v "_KNIT_CMD___main___description" '%s' "$1"
 }

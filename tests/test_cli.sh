@@ -762,9 +762,9 @@ teardown() {
     knit_register knit_empty "expa_cmd" "Test."
     knit_with_optional "count:integer" "10" "A count."
     knit_done
-    local result val
-    result=$(__knit_expand_command_arguments "expa_cmd")
-    eval "local args=(${result})"
+    local -a args
+    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd")
+    local val
     val=$(knit_get_parameter "count" "${args[@]}")
     [ "$val" = "10" ]
 }
@@ -773,9 +773,9 @@ teardown() {
     knit_register knit_empty "expa_cmd2" "Test."
     knit_with_optional "count:integer" "10" "A count."
     knit_done
-    local result val
-    result=$(__knit_expand_command_arguments "expa_cmd2" "--count" "99")
-    eval "local args=(${result})"
+    local -a args
+    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd2" "--count" "99")
+    local val
     val=$(knit_get_parameter "count" "${args[@]}")
     [ "$val" = "99" ]
 }
@@ -784,9 +784,9 @@ teardown() {
     knit_register knit_empty "expa_cmd3" "Test."
     knit_with_required "name:string" "A name."
     knit_done
-    local result val
-    result=$(__knit_expand_command_arguments "expa_cmd3" "--name=Alice")
-    eval "local args=(${result})"
+    local -a args
+    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd3" "--name=Alice")
+    local val
     val=$(knit_get_parameter "name" "${args[@]}")
     [ "$val" = "Alice" ]
 }
@@ -795,9 +795,9 @@ teardown() {
     knit_register knit_empty "expa_cmd4" "Test."
     knit_with_flag "verbose" "Enable verbose."
     knit_done
-    local result val
-    result=$(__knit_expand_command_arguments "expa_cmd4" "--verbose")
-    eval "local args=(${result})"
+    local -a args
+    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd4" "--verbose")
+    local val
     val=$(knit_get_parameter "verbose" "${args[@]}")
     [ "$val" = "true" ]
 }
@@ -806,9 +806,9 @@ teardown() {
     knit_register knit_empty "expa_cmd5" "Test."
     knit_with_flag "verbose" "Enable verbose."
     knit_done
-    local result val
-    result=$(__knit_expand_command_arguments "expa_cmd5")
-    eval "local args=(${result})"
+    local -a args
+    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd5")
+    local val
     val=$(knit_get_parameter "verbose" "${args[@]}")
     [ "$val" = "false" ]
 }
