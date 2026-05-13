@@ -4,6 +4,7 @@ KNIT_SOURCE = src/global.sh   \
               src/str.sh      \
               src/types.sh    \
               src/pushd.sh    \
+              src/detect.sh   \
               src/cli.sh      \
               src/frame.sh    \
               src/boostrap.sh \

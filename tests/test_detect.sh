@@ -1,0 +1,166 @@
+#!/usr/bin/env bats
+
+setup() {
+    source knit.sh
+
+    # Satisfy the bootstrap check
+    _KNIT_IS_BOOTSTRAPPED="1"
+
+    # Temporary directory for mock executables
+    MOCK_BIN="$(mktemp -d)"
+}
+
+teardown() {
+    rm -rf "${MOCK_BIN}"
+    _KNIT_IS_BOOTSTRAPPED=""
+    # Reset detection caches so each test starts clean
+    _KNIT_DETECTED_JOB_MANAGER=""
+    _KNIT_DETECTED_MPI=""
+    _KNIT_DETECTED_LAUNCHER=""
+}
+
+# Helper: write a minimal executable mock script
+_write_mock() {
+    local path="$1"
+    local body="$2"
+    printf '#!/usr/bin/env bash\n%s\n' "${body}" > "${path}"
+    chmod +x "${path}"
+}
+
+# ---------- _knit_detect_job_manager ----------
+
+@test "_knit_detect_job_manager returns slurm when sbatch is in PATH" {
+    _write_mock "${MOCK_BIN}/sbatch" "exit 0"
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_job_manager
+    [ "$status" -eq 0 ]
+    [ "$output" = "slurm" ]
+}
+
+@test "_knit_detect_job_manager returns pbs when qsub is in PATH" {
+    _write_mock "${MOCK_BIN}/qsub" "exit 0"
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_job_manager
+    [ "$status" -eq 0 ]
+    [ "$output" = "pbs" ]
+}
+
+@test "_knit_detect_job_manager returns none when neither sbatch nor qsub is in PATH" {
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_job_manager
+    [ "$status" -eq 0 ]
+    [ "$output" = "none" ]
+}
+
+@test "_knit_detect_job_manager returns slurm when both sbatch and qsub are in PATH" {
+    _write_mock "${MOCK_BIN}/sbatch" "exit 0"
+    _write_mock "${MOCK_BIN}/qsub"  "exit 0"
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_job_manager
+    [ "$status" -eq 0 ]
+    [ "$output" = "slurm" ]
+}
+
+@test "_knit_detect_job_manager caches its result" {
+    _write_mock "${MOCK_BIN}/sbatch" "exit 0"
+    # Prime the cache with sbatch present
+    PATH="${MOCK_BIN}:${PATH}" _knit_detect_job_manager > /dev/null
+    # Remove sbatch — cache should still return "slurm"
+    rm "${MOCK_BIN}/sbatch"
+    run _knit_detect_job_manager
+    [ "$status" -eq 0 ]
+    [ "$output" = "slurm" ]
+}
+
+# ---------- _knit_detect_mpi ----------
+
+@test "_knit_detect_mpi returns openmpi when mpirun --version mentions Open MPI" {
+    _write_mock "${MOCK_BIN}/mpirun" \
+        '[[ "$1" == "--version" ]] && echo "mpirun (Open MPI) 4.1.6" && exit 0; exit 0'
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_mpi
+    [ "$status" -eq 0 ]
+    [ "$output" = "openmpi" ]
+}
+
+@test "_knit_detect_mpi returns mpich when mpirun --version mentions HYDRA" {
+    _write_mock "${MOCK_BIN}/mpirun" \
+        '[[ "$1" == "--version" ]] && printf "mpirun (Hydra) 4.1.1\nProcess manager: HYDRA\n" && exit 0; exit 0'
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_mpi
+    [ "$status" -eq 0 ]
+    [ "$output" = "mpich" ]
+}
+
+@test "_knit_detect_mpi returns none when mpirun is not in PATH" {
+    # Use a completely isolated PATH so the system mpirun is not visible.
+    # _knit_detect_mpi only uses bash builtins (command, echo, printf) so no
+    # system binaries are needed.
+    PATH="${MOCK_BIN}" run _knit_detect_mpi
+    [ "$status" -eq 0 ]
+    [ "$output" = "none" ]
+}
+
+@test "_knit_detect_mpi returns none for an unrecognised mpirun version string" {
+    _write_mock "${MOCK_BIN}/mpirun" \
+        '[[ "$1" == "--version" ]] && echo "mpirun (Unknown MPI) 1.0" && exit 0; exit 0'
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_mpi
+    [ "$status" -eq 0 ]
+    [ "$output" = "none" ]
+}
+
+@test "_knit_detect_mpi caches its result" {
+    _write_mock "${MOCK_BIN}/mpirun" \
+        '[[ "$1" == "--version" ]] && echo "mpirun (Open MPI) 4.1.6" && exit 0; exit 0'
+    # Prime the cache with openmpi present
+    PATH="${MOCK_BIN}:${PATH}" _knit_detect_mpi > /dev/null
+    # Remove mpirun — cache should still return "openmpi"
+    rm "${MOCK_BIN}/mpirun"
+    run _knit_detect_mpi
+    [ "$status" -eq 0 ]
+    [ "$output" = "openmpi" ]
+}
+
+# ---------- _knit_detect_launcher ----------
+
+@test "_knit_detect_launcher returns pals when mpiexec --help first line mentions Parallel Application Launch Service" {
+    _write_mock "${MOCK_BIN}/mpiexec" \
+        '[[ "$1" == "--help" ]] && echo "Parallel Application Launch Service 1.2.3" && exit 0; exit 0'
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "pals" ]
+}
+
+@test "_knit_detect_launcher returns openmpi when mpiexec is not PALS and mpirun is OpenMPI" {
+    # mpiexec exists but its first help line is not PALS
+    _write_mock "${MOCK_BIN}/mpiexec" \
+        '[[ "$1" == "--help" ]] && echo "Usage: mpiexec [options] ..." && exit 0; exit 0'
+    _write_mock "${MOCK_BIN}/mpirun" \
+        '[[ "$1" == "--version" ]] && echo "mpirun (Open MPI) 4.1.6" && exit 0; exit 0'
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "openmpi" ]
+}
+
+@test "_knit_detect_launcher returns mpich when mpiexec is not PALS and mpirun is MPICH" {
+    _write_mock "${MOCK_BIN}/mpiexec" \
+        '[[ "$1" == "--help" ]] && echo "Usage: mpiexec [options] ..." && exit 0; exit 0'
+    _write_mock "${MOCK_BIN}/mpirun" \
+        '[[ "$1" == "--version" ]] && printf "mpirun (Hydra) 4.1.1\nProcess manager: HYDRA\n" && exit 0; exit 0'
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "mpich" ]
+}
+
+@test "_knit_detect_launcher returns none when neither mpiexec nor mpirun is in PATH" {
+    # Fully isolated PATH so system mpiexec/mpirun are not visible
+    PATH="${MOCK_BIN}" run _knit_detect_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "none" ]
+}
+
+@test "_knit_detect_launcher caches its result" {
+    _write_mock "${MOCK_BIN}/mpiexec" \
+        '[[ "$1" == "--help" ]] && echo "Parallel Application Launch Service 1.2.3" && exit 0; exit 0'
+    # Prime the cache with pals present
+    PATH="${MOCK_BIN}:${PATH}" _knit_detect_launcher > /dev/null
+    # Remove mpiexec — cache should still return "pals"
+    rm "${MOCK_BIN}/mpiexec"
+    run _knit_detect_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "pals" ]
+}

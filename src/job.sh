@@ -14,6 +14,8 @@ knit_register __knit_submit "submit" "Submit a job."
 knit_with_required "setup:path" "Path to the setup to use for the job."
 knit_with_extra "User-provided job command to execute"
 knit_with_subcommand_title "Jobs"
+knit_done
+
 # ------------------------------------------------------------------------------
 # @fn __knit_submit()
 #

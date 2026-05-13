@@ -56,9 +56,15 @@ __knit_bootstrap_on_exit() {
 #
 # @param ... Arguments for bootstrap.
 # ------------------------------------------------------------------------------
+knit_define_enum "__scheduler__" "auto" "slurm" "pbs"
+knit_define_enum "__launcher__"  "auto" "openmpi" "mpich" "pals"
 knit_register _knit_bootstrap "bootstrap" "Bootstrap the Knit framework."
 knit_with_flag "spack" "Whether to download spack."
 knit_with_optional "project:string" "" "Name of the project to use when submitting jobs."
+knit_with_optional "scheduler:__scheduler__" "auto" \
+    "Batch job scheduler. One of: auto, slurm, pbs. With auto the scheduler is detected automatically."
+knit_with_optional "launcher:__launcher__" "auto" \
+    "MPI launcher. One of: auto, openmpi, mpich, pals. With auto the launcher is detected automatically."
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap()
 #
@@ -69,8 +75,12 @@ knit_with_optional "project:string" "" "Name of the project to use when submitti
 _knit_bootstrap() {
     local project
     local need_spack
+    local scheduler
+    local launcher
     project="$(knit_get_parameter "project" "$@")"
     need_spack="$(knit_get_parameter "spack" "$@")"
+    scheduler="$(knit_get_parameter "scheduler" "$@")"
+    launcher="$(knit_get_parameter "launcher" "$@")"
 
     # Create directory
     if [ -d "${_KNIT_PREFIX}" ]; then
@@ -91,8 +101,17 @@ _knit_bootstrap() {
     knit_trace "Bootstrapping jq..."
     _knit_bootstrap_jq
 
+    if [[ "${scheduler}" == "auto" ]]; then
+        scheduler="$(_knit_detect_job_manager)"
+    fi
+    if [[ "${launcher}" == "auto" ]]; then
+        launcher="$(_knit_detect_launcher)"
+    fi
+
     knit_trace "Writing initial metadata..."
-    knit metadata store --key "__project__" --value "${project}"
+    knit metadata store --key "__project__"   --value "${project}"
+    knit metadata store --key "__scheduler__" --value "${scheduler}"
+    knit metadata store --key "__launcher__"  --value "${launcher}"
 
     # Bootstrap completed successfully
     __KNIT_BOOTSTRAP_COMPLETED="true"
