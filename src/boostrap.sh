@@ -61,6 +61,8 @@ knit_define_enum "__launcher__"  "auto" "openmpi" "mpich" "pals"
 knit_register _knit_bootstrap "bootstrap" "Bootstrap the Knit framework."
 knit_with_flag "spack" "Whether to download spack."
 knit_with_optional "project:string" "" "Name of the project to use when submitting jobs."
+knit_with_optional "profile:string" "" \
+    "Machine profile name (e.g. polaris). Prepopulates scheduler, launcher, and hardware defaults."
 knit_with_optional "scheduler:__scheduler__" "auto" \
     "Batch job scheduler. One of: auto, slurm, pbs. With auto the scheduler is detected automatically."
 knit_with_optional "launcher:__launcher__" "auto" \
@@ -75,12 +77,18 @@ knit_with_optional "launcher:__launcher__" "auto" \
 _knit_bootstrap() {
     local project
     local need_spack
+    local profile
     local scheduler
     local launcher
     project="$(knit_get_parameter "project" "$@")"
     need_spack="$(knit_get_parameter "spack" "$@")"
+    profile="$(knit_get_parameter "profile" "$@")"
     scheduler="$(knit_get_parameter "scheduler" "$@")"
     launcher="$(knit_get_parameter "launcher" "$@")"
+
+    if [[ -n "${profile}" ]] && ! knit_profile_exists "${profile}"; then
+        knit_fatal "Unknown profile: ${profile}. Run 'knit profile list' to see available profiles."
+    fi
 
     # Create directory
     if [ -d "${_KNIT_PREFIX}" ]; then
@@ -101,6 +109,29 @@ _knit_bootstrap() {
     knit_trace "Bootstrapping jq..."
     _knit_bootstrap_jq
 
+    # Load profile defaults (jq is now available).
+    local default_queue=""
+    local default_scheduler_args=""
+    local default_launcher_args=""
+    local node_ncpus=""
+    local node_ngpus=""
+    if [[ -n "${profile}" ]]; then
+        knit_trace "Loading profile ${profile}..."
+        _knit_load_profile "${profile}"
+        default_queue="${_KNIT_PROFILE_SCHEDULER_DEFAULT_QUEUE}"
+        default_scheduler_args="${_KNIT_PROFILE_SCHEDULER_DEFAULT_ARGS}"
+        default_launcher_args="${_KNIT_PROFILE_LAUNCHER_DEFAULT_ARGS}"
+        node_ncpus="${_KNIT_PROFILE_CORES_PER_NODE}"
+        node_ngpus="${_KNIT_PROFILE_GPUS_PER_NODE}"
+        # Use profile values as defaults when explicit args are "auto".
+        if [[ "${scheduler}" == "auto" && -n "${_KNIT_PROFILE_SCHEDULER_TYPE}" ]]; then
+            scheduler="${_KNIT_PROFILE_SCHEDULER_TYPE}"
+        fi
+        if [[ "${launcher}" == "auto" && -n "${_KNIT_PROFILE_LAUNCHER_TYPE}" ]]; then
+            launcher="${_KNIT_PROFILE_LAUNCHER_TYPE}"
+        fi
+    fi
+
     if [[ "${scheduler}" == "auto" ]]; then
         scheduler="$(_knit_detect_job_manager)"
     fi
@@ -109,9 +140,15 @@ _knit_bootstrap() {
     fi
 
     knit_trace "Writing initial metadata..."
-    knit metadata store --key "__project__"   --value "${project}"
-    knit metadata store --key "__scheduler__" --value "${scheduler}"
-    knit metadata store --key "__launcher__"  --value "${launcher}"
+    knit metadata store --key "__project__"                --value "${project}"
+    knit metadata store --key "__profile__"                --value "${profile}"
+    knit metadata store --key "__scheduler__"              --value "${scheduler}"
+    knit metadata store --key "__launcher__"               --value "${launcher}"
+    knit metadata store --key "__default_queue__"          --value "${default_queue}"
+    knit metadata store --key "__default_scheduler_args__" --value "${default_scheduler_args}"
+    knit metadata store --key "__default_launcher_args__"  --value "${default_launcher_args}"
+    knit metadata store --key "__node_ncpus__"             --value "${node_ncpus}"
+    knit metadata store --key "__node_ngpus__"             --value "${node_ngpus}"
 
     # Bootstrap completed successfully
     __KNIT_BOOTSTRAP_COMPLETED="true"

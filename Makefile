@@ -7,6 +7,7 @@ KNIT_SOURCE = src/global.sh   \
               src/detect.sh   \
               src/cli.sh      \
               src/frame.sh    \
+              src/profile.sh  \
               src/boostrap.sh \
               src/spack.sh    \
               src/sqlite.sh   \
@@ -18,11 +19,21 @@ KNIT_SOURCE = src/global.sh   \
 
 KNIT_OUTPUT = knit.sh
 
+PROFILE_JSONS := $(shell find src/profiles -name '*.json' | sort)
+
 all: knit.sh
 
-knit.sh: $(KNIT_SOURCE)
+knit.sh: $(KNIT_SOURCE) $(PROFILE_JSONS)
 	@echo "Concatenating files into $(KNIT_OUTPUT)..."
-	cat $(KNIT_SOURCE) > $(KNIT_OUTPUT)
+	@tmp=$$(mktemp); \
+	echo 'declare -A _KNIT_PROFILE_JSON' > "$$tmp"; \
+	for f in $(PROFILE_JSONS); do \
+		name=$$(basename "$$f" .json); \
+		printf '_KNIT_PROFILE_JSON["%s"]=%s\n' \
+			"$$name" "'$$(jq -c . "$$f")'" >> "$$tmp"; \
+	done; \
+	cat "$$tmp" $(KNIT_SOURCE) > $(KNIT_OUTPUT); \
+	rm -f "$$tmp"
 	@echo "Done. Created $(KNIT_OUTPUT)"
 
 KNIT_TESTS := $(wildcard tests/test_*.sh)
@@ -56,8 +67,16 @@ doccheck:
 	exit $$status
 
 .PHONY: coverage
-coverage: $(KNIT_SOURCE)
-	@for f in $(KNIT_SOURCE); do echo "source $$f"; done > $(KNIT_OUTPUT)
+coverage: $(KNIT_SOURCE) $(PROFILE_JSONS)
+	@tmp=$$(mktemp); \
+	echo 'declare -A _KNIT_PROFILE_JSON' > "$$tmp"; \
+	for f in $(PROFILE_JSONS); do \
+		name=$$(basename "$$f" .json); \
+		printf '_KNIT_PROFILE_JSON["%s"]=%s\n' \
+			"$$name" "'$$(jq -c . "$$f")'" >> "$$tmp"; \
+	done; \
+	{ cat "$$tmp"; for f in $(KNIT_SOURCE); do echo "source $$f"; done; } > $(KNIT_OUTPUT); \
+	rm -f "$$tmp"
 
 .PHONY: clean
 clean:

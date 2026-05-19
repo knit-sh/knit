@@ -1,0 +1,22 @@
+{
+    "description": "ALCF Polaris — HPE Cray EX, 32 cores + 4× NVIDIA A100 per node",
+    "scheduler": {
+        "type": "pbs",
+        "command": "qsub",
+        "default_queue": "prod",
+        "default_args": ["-l filesystems=home:eagle"],
+        "queues": {
+            "prod":        { "max_walltime": "24:00:00", "max_nodes": 496 },
+            "debug":       { "max_walltime": "01:00:00", "max_nodes": 2 },
+            "preemptable": { "max_walltime": "72:00:00", "max_nodes": 10 }
+        }
+    },
+    "launcher": {
+        "type": "pals",
+        "command": "mpiexec"
+    },
+    "hardware": {
+        "cores_per_node": 32,
+        "gpus_per_node": 4
+    }
+}

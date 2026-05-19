@@ -1,0 +1,21 @@
+{
+    "description": "ALCF Aurora — Intel Xeon Max, 208 cores + 6× Intel GPU Max per node",
+    "scheduler": {
+        "type": "pbs",
+        "command": "qsub",
+        "default_queue": "EarlyAppAccess",
+        "queues": {
+            "EarlyAppAccess": { "max_nodes": 166 },
+            "debug":          { "max_walltime": "01:00:00", "max_nodes": 10 },
+            "debug-scaling":  { "max_walltime": "01:00:00", "max_nodes": 256 }
+        }
+    },
+    "launcher": {
+        "type": "pals",
+        "command": "mpiexec"
+    },
+    "hardware": {
+        "cores_per_node": 208,
+        "gpus_per_node": 6
+    }
+}
