@@ -5,6 +5,7 @@ KNIT_SOURCE = src/global.sh   \
               src/types.sh    \
               src/pushd.sh    \
               src/detect.sh   \
+              src/local.sh    \
               src/cli.sh      \
               src/frame.sh    \
               src/profile.sh  \
