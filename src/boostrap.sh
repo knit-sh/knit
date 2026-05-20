@@ -56,7 +56,7 @@ __knit_bootstrap_on_exit() {
 #
 # @param ... Arguments for bootstrap.
 # ------------------------------------------------------------------------------
-knit_define_enum "__scheduler__" "auto" "slurm" "pbs"
+knit_define_enum "__scheduler__" "auto" "slurm" "pbs" "local"
 knit_define_enum "__launcher__"  "auto" "openmpi" "mpich" "pals"
 knit_register _knit_bootstrap "bootstrap" "Bootstrap the Knit framework."
 knit_with_flag "spack" "Whether to download spack."
@@ -134,6 +134,11 @@ _knit_bootstrap() {
 
     if [[ "${scheduler}" == "auto" ]]; then
         scheduler="$(_knit_detect_job_manager)"
+        if [[ "${scheduler}" == "none" ]]; then
+            knit_warning "No job scheduler detected; using local process execution." \
+                "Pass --scheduler local to suppress this warning."
+            scheduler="local"
+        fi
     fi
     if [[ "${launcher}" == "auto" ]]; then
         launcher="$(_knit_detect_launcher)"
