@@ -37,46 +37,18 @@ __knit_walltime_to_seconds() {
 #   --walltime HH:MM:SS  Kill the command after this wall-clock time.
 # ------------------------------------------------------------------------------
 _knit_submit_local() {
-    local stdout_file=""
-    local stderr_file=""
-    local stdin_file=""
-    local walltime=""
-    local -a cmd=()
-    local in_cmd=0
+    local -a args=("$@")
+    knit_check_arguments "stdout stderr stdin walltime" "" "${args[@]}" || return 1
 
-    while [[ $# -gt 0 ]]; do
-        if [[ "${in_cmd}" -eq 0 ]]; then
-            case "$1" in
-                --stdout)
-                    stdout_file="$2"
-                    shift 2
-                    ;;
-                --stderr)
-                    stderr_file="$2"
-                    shift 2
-                    ;;
-                --stdin)
-                    stdin_file="$2"
-                    shift 2
-                    ;;
-                --walltime)
-                    walltime="$2"
-                    shift 2
-                    ;;
-                --)
-                    in_cmd=1
-                    shift
-                    ;;
-                *)
-                    knit_error "_knit_submit_local: unknown option: $1"
-                    return 1
-                    ;;
-            esac
-        else
-            cmd+=("$1")
-            shift
-        fi
-    done
+    local stdout_file="" stderr_file="" stdin_file="" walltime=""
+    stdout_file="$(knit_get_parameter "stdout"   "${args[@]}")" || stdout_file=""
+    stderr_file="$(knit_get_parameter "stderr"   "${args[@]}")" || stderr_file=""
+    stdin_file="$(knit_get_parameter  "stdin"    "${args[@]}")" || stdin_file=""
+    walltime="$(knit_get_parameter    "walltime" "${args[@]}")" || walltime=""
+
+    local extra_index
+    extra_index="$(knit_extra_index "${args[@]}")"
+    local -a cmd=("${args[@]:extra_index}")
 
     if [[ ${#cmd[@]} -eq 0 ]]; then
         knit_error "_knit_submit_local: no command specified after --"

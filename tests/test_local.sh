@@ -59,6 +59,15 @@ teardown() {
     [ "$output" = "hello" ]
 }
 
+@test "_knit_submit_local accepts options in --name=value form" {
+    local out="${TMPDIR_LOCAL}/out.txt"
+    local pid
+    pid="$(_knit_submit_local --stdout="${out}" -- bash -c 'printf hello')"
+    _knit_wait_local "${pid}"
+    run cat "${out}"
+    [ "$output" = "hello" ]
+}
+
 @test "_knit_submit_local redirects stderr to file" {
     local err="${TMPDIR_LOCAL}/err.txt"
     local pid
@@ -97,6 +106,11 @@ teardown() {
 
 @test "_knit_submit_local fails on unknown option" {
     run _knit_submit_local --bad-option -- echo hi
+    [ "$status" -ne 0 ]
+}
+
+@test "_knit_submit_local fails on a stray positional argument before --" {
+    run _knit_submit_local stray -- echo hi
     [ "$status" -ne 0 ]
 }
 

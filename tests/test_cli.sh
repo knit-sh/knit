@@ -39,6 +39,37 @@ teardown() {
     [ "$status" -eq 1 ]
 }
 
+@test "knit_get_parameter reads the --name=value form" {
+    local args=("--abc=ABC" "--def" "DEF")
+    run knit_get_parameter "abc" "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "ABC" ]
+    run knit_get_parameter "def" "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "DEF" ]
+}
+
+@test "knit_get_parameter --name=value splits only on the first equals sign" {
+    local args=("--abc=a=b=c")
+    run knit_get_parameter "abc" "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "a=b=c" ]
+}
+
+@test "knit_get_parameter --name= yields an empty value" {
+    local args=("--abc=")
+    run knit_get_parameter "abc" "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}
+
+@test "knit_get_parameter does not match a value that looks like a name" {
+    # "frame-color" here is the value of --x, not the parameter --frame-color.
+    local args=("--x" "frame-color")
+    run knit_get_parameter "frame-color" "${args[@]}"
+    [ "$status" -eq 1 ]
+}
+
 # ---------- knit_with_required type annotations ----------
 
 @test "knit_with_required accepts name:type syntax" {
@@ -780,7 +811,7 @@ teardown() {
     [ "$val" = "99" ]
 }
 
-@test "__knit_expand_command_arguments expands --key=value syntax" {
+@test "__knit_expand_command_arguments preserves --key=value for knit_get_parameter" {
     knit_register knit_empty "expa_cmd3" "Test."
     knit_with_required "name:string" "A name."
     knit_done
@@ -827,6 +858,28 @@ teardown() {
     local result
     result=$(_knit_invoke_command "ic_cmd" "--name" "World")
     [ "$result" = "Hello, World!" ]
+}
+
+@test "_knit_invoke_command accepts the --name=value form" {
+    knit_register fn_ic_eq "ic_cmd_eq" "Test."
+    knit_with_required "name:string" "A name."
+    fn_ic_eq() {
+        local name
+        name=$(knit_get_parameter "name" "$@")
+        echo "Hello, ${name}!"
+    }
+    knit_done
+    local result
+    result=$(_knit_invoke_command "ic_cmd_eq" "--name=World")
+    [ "$result" = "Hello, World!" ]
+}
+
+@test "_knit_invoke_command rejects an unknown --name=value option" {
+    knit_register knit_empty "ic_cmd_eq_bad" "Test."
+    knit_with_required "name:string" "A name."
+    knit_done
+    run _knit_invoke_command "ic_cmd_eq_bad" "--name=World" "--bogus=x"
+    [ "$status" -ne 0 ]
 }
 
 @test "_knit_invoke_command fails for unknown command" {
@@ -1521,4 +1574,74 @@ teardown() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"x > 42"* ]]
     [[ "$output" != *".x > 42"* ]]
+}
+
+# ---------- knit_check_arguments ----------
+
+@test "knit_check_arguments accepts known options" {
+    run knit_check_arguments "stdout stderr" "" --stdout out.txt --stderr err.txt
+    [ "$status" -eq 0 ]
+}
+
+@test "knit_check_arguments accepts known flags" {
+    run knit_check_arguments "title" "cleanup" --cleanup --title hello
+    [ "$status" -eq 0 ]
+}
+
+@test "knit_check_arguments accepts an empty argument list" {
+    run knit_check_arguments "stdout" ""
+    [ "$status" -eq 0 ]
+}
+
+@test "knit_check_arguments rejects an unknown option" {
+    run knit_check_arguments "stdout" "" --stdout out.txt --bogus x
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"unexpected argument"* ]]
+}
+
+@test "knit_check_arguments rejects a stray positional argument" {
+    run knit_check_arguments "stdout" "" stray --stdout out.txt
+    [ "$status" -ne 0 ]
+}
+
+@test "knit_check_arguments treats hyphens and underscores as equivalent" {
+    run knit_check_arguments "frame-color" "" --frame_color blue
+    [ "$status" -eq 0 ]
+    run knit_check_arguments "frame_color" "" --frame-color blue
+    [ "$status" -eq 0 ]
+}
+
+@test "knit_check_arguments does not validate arguments after --" {
+    run knit_check_arguments "stdout" "" --stdout out.txt -- --anything goes here
+    [ "$status" -eq 0 ]
+}
+
+@test "knit_check_arguments does not validate an option value starting with --" {
+    run knit_check_arguments "stdout" "" --stdout --weird-value
+    [ "$status" -eq 0 ]
+}
+
+@test "knit_check_arguments error names the calling function" {
+    caller_fn() { knit_check_arguments "stdout" "" --bogus x; }
+    run caller_fn
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"caller_fn:"* ]]
+}
+
+@test "knit_check_arguments accepts a known option in --name=value form" {
+    run knit_check_arguments "stdout stderr" "" --stdout=out.txt --stderr err.txt
+    [ "$status" -eq 0 ]
+}
+
+@test "knit_check_arguments rejects an unknown option in --name=value form" {
+    run knit_check_arguments "stdout" "" --bogus=x
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"unexpected argument"* ]]
+}
+
+@test "knit_check_arguments does not consume the next token for --name=value" {
+    # If the inline value were not recognized, "extra" would be swallowed as the
+    # value of --stdout and validation would wrongly pass.
+    run knit_check_arguments "stdout" "" --stdout=out.txt extra
+    [ "$status" -ne 0 ]
 }

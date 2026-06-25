@@ -82,6 +82,27 @@ __knit_name_normalize() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_arg_name()
+#
+# Extract the normalized parameter name from a command-line token. The token may
+# be given as "--name" or "--name=value"; the leading "--" and any "=value"
+# suffix are stripped and hyphens are converted to underscores. This is the
+# single place where the "=value" form is recognized, so registered commands and
+# plain helper functions (via knit_get_parameter / knit_check_arguments) accept
+# it consistently.
+#
+# The caller is responsible for only passing tokens that start with "--"; bare
+# values must not be passed, otherwise they may be mistaken for parameter names.
+#
+# @param token A raw argument token starting with "--".
+# ------------------------------------------------------------------------------
+__knit_arg_name() {
+    local name="${1#--}"
+    name="${name%%=*}"
+    _knit_str_hyphens_to_underscores "${name}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn __knit_name_is_valid()
 #
 # Checks that a parameter or command name is valid, i.e. it has to start with a
@@ -1061,16 +1082,20 @@ _knit_check_command_arguments() {
         if [[ "${arg}" != --* ]]; then
             knit_fatal "Unexpected argument \"${arg}\" passed to \"${demangled_cmd}\" command."
         fi
-        arg="$(__knit_name_normalize "${arg:2}")"
-        if _knit_set_find "${required_args_varname}" "${arg}"; then
-            i=$((i+1))
+        local name
+        name="$(__knit_arg_name "${arg}")"
+        # Required/optional parameters consume the following token as their
+        # value, unless the value was supplied inline as "--name=value". Flags
+        # never consume a token.
+        if _knit_set_find "${required_args_varname}" "${name}"; then
+            [[ "${arg}" == --*=* ]] || i=$((i+1))
             continue
         fi
-        if _knit_set_find "${optional_args_varname}" "${arg}"; then
-            i=$((i+1))
+        if _knit_set_find "${optional_args_varname}" "${name}"; then
+            [[ "${arg}" == --*=* ]] || i=$((i+1))
             continue
         fi
-        if _knit_set_find "${flags_args_varname}" "${arg}"; then
+        if _knit_set_find "${flags_args_varname}" "${name}"; then
             continue
         fi
         knit_fatal "Unexpected argument \"${arg}\" passed to \"${demangled_cmd}\" command."
@@ -1094,20 +1119,20 @@ _knit_check_command_arguments() {
 # @return 0 if the flag was found, 1 otherwise.
 # ------------------------------------------------------------------------------
 __knit_find_flag() {
-    local flag="$1"
+    local flag
+    flag=$(__knit_arg_name "$1")
     shift
     local list=("$@")
 
-    local formatted_flag
     local item
-    local arg
-    formatted_flag=$(_knit_str_hyphens_to_underscores "${flag}")
     for item in "${list[@]}"; do
         if [[ "${item}" == "--" ]]; then
             break
         fi
-        arg=$(_knit_str_hyphens_to_underscores "${item}")
-        if [[ "${arg}" == "${formatted_flag}" ]]; then
+        if [[ "${item}" != --* ]]; then
+            continue
+        fi
+        if [[ "$(__knit_arg_name "${item}")" == "${flag}" ]]; then
             return 0
         fi
     done
@@ -1136,13 +1161,9 @@ __knit_expand_command_arguments() {
             done_with_args="true"
             extra_args+=("${arg}")
         elif [[ "${done_with_args}" == "false" ]]; then
-            if [[ "$arg" == --*=* ]]; then
-                local key="${arg%%=*}"
-                local value="${arg#*=}"
-                args+=("${key}" "${value}")
-            else
-                args+=("${arg}")
-            fi
+            # The "--name=value" form is handled by knit_get_parameter and the
+            # argument validators, so tokens are passed through verbatim here.
+            args+=("${arg}")
         else
             extra_args+=("${arg}")
         fi
@@ -1337,8 +1358,8 @@ __knit_print_command_usage() {
 #
 # Build a jq JSON object from an expanded argument list, using type metadata to
 # emit integers/reals/booleans as JSON native types and all other values as
-# strings. Arguments must be in expanded --key value form (flags already
-# converted to "true"/"false" by __knit_expand_command_arguments).
+# strings. Each parameter may be given as "--name value" or "--name=value"
+# (flags already converted to "true"/"false" by __knit_expand_command_arguments).
 #
 # @param cmd Mangled command name (used for type lookups).
 # @param ... Expanded argument list.
@@ -1349,13 +1370,20 @@ __knit_build_constraint_json() {
     local jq_args=("-n")
     local i=1
     while (( i <= $# )); do
-        local key="${!i}"
-        [[ "${key}" == "--" ]] && break
-        key="${key#--}"
-        key=$(__knit_name_normalize "${key}")
-        i=$(( i + 1 ))
-        local val="${!i}"
-        i=$(( i + 1 ))
+        local token="${!i}"
+        [[ "${token}" == "--" ]] && break
+        local key val
+        key=$(__knit_arg_name "${token}")
+        if [[ "${token}" == --*=* ]]; then
+            # Inline "--name=value": value is part of the token.
+            val="${token#*=}"
+            i=$(( i + 1 ))
+        else
+            # Separate "--name value": value is the following token.
+            i=$(( i + 1 ))
+            val="${!i}"
+            i=$(( i + 1 ))
+        fi
         local type_var="_KNIT_CMD_${cmd}_2_${key}_type"
         local param_type="${!type_var:-string}"
         case "${param_type}" in
@@ -1505,29 +1533,42 @@ _knit_invoke_command() {
 # function printing "true" or "false"). If not found, this function will print
 # nothing and return 1.
 #
+# The parameter value may be supplied either as two tokens ("--name value") or
+# inline with an equals sign ("--name=value"); both forms are recognized.
+#
 # @param param Parameter to search for (without the -- prefix).
 # @param ... Arguments in which to search for the parameter.
 # ------------------------------------------------------------------------------
 knit_get_parameter() {
     local param
-    param=$(_knit_str_hyphens_to_underscores "--$1")
+    param=$(_knit_str_hyphens_to_underscores "$1")
     shift
     local list=("$@")
     local i
     for ((i=0; i < ${#list[@]}; i++)); do
-        if [[ "${list[i]}" == "--" ]]; then
+        local item="${list[i]}"
+        if [[ "${item}" == "--" ]]; then
             break
         fi
-        local arg
-        arg=$(_knit_str_hyphens_to_underscores "${list[i]}")
-        if [[ "${arg}" == "${param}" ]]; then
-            if ((i + 1 < ${#list[@]})); then
-                printf "%s" "${list[i+1]}"
-                return 0
-            else
-                return 1
-            fi
+        # Only "--"-prefixed tokens can be parameter names; skipping bare values
+        # avoids mistaking a value such as "frame-color" for a parameter name.
+        if [[ "${item}" != --* ]]; then
+            continue
         fi
+        if [[ "$(__knit_arg_name "${item}")" != "${param}" ]]; then
+            continue
+        fi
+        # Inline "--name=value": the value is part of the token.
+        if [[ "${item}" == --*=* ]]; then
+            printf "%s" "${item#*=}"
+            return 0
+        fi
+        # Separate "--name value": the value is the following token.
+        if ((i + 1 < ${#list[@]})); then
+            printf "%s" "${list[i+1]}"
+            return 0
+        fi
+        return 1
     done
     return 1
 }
@@ -1594,6 +1635,74 @@ knit_extra_index() {
         fi
     done
     echo "${index}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_check_arguments()
+#
+# Validate that a plain (non-registered) function received only expected
+# arguments. This is the counterpart, for ordinary helper functions, of the
+# validation that the command registration system performs automatically. It is
+# intended for functions that parse their own "$@" with knit_get_parameter
+# but don't go through knit_register.
+#
+# The expected parameters are described by two space-separated lists: options
+# (which take a value, as "--name value" or "--name=value") and flags (which do
+# not). Everything from a literal "--" onwards is treated as extra arguments and
+# is not validated. Hyphens and underscores in names are interchangeable, as
+# elsewhere in the framework.
+#
+# On the first unexpected argument the function logs an error attributed to the
+# calling function and returns 1. It returns 0 if every argument is recognized.
+#
+# Example:
+# ```
+# _knit_submit_local() {
+#     local -a args=("$@")
+#     knit_check_arguments "stdout stderr stdin walltime" "" "${args[@]}" \
+#         || return 1
+#     ...
+# }
+# ```
+#
+# @param options Space-separated names of options that take a value.
+# @param flags   Space-separated names of flags that take no value.
+# @param ...     The arguments to validate (typically "$@").
+# ------------------------------------------------------------------------------
+knit_check_arguments() {
+    local caller="${FUNCNAME[1]:-knit_check_arguments}"
+    local options flags
+    options=" $(_knit_str_hyphens_to_underscores "$1") "
+    flags=" $(_knit_str_hyphens_to_underscores "$2") "
+    shift 2
+    local args=("$@")
+    local i
+    for ((i=0; i<${#args[@]}; i++)); do
+        local arg="${args[i]}"
+        # Anything from "--" onwards is extra and is not validated.
+        if [[ "${arg}" == "--" ]]; then
+            break
+        fi
+        if [[ "${arg}" != --* ]]; then
+            knit_error "${caller}: unexpected argument \"${arg}\"."
+            return 1
+        fi
+        local name
+        name="$(__knit_arg_name "${arg}")"
+        # An option in "--name value" form consumes the following token as its
+        # value, so skip it without validating it (a value may legitimately
+        # start with "--"). In "--name=value" form the value is inline.
+        if [[ "${options}" == *" ${name} "* ]]; then
+            [[ "${arg}" == --*=* ]] || i=$((i+1))
+            continue
+        fi
+        if [[ "${flags}" == *" ${name} "* ]]; then
+            continue
+        fi
+        knit_error "${caller}: unexpected argument \"${arg}\"."
+        return 1
+    done
+    return 0
 }
 
 # ------------------------------------------------------------------------------

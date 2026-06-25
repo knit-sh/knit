@@ -24,6 +24,18 @@
 #                    stdin is drained silently and nothing is output.
 # ------------------------------------------------------------------------------
 knit_framed() {
+    # Validate named arguments. The leading positional height/width (anything
+    # before the first --option) are stripped first so only the named portion
+    # is checked.
+    local -a __named=("$@")
+    while [[ ${#__named[@]} -gt 0 && "${__named[0]}" != --* ]]; do
+        __named=("${__named[@]:1}")
+    done
+    knit_check_arguments \
+        "title frame-color frame-bg-color text-color text-bg-color log-level" \
+        "cleanup" \
+        "${__named[@]}" || return 1
+
     local log_level
     log_level=$(knit_get_parameter "log-level" "$@") || log_level=""
     if [[ -n "$log_level" ]]; then
