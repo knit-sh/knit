@@ -1333,6 +1333,48 @@ teardown() {
     knit_done
 }
 
+@test "knit_with_required accepts --when=expr form" {
+    knit_register knit_empty "when_req_eq_cmd" "A command."
+    knit_with_required "x:integer" "X value."
+    run knit_with_required "y:integer" "Y value." --when="x > 42"
+    [ "$status" -eq 0 ]
+}
+
+@test "knit_with_required rejects an unknown option" {
+    knit_register knit_empty "when_req_bad_cmd" "A command."
+    knit_with_required "x:integer" "X value."
+    run knit_with_required "y:integer" "Y value." --bogus x
+    [ "$status" -ne 0 ]
+}
+
+@test "knit_with_optional accepts --when=expr form" {
+    knit_register knit_empty "when_opt_eq_cmd" "A command."
+    knit_with_required "x:integer" "X value."
+    run knit_with_optional "y:integer" "0" "Y value." --when="x > 42"
+    [ "$status" -eq 0 ]
+}
+
+@test "knit_with_optional rejects an unknown option" {
+    knit_register knit_empty "when_opt_bad_cmd" "A command."
+    knit_with_required "x:integer" "X value."
+    run knit_with_optional "y:integer" "0" "Y value." --bogus x
+    [ "$status" -ne 0 ]
+}
+
+@test "knit_with_flag accepts --when=expr form" {
+    knit_register knit_empty "when_flg_eq_cmd" "A command."
+    knit_with_required "x:integer" "X value."
+    run knit_with_flag "verbose" "Verbose mode." --when="x > 42"
+    [ "$status" -eq 0 ]
+}
+
+@test "knit_with_flag rejects an unknown option" {
+    knit_register knit_empty "when_flg_bad_cmd" "A command."
+    knit_with_required "x:integer" "X value."
+    run knit_with_flag "verbose" "Verbose mode." --bogus x
+    [ "$status" -ne 0 ]
+}
+
 @test "--when stores preprocessed expression in metadata variable" {
     knit_register knit_empty "when_meta_cmd" "A command."
     knit_with_required "x:integer" "X value."

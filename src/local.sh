@@ -30,6 +30,10 @@ __knit_walltime_to_seconds() {
 # Prints the PID of the background process on stdout and returns 0.
 # Returns 1 on argument errors.
 #
+# Everything after a literal -- is the command (and its arguments) to run and
+# is not validated as a submission option. Options may be given either as
+# "--name value" or "--name=value".
+#
 # @param ... Submission options followed by -- and the command to run:
 #   --stdout <file>      Redirect command stdout to <file>  (default: /dev/null)
 #   --stderr <file>      Redirect command stderr to <file>  (default: /dev/null)

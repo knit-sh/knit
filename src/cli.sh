@@ -578,9 +578,14 @@ knit_with_subcommand_title() {
 #
 # @param param Parameter name followed by ":type".
 # @param description Description of the parameter.
+# @param --when Optional boolean constraint expression (jq syntax referring to
+#        the command's other parameters); the parameter only applies when the
+#        expression evaluates to true.
 # ------------------------------------------------------------------------------
 knit_with_required() {
     __knit_param_check_declaration "required" "$1" "$2"
+    knit_check_arguments "when" "" "${@:3}" \
+        || knit_fatal "knit_with_required takes a parameter, a description, and an optional --when."
     local param_spec="$1"
     local param_name="${param_spec%%:*}"
     local param_type="${param_spec#*:}"
@@ -631,9 +636,14 @@ knit_with_required() {
 # @param param Parameter name followed by ":type".
 # @param default Default value.
 # @param description Description of the parameter.
+# @param --when Optional boolean constraint expression (jq syntax referring to
+#        the command's other parameters); the parameter only applies when the
+#        expression evaluates to true.
 # ------------------------------------------------------------------------------
 knit_with_optional() {
     __knit_param_check_declaration "optional" "$1" "$3"
+    knit_check_arguments "when" "" "${@:4}" \
+        || knit_fatal "knit_with_optional takes a parameter, a default, a description, and an optional --when."
     local param_spec="$1"
     local param_name="${param_spec%%:*}"
     local param_type="${param_spec#*:}"
@@ -679,9 +689,14 @@ knit_with_optional() {
 #
 # @param param Parameter name.
 # @param description Description of the parameter.
+# @param --when Optional boolean constraint expression (jq syntax referring to
+#        the command's other parameters); the parameter only applies when the
+#        expression evaluates to true.
 # ------------------------------------------------------------------------------
 knit_with_flag() {
     __knit_param_check_declaration "flag" "$1" "$2"
+    knit_check_arguments "when" "" "${@:3}" \
+        || knit_fatal "knit_with_flag takes a flag name, a description, and an optional --when."
     local param
     param=$(__knit_name_normalize "$1")
     local ns demangled_cmd
