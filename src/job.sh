@@ -14,7 +14,6 @@ knit_register __knit_submit "submit" "Submit a job."
 knit_with_required "setup:path" "Path to the setup to use for the job."
 knit_with_extra "User-provided job command to execute"
 knit_with_subcommand_title "Jobs"
-knit_done
 
 # ------------------------------------------------------------------------------
 # @fn __knit_submit()
@@ -23,14 +22,11 @@ knit_done
 #
 # Usage:
 # ```
-# ./exp.sh submit --setup </path/to/setup> -- <job-name> [args...]
+# ./exp.sh submit --setup /path/to/setup [sched-args...] -- job-name [args...]
 # ```
 # ------------------------------------------------------------------------------
 __knit_submit() {
-    local setup_path
-    setup_path=$(knit_get_parameter "setup" "$@")
-
-    # Extract extra args (after --)
+    # Extract extra args (after --): the job name and its arguments.
     local args=("$@")
     local extra_index
     extra_index=$(knit_extra_index "${args[@]}")
@@ -53,24 +49,19 @@ __knit_submit() {
     subcmd=$(__knit_command_mangle "submit:${job_name}")
     _knit_check_command_arguments "${subcmd}" "${job_args[@]}"
 
-    # TODO Create directory in the setup path
-    # The directory name should be <setup_path>/jobs/<uuid>
-    # where <uuid> is a randomly generate uuid string.
-
-    # TODO In the job's newly created directory, create a job script
-    # adapted to the platform's job manager (SLURM or PBS Pro)
-    
-
-    # TODO Export KNIT_JOB_PREFIX so jobs functions and callbacks can read it
-
-    # TODO Export KNIT_SETUP_PREFIX from setup_path
-
-    # Invoke the setup subcommand and capture its return value
-    local ret=0
-    _knit_invoke_command "submit" "${job_name}" "${job_args[@]}" || ret=$?
-
-    # Get out of KNIT_JOB_PREFIX
-    knit_popd
+    # TODO (M1) Create the job directory <setup_path>/jobs/<uuid> with a
+    # time-ordered uuidv7 name.
+    #
+    # TODO (M2+) Resolve the submission options (sched-args merged with
+    # bootstrap defaults), generate a .job.sh batch script adapted to the
+    # platform's job manager, and submit it via the platform's submission
+    # command. The generated script exports KNIT_JOB_PREFIX/KNIT_SETUP_PREFIX,
+    # cd's into the job directory, then calls
+    # `path/to/exp.sh submit <job-name> [args...]`.
+    #
+    # Note: `knit submit ... -- <job-name>` calls __knit_submit, while
+    # `knit submit <job-name> [args]` is an actual invocation of the job's
+    # registered function.
 }
 knit_done
 
@@ -85,8 +76,8 @@ __knit_job_before_cb() {
     if [[ ! -v KNIT_JOB_PREFIX ]]; then
         knit_fatal "Job commands must be invoked via \"knit submit\", not directly."
     fi
-    # TODO save the environment before sourcing $KNIT_SETUP_PREFIX/.activate.sh
-    source $KNIT_SETUP_PREFIX/.activate.sh
+    # shellcheck disable=SC1091
+    source "${KNIT_SETUP_PREFIX}/.activate.sh"
 }
 
 # ------------------------------------------------------------------------------
@@ -95,8 +86,6 @@ __knit_job_before_cb() {
 # After-callback installed on every submit subcommand by knit_register_job.
 # ------------------------------------------------------------------------------
 __knit_job_after_cb() {
-    # TODO restore the environment as it was before
-    # $KNIT_SETUP_PREFIX/.activate.sh was sourced
     :
 }
 
