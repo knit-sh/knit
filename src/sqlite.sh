@@ -84,13 +84,24 @@ _knit_bootstrap_sqlite() {
     knit_popd # from "${_KNIT_PREFIX}"
 
     knit_trace "Creating database and tables..."
-    _knit_sqlite3 <<EOF
+    _knit_create_metadata_table
+
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_create_metadata_table()
+#
+# Create the metadata key/value table in the main database if it does not
+# already exist. Factored out of the bootstrap so tests (and any other code that
+# needs a metadata table) can create one without duplicating the schema.
+# ------------------------------------------------------------------------------
+_knit_create_metadata_table() {
+    _knit_sqlite3 <<'EOF'
 CREATE TABLE IF NOT EXISTS metadata (
     key TEXT PRIMARY KEY,
     value TEXT
 );
 EOF
-
 }
 
 # ------------------------------------------------------------------------------

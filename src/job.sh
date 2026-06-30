@@ -12,6 +12,26 @@ declare -A _KNIT_JOBS
 
 knit_register __knit_submit "submit" "Submit a job."
 knit_with_required "setup:path" "Path to the setup to use for the job."
+# Identity. Empty defaults are the "not set" sentinel: _knit_sched_resolve fills
+# them from bootstrap metadata, the machine profile, or a hard-coded fallback.
+knit_with_optional "job-name:string" "" \
+    "Job name (default: the experiment script name)."
+knit_with_optional "account:string" "" \
+    "Account (default: the __account__ metadata)."
+knit_with_optional "project:string" "" \
+    "Project name (default: the __project__ metadata)."
+knit_with_optional "queue:string" "" \
+    "Queue/partition (default: the site default queue)."
+# Resources. Knit allocates whole nodes exclusively: the per-node core count is
+# taken from the machine profile (or bootstrap detection), not requested per
+# submit, so there is no CPU option here.
+knit_with_optional "nodes:integer" "1" "Number of nodes."
+knit_with_optional "walltime:string" "" \
+    "Wall-clock limit as HH:MM:SS (default: the site default)."
+knit_with_optional "gpus-per-node:integer" "0" "GPUs per node."
+# Behaviour. Job stdout/stderr are always written to <job-dir>/.stdout and
+# <job-dir>/.stderr, so there are no output/error options.
+knit_with_flag "wait" "Block until the job completes; return its exit code."
 knit_with_extra "User-provided job command to execute"
 knit_with_subcommand_title "Jobs"
 

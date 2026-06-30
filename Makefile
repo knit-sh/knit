@@ -29,7 +29,7 @@ all: knit.sh
 knit.sh: $(KNIT_SOURCE) $(PROFILE_JSONS)
 	@echo "Concatenating files into $(KNIT_OUTPUT)..."
 	@tmp=$$(mktemp); \
-	echo 'declare -A _KNIT_PROFILE_JSON' > "$$tmp"; \
+	echo 'declare -gA _KNIT_PROFILE_JSON' > "$$tmp"; \
 	for f in $(PROFILE_JSONS); do \
 		name=$$(basename "$$f" .json); \
 		printf '_KNIT_PROFILE_JSON["%s"]=%s\n' \
@@ -72,7 +72,7 @@ doccheck:
 .PHONY: coverage
 coverage: $(KNIT_SOURCE) $(PROFILE_JSONS)
 	@tmp=$$(mktemp); \
-	echo 'declare -A _KNIT_PROFILE_JSON' > "$$tmp"; \
+	echo 'declare -gA _KNIT_PROFILE_JSON' > "$$tmp"; \
 	for f in $(PROFILE_JSONS); do \
 		name=$$(basename "$$f" .json); \
 		printf '_KNIT_PROFILE_JSON["%s"]=%s\n' \

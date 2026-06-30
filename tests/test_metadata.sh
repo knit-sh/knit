@@ -11,8 +11,7 @@ setup() {
     __KNIT_SQLITE_EXE="sqlite3"
     __KNIT_DATABASE="$(mktemp --suffix=.db)"
 
-    sqlite3 "${__KNIT_DATABASE}" \
-        "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT);"
+    _knit_create_metadata_table
 
     # Satisfy the bootstrap check — tests in this file work with a live DB
     _KNIT_IS_BOOTSTRAPPED="1"
