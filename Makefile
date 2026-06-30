@@ -15,6 +15,7 @@ KNIT_SOURCE = src/global.sh   \
               src/jq.sh       \
               src/db.sh       \
               src/metadata.sh \
+              src/sched.sh    \
               src/setup.sh    \
               src/job.sh      \
               src/main.sh

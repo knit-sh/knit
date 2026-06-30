@@ -26,6 +26,9 @@ knit_with_subcommand_title "Jobs"
 # ```
 # ------------------------------------------------------------------------------
 __knit_submit() {
+    local setup_path
+    setup_path=$(knit_get_parameter "setup" "$@")
+
     # Extract extra args (after --): the job name and its arguments.
     local args=("$@")
     local extra_index
@@ -49,9 +52,13 @@ __knit_submit() {
     subcmd=$(__knit_command_mangle "submit:${job_name}")
     _knit_check_command_arguments "${subcmd}" "${job_args[@]}"
 
-    # TODO (M1) Create the job directory <setup_path>/jobs/<uuid> with a
-    # time-ordered uuidv7 name.
-    #
+    # Create the job directory <setup_path>/jobs/<uuid> with a time-ordered
+    # uuidv7 name.
+    local uuid jobdir
+    uuid=$(_knit_uuidv7)
+    jobdir="${setup_path}/jobs/${uuid}"
+    mkdir -p "${jobdir}"
+
     # TODO (M2+) Resolve the submission options (sched-args merged with
     # bootstrap defaults), generate a .job.sh batch script adapted to the
     # platform's job manager, and submit it via the platform's submission
