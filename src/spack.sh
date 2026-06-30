@@ -5,10 +5,12 @@
 # ------------------------------------------------------------------------------
 # Version of Spack to use.
 # ------------------------------------------------------------------------------
+declare -g KNIT_SPACK_VERSION
 KNIT_SPACK_VERSION="v0.23.0"
 # ------------------------------------------------------------------------------
 # Root directory for the Spack installation.
 # ------------------------------------------------------------------------------
+declare -g __KNIT_SPACK_ROOT
 __KNIT_SPACK_ROOT="${_KNIT_PREFIX}/spack"
 
 #export SPACK_DISABLE_LOCAL_CONFIG=true

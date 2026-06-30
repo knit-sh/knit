@@ -1,1 +1,8 @@
 /knit.sh
+
+# Generated documentation
+/docs/build/
+/docs/doxygen/
+/docs/source/api/public.rst
+/docs/source/api/private.rst
+/.docs-venv/

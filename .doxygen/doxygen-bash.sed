@@ -44,7 +44,12 @@
     s/\(@fn[^(]\+\)(, /\1(/
     # Remove the function body to avoid interference, and re-introduce
     # list of parameters in the funcname(<here>).
-    s/\(@fn \([^(]\+\)(\)\([^)]*\)\().*\)\n\2() *{/\1\3\4\n\2(\3) { }/
+    # Re-introduce the parameter list into funcname(<here>) and give the
+    # function an 'int' return type. A Bash function "returns" its exit status,
+    # an integer; Sphinx's C domain (which renders the Doxygen XML via breathe)
+    # also rejects a function declaration with no return type, so 'int' both
+    # documents the real semantics and satisfies the parser.
+    s/\(@fn \([^(]\+\)(\)\([^)]*\)\().*\)\n\2() *{/\1\3\4\nint \2(\3) { }/
     # Replace all '## ' by '//! ' at beginning-of-line.
     s/\(^\|\n\)##\n/\1\/\/!\n/g
     s/\(^\|\n\)## /\1\/\/! /g
@@ -65,6 +70,13 @@
     x
     # Remove declare keyword, we wont need it anymore
     s/^declare \+//
+    # The -g (global) flag does not affect the documented type, and the option
+    # parser below does not recognise it. Drop it from the option cluster so the
+    # remaining flags (e.g. the A in -gA) are still detected; if that leaves a
+    # bare '-' (e.g. plain 'declare -g name'), remove it too so the simple
+    # declaration case applies.
+    s/^\(-[a-zA-Z]*\)g/\1/
+    s/^- \+//
     # Simple declaration case.
     /^[^-]/{
         x
@@ -139,8 +151,12 @@
     s/-[^ ]\+ \+//
     s/=.*//
     x
+    # Collapse the (possibly multi-word) type into a single token, e.g.
+    # "Exported ReadOnly String " -> "ExportedReadOnlyString". Sphinx's C domain
+    # parses a variable as "<type> <name>" and rejects a type containing spaces.
+    s/ //g
     G
-    s/\n//
+    s/\n/ /
     s/$/;/
     p
     x
@@ -150,7 +166,7 @@
 /^ *export \+[_a-zA-Z]/{
     s/=/ = /
     s/\([^;]\) *$/\1;/
-    s/^ *export \+/Exported String /
+    s/^ *export \+/ExportedString /
     p
     b end
 }

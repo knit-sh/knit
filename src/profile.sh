@@ -3,10 +3,8 @@
 ## @file profile.sh
 
 # ------------------------------------------------------------------------------
-# @var _KNIT_PROFILE_JSON
-#
 # Associative array mapping profile names to their minified JSON content.
-# Populated at build time by the Makefile from src/profiles/**/*.json.
+# Populated at build time by the Makefile from the JSON files under src/profiles.
 # The declaration here is a no-op when knit.sh is built (the Makefile prepends
 # the populated array before this file), but allows shellcheck to resolve the
 # variable.

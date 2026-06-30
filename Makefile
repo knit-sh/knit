@@ -79,6 +79,37 @@ coverage: $(KNIT_SOURCE) $(PROFILE_JSONS)
 	{ cat "$$tmp"; for f in $(KNIT_SOURCE); do echo "source $$f"; done; } > $(KNIT_OUTPUT); \
 	rm -f "$$tmp"
 
+DOCS_VENV := .docs-venv
+
+# Create the Python virtual environment for building the documentation and
+# install the required packages into it. The stamp file tracks completion so the
+# environment is only rebuilt when docs/requirements.txt changes.
+.PHONY: docs-env
+docs-env: $(DOCS_VENV)/.installed
+
+$(DOCS_VENV)/.installed: docs/requirements.txt
+	@echo "Creating documentation virtual environment in $(DOCS_VENV)..."
+	python3 -m venv $(DOCS_VENV)
+	$(DOCS_VENV)/bin/pip install -r docs/requirements.txt
+	@touch $@
+	@echo "Done."
+
+.PHONY: docs
+docs: docs-env
+	@echo "Generating Doxygen XML..."
+	doxygen Doxyfile
+	@echo "Generating Public/Private API pages..."
+	python3 maint/gen-doc-api.py
+	@echo "Building Sphinx documentation..."
+	$(DOCS_VENV)/bin/sphinx-build -b html docs/source docs/build/html
+	@echo "Done. Open docs/build/html/index.html"
+
+.PHONY: docs-clean
+docs-clean:
+	@echo "Cleaning documentation..."
+	rm -rf docs/build docs/doxygen
+	@echo "Done."
+
 .PHONY: clean
 clean:
 	@echo "Cleaning up..."
