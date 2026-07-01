@@ -87,6 +87,10 @@ __knit_submit() {
     declare -A opts
     _knit_sched_resolve opts "$@"
 
+    # Fail fast if the request exceeds the target queue's profile caps, before
+    # writing a script or contacting the scheduler.
+    _knit_sched_validate_caps opts
+
     # Pick the scheduler backend: bootstrap metadata, else live detection, with
     # "none" mapping to the local (no-scheduler) backend.
     local backend
