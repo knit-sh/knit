@@ -408,3 +408,97 @@ _knit_db_setup_table() {
         2) _knit_db_migrate_table "${table_name}" "${migrate_specs[@]}" ;;
     esac
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_db_record_row()
+#
+# Insert one row into a command's table, recording an invocation. The row is
+# built from the command's declared schema: the "id" column (a caller-supplied
+# uuid — the canonical job identifier), then the value of every required
+# parameter, optional parameter, and flag (read from the expanded invocation
+# arguments), then every output (read from the in-memory
+# _KNIT_CMD_<cmd>_output_value store populated by knit_output, falling back to
+# the output's declared default). Column names are the normalized (underscored)
+# knit names, matching the schema created by _knit_db_setup_table.
+#
+# @param cmd   Mangled command name (as used in _KNIT_CMD_* variables).
+# @param table Table to insert into.
+# @param id    Value for the "id" column (the job uuid).
+# @param ...   The expanded invocation arguments (params/flags to read from).
+# ------------------------------------------------------------------------------
+_knit_db_record_row() {
+    local cmd="$1"
+    local table="$2"
+    local id="$3"
+    shift 3
+    local -a args=("$@")
+
+    local -a cols=() vals=()
+    cols+=("$(__knit_db_sql_ident "id")")
+    vals+=("'$(_knit_sql_escape "${id}")'")
+
+    # Parameters and flags: values come from the expanded invocation arguments.
+    local group name value
+    for group in required optional flags; do
+        while IFS= read -r name; do
+            [[ -z "${name}" ]] && continue
+            value="$(knit_get_parameter "${name}" "${args[@]}")" || value=""
+            cols+=("$(__knit_db_sql_ident "${name}")")
+            vals+=("'$(_knit_sql_escape "${value}")'")
+        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_${group}" | sort)
+    done
+
+    # Outputs: values come from the in-memory store, else the declared default.
+    # shellcheck disable=SC2178 # nameref to the command's output-value array
+    local -n outvals="_KNIT_CMD_${cmd}_output_value"
+    local default_var
+    while IFS= read -r name; do
+        [[ -z "${name}" ]] && continue
+        if [[ -v outvals["${name}"] ]]; then
+            value="${outvals["${name}"]}"
+        else
+            default_var=$(__knit_output_default_var "${cmd}" "${name}")
+            value="${!default_var}"
+        fi
+        cols+=("$(__knit_db_sql_ident "${name}")")
+        vals+=("'$(_knit_sql_escape "${value}")'")
+    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
+
+    local cols_sql vals_sql
+    cols_sql=$(IFS=', '; printf '%s' "${cols[*]}")
+    vals_sql=$(IFS=', '; printf '%s' "${vals[*]}")
+    _knit_sqlite3 \
+        "INSERT INTO $(__knit_db_sql_ident "${table}") (${cols_sql}) VALUES (${vals_sql});"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_db_update_row()
+#
+# Update columns of an existing row, identified by its "id". Each assignment is
+# a "column=value" string; the column is a knit name (normalized to underscores
+# to match the schema). Used to record later state transitions of a recorded
+# invocation (e.g. a job moving to "completed").
+#
+# @param table Table to update.
+# @param id    Value of the "id" column identifying the row.
+# @param ...   One or more "column=value" assignments.
+# ------------------------------------------------------------------------------
+_knit_db_update_row() {
+    local table="$1"
+    local id="$2"
+    shift 2
+
+    local -a sets=()
+    local pair name value
+    for pair in "$@"; do
+        name="${pair%%=*}"
+        value="${pair#*=}"
+        name=$(__knit_name_normalize "${name}")
+        sets+=("$(__knit_db_sql_ident "${name}")='$(_knit_sql_escape "${value}")'")
+    done
+
+    local set_sql
+    set_sql=$(IFS=', '; printf '%s' "${sets[*]}")
+    _knit_sqlite3 \
+        "UPDATE $(__knit_db_sql_ident "${table}") SET ${set_sql} WHERE $(__knit_db_sql_ident "id")='$(_knit_sql_escape "${id}")';"
+}

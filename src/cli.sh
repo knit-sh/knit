@@ -1530,6 +1530,10 @@ _knit_invoke_command() {
     __knit_check_constraints "${cmd}" original_args args
     # call the "before" callbacks
     __knit_execute_before_commands "${cmd}" "${args[@]}"
+    # Start each invocation with a clean recording slate (outputs + row id) so a
+    # previous invocation in the same process cannot leak stale values.
+    declare -gA "_KNIT_CMD_${cmd}_output_value=()"
+    unset "_KNIT_CMD_${cmd}_row_id"
     # call the function
     _KNIT_EXECUTING_COMMAND+=("${cmd}")
     $func "${args[@]}"
@@ -1537,6 +1541,8 @@ _knit_invoke_command() {
     unset '_KNIT_EXECUTING_COMMAND[-1]'
     # call the "after" callbacks
     __knit_execute_after_commands "${cmd}" "${args[@]}"
+    # Record this invocation as a database row if the command declared a table.
+    __knit_record_invocation "${cmd}" "${args[@]}"
     return "${func_status}"
 }
 
@@ -1622,6 +1628,59 @@ knit_output() {
     local -n output_ref="_KNIT_CMD_${cmd}_output_value"
     # shellcheck disable=SC2034 # output_ref is a nameref
     output_ref["${normalized}"]="${value}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_set_row_id()
+#
+# Set the "id" value of the row that will be recorded for the currently
+# executing command (see M10 run recording). Use this when a command already
+# owns a canonical identifier — e.g. `knit submit` records the job UUID it
+# generated — instead of letting recording mint a fresh uuid. Must be called
+# from within an executing command function.
+#
+# @param id The uuid to record as the row's id.
+# ------------------------------------------------------------------------------
+_knit_set_row_id() {
+    local id="$1"
+    if [[ ${#_KNIT_EXECUTING_COMMAND[@]} -eq 0 ]]; then
+        knit_fatal "_knit_set_row_id should be called from within a registered command function."
+    fi
+    local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
+    printf -v "_KNIT_CMD_${cmd}_row_id" '%s' "${id}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_record_invocation()
+#
+# Record the just-completed invocation of a command as one row in its table,
+# when the command declared one with knit_with_table and the experiment is
+# bootstrapped. The row id is, in order of precedence: an explicit id set via
+# _knit_set_row_id; the job UUID from KNIT_JOB_PREFIX (the execution side of a
+# job); otherwise a fresh uuid.
+#
+# @param cmd Mangled command name.
+# @param ... The expanded invocation arguments.
+# ------------------------------------------------------------------------------
+__knit_record_invocation() {
+    local cmd="$1"
+    shift
+    local table_var="_KNIT_CMD_${cmd}_table"
+    local table="${!table_var:-}"
+    [[ -z "${table}" ]] && return 0
+    _knit_is_bootstrapped || return 0
+
+    local id
+    local rowid_var="_KNIT_CMD_${cmd}_row_id"
+    if [[ -n "${!rowid_var:-}" ]]; then
+        id="${!rowid_var}"
+    elif [[ -n "${KNIT_JOB_PREFIX:-}" ]]; then
+        id="$(basename "${KNIT_JOB_PREFIX}")"
+    else
+        id="$(_knit_uuidv7)"
+    fi
+
+    _knit_db_record_row "${cmd}" "${table}" "${id}" "$@"
 }
 
 # ------------------------------------------------------------------------------
