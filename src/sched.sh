@@ -171,6 +171,7 @@ _knit_sched_directives() {
     case "${backend}" in
         local) _knit_sched_local_directives "${arr_name}" "${jobdir}" ;;
         slurm) _knit_sched_slurm_directives "${arr_name}" "${jobdir}" ;;
+        pbs)   _knit_sched_pbs_directives "${arr_name}" "${jobdir}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
     esac
 }
@@ -195,6 +196,7 @@ _knit_sched_submit() {
     case "${backend}" in
         local) _knit_sched_local_submit "${arr_name}" "${script}" "${jobdir}" ;;
         slurm) _knit_sched_slurm_submit "${arr_name}" "${script}" "${jobdir}" ;;
+        pbs)   _knit_sched_pbs_submit "${arr_name}" "${script}" "${jobdir}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
     esac
 }

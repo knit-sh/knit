@@ -18,6 +18,7 @@ KNIT_SOURCE = src/global.sh   \
               src/sched.sh    \
               src/sched_local.sh \
               src/sched_slurm.sh \
+              src/sched_pbs.sh \
               src/setup.sh    \
               src/job.sh      \
               src/main.sh

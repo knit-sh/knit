@@ -34,6 +34,26 @@ export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 check_file "env/.activate.sh" "setup produced .activate.sh"
 
 # --------------------------------------------------------------------------
+# Detect which scheduler this cluster runs so the assertions match the backend
+# knit will auto-detect and use.
+# --------------------------------------------------------------------------
+if command -v sbatch >/dev/null 2>&1; then
+    BACKEND="slurm"
+    NODE_PREFIX="slurm-compute"
+    NAME_DIRECTIVE="#SBATCH --job-name="
+    EXCL_DIRECTIVE="#SBATCH --exclusive"
+    TIME_DIRECTIVE="#SBATCH --time="
+elif command -v qsub >/dev/null 2>&1; then
+    BACKEND="pbs"
+    NODE_PREFIX="pbs-compute"
+    NAME_DIRECTIVE="#PBS -N "
+    EXCL_DIRECTIVE="#PBS -l place=excl"
+    TIME_DIRECTIVE="#PBS -l walltime="
+else
+    fail "no supported scheduler (sbatch/qsub) found on the login node"
+fi
+
+# --------------------------------------------------------------------------
 # Submit the job and block until it completes
 # --------------------------------------------------------------------------
 ./experiment.sh submit --setup "${WORKDIR}/env" --wait -- hello
@@ -57,16 +77,17 @@ done
 check_file "${jobdir}/.job.sh"   "batch script generated"
 check_file "${jobdir}/.job.id"   "scheduler job id recorded"
 check_file "${jobdir}/.job.meta" "job metadata recorded"
-check_grep "backend=slurm" "${jobdir}/.job.meta" "job recorded the slurm backend"
+check_grep "backend=${BACKEND}" "${jobdir}/.job.meta" \
+    "job recorded the ${BACKEND} backend"
 
 # --------------------------------------------------------------------------
-# Assertions: the batch script carries Slurm directives
+# Assertions: the batch script carries the scheduler's directives
 # --------------------------------------------------------------------------
-check_grep "#SBATCH --job-name=" "${jobdir}/.job.sh" \
+check_grep "${NAME_DIRECTIVE}" "${jobdir}/.job.sh" \
     "batch script has the job-name directive"
-check_grep "#SBATCH --exclusive" "${jobdir}/.job.sh" \
+check_grep "${EXCL_DIRECTIVE}" "${jobdir}/.job.sh" \
     "batch script requests whole-node exclusivity"
-check_grep "#SBATCH --time=" "${jobdir}/.job.sh" \
+check_grep "${TIME_DIRECTIVE}" "${jobdir}/.job.sh" \
     "batch script has the walltime directive"
 
 # --------------------------------------------------------------------------
@@ -75,7 +96,7 @@ check_grep "#SBATCH --time=" "${jobdir}/.job.sh" \
 check_file "${jobdir}/.stdout" "job stdout captured"
 check_grep "job says: hello-from-setup" "${jobdir}/.stdout" \
     "job re-hydrated the setup environment and printed the greeting"
-check_grep "hostname: slurm-compute" "${jobdir}/.stdout" \
+check_grep "hostname: ${NODE_PREFIX}" "${jobdir}/.stdout" \
     "job ran on a compute node"
 
 assert_summary
