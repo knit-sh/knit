@@ -13,6 +13,17 @@ declare -g KNIT_SCRIPT_NAME
 KNIT_SCRIPT_NAME="$(basename "$0")"
 
 # ------------------------------------------------------------------------------
+# @var KNIT_SCRIPT_PATH
+#
+# Absolute path of the experiment script that sourced knit.sh. Used when
+# generating batch scripts so the compute node can re-enter the experiment
+# (`exp.sh submit <job-name> ...`) regardless of its current directory.
+# ------------------------------------------------------------------------------
+declare -g KNIT_SCRIPT_PATH
+# shellcheck disable=SC2034 # used when generating job scripts in sched.sh
+KNIT_SCRIPT_PATH="$(realpath "$0" 2>/dev/null || printf '%s' "$0")"
+
+# ------------------------------------------------------------------------------
 # @var _KNIT_IS_BOOTSTRAPPING
 #
 # Set to "true" when the first argument passed to the experiment script is

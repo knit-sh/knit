@@ -79,16 +79,41 @@ __knit_submit() {
     jobdir="${setup_path}/jobs/${uuid}"
     mkdir -p "${jobdir}"
 
-    # TODO (M2+) Resolve the submission options (sched-args merged with
-    # bootstrap defaults), generate a .job.sh batch script adapted to the
-    # platform's job manager, and submit it via the platform's submission
-    # command. The generated script exports KNIT_JOB_PREFIX/KNIT_SETUP_PREFIX,
-    # cd's into the job directory, then calls
-    # `path/to/exp.sh submit <job-name> [args...]`.
+    # Resolve the submission options (explicit args -> metadata -> profile ->
+    # hard-coded) into an associative array. Note: the name "opts" must differ
+    # from the nameref names used inside the sched_* helpers to avoid bash
+    # circular-reference errors.
+    # shellcheck disable=SC2034 # populated and read by name via the sched_* helpers
+    declare -A opts
+    _knit_sched_resolve opts "$@"
+
+    # Pick the scheduler backend: bootstrap metadata, else live detection, with
+    # "none" mapping to the local (no-scheduler) backend.
+    local backend
+    backend="$(_knit_metadata_load --key "__scheduler__")"
+    [[ -z "${backend}" ]] && backend="$(_knit_detect_job_manager)"
+    [[ "${backend}" == "none" ]] && backend="local"
+
+    # Generate the batch script and submit it. The generated script exports
+    # KNIT_JOB_PREFIX/KNIT_SETUP_PREFIX, cd's into the job directory, then calls
+    # `path/to/exp.sh submit <job-name> [args...]` on the compute node.
     #
     # Note: `knit submit ... -- <job-name>` calls __knit_submit, while
     # `knit submit <job-name> [args]` is an actual invocation of the job's
     # registered function.
+    local script="${jobdir}/.job.sh"
+    _knit_sched_write_jobscript "${script}" "${backend}" opts \
+        "${setup_path}" "${jobdir}" "${job_name}" "${job_args[@]}"
+
+    local jobid
+    jobid="$(_knit_sched_submit "${backend}" opts "${script}" "${jobdir}")"
+
+    # Record the submission: the bare scheduler id in .job.id and the full
+    # resolved options in .job.meta.
+    printf '%s\n' "${jobid}" > "${jobdir}/.job.id"
+    _knit_sched_write_jobmeta "${jobdir}" opts "${backend}" "${jobid}"
+
+    printf '%s\n' "${jobid}"
 }
 knit_done
 

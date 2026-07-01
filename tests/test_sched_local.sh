@@ -1,0 +1,188 @@
+#!/usr/bin/env bats
+
+setup() {
+    if ! command -v sqlite3 &>/dev/null; then
+        skip "sqlite3 not available"
+    fi
+    if ! command -v jq &>/dev/null; then
+        skip "jq not available"
+    fi
+
+    # Absolute path to the built framework, baked into the generated exp.sh for
+    # the end-to-end test (the compute-side script cd's away from the repo root).
+    KNIT_SH="$(realpath knit.sh)"
+
+    source knit.sh
+
+    __KNIT_SQLITE_EXE="sqlite3"
+    __KNIT_JQ_EXE="jq"
+    __KNIT_DATABASE="$(mktemp --suffix=.db)"
+    __KNIT_TEST_TMPDIR="$(mktemp -d)"
+
+    # Satisfy the bootstrap check and force the local backend regardless of what
+    # scheduler happens to be installed on the test host.
+    _KNIT_IS_BOOTSTRAPPED="1"
+    _KNIT_DETECTED_JOB_MANAGER="none"
+
+    _knit_create_metadata_table
+}
+
+teardown() {
+    rm -f "${__KNIT_DATABASE}"
+    rm -rf "${__KNIT_TEST_TMPDIR}"
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_DETECTED_JOB_MANAGER=""
+}
+
+# ---------- _knit_sched_local_directives ----------
+
+@test "_knit_sched_local_directives prints nothing" {
+    local out
+    out="$(_knit_sched_local_directives ignored)"
+    [ -z "${out}" ]
+}
+
+# ---------- _knit_sched_write_jobscript ----------
+
+@test "write_jobscript emits shebang, prefixes, cd and exec lines" {
+    KNIT_SCRIPT_PATH="/fake/exp.sh"
+    local jobdir="${__KNIT_TEST_TMPDIR}/jd"
+    mkdir -p "${jobdir}"
+    declare -A o
+    local script="${jobdir}/.job.sh"
+
+    _knit_sched_write_jobscript "${script}" local o \
+        "/setups/s1" "${jobdir}" myjob arg1 arg2
+
+    [ "$(head -n1 "${script}")" = "#!/bin/bash" ]
+    grep -Fxq "export KNIT_JOB_PREFIX=${jobdir}" "${script}"
+    grep -Fxq "export KNIT_SETUP_PREFIX=/setups/s1" "${script}"
+    grep -Fxq "export _KNIT_PREFIX=${_KNIT_PREFIX}" "${script}"
+    grep -Fxq "cd ${jobdir}" "${script}"
+    grep -Fxq "exec /fake/exp.sh submit myjob arg1 arg2" "${script}"
+}
+
+@test "write_jobscript %q-quotes arguments containing spaces" {
+    KNIT_SCRIPT_PATH="/fake/exp.sh"
+    local jobdir="${__KNIT_TEST_TMPDIR}/jd2"
+    mkdir -p "${jobdir}"
+    declare -A o
+    local script="${jobdir}/.job.sh"
+
+    _knit_sched_write_jobscript "${script}" local o \
+        "/setups/s1" "${jobdir}" myjob "hello world"
+
+    grep -Fxq 'exec /fake/exp.sh submit myjob hello\ world' "${script}"
+}
+
+@test "write_jobscript emits no scheduler directives for the local backend" {
+    KNIT_SCRIPT_PATH="/fake/exp.sh"
+    local jobdir="${__KNIT_TEST_TMPDIR}/jd3"
+    mkdir -p "${jobdir}"
+    declare -A o
+    local script="${jobdir}/.job.sh"
+
+    _knit_sched_write_jobscript "${script}" local o \
+        "/setups/s1" "${jobdir}" myjob
+
+    ! grep -q '^#SBATCH' "${script}"
+    ! grep -q '^#PBS' "${script}"
+}
+
+# ---------- _knit_sched_local_submit ----------
+
+@test "local_submit redirects stdout and stderr into the job directory" {
+    local jobdir="${__KNIT_TEST_TMPDIR}/run"
+    mkdir -p "${jobdir}"
+    local script="${jobdir}/run.sh"
+    {
+        echo '#!/bin/bash'
+        echo 'echo to-out'
+        echo 'echo to-err >&2'
+    } > "${script}"
+
+    declare -A o
+    o[wait]="true"
+    o[walltime]=""
+
+    _knit_sched_local_submit o "${script}" "${jobdir}"
+
+    grep -Fq "to-out" "${jobdir}/.stdout"
+    grep -Fq "to-err" "${jobdir}/.stderr"
+}
+
+@test "local_submit forwards walltime and waits when requested" {
+    local args="${__KNIT_TEST_TMPDIR}/args"
+    local waited="${__KNIT_TEST_TMPDIR}/waited"
+    _knit_submit_local() { printf '%s\n' "$*" > "${args}"; printf '4242\n'; }
+    _knit_wait_local()   { printf '%s\n' "$1" > "${waited}"; }
+
+    declare -A o
+    o[wait]="true"
+    o[walltime]="00:10:00"
+
+    local out
+    out="$(_knit_sched_local_submit o "/tmp/x/run.sh" "/tmp/x")"
+
+    [ "${out}" = "4242" ]
+    grep -Fq -- "--walltime 00:10:00" "${args}"
+    grep -Fq -- "--stdout /tmp/x/.stdout" "${args}"
+    grep -Fq -- "--stderr /tmp/x/.stderr" "${args}"
+    grep -Fq -- "-- bash /tmp/x/run.sh" "${args}"
+    [ "$(cat "${waited}")" = "4242" ]
+}
+
+@test "local_submit omits walltime and does not wait when not requested" {
+    local args="${__KNIT_TEST_TMPDIR}/args2"
+    _knit_submit_local() { printf '%s\n' "$*" > "${args}"; printf '7\n'; }
+    _knit_wait_local()   { printf 'waited\n' > "${__KNIT_TEST_TMPDIR}/should-not-exist"; }
+
+    declare -A o
+    o[wait]="false"
+    o[walltime]=""
+
+    _knit_sched_local_submit o "/tmp/x/run.sh" "/tmp/x" >/dev/null
+
+    ! grep -Fq -- "--walltime" "${args}"
+    [ ! -f "${__KNIT_TEST_TMPDIR}/should-not-exist" ]
+}
+
+# ---------- __knit_submit : full end-to-end ----------
+
+@test "__knit_submit generates the script and records the local job id" {
+    # Stub the launcher so the submission side is exercised end-to-end without
+    # spawning a compute-side process (which would need its own bootstrapped
+    # experiment). The real compute-side execution is covered by the integration
+    # tests.
+    _knit_submit_local() { printf '9999\n'; }
+
+    local setup="${__KNIT_TEST_TMPDIR}/setup"
+    mkdir -p "${setup}"
+    KNIT_SCRIPT_PATH="/fake/exp.sh"
+
+    _submit_myjob_fn() { :; }
+    knit_register_job "myjob" _submit_myjob_fn "test job"
+    knit_done
+
+    local out
+    out="$(__knit_submit --setup "${setup}" --nodes 2 -- myjob)"
+    [ "${out}" = "9999" ]
+
+    local jobdir
+    jobdir="$(find "${setup}/jobs" -mindepth 1 -maxdepth 1 -type d)"
+    [ -n "${jobdir}" ]
+
+    # Recording files.
+    [ "$(cat "${jobdir}/.job.id")" = "9999" ]
+    [ -f "${jobdir}/.job.sh" ]
+    [ -f "${jobdir}/.job.meta" ]
+
+    # Generated script re-enters the experiment to run the job.
+    [ "$(head -n1 "${jobdir}/.job.sh")" = "#!/bin/bash" ]
+    grep -Fxq "exec /fake/exp.sh submit myjob" "${jobdir}/.job.sh"
+
+    # Metadata record.
+    grep -Fxq "backend=local" "${jobdir}/.job.meta"
+    grep -Fxq "job-id=9999" "${jobdir}/.job.meta"
+    grep -Fxq "nodes=2" "${jobdir}/.job.meta"
+}

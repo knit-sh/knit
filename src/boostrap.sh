@@ -6,7 +6,11 @@
 # Prefix directory for Knit's local installation.
 # ------------------------------------------------------------------------------
 declare -g _KNIT_PREFIX
-_KNIT_PREFIX="$(pwd)/.knit"
+# Honour an inherited _KNIT_PREFIX so a submitted job, whose batch script cd's
+# into its (deep) job directory before re-entering the experiment, can still
+# locate the experiment's .knit rather than deriving a wrong one from its cwd.
+# A normal invocation leaves it unset and defaults to <cwd>/.knit.
+_KNIT_PREFIX="${_KNIT_PREFIX:-$(pwd)/.knit}"
 
 # ------------------------------------------------------------------------------
 # @var _KNIT_IS_BOOTSTRAPPED

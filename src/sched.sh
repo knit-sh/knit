@@ -152,3 +152,120 @@ _knit_sched_resolve() {
         '(.scheduler.default_args // []) | join(" ")')"
     resolved["extra-args"]="${v}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_directives()
+#
+# Dispatch to the configured backend's directive generator, printing the batch
+# scheduler directive lines (e.g. "#SBATCH ..." / "#PBS ...") for the resolved
+# options. The local backend prints nothing.
+#
+# @param backend  Scheduler backend name ("local"; slurm/pbs added later).
+# @param arr_name Name of the resolved-options associative array.
+# ------------------------------------------------------------------------------
+_knit_sched_directives() {
+    local backend="$1"
+    local arr_name="$2"
+    case "${backend}" in
+        local) _knit_sched_local_directives "${arr_name}" ;;
+        *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_submit()
+#
+# Dispatch to the configured backend's submission function, which submits the
+# already-written batch script and prints the resulting scheduler job id (or, for
+# the local backend, the process id) to stdout.
+#
+# @param backend  Scheduler backend name ("local"; slurm/pbs added later).
+# @param arr_name Name of the resolved-options associative array.
+# @param script   Path to the batch script to submit.
+# @param jobdir   Job directory (holds .stdout/.stderr for the local backend).
+# ------------------------------------------------------------------------------
+_knit_sched_submit() {
+    local backend="$1"
+    local arr_name="$2"
+    local script="$3"
+    local jobdir="$4"
+    case "${backend}" in
+        local) _knit_sched_local_submit "${arr_name}" "${script}" "${jobdir}" ;;
+        *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_write_jobscript()
+#
+# Write the batch script that a scheduler runs on the compute node. The script
+# carries the backend's directives, exports the job/setup prefixes, cd's into the
+# job directory, and re-enters the experiment script to run the job body via
+# `exp.sh submit <job-name> <args>`. Arguments are %q-quoted so they survive the
+# round-trip through the batch script unchanged.
+#
+# @param script_path Path of the batch script to create.
+# @param backend     Scheduler backend name.
+# @param arr_name    Name of the resolved-options associative array.
+# @param setup_path  Setup directory (exported as KNIT_SETUP_PREFIX).
+# @param jobdir      Job directory (exported as KNIT_JOB_PREFIX; the cd target).
+# @param job_name    Registered job name to run.
+# @param ...         Arguments to pass to the job.
+# ------------------------------------------------------------------------------
+_knit_sched_write_jobscript() {
+    local script_path="$1"
+    local backend="$2"
+    local arr_name="$3"
+    local setup_path="$4"
+    local jobdir="$5"
+    local job_name="$6"
+    shift 6
+    local -a job_args=("$@")
+
+    {
+        printf '#!/bin/bash\n'
+        _knit_sched_directives "${backend}" "${arr_name}"
+        printf 'export KNIT_JOB_PREFIX=%q\n' "${jobdir}"
+        printf 'export KNIT_SETUP_PREFIX=%q\n' "${setup_path}"
+        # Pass the experiment's .knit down: the cd below moves the compute-side
+        # cwd away from the experiment root, so it can no longer be derived.
+        printf 'export _KNIT_PREFIX=%q\n' "${_KNIT_PREFIX}"
+        printf 'cd %q\n' "${jobdir}"
+        printf 'exec %q submit %q' "${KNIT_SCRIPT_PATH}" "${job_name}"
+        local arg
+        for arg in "${job_args[@]}"; do
+            printf ' %q' "${arg}"
+        done
+        printf '\n'
+    } > "${script_path}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_write_jobmeta()
+#
+# Write a <jobdir>/.job.meta file recording the resolved submission options and
+# the identifiers returned at submission time, as simple key=value lines. This is
+# the human- and script-readable record of how the job was submitted.
+#
+# @param jobdir   Job directory to write .job.meta into.
+# @param arr_name Name of the resolved-options associative array.
+# @param backend  Scheduler backend used.
+# @param jobid    Scheduler job id (or PID) returned by submission.
+# ------------------------------------------------------------------------------
+_knit_sched_write_jobmeta() {
+    local jobdir="$1"
+    # shellcheck disable=SC2178 # nameref to the caller's associative array
+    local -n resolved="$2"
+    local backend="$3"
+    local jobid="$4"
+    {
+        printf 'uuid=%s\n' "$(basename "${jobdir}")"
+        printf 'backend=%s\n' "${backend}"
+        printf 'job-id=%s\n' "${jobid}"
+        local key
+        for key in job-name account project queue nodes cpus-per-node \
+                   gpus-per-node walltime; do
+            printf '%s=%s\n' "${key}" "${resolved[${key}]}"
+        done
+    } > "${jobdir}/.job.meta"
+}
