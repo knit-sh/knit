@@ -348,10 +348,13 @@ EOF
 # @param table_name Name of the database table to create or migrate.
 # ------------------------------------------------------------------------------
 _knit_db_setup_table() {
-    # Called at knit_done time, which may be before bootstrap has run.
+    # Runs at knit_done time, which may be before bootstrap (e.g. built-in
+    # commands are registered while sourcing knit.sh). Defer table creation until
+    # the experiment is bootstrapped: it is (re-)ensured lazily on the command's
+    # first invocation (see _knit_invoke_command). With no database yet, this is
+    # a no-op rather than an error.
     if ! _knit_is_bootstrapped; then
-        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
-        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
+        return 0
     fi
 
     local cmd="$1"

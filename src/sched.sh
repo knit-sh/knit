@@ -293,33 +293,3 @@ _knit_sched_write_jobscript() {
         printf '\n'
     } > "${script_path}"
 }
-
-# ------------------------------------------------------------------------------
-# @fn _knit_sched_write_jobmeta()
-#
-# Write a <jobdir>/.job.meta file recording the resolved submission options and
-# the identifiers returned at submission time, as simple key=value lines. This is
-# the human- and script-readable record of how the job was submitted.
-#
-# @param jobdir   Job directory to write .job.meta into.
-# @param arr_name Name of the resolved-options associative array.
-# @param backend  Scheduler backend used.
-# @param jobid    Scheduler job id (or PID) returned by submission.
-# ------------------------------------------------------------------------------
-_knit_sched_write_jobmeta() {
-    local jobdir="$1"
-    # shellcheck disable=SC2178 # nameref to the caller's associative array
-    local -n resolved="$2"
-    local backend="$3"
-    local jobid="$4"
-    {
-        printf 'uuid=%s\n' "$(basename "${jobdir}")"
-        printf 'backend=%s\n' "${backend}"
-        printf 'job-id=%s\n' "${jobid}"
-        local key
-        for key in job-name account project queue nodes cpus-per-node \
-                   gpus-per-node walltime; do
-            printf '%s=%s\n' "${key}" "${resolved[${key}]}"
-        done
-    } > "${jobdir}/.job.meta"
-}

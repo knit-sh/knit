@@ -1528,6 +1528,13 @@ _knit_invoke_command() {
     readarray -d '' -t args < <(__knit_expand_command_arguments "${cmd}" "$@")
     # validate --when constraints
     __knit_check_constraints "${cmd}" original_args args
+    # Ensure the command's table exists before it runs. Table creation is
+    # deferred at registration when the experiment is not yet bootstrapped, so
+    # create/migrate it now, on first use, once we are bootstrapped.
+    local table_var="_KNIT_CMD_${cmd}_table"
+    if [[ -n "${!table_var:-}" ]] && _knit_is_bootstrapped; then
+        _knit_db_setup_table "${cmd}" "${!table_var}"
+    fi
     # call the "before" callbacks
     __knit_execute_before_commands "${cmd}" "${args[@]}"
     # Start each invocation with a clean recording slate (outputs + row id) so a

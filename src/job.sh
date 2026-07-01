@@ -34,6 +34,11 @@ knit_with_optional "gpus-per-node:integer" "0" "GPUs per node."
 knit_with_flag "wait" "Block until the job completes; return its exit code."
 knit_with_extra "User-provided job command to execute"
 knit_with_subcommand_title "Jobs"
+# Record every submission as a row in the "submissions" table. The row id is the
+# job UUID (set in __knit_submit); these outputs track the job and its state.
+knit_with_table "submissions"
+knit_with_output "job:string" "" "Name of the submitted job (the token after --)."
+knit_with_output "state:string" "submitted" "Lifecycle state of the submitted job."
 
 # ------------------------------------------------------------------------------
 # @fn __knit_submit()
@@ -79,6 +84,12 @@ __knit_submit() {
     jobdir="${setup_path}/jobs/${uuid}"
     mkdir -p "${jobdir}"
 
+    # Record this submission: the recorded row's id is the canonical job
+    # UUID, and the submissions table tracks the job name and lifecycle state.
+    _knit_set_row_id "${uuid}"
+    knit_output "job" "${job_name}"
+    knit_output "state" "submitted"
+
     # Resolve the submission options (explicit args -> metadata -> profile ->
     # hard-coded) into an associative array. Note: the name "opts" must differ
     # from the nameref names used inside the sched_* helpers to avoid bash
@@ -112,10 +123,9 @@ __knit_submit() {
     local jobid
     jobid="$(_knit_sched_submit "${backend}" opts "${script}" "${jobdir}")"
 
-    # Record the submission: the bare scheduler id in .job.id and the full
-    # resolved options in .job.meta.
+    # Record the implementation-dependent launcher id in .job.id. The full
+    # submission record lives in the "submissions" table (see M10/M11 recording).
     printf '%s\n' "${jobid}" > "${jobdir}/.job.id"
-    _knit_sched_write_jobmeta "${jobdir}" opts "${backend}" "${jobid}"
 
     # Return the job UUID (the canonical, scheduler-independent identifier). The
     # implementation-dependent launcher id lives only in .job.id.

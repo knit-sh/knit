@@ -338,14 +338,20 @@ __test_register_cmd() {
     [ "$result" -eq 0 ]
 }
 
-@test "setup table fails when experiment is not bootstrapped and not bootstrapping" {
+@test "setup table defers (no-op) when not bootstrapped and not bootstrapping" {
     _KNIT_IS_BOOTSTRAPPED=""
     _KNIT_PREFIX="/nonexistent/path"
     _KNIT_IS_BOOTSTRAPPING="false"
+    # Table creation is deferred until bootstrap (ensured lazily on first use),
+    # so knit_done must succeed without creating a table rather than fataling.
     knit_register knit_empty "guarded2" "cmd"
     knit_with_table
     run knit_done
-    [ "$status" -ne 0 ]
+    [ "$status" -eq 0 ]
+    local result
+    result=$(sqlite3 "${__KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='guarded2';")
+    [ "$result" -eq 0 ]
 }
 
 # ---------- _knit_db_record_row (M10: automatic run recording) ----------
