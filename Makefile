@@ -47,9 +47,17 @@ KNIT_TESTS := $(wildcard tests/test_*.sh)
 .PHONY: check check-unit check-integration build-images
 check: check-unit check-integration
 
+# Number of parallel bats jobs: honour NPROC if set, otherwise fall back to the
+# number of processing units reported by nproc.
+BATS_JOBS := $(if $(NPROC),$(NPROC),$(shell nproc))
+
+# The unit tests are themselves run in parallel (bats -j), so this target must
+# not be split across sub-makes.
+.NOTPARALLEL: check-unit
+
 check-unit: $(KNIT_TESTS) knit.sh
-	@echo "Running unit tests..."
-	bats $(KNIT_TESTS)
+	@echo "Running unit tests with $(BATS_JOBS) parallel jobs..."
+	bats -j $(BATS_JOBS) $(KNIT_TESTS)
 	@echo "Unit tests completed."
 
 check-integration: knit.sh
