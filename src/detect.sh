@@ -152,3 +152,59 @@ _knit_detect_launcher() {
     knit_trace "Detected launcher: ${_KNIT_DETECTED_LAUNCHER}"
     echo "${_KNIT_DETECTED_LAUNCHER}"
 }
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_DETECTED_NODE_NCPUS
+#
+# Cache for _knit_detect_node_ncpus(). Empty means "not yet detected" (or
+# undetectable); a positive integer once detection succeeds.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_DETECTED_NODE_NCPUS
+_KNIT_DETECTED_NODE_NCPUS=""
+
+# ------------------------------------------------------------------------------
+# @fn _knit_detect_node_ncpus()
+#
+# Detect the per-node core count of the current cluster by querying the detected
+# batch scheduler and taking the modal (most common) value across its nodes:
+#   - slurm: `sinfo -h -N -o '%c'` (one line per node)
+#   - pbs:   `pbsnodes -a` resources_available.ncpus lines
+#
+# Counting is node-weighted (-N on Slurm; one entry per node on PBS), so a
+# minority outlier such as a login node listed alongside the compute nodes is
+# ignored in favour of the value the bulk of the nodes report.
+#
+# Prints the detected core count (a positive integer) to stdout, or nothing when
+# there is no scheduler or the query yields no usable value. Knit allocates whole
+# nodes, so this feeds __node_ncpus__ (cpus-per-node) on machines that have no
+# profile. The result is cached in _KNIT_DETECTED_NODE_NCPUS.
+# ------------------------------------------------------------------------------
+_knit_detect_node_ncpus() {
+    if [[ -n "${_KNIT_DETECTED_NODE_NCPUS}" ]]; then
+        echo "${_KNIT_DETECTED_NODE_NCPUS}"
+        return 0
+    fi
+
+    local ncpus=""
+    case "$(_knit_detect_job_manager)" in
+        slurm)
+            if command -v sinfo &>/dev/null; then
+                ncpus="$(sinfo -h -N -o '%c' 2>/dev/null \
+                    | grep -E '^[0-9]+$' \
+                    | sort | uniq -c | sort -rn | head -n1 | awk '{print $2}')"
+            fi
+            ;;
+        pbs)
+            if command -v pbsnodes &>/dev/null; then
+                ncpus="$(pbsnodes -a 2>/dev/null \
+                    | awk -F= '/resources_available.ncpus/ {gsub(/ /, "", $2); print $2}' \
+                    | grep -E '^[0-9]+$' \
+                    | sort | uniq -c | sort -rn | head -n1 | awk '{print $2}')"
+            fi
+            ;;
+    esac
+
+    _KNIT_DETECTED_NODE_NCPUS="${ncpus}"
+    knit_trace "Detected node ncpus: ${_KNIT_DETECTED_NODE_NCPUS:-<none>}"
+    echo "${_KNIT_DETECTED_NODE_NCPUS}"
+}

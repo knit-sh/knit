@@ -17,6 +17,7 @@ teardown() {
     _KNIT_DETECTED_JOB_MANAGER=""
     _KNIT_DETECTED_MPI=""
     _KNIT_DETECTED_LAUNCHER=""
+    _KNIT_DETECTED_NODE_NCPUS=""
 }
 
 # Helper: write a minimal executable mock script
@@ -163,4 +164,58 @@ _write_mock() {
     run _knit_detect_launcher
     [ "$status" -eq 0 ]
     [ "$output" = "pals" ]
+}
+
+# ---------- _knit_detect_node_ncpus ----------
+
+@test "_knit_detect_node_ncpus returns the modal slurm cpu count" {
+    _write_mock "${MOCK_BIN}/sbatch" "exit 0"
+    # sinfo -h -o '%c' prints one CPU count per line; 2 is the modal value.
+    _write_mock "${MOCK_BIN}/sinfo" 'printf "2\n2\n4\n"'
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_node_ncpus
+    [ "$status" -eq 0 ]
+    [ "$output" = "2" ]
+}
+
+@test "_knit_detect_node_ncpus ignores a minority outlier (e.g. a login node)" {
+    _write_mock "${MOCK_BIN}/sbatch" "exit 0"
+    # Node-weighted (-N): three compute nodes at 64, one login node at 256.
+    _write_mock "${MOCK_BIN}/sinfo" 'printf "64\n64\n64\n256\n"'
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_node_ncpus
+    [ "$status" -eq 0 ]
+    [ "$output" = "64" ]
+}
+
+@test "_knit_detect_node_ncpus returns the modal pbs cpu count" {
+    _write_mock "${MOCK_BIN}/qsub" "exit 0"
+    _write_mock "${MOCK_BIN}/pbsnodes" \
+        'printf "node1\n    resources_available.ncpus = 8\nnode2\n    resources_available.ncpus = 8\n"'
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_node_ncpus
+    [ "$status" -eq 0 ]
+    [ "$output" = "8" ]
+}
+
+@test "_knit_detect_node_ncpus is empty when no scheduler is present" {
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_node_ncpus
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
+@test "_knit_detect_node_ncpus is empty when the scheduler query yields nothing" {
+    _write_mock "${MOCK_BIN}/sbatch" "exit 0"
+    _write_mock "${MOCK_BIN}/sinfo" "exit 1"
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_node_ncpus
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
+@test "_knit_detect_node_ncpus caches its result" {
+    _write_mock "${MOCK_BIN}/sbatch" "exit 0"
+    _write_mock "${MOCK_BIN}/sinfo" 'printf "16\n"'
+    PATH="${MOCK_BIN}:${PATH}" _knit_detect_node_ncpus > /dev/null
+    # Remove sinfo — cache should still return 16.
+    rm "${MOCK_BIN}/sinfo"
+    run _knit_detect_node_ncpus
+    [ "$status" -eq 0 ]
+    [ "$output" = "16" ]
 }

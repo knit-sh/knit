@@ -31,7 +31,9 @@ cd "${WORKDIR}"
 # --------------------------------------------------------------------------
 # Run bootstrap
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-01"
+# No --profile / --default-cpus-per-node, so the per-node core count is filled
+# by live detection (sinfo/pbsnodes); both clusters advertise 2 CPUs per node.
+./experiment.sh bootstrap --project "integration-test-01" --account "test-alloc"
 
 # Point the assertion helper at the sqlite3 built by knit.
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
@@ -47,5 +49,17 @@ check_sqlite ".knit/knit.db" \
     "SELECT COUNT(*) FROM metadata WHERE key='__project__';" \
     "1" \
     "metadata table has project entry"
+
+# The --account flag is stored as __account__.
+check_sqlite ".knit/knit.db" \
+    "SELECT value FROM metadata WHERE key='__account__';" \
+    "test-alloc" \
+    "metadata stores the account from --account"
+
+# The per-node core count was detected from the live scheduler (2 CPUs/node).
+check_sqlite ".knit/knit.db" \
+    "SELECT value FROM metadata WHERE key='__node_ncpus__';" \
+    "2" \
+    "metadata stores the detected per-node core count"
 
 assert_summary

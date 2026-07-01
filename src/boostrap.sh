@@ -72,6 +72,12 @@ knit_with_optional "scheduler:__scheduler__" "auto" \
     "Batch job scheduler. One of: auto, slurm, pbs. With auto the scheduler is detected automatically."
 knit_with_optional "launcher:__launcher__" "auto" \
     "MPI launcher. One of: auto, openmpi, mpich, pals. With auto the launcher is detected automatically."
+knit_with_optional "account:string" "" \
+    "Account/allocation to charge submitted jobs to."
+knit_with_optional "default-walltime:string" "" \
+    "Default job wall-clock limit as HH:MM:SS (default: the profile's default-queue cap)."
+knit_with_optional "default-cpus-per-node:string" "" \
+    "Cores per node for whole-node allocation (default: profile hardware, else live detection)."
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap()
 #
@@ -85,11 +91,17 @@ _knit_bootstrap() {
     local profile
     local scheduler
     local launcher
+    local account
+    local default_walltime
+    local cpus_flag
     project="$(knit_get_parameter "project" "$@")"
     need_spack="$(knit_get_parameter "spack" "$@")"
     profile="$(knit_get_parameter "profile" "$@")"
     scheduler="$(knit_get_parameter "scheduler" "$@")"
     launcher="$(knit_get_parameter "launcher" "$@")"
+    account="$(knit_get_parameter "account" "$@")"
+    default_walltime="$(knit_get_parameter "default-walltime" "$@")"
+    cpus_flag="$(knit_get_parameter "default-cpus-per-node" "$@")"
 
     if [[ -n "${profile}" ]] && ! knit_profile_exists "${profile}"; then
         knit_fatal "Unknown profile: ${profile}. Run 'knit profile list' to see available profiles."
@@ -149,12 +161,27 @@ _knit_bootstrap() {
         launcher="$(_knit_detect_launcher)"
     fi
 
+    # Default walltime: explicit flag, else the profile's default-queue cap.
+    if [[ -z "${default_walltime}" && -n "${profile}" && -n "${default_queue}" ]]; then
+        default_walltime="$(_knit_sched_profile_field "${profile}" \
+            ".scheduler.queues.\"${default_queue}\".max_walltime")"
+    fi
+
+    # Per-node core count precedence: explicit flag -> profile -> live detection.
+    if [[ -n "${cpus_flag}" ]]; then
+        node_ncpus="${cpus_flag}"
+    elif [[ -z "${node_ncpus}" ]]; then
+        node_ncpus="$(_knit_detect_node_ncpus)"
+    fi
+
     knit_trace "Writing initial metadata..."
     knit metadata store --key "__project__"                --value "${project}"
+    knit metadata store --key "__account__"                --value "${account}"
     knit metadata store --key "__profile__"                --value "${profile}"
     knit metadata store --key "__scheduler__"              --value "${scheduler}"
     knit metadata store --key "__launcher__"               --value "${launcher}"
     knit metadata store --key "__default_queue__"          --value "${default_queue}"
+    knit metadata store --key "__default_walltime__"       --value "${default_walltime}"
     knit metadata store --key "__default_scheduler_args__" --value "${default_scheduler_args}"
     knit metadata store --key "__default_launcher_args__"  --value "${default_launcher_args}"
     knit metadata store --key "__node_ncpus__"             --value "${node_ncpus}"
