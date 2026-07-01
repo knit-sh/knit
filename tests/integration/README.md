@@ -32,7 +32,7 @@ tests/integration/
 └── experiments/
     ├── 01_bootstrap/                  # Verify bootstrap (sqlite build, DB creation)
     ├── 02_setup_basic/                # Verify setup lifecycle + .activate.sh
-    ├── 03_submit_basic/               # [SKIP] Job submission (not yet implemented)
+    ├── 03_submit_basic/               # Job submission (knit submit → scheduler)
     └── 04_submit_mpi/                 # [SKIP] MPI job (not yet implemented)
 ```
 

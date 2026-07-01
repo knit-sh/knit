@@ -10,6 +10,7 @@
 # this prints nothing. It exists so every backend honours the same contract.
 #
 # @param arr_name Name of the resolved-options associative array (unused).
+# @param jobdir   Job directory (unused).
 # ------------------------------------------------------------------------------
 _knit_sched_local_directives() {
     :

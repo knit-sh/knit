@@ -160,14 +160,17 @@ _knit_sched_resolve() {
 # scheduler directive lines (e.g. "#SBATCH ..." / "#PBS ...") for the resolved
 # options. The local backend prints nothing.
 #
-# @param backend  Scheduler backend name ("local"; slurm/pbs added later).
+# @param backend  Scheduler backend name ("local", "slurm"; pbs added later).
 # @param arr_name Name of the resolved-options associative array.
+# @param jobdir   Job directory (used by backends for --output/--error paths).
 # ------------------------------------------------------------------------------
 _knit_sched_directives() {
     local backend="$1"
     local arr_name="$2"
+    local jobdir="$3"
     case "${backend}" in
-        local) _knit_sched_local_directives "${arr_name}" ;;
+        local) _knit_sched_local_directives "${arr_name}" "${jobdir}" ;;
+        slurm) _knit_sched_slurm_directives "${arr_name}" "${jobdir}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
     esac
 }
@@ -179,7 +182,7 @@ _knit_sched_directives() {
 # already-written batch script and prints the resulting scheduler job id (or, for
 # the local backend, the process id) to stdout.
 #
-# @param backend  Scheduler backend name ("local"; slurm/pbs added later).
+# @param backend  Scheduler backend name ("local", "slurm"; pbs added later).
 # @param arr_name Name of the resolved-options associative array.
 # @param script   Path to the batch script to submit.
 # @param jobdir   Job directory (holds .stdout/.stderr for the local backend).
@@ -191,6 +194,7 @@ _knit_sched_submit() {
     local jobdir="$4"
     case "${backend}" in
         local) _knit_sched_local_submit "${arr_name}" "${script}" "${jobdir}" ;;
+        slurm) _knit_sched_slurm_submit "${arr_name}" "${script}" "${jobdir}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
     esac
 }
@@ -224,7 +228,7 @@ _knit_sched_write_jobscript() {
 
     {
         printf '#!/bin/bash\n'
-        _knit_sched_directives "${backend}" "${arr_name}"
+        _knit_sched_directives "${backend}" "${arr_name}" "${jobdir}"
         printf 'export KNIT_JOB_PREFIX=%q\n' "${jobdir}"
         printf 'export KNIT_SETUP_PREFIX=%q\n' "${setup_path}"
         # Pass the experiment's .knit down: the cd below moves the compute-side
