@@ -149,7 +149,7 @@ teardown() {
 
 # ---------- __knit_submit : full end-to-end ----------
 
-@test "__knit_submit generates the script and records the local job id" {
+@test "__knit_submit returns the job UUID and records the launcher id" {
     # Stub the launcher so the submission side is exercised end-to-end without
     # spawning a compute-side process (which would need its own bootstrapped
     # experiment). The real compute-side execution is covered by the integration
@@ -166,13 +166,16 @@ teardown() {
 
     local out
     out="$(__knit_submit --setup "${setup}" --nodes 2 -- myjob)"
-    [ "${out}" = "9999" ]
 
     local jobdir
     jobdir="$(find "${setup}/jobs" -mindepth 1 -maxdepth 1 -type d)"
     [ -n "${jobdir}" ]
 
-    # Recording files.
+    # __knit_submit returns the job UUID (the jobdir basename), not the launcher id.
+    [ "${out}" = "$(basename "${jobdir}")" ]
+    knit_type_check "uuid" "${out}"
+
+    # Recording files: .job.id holds the implementation-dependent launcher id.
     [ "$(cat "${jobdir}/.job.id")" = "9999" ]
     [ -f "${jobdir}/.job.sh" ]
     [ -f "${jobdir}/.job.meta" ]

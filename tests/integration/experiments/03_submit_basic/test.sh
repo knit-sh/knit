@@ -54,15 +54,19 @@ else
 fi
 
 # --------------------------------------------------------------------------
-# Submit the job and block until it completes
+# Submit the job and block until it completes. submit prints the job UUID.
 # --------------------------------------------------------------------------
-./experiment.sh submit --setup "${WORKDIR}/env" --wait -- hello
+uuid=$(./experiment.sh submit --setup "${WORKDIR}/env" --wait -- hello)
 
 # --------------------------------------------------------------------------
 # Locate the job directory (env/jobs/<uuid>)
 # --------------------------------------------------------------------------
 jobdir=$(find "${WORKDIR}/env/jobs" -mindepth 1 -maxdepth 1 -type d | head -1)
 [[ -n "${jobdir}" ]] || fail "no job directory created under env/jobs"
+
+# The value printed by submit is the job UUID, i.e. the job directory's name.
+check_eq "${uuid}" "$(basename "${jobdir}")" \
+    "submit prints the job UUID (the job directory name)"
 
 # --wait should have blocked until completion, but guard against output-flush
 # lag by polling briefly for a non-empty .stdout.

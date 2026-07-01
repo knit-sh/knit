@@ -117,7 +117,9 @@ __knit_submit() {
     printf '%s\n' "${jobid}" > "${jobdir}/.job.id"
     _knit_sched_write_jobmeta "${jobdir}" opts "${backend}" "${jobid}"
 
-    printf '%s\n' "${jobid}"
+    # Return the job UUID (the canonical, scheduler-independent identifier). The
+    # implementation-dependent launcher id lives only in .job.id.
+    printf '%s\n' "${uuid}"
 }
 knit_done
 
