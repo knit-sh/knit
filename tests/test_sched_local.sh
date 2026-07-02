@@ -164,6 +164,10 @@ teardown() {
     knit_register_job "myjob" _submit_myjob_fn "test job"
     knit_done
 
+    # Ensure the submissions table exists so the eager submission record lands
+    # (normally created lazily by _knit_invoke_command on first submit).
+    _knit_db_setup_table "submit" "submissions"
+
     # __knit_submit is normally run via _knit_invoke_command; calling it directly
     # here, simulate the executing-command context so its knit_output /
     # _knit_set_row_id calls resolve to the "submit" command.
@@ -179,6 +183,13 @@ teardown() {
     # __knit_submit returns the job UUID (the jobdir basename), not the launcher id.
     [ "${out}" = "$(basename "${jobdir}")" ]
     knit_type_check "uuid" "${out}"
+
+    # The submission is recorded (before dispatch) as a submissions row keyed by
+    # the UUID, capturing the job name and initial "submitted" state.
+    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+        "SELECT job FROM submissions WHERE id='${out}';")" = "myjob" ]
+    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+        "SELECT state FROM submissions WHERE id='${out}';")" = "submitted" ]
 
     # .job.id holds the implementation-dependent launcher id.
     [ "$(cat "${jobdir}/.job.id")" = "9999" ]

@@ -33,6 +33,10 @@ _knit_sched_slurm_directives() {
         printf '#SBATCH --ntasks-per-node=%s\n' "${resolved[cpus-per-node]}"
     fi
     printf '#SBATCH --time=%s\n' "${resolved[walltime]}"
+    # Warn the batch shell before the walltime kill so the job can record itself
+    # as "killed" (see __knit_job_killed_trap). B: targets the batch shell;
+    # @<sec> is how many seconds before the limit to deliver the signal.
+    printf '#SBATCH --signal=B:USR1@%s\n' "${__KNIT_SCHED_KILL_WARNING_SEC}"
     if [[ "${resolved[gpus-per-node]}" != "0" ]]; then
         printf '#SBATCH --gpus-per-node=%s\n' "${resolved[gpus-per-node]}"
     fi

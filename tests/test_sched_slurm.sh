@@ -38,6 +38,14 @@ _mk_opts() {
     [[ "${out}" == *"#SBATCH --exclusive"* ]]
 }
 
+@test "slurm directives request a pre-termination warning signal" {
+    declare -A o
+    _mk_opts o
+    local out
+    out="$(_knit_sched_slurm_directives o /jobs/x)"
+    [[ "${out}" == *"#SBATCH --signal=B:USR1@${__KNIT_SCHED_KILL_WARNING_SEC}"* ]]
+}
+
 @test "slurm directives fix output and error to the job directory" {
     declare -A o
     _mk_opts o

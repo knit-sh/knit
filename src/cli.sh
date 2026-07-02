@@ -1512,6 +1512,7 @@ _knit_invoke_command() {
     # previous invocation in the same process cannot leak stale values.
     declare -gA "_KNIT_CMD_${cmd}_output_value=()"
     unset "_KNIT_CMD_${cmd}_row_id"
+    unset "_KNIT_CMD_${cmd}_recorded"
     # call the function
     _KNIT_EXECUTING_COMMAND+=("${cmd}")
     $func "${args[@]}"
@@ -1629,6 +1630,26 @@ _knit_set_row_id() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_record_row_now()
+#
+# Record the current invocation's database row immediately, instead of waiting
+# for the automatic post-invocation recording. Use this when a command must
+# persist its row before doing blocking work whose side effects update that same
+# row — e.g. knit submit records the submission before a --wait dispatch, so the
+# job's own state transitions (running/completed) land on an existing row.
+# Recording is idempotent: the automatic recording afterwards sees this one and
+# does not insert a duplicate. Must be called from within an executing command.
+#
+# @param ... The invocation arguments (params/flags to record).
+# ------------------------------------------------------------------------------
+_knit_record_row_now() {
+    if [[ ${#_KNIT_EXECUTING_COMMAND[@]} -eq 0 ]]; then
+        knit_fatal "_knit_record_row_now should be called from within a registered command function."
+    fi
+    __knit_record_invocation "${_KNIT_EXECUTING_COMMAND[-1]}" "$@"
+}
+
+# ------------------------------------------------------------------------------
 # @fn __knit_record_invocation()
 #
 # Record the just-completed invocation of a command as one row in its table,
@@ -1648,6 +1669,14 @@ __knit_record_invocation() {
     [[ -z "${table}" ]] && return 0
     _knit_is_bootstrapped || return 0
 
+    # Record each invocation once. A command may record its row early via
+    # _knit_record_row_now (knit submit records the submission before a blocking
+    # --wait dispatch, so the job can transition the row's state as it runs); the
+    # automatic post-invocation call then finds the flag set and does not insert
+    # a duplicate.
+    local recorded_var="_KNIT_CMD_${cmd}_recorded"
+    [[ -n "${!recorded_var:-}" ]] && return 0
+
     local id
     local rowid_var="_KNIT_CMD_${cmd}_row_id"
     if [[ -n "${!rowid_var:-}" ]]; then
@@ -1658,6 +1687,7 @@ __knit_record_invocation() {
         id="$(_knit_uuidv7)"
     fi
 
+    printf -v "${recorded_var}" '%s' "1"
     _knit_db_record_row "${cmd}" "${table}" "${id}" "$@"
 }
 

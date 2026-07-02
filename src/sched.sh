@@ -3,6 +3,13 @@
 ## @file sched.sh
 
 # ------------------------------------------------------------------------------
+# Seconds before the walltime limit at which a scheduler is asked to warn the
+# job (Slurm --signal). The warning lets the job record itself as "killed"
+# before it is hard-killed (see __knit_job_killed_trap).
+# ------------------------------------------------------------------------------
+__KNIT_SCHED_KILL_WARNING_SEC="60"
+
+# ------------------------------------------------------------------------------
 # @fn _knit_uuidv7()
 #
 # Generate a version-7 UUID (RFC 9562) and print it to stdout.

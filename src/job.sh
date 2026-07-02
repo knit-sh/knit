@@ -10,6 +10,13 @@
 # ------------------------------------------------------------------------------
 declare -A _KNIT_JOBS
 
+# ------------------------------------------------------------------------------
+# Name of the table recording every submission and its lifecycle state. The row
+# id is the job UUID; the "state" column moves submitted -> running -> completed,
+# or -> killed when the scheduler terminates a job before it finishes.
+# ------------------------------------------------------------------------------
+__KNIT_SUBMISSIONS_TABLE="submissions"
+
 knit_register __knit_submit "submit" "Submit a job."
 knit_with_required "setup:path" "Path to the setup to use for the job."
 # Identity. Empty defaults are the "not set" sentinel: _knit_sched_resolve fills
@@ -36,7 +43,7 @@ knit_with_extra "User-provided job command to execute"
 knit_with_subcommand_title "Jobs"
 # Record every submission as a row in the "submissions" table. The row id is the
 # job UUID (set in __knit_submit); these outputs track the job and its state.
-knit_with_table "submissions"
+knit_with_table "${__KNIT_SUBMISSIONS_TABLE}"
 knit_with_output "job:string" "" "Name of the submitted job (the token after --)."
 knit_with_output "state:string" "submitted" "Lifecycle state of the submitted job."
 
@@ -102,6 +109,13 @@ __knit_submit() {
     # writing a script or contacting the scheduler.
     _knit_sched_validate_caps opts
 
+    # Persist the submissions row now, before dispatching. This must precede a
+    # blocking --wait submission: the job then runs (on this host for the local
+    # backend, or on a compute node) and transitions this row's "state" while it
+    # executes, so the row has to exist first. The automatic post-invocation
+    # recording is idempotent and will not duplicate it.
+    _knit_record_row_now "$@"
+
     # Pick the scheduler backend: bootstrap metadata, else live detection, with
     # "none" mapping to the local (no-scheduler) backend.
     local backend
@@ -134,16 +148,60 @@ __knit_submit() {
 knit_done
 
 # ------------------------------------------------------------------------------
+# @fn _knit_job_set_state()
+#
+# Update the lifecycle state of the running job's submissions row. Called on the
+# compute side, where the experiment's .knit is shared over the parallel file
+# system, so the row inserted by knit submit on the login node can be updated in
+# place. The row id is the job UUID, i.e. the basename of KNIT_JOB_PREFIX (the
+# job directory). Best-effort: status tracking must never take down the job
+# itself, so a failure is downgraded to a warning.
+#
+# @param state New state value (e.g. running, completed, killed).
+# ------------------------------------------------------------------------------
+_knit_job_set_state() {
+    local state="$1"
+    [[ -v KNIT_JOB_PREFIX ]] || return 0
+    _knit_is_bootstrapped || return 0
+    local uuid
+    uuid="$(basename "${KNIT_JOB_PREFIX}")"
+    _knit_db_update_row "${__KNIT_SUBMISSIONS_TABLE}" "${uuid}" "state=${state}" \
+        2>/dev/null \
+        || knit_warning "Could not update job \"${uuid}\" state to \"${state}\"."
+}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_job_killed_trap()
+#
+# Signal handler installed while a job runs on the compute node. Schedulers warn
+# a job before killing it: Slurm can send a chosen signal a configurable time
+# before the walltime limit (requested via --signal in the batch directives) and
+# sends SIGTERM before SIGKILL; PBS likewise sends SIGTERM before SIGKILL. This
+# handler records the job as "killed" so its row does not stay stuck at
+# "running", then exits so the after-callback (which would mark it "completed")
+# does not run.
+# ------------------------------------------------------------------------------
+__knit_job_killed_trap() {
+    _knit_job_set_state "killed"
+    exit 143
+}
+
+# ------------------------------------------------------------------------------
 # @fn __knit_job_before_cb()
 #
 # Before-callback installed on every setup subcommand by knit_register_job.
-# Verifies that KNIT_JOB_PREFIX is set, ensuring the job was invoked
-# through `knit submit` rather than called directly.
+# Verifies that KNIT_JOB_PREFIX is set, ensuring the job was invoked through
+# `knit submit` rather than called directly, installs the pre-termination signal
+# handler, marks the job "running", and sources the setup environment.
 # ------------------------------------------------------------------------------
 __knit_job_before_cb() {
     if [[ ! -v KNIT_JOB_PREFIX ]]; then
         knit_fatal "Job commands must be invoked via \"knit submit\", not directly."
     fi
+    # Catch the scheduler's pre-termination signal so an out-of-time or cancelled
+    # job records "killed" before it is hard-killed (see __knit_job_killed_trap).
+    trap '__knit_job_killed_trap' TERM USR1
+    _knit_job_set_state "running"
     # shellcheck disable=SC1091
     source "${KNIT_SETUP_PREFIX}/.activate.sh"
 }
@@ -152,9 +210,10 @@ __knit_job_before_cb() {
 # @fn __knit_job_after_cb()
 #
 # After-callback installed on every submit subcommand by knit_register_job.
+# Marks the job "completed" once its body has returned normally.
 # ------------------------------------------------------------------------------
 __knit_job_after_cb() {
-    :
+    _knit_job_set_state "completed"
 }
 
 # ------------------------------------------------------------------------------

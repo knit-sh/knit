@@ -81,6 +81,35 @@ teardown() {
     [[ "${cb_content}" == *__knit_job_after_cb* ]]
 }
 
+# Create a minimal submissions table and seed one row. _knit_job_set_state only
+# updates the "state" column by id, so the two-column table is enough here.
+_seed_submissions() {
+    local id="$1" state="$2"
+    sqlite3 "${__KNIT_DATABASE}" \
+        "CREATE TABLE IF NOT EXISTS submissions (id TEXT, state TEXT);"
+    sqlite3 "${__KNIT_DATABASE}" \
+        "INSERT INTO submissions (id, state) VALUES ('${id}', '${state}');"
+}
+
+_state_of() {
+    sqlite3 "${__KNIT_DATABASE}" "SELECT state FROM submissions WHERE id='$1';"
+}
+
+# ---------- _knit_job_set_state ----------
+
+@test "set state is a no-op when KNIT_JOB_PREFIX is not set" {
+    unset KNIT_JOB_PREFIX
+    run _knit_job_set_state "running"
+    [ "$status" -eq 0 ]
+}
+
+@test "set state updates the submissions row keyed by the job UUID" {
+    export KNIT_JOB_PREFIX="${__KNIT_TEST_TMPDIR}/abc-uuid"
+    _seed_submissions "abc-uuid" "submitted"
+    _knit_job_set_state "running"
+    [ "$(_state_of "abc-uuid")" = "running" ]
+}
+
 # ---------- __knit_job_before_cb ----------
 
 @test "job before callback fails when KNIT_JOB_PREFIX is not set" {
@@ -89,18 +118,48 @@ teardown() {
     [ "$status" -ne 0 ]
 }
 
-@test "job before callback sources .activate.sh when prefixes are set" {
+@test "job before callback sources .activate.sh and marks the job running" {
     export KNIT_JOB_PREFIX="${__KNIT_TEST_TMPDIR}/job"
     export KNIT_SETUP_PREFIX="${__KNIT_TEST_TMPDIR}"
     printf 'export _KNIT_JOB_CANARY=activated\n' > "${KNIT_SETUP_PREFIX}/.activate.sh"
+    _seed_submissions "job" "submitted"
     __knit_job_before_cb
     [ "${_KNIT_JOB_CANARY}" = "activated" ]
+    [ "$(_state_of "job")" = "running" ]
     unset _KNIT_JOB_CANARY
+}
+
+@test "job before callback installs the kill trap on TERM and USR1" {
+    export KNIT_JOB_PREFIX="${__KNIT_TEST_TMPDIR}/job"
+    export KNIT_SETUP_PREFIX="${__KNIT_TEST_TMPDIR}"
+    : > "${KNIT_SETUP_PREFIX}/.activate.sh"
+    _seed_submissions "job" "submitted"
+    __knit_job_before_cb
+    trap -p TERM | grep -q __knit_job_killed_trap
+    trap -p USR1 | grep -q __knit_job_killed_trap
+}
+
+# ---------- __knit_job_killed_trap ----------
+
+@test "kill trap records the job as killed and exits non-zero" {
+    export KNIT_JOB_PREFIX="${__KNIT_TEST_TMPDIR}/job"
+    _seed_submissions "job" "running"
+    run __knit_job_killed_trap
+    [ "$status" -eq 143 ]
+    [ "$(_state_of "job")" = "killed" ]
 }
 
 # ---------- __knit_job_after_cb ----------
 
-@test "job after callback is a no-op and succeeds" {
+@test "job after callback marks the job completed" {
+    export KNIT_JOB_PREFIX="${__KNIT_TEST_TMPDIR}/job"
+    _seed_submissions "job" "running"
+    __knit_job_after_cb
+    [ "$(_state_of "job")" = "completed" ]
+}
+
+@test "job after callback is a no-op when not running as a job" {
+    unset KNIT_JOB_PREFIX
     run __knit_job_after_cb
     [ "$status" -eq 0 ]
 }

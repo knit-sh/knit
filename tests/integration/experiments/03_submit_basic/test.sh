@@ -83,7 +83,9 @@ check_file "${jobdir}/.job.sh" "batch script generated"
 check_file "${jobdir}/.job.id" "launcher job id recorded"
 
 # The submission is recorded as one row in the "submissions" table, keyed by the
-# job UUID, recording the job name and its initial state.
+# job UUID, recording the job name. Because we submitted with --wait, the job has
+# run to completion, so its lifecycle state has advanced submitted -> running ->
+# completed by the compute-side callbacks (M8).
 check_sqlite ".knit/knit.db" \
     "SELECT COUNT(*) FROM submissions WHERE id='${uuid}';" \
     "1" \
@@ -94,8 +96,8 @@ check_sqlite ".knit/knit.db" \
     "submissions row records the job name"
 check_sqlite ".knit/knit.db" \
     "SELECT state FROM submissions WHERE id='${uuid}';" \
-    "submitted" \
-    "submissions row records the initial state"
+    "completed" \
+    "submissions row advanced to completed after the --wait job finished"
 
 # --------------------------------------------------------------------------
 # Assertions: the batch script carries the scheduler's directives
