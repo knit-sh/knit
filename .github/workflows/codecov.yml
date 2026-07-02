@@ -42,7 +42,19 @@ jobs:
         run: make coverage
 
       - name: Run tests with coverage
-        run: kcov --include-path=src coverage/ bats tests/test_*.sh
+        run: |
+          # Run kcov once per test file, not once over the whole suite. kcov's
+          # bash coverage (PS4 method) accumulates ~45 MB of state per traced
+          # test inside a single process; a single invocation over all ~500
+          # tests grows to ~20 GB and OOM-kills the runner (the job is then
+          # cancelled after ~29 min). Running per file lets each kcov process
+          # exit and free its memory between files, bounding peak RSS to the
+          # largest single file. The per-file results are merged afterwards.
+          for t in tests/test_*.sh; do
+            name=$(basename "$t" .sh)
+            kcov --include-path=src "coverage/${name}" bats "$t"
+          done
+          kcov --merge coverage/merged coverage/test_*
 
       - name: Fix coverage paths
         run: |
@@ -50,7 +62,7 @@ jobs:
           # as bare names (e.g. "log.sh"). Codecov needs paths relative to the
           # repo root (e.g. "src/log.sh"). Fix by setting <source> to the repo
           # root and prepending "src/" to each filename.
-          xml=$(find coverage -name cobertura.xml -path '*/bats*/cobertura.xml' | head -1)
+          xml=$(find coverage/merged -name cobertura.xml | head -1)
           sed -i "s|<source>.*</source>|<source>.</source>|" "$xml"
           sed -i 's|filename="\([^"]*\)"|filename="src/\1"|g' "$xml"
 
@@ -58,5 +70,5 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage/*/cobertura.xml
+          files: coverage/merged/kcov-merged/cobertura.xml
           fail_ci_if_error: true
