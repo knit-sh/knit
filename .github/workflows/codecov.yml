@@ -50,6 +50,8 @@ jobs:
           # cancelled after ~29 min). Running per file lets each kcov process
           # exit and free its memory between files, bounding peak RSS to the
           # largest single file. The per-file results are merged afterwards.
+          # kcov creates the leaf output dir but not its parent, so make it.
+          mkdir -p coverage
           for t in tests/test_*.sh; do
             name=$(basename "$t" .sh)
             kcov --include-path=src "coverage/${name}" bats "$t"
