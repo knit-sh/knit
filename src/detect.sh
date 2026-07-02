@@ -175,9 +175,16 @@ _KNIT_DETECTED_NODE_NCPUS=""
 # ignored in favour of the value the bulk of the nodes report.
 #
 # Prints the detected core count (a positive integer) to stdout, or nothing when
-# there is no scheduler or the query yields no usable value. Knit allocates whole
-# nodes, so this feeds __node_ncpus__ (cpus-per-node) on machines that have no
-# profile. The result is cached in _KNIT_DETECTED_NODE_NCPUS.
+# the query yields no usable value. Knit allocates whole nodes, so this feeds
+# __node_ncpus__ (cpus-per-node) on machines that have no profile. When there is
+# no batch scheduler the count of the local machine (nproc, or getconf as a
+# portable fallback) is used so that __node_ncpus__ is still populated on a
+# workstation. The result is cached in _KNIT_DETECTED_NODE_NCPUS.
+#
+# The local fallback is deliberately confined to the no-scheduler case: on a
+# machine with a scheduler the login node's core count is not representative of
+# the compute nodes, so a failed scheduler query returns nothing rather than the
+# (misleading) local value.
 # ------------------------------------------------------------------------------
 _knit_detect_node_ncpus() {
     if [[ -n "${_KNIT_DETECTED_NODE_NCPUS}" ]]; then
@@ -201,6 +208,18 @@ _knit_detect_node_ncpus() {
                     | grep -E '^[0-9]+$' \
                     | sort | uniq -c | sort -rn | head -n1 | awk '{print $2}')"
             fi
+            ;;
+        *)
+            # No batch scheduler: report the local machine's core count. nproc
+            # comes from coreutils; getconf is POSIX and covers systems without
+            # it.
+            if command -v nproc &>/dev/null; then
+                ncpus="$(nproc 2>/dev/null)"
+            elif command -v getconf &>/dev/null; then
+                ncpus="$(getconf _NPROCESSORS_ONLN 2>/dev/null)"
+            fi
+            # Keep only a positive integer; discard anything unexpected.
+            [[ "${ncpus}" =~ ^[0-9]+$ ]] || ncpus=""
             ;;
     esac
 

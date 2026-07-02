@@ -195,8 +195,30 @@ _write_mock() {
     [ "$output" = "8" ]
 }
 
-@test "_knit_detect_node_ncpus is empty when no scheduler is present" {
+@test "_knit_detect_node_ncpus falls back to nproc when no scheduler is present" {
+    # No sbatch/qsub, so the modal-count branches are skipped; the mock nproc
+    # (first in PATH) reports the local core count. The real PATH is kept so the
+    # mock's "env bash" shebang can still find an interpreter.
+    _write_mock "${MOCK_BIN}/nproc" 'printf "12\n"'
     PATH="${MOCK_BIN}:${PATH}" run _knit_detect_node_ncpus
+    [ "$status" -eq 0 ]
+    [ "$output" = "12" ]
+}
+
+@test "_knit_detect_node_ncpus falls back to getconf when nproc is absent" {
+    # No scheduler and no nproc: getconf _NPROCESSORS_ONLN is the last resort.
+    # PATH is fully isolated so the real nproc is not visible; the mock therefore
+    # uses an absolute-path shebang rather than "env bash".
+    printf '#!/bin/bash\nprintf "6\\n"\n' > "${MOCK_BIN}/getconf"
+    chmod +x "${MOCK_BIN}/getconf"
+    PATH="${MOCK_BIN}" run _knit_detect_node_ncpus
+    [ "$status" -eq 0 ]
+    [ "$output" = "6" ]
+}
+
+@test "_knit_detect_node_ncpus is empty when no scheduler and no cpu-count tool" {
+    # Fully isolated PATH so neither nproc nor getconf is visible.
+    PATH="${MOCK_BIN}" run _knit_detect_node_ncpus
     [ "$status" -eq 0 ]
     [ -z "$output" ]
 }
