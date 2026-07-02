@@ -54,6 +54,9 @@ jobs:
           mkdir -p coverage
           for t in tests/test_*.sh; do
             name=$(basename "$t" .sh)
+            echo "========================================================"
+            echo "Starting coverage run for ${name}"
+            echo "========================================================"
             kcov --include-path=src "coverage/${name}" bats "$t"
           done
           kcov --merge coverage/merged coverage/test_*
