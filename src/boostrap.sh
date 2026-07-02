@@ -52,6 +52,7 @@ _knit_is_bootstrapped() {
 __knit_bootstrap_on_exit() {
     if [ -z "${__KNIT_BOOTSTRAP_COMPLETED}" ]; then
         knit_warning "Bootstrap did not complete successfully, deleting ${_KNIT_PREFIX}"
+        _knit_ensure_trace_file
         rm -rf "${_KNIT_PREFIX}" > "${_KNIT_TRACE_FILE}" 2>&1
     fi
 }
@@ -112,6 +113,7 @@ _knit_bootstrap() {
         knit_fatal "Knit is already bootstrapped."
     fi
     knit_trace "Creating ${_KNIT_PREFIX} directory"
+    _knit_ensure_trace_file
     mkdir "${_KNIT_PREFIX}" > "${_KNIT_TRACE_FILE}" 2>&1
     trap __knit_bootstrap_on_exit EXIT
 

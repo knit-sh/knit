@@ -47,6 +47,7 @@ __knit_jq_platform() {
 __knit_jq_framed_run() {
     local title="$1"
     shift
+    _knit_ensure_trace_file
     "$@" 2>&1 | tee "${_KNIT_TRACE_FILE}" | \
         knit_framed 10 -1 --title "${title}" --log-level trace --cleanup
     local -a pipe_status=("${PIPESTATUS[@]}")

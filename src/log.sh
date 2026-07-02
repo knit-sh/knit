@@ -30,10 +30,27 @@ __knit_log_level_to_int() {
 }
 
 # ------------------------------------------------------------------------------
-# The trace file is the file used to redirect the output of programs.
+# The trace file is the file used to redirect the output of programs. It is
+# created lazily by _knit_ensure_trace_file() on first use rather than eagerly
+# here: creating it at source time ran an mktemp on every "source knit.sh" and
+# leaked a temporary file each time (the test suite sources knit.sh hundreds of
+# times). Empty until first needed.
 # ------------------------------------------------------------------------------
 declare _KNIT_TRACE_FILE
-_KNIT_TRACE_FILE="$(mktemp /tmp/knit.out.XXXXXX)"
+_KNIT_TRACE_FILE=""
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ensure_trace_file()
+#
+# Create the trace file on first use and cache its path in _KNIT_TRACE_FILE.
+# Must be called in the current shell (not a subshell) before reading
+# _KNIT_TRACE_FILE.
+# ------------------------------------------------------------------------------
+_knit_ensure_trace_file() {
+    if [[ -z "${_KNIT_TRACE_FILE}" ]]; then
+        _KNIT_TRACE_FILE="$(mktemp "${TMPDIR:-/tmp}/knit.out.XXXXXX")"
+    fi
+}
 
 # ------------------------------------------------------------------------------
 # @fn knit_log_set_level()
@@ -174,6 +191,7 @@ knit_critical() {
 # ------------------------------------------------------------------------------
 knit_fatal() {
     _knit_log fatal "$@"
+    _knit_ensure_trace_file
     _knit_log fatal "More info may be found in %s" "$_KNIT_TRACE_FILE"
     exit 1
 }

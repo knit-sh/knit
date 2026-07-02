@@ -25,28 +25,28 @@ teardown() {
 @test "--when accepted on knit_with_required" {
     knit_register knit_empty "when_req_cmd" "A command."
     knit_with_required "x:integer" "X value."
-    knit_with_required "y:integer" "Y value." --when "x > 42"
+    knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
 }
 
 @test "--when accepted on knit_with_optional" {
     knit_register knit_empty "when_opt_cmd" "A command."
     knit_with_required "x:integer" "X value."
-    knit_with_optional "y:integer" "0" "Y value." --when "x > 42"
+    knit_with_optional "y:integer" "0" "Y value." --when ".x > 42"
     knit_done
 }
 
 @test "--when accepted on knit_with_flag" {
     knit_register knit_empty "when_flg_cmd" "A command."
     knit_with_required "x:integer" "X value."
-    knit_with_flag "verbose" "Verbose mode." --when "x > 42"
+    knit_with_flag "verbose" "Verbose mode." --when ".x > 42"
     knit_done
 }
 
 @test "knit_with_required accepts --when=expr form" {
     knit_register knit_empty "when_req_eq_cmd" "A command."
     knit_with_required "x:integer" "X value."
-    run knit_with_required "y:integer" "Y value." --when="x > 42"
+    run knit_with_required "y:integer" "Y value." --when=".x > 42"
     [ "$status" -eq 0 ]
 }
 
@@ -60,7 +60,7 @@ teardown() {
 @test "knit_with_optional accepts --when=expr form" {
     knit_register knit_empty "when_opt_eq_cmd" "A command."
     knit_with_required "x:integer" "X value."
-    run knit_with_optional "y:integer" "0" "Y value." --when="x > 42"
+    run knit_with_optional "y:integer" "0" "Y value." --when=".x > 42"
     [ "$status" -eq 0 ]
 }
 
@@ -74,7 +74,7 @@ teardown() {
 @test "knit_with_flag accepts --when=expr form" {
     knit_register knit_empty "when_flg_eq_cmd" "A command."
     knit_with_required "x:integer" "X value."
-    run knit_with_flag "verbose" "Verbose mode." --when="x > 42"
+    run knit_with_flag "verbose" "Verbose mode." --when=".x > 42"
     [ "$status" -eq 0 ]
 }
 
@@ -85,12 +85,13 @@ teardown() {
     [ "$status" -ne 0 ]
 }
 
-@test "--when stores preprocessed expression in metadata variable" {
+@test "--when stores the constraint expression verbatim in metadata variable" {
     knit_register knit_empty "when_meta_cmd" "A command."
     knit_with_required "x:integer" "X value."
-    knit_with_required "y:integer" "Y value." --when "x > 42"
+    knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
     [ "${_KNIT_CMD_when_meta_cmd_2_y_when}" = ".x > 42" ]
+    [ "${_KNIT_CMD_when_meta_cmd_2_y_when_raw}" = ".x > 42" ]
 }
 
 @test "constraint passes: required param provided when condition is true" {
@@ -104,7 +105,7 @@ teardown() {
     }
     knit_register constrained_cmd "constrained_cmd1" "A command."
     knit_with_required "x:integer" "X value."
-    knit_with_required "y:integer" "Y value." --when "x > 42"
+    knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
 
     _knit_invoke_command "constrained_cmd1" "--x" "50" "--y" "10"
@@ -118,7 +119,7 @@ teardown() {
 
     knit_register knit_empty "constrained_cmd2" "A command."
     knit_with_required "x:integer" "X value."
-    knit_with_required "y:integer" "Y value." --when "x > 42"
+    knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
 
     run _knit_invoke_command "constrained_cmd2" "--x" "50"
@@ -131,7 +132,7 @@ teardown() {
 
     knit_register knit_empty "constrained_cmd3" "A command."
     knit_with_required "x:integer" "X value."
-    knit_with_required "y:integer" "Y value." --when "x > 42"
+    knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
 
     _knit_invoke_command "constrained_cmd3" "--x" "5"
@@ -143,7 +144,7 @@ teardown() {
 
     knit_register knit_empty "constrained_cmd4" "A command."
     knit_with_required "x:integer" "X value."
-    knit_with_required "y:integer" "Y value." --when "x > 42"
+    knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
 
     run _knit_invoke_command "constrained_cmd4" "--x" "5" "--y" "10"
@@ -156,7 +157,7 @@ teardown() {
 
     knit_register knit_empty "opt_when_cmd1" "A command."
     knit_with_required "x:integer" "X value."
-    knit_with_optional "label:string" "none" "A label." --when "x > 10"
+    knit_with_optional "label:string" "none" "A label." --when ".x > 10"
     knit_done
 
     _knit_invoke_command "opt_when_cmd1" "--x" "5"
@@ -168,7 +169,7 @@ teardown() {
 
     knit_register knit_empty "opt_when_cmd2" "A command."
     knit_with_required "x:integer" "X value."
-    knit_with_optional "label:string" "none" "A label." --when "x > 10"
+    knit_with_optional "label:string" "none" "A label." --when ".x > 10"
     knit_done
 
     run _knit_invoke_command "opt_when_cmd2" "--x" "5" "--label" "hello"
@@ -181,7 +182,7 @@ teardown() {
 
     knit_register knit_empty "flag_when_cmd1" "A command."
     knit_with_required "x:integer" "X value."
-    knit_with_flag "verbose" "Verbose mode." --when "x > 10"
+    knit_with_flag "verbose" "Verbose mode." --when ".x > 10"
     knit_done
 
     run _knit_invoke_command "flag_when_cmd1" "--x" "5" "--verbose"
@@ -194,7 +195,7 @@ teardown() {
 
     knit_register knit_empty "flag_when_cmd2" "A command."
     knit_with_required "x:integer" "X value."
-    knit_with_flag "verbose" "Verbose mode." --when "x > 10"
+    knit_with_flag "verbose" "Verbose mode." --when ".x > 10"
     knit_done
 
     _knit_invoke_command "flag_when_cmd2" "--x" "5"
@@ -207,7 +208,7 @@ teardown() {
     knit_register knit_empty "multi_when_cmd" "A command."
     knit_with_required "x:integer" "X value."
     knit_with_required "y:integer" "Y value."
-    knit_with_required "z:integer" "Z value." --when "x > 0 and y > 0"
+    knit_with_required "z:integer" "Z value." --when ".x > 0 and .y > 0"
     knit_done
 
     _knit_invoke_command "multi_when_cmd" "--x" "1" "--y" "2" "--z" "3"
@@ -220,7 +221,7 @@ teardown() {
     knit_register knit_empty "multi_when_cmd2" "A command."
     knit_with_required "x:integer" "X value."
     knit_with_required "y:integer" "Y value."
-    knit_with_required "z:integer" "Z value." --when "x > 0 and y > 0"
+    knit_with_required "z:integer" "Z value." --when ".x > 0 and .y > 0"
     knit_done
 
     _knit_invoke_command "multi_when_cmd2" "--x" "0" "--y" "2"
@@ -232,7 +233,7 @@ teardown() {
 
     knit_register knit_empty "nonbool_when_cmd" "A command."
     knit_with_required "x:integer" "X value."
-    knit_with_required "y:integer" "Y value." --when "x + 1"
+    knit_with_required "y:integer" "Y value." --when ".x + 1"
     knit_done
 
     run _knit_invoke_command "nonbool_when_cmd" "--x" "5" "--y" "3"
@@ -242,7 +243,7 @@ teardown() {
 @test "knit_with_parameter_set copies --when metadata" {
     knit_define_parameter_set "when_set"
     knit_with_required "x:integer" "X value."
-    knit_with_required "y:integer" "Y value." --when "x > 42"
+    knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
 
     knit_register knit_empty "pset_when_cmd" "A command."
@@ -250,7 +251,7 @@ teardown() {
     knit_done
 
     [ "${_KNIT_CMD_pset_when_cmd_2_y_when}" = ".x > 42" ]
-    [ "${_KNIT_CMD_pset_when_cmd_2_y_when_raw}" = "x > 42" ]
+    [ "${_KNIT_CMD_pset_when_cmd_2_y_when_raw}" = ".x > 42" ]
 }
 
 @test "constraint from parameter set is enforced" {
@@ -259,7 +260,7 @@ teardown() {
 
     knit_define_parameter_set "enforced_set"
     knit_with_required "x:integer" "X value."
-    knit_with_required "y:integer" "Y value." --when "x > 42"
+    knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
 
     knit_register knit_empty "pset_enforce_cmd" "A command."
@@ -275,12 +276,12 @@ teardown() {
 @test "help output shows 'when:' annotation for required param with constraint" {
     knit_register knit_empty "help_when_req" "Help test command."
     knit_with_required "x:integer" "The X value."
-    knit_with_required "y:integer" "The Y value." --when "x > 42"
+    knit_with_required "y:integer" "The Y value." --when ".x > 42"
     knit_done
 
     run _knit_invoke_command "help_when_req" "--help"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"[required, when: x > 42]"* ]]
+    [[ "$output" == *"[required, when: .x > 42]"* ]]
 }
 
 @test "help output shows plain 'required' for required param without constraint" {
@@ -297,35 +298,23 @@ teardown() {
 @test "help output shows 'when:' annotation for optional param with constraint" {
     knit_register knit_empty "help_when_opt" "Help test command."
     knit_with_required "x:integer" "The X value."
-    knit_with_optional "y:integer" "0" "The Y value." --when "x > 0"
+    knit_with_optional "y:integer" "0" "The Y value." --when ".x > 0"
     knit_done
 
     run _knit_invoke_command "help_when_opt" "--help"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"[default: '0', when: x > 0]"* ]]
+    [[ "$output" == *"[default: '0', when: .x > 0]"* ]]
 }
 
 @test "help output shows 'when:' annotation for flag with constraint" {
     knit_register knit_empty "help_when_flag" "Help test command."
     knit_with_required "x:integer" "The X value."
-    knit_with_flag "verbose" "Verbose output." --when "x > 0"
+    knit_with_flag "verbose" "Verbose output." --when ".x > 0"
     knit_done
 
     run _knit_invoke_command "help_when_flag" "--help"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"[flag, when: x > 0]"* ]]
-}
-
-@test "help output shows original (unprocessed) constraint expression" {
-    knit_register knit_empty "help_when_raw" "Help test command."
-    knit_with_required "x:integer" "The X value."
-    knit_with_required "y:integer" "The Y value." --when "x > 42"
-    knit_done
-
-    run _knit_invoke_command "help_when_raw" "--help"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"x > 42"* ]]
-    [[ "$output" != *".x > 42"* ]]
+    [[ "$output" == *"[flag, when: .x > 0]"* ]]
 }
 
 # ---------- knit_check_arguments ----------

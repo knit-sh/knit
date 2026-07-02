@@ -25,6 +25,7 @@ export SPACK_USER_CONFIG_PATH="${_KNIT_PREFIX}/.spack"
 # @param ref Commit hash or tag (default to _KNIT_SPACK_VERSION).
 # ------------------------------------------------------------------------------
 _knit_bootstrap_spack() {
+    _knit_ensure_trace_file
     knit_trace "Cloning spack repository..."
     git clone https://github.com/spack/spack.git "${__KNIT_SPACK_ROOT}" > "${_KNIT_TRACE_FILE}" 2>&1
     local ref="${1:-${KNIT_SPACK_VERSION}}"

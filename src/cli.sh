@@ -38,7 +38,7 @@ knit_empty() {
 __knit_command_mangle() {
     local cmd="$*"
     local mangled
-    mangled=$(echo "$cmd" | sed -E 's/[: ]+/__1__/g')
+    mangled=$(sed -E 's/[: ]+/__1__/g' <<< "${cmd}")
     printf "%s" "${mangled}"
 }
 
@@ -65,8 +65,8 @@ __knit_command_demangle() {
 # @param cmd Command to print with spaces.
 # ------------------------------------------------------------------------------
 __knit_command_with_space() {
-    local cmd="$1"
-    echo "$cmd" | sed -E 's/__1__|:/ /g'
+    local cmd="${1//__1__/ }"
+    printf "%s\n" "${cmd//:/ }"
 }
 
 # ------------------------------------------------------------------------------
@@ -120,30 +120,6 @@ __knit_name_is_valid() {
         true|false|null|and|or|not) return 1 ;;
     esac
     return 0
-}
-
-# ------------------------------------------------------------------------------
-# @fn __knit_preprocess_constraint()
-#
-# Preprocess a user-written constraint expression for use with jq. Bare
-# identifiers (parameter names) are prefixed with "." so they refer to jq
-# object fields. jq keywords and identifiers inside string literals are left
-# unchanged. Requires Perl.
-#
-# Example:
-# ```
-# __knit_preprocess_constraint "x > 42 and z == \"foo\""
-# # prints: .x > 42 and .z == "foo"
-# ```
-#
-# @param expr Constraint expression to preprocess.
-# ------------------------------------------------------------------------------
-__knit_preprocess_constraint() {
-    local expr="$1"
-    printf '%s' "${expr}" | perl -pe '
-        my %kw = map { $_ => 1 } qw(true false null and or not);
-        s/"[^"\\]*(?:\\.[^"\\]*)*"(*SKIP)(*FAIL)|(?<![.\w])([a-zA-Z_][a-zA-Z0-9_]*)/$kw{$1} ? $1 : ".$1"/ge
-    '
 }
 
 # ------------------------------------------------------------------------------
@@ -606,9 +582,7 @@ knit_with_required() {
     local when_expr
     when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
     if [[ -n "${when_expr}" ]]; then
-        local preprocessed
-        preprocessed=$(__knit_preprocess_constraint "${when_expr}")
-        printf -v "${ns}_2_${param}_when"     '%s' "${preprocessed}"
+        printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
         printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
     fi
 }
@@ -665,9 +639,7 @@ knit_with_optional() {
     local when_expr
     when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
     if [[ -n "${when_expr}" ]]; then
-        local preprocessed
-        preprocessed=$(__knit_preprocess_constraint "${when_expr}")
-        printf -v "${ns}_2_${param}_when"     '%s' "${preprocessed}"
+        printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
         printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
     fi
 }
@@ -713,9 +685,7 @@ knit_with_flag() {
     local when_expr
     when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
     if [[ -n "${when_expr}" ]]; then
-        local preprocessed
-        preprocessed=$(__knit_preprocess_constraint "${when_expr}")
-        printf -v "${ns}_2_${param}_when"     '%s' "${preprocessed}"
+        printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
         printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
     fi
 }
@@ -954,7 +924,7 @@ _knit_run_before() {
     # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"
     local cb
-    cb=$(printf "%q " "$@")
+    printf -v cb "%q " "$@"
     cb_list_ref+=("${cb}")
 }
 
@@ -1005,7 +975,7 @@ _knit_run_after() {
     # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"
     local cb
-    cb=$(printf "%q " "$@")
+    printf -v cb "%q " "$@"
     cb_list_ref+=("${cb}")
 }
 
@@ -1049,7 +1019,7 @@ __knit_push_done_cb() {
     fi
     knit_trace "Pushing done callback in ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
     local cb
-    cb=$(printf "%q " "$@")
+    printf -v cb "%q " "$@"
     _KNIT_DONE_CBS+=("${cb}")
 }
 
@@ -1351,7 +1321,8 @@ __knit_print_command_usage() {
         local sub_name="_KNIT_CMD_${cmd}_sucommand_title"
         sub_name=${!sub_name}
         local hrule
-        hrule=$(printf "%*s" "${#sub_name}" "" | tr ' ' '-')
+        printf -v hrule "%*s" "${#sub_name}" ""
+        hrule="${hrule// /-}"
         printf "\n%s\n%s\n" "${sub_name}" "${hrule}"
         local i
         for ((i=0; i<${#subcommands[@]}; i++)); do
