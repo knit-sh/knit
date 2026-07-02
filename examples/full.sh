@@ -125,15 +125,20 @@
 # -----------------------------------------------------------------------------
 # 6. Look inside the database
 # -----------------------------------------------------------------------------
-# knit ships its own sqlite; use it to query the run history:
+# `db query` reads the database through knit, so you never touch the bundled
+# sqlite binary or its path directly:
 #
-#   .knit/sqlite/bin/sqlite3 -header -column .knit/knit.db \
-#       'SELECT id, samples, seed, format, pi FROM estimate;'
+#   ./full.sh db query --from estimate \
+#       --select "id, samples, seed, format, pi" --header --column
 #
 # Each `estimate` run is one row: its parameters, its declared output (pi), and
-# a time-ordered UUID id.
+# a time-ordered UUID id. --header/--column format the output; --where,
+# --order-by and --limit cover the common filters, and --sql is an escape hatch
+# for arbitrary statements. `db tables` lists the tables that exist.
 #
-# Note: in the future, knit will provide tools to simplify querying its
+#   ./full.sh db tables
+#
+# Note: in the future, knit will provide further tools to simplify querying its
 # database, including producing plots.
 #
 # -----------------------------------------------------------------------------
@@ -175,13 +180,13 @@
 # Every submission is tracked in the `submissions` table, and its lifecycle
 # state advances submitted -> running -> completed (or -> killed if cancelled):
 #
-#   .knit/sqlite/bin/sqlite3 -header -column .knit/knit.db \
-#       'SELECT id, job, state FROM submissions;'
+#   ./full.sh db query --from submissions \
+#       --select "id, job, state" --header --column
 #
 # The job's own output (pi) is recorded in its own table:
 #
-#   .knit/sqlite/bin/sqlite3 -header -column .knit/knit.db \
-#       'SELECT id, samples, pi FROM "submit:montecarlo";'
+#   ./full.sh db query --from '"submit:montecarlo"' \
+#       --select "id, samples, pi" --header --column
 #
 # -----------------------------------------------------------------------------
 # 9. Clean up
@@ -195,8 +200,6 @@
 # =============================================================================
 #   - `knit run` (MPI placement across the allocation) is not implemented, so
 #     these jobs run a single process per submission.
-#   - There is no `knit db show`; query the database with the bundled sqlite3
-#     as shown above.
 # =============================================================================
 
 
