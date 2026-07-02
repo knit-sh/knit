@@ -1024,12 +1024,47 @@ __knit_push_done_cb() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_check_argument_type()
+#
+# Validate that the value provided for a parameter conforms to the parameter's
+# declared type. On mismatch the script stops with a fatal error; for enum types
+# the message lists the accepted values. Parameters with no recorded type (e.g.
+# framework-internal ones) are left unchecked.
+#
+# @param cmd Command the parameter belongs to (mangled).
+# @param demangled_cmd Human-readable command name (used in messages).
+# @param name Parameter name (normalized).
+# @param value Value provided for the parameter.
+# ------------------------------------------------------------------------------
+__knit_check_argument_type() {
+    local cmd="$1"
+    local demangled_cmd="$2"
+    local name="$3"
+    local value="$4"
+    local param_type
+    param_type=$(__knit_param_type "${cmd}" "${name}")
+    if [[ -z "${param_type}" ]] || knit_type_check "${param_type}" "${value}"; then
+        return 0
+    fi
+    local alt_format
+    alt_format=$(_knit_str_underscores_to_hyphens "${name}")
+    local resolved
+    resolved=$(__knit_type_resolve_alias "${param_type}") || resolved=""
+    if [[ -n "${resolved}" ]] && [[ -v __KNIT_ENUMS["${resolved}"] ]]; then
+        local values
+        values=$(knit_enum_values "${resolved}" ", ")
+        knit_fatal "Parameter --${alt_format} of \"${demangled_cmd}\" expects one of: ${values} (got \"${value}\")."
+    fi
+    knit_fatal "Parameter --${alt_format} of \"${demangled_cmd}\" expects a value of type \"${param_type}\" (got \"${value}\")."
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_check_command_arguments()
 #
 # Check that the arguments expected by the command are provided. This function
 # will fail with a fatal error (i.e. the script will stop) if a required
-# argument is not provided, or if an argument provided does not match any
-# any expected.
+# argument is not provided, if an argument provided does not match any expected,
+# or if a value does not conform to its parameter's declared type.
 #
 # @param cmd Name of the command (mangled).
 # @param ... Arguments to pass to the command.
@@ -1071,13 +1106,18 @@ _knit_check_command_arguments() {
         name="$(__knit_arg_name "${arg}")"
         # Required/optional parameters consume the following token as their
         # value, unless the value was supplied inline as "--name=value". Flags
-        # never consume a token.
-        if _knit_set_find "${required_args_varname}" "${name}"; then
-            [[ "${arg}" == --*=* ]] || i=$((i+1))
-            continue
-        fi
-        if _knit_set_find "${optional_args_varname}" "${name}"; then
-            [[ "${arg}" == --*=* ]] || i=$((i+1))
+        # never consume a token. The consumed value is checked against the
+        # parameter's declared type.
+        if _knit_set_find "${required_args_varname}" "${name}" \
+        || _knit_set_find "${optional_args_varname}" "${name}"; then
+            local value
+            if [[ "${arg}" == --*=* ]]; then
+                value="${arg#*=}"
+            else
+                i=$((i+1))
+                value="${args[i]}"
+            fi
+            __knit_check_argument_type "${cmd}" "${demangled_cmd}" "${name}" "${value}"
             continue
         fi
         if _knit_set_find "${flags_args_varname}" "${name}"; then

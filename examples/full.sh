@@ -112,6 +112,16 @@
 # Re-running with the same --samples and --seed always yields the same estimate:
 # reproducibility is knit's reason for existing.
 #
+# Types are checked before the command runs, so bad input is rejected up front
+# rather than producing garbage or a confusing error deep in the command:
+#
+#   ./full.sh estimate --samples abc
+#     -> [knit:fatal] Parameter --samples of "estimate" expects a value of
+#        type "integer" (got "abc").
+#   ./full.sh estimate --samples 10 --format ultra
+#     -> [knit:fatal] Parameter --format of "estimate" expects one of:
+#        decimal, scientific (got "ultra").
+#
 # -----------------------------------------------------------------------------
 # 6. Look inside the database
 # -----------------------------------------------------------------------------
@@ -183,9 +193,6 @@
 # =============================================================================
 # KNOWN LIMITATIONS (as of this writing)
 # =============================================================================
-#   - Parameter types are recorded and used for the database schema, but are
-#     NOT yet enforced on command-line input: `estimate --samples abc` is
-#     accepted rather than rejected. See issues.md.
 #   - `knit run` (MPI placement across the allocation) is not implemented, so
 #     these jobs run a single process per submission.
 #   - There is no `knit db show`; query the database with the bundled sqlite3

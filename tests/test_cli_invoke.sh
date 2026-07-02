@@ -65,6 +65,88 @@ teardown() {
     _knit_check_command_arguments "ca_cmd6" "--verbose"
 }
 
+# ---------- _knit_check_command_arguments: type validation ----------
+
+@test "_knit_check_command_arguments accepts a value matching its type" {
+    knit_register knit_empty "ty_ok" "Test."
+    knit_with_required "count:integer" "A count."
+    knit_done
+    _knit_check_command_arguments "ty_ok" "--count" "42"
+}
+
+@test "_knit_check_command_arguments rejects an integer value that is not an integer" {
+    knit_register knit_empty "ty_int" "Test."
+    knit_with_required "count:integer" "A count."
+    knit_done
+    run _knit_check_command_arguments "ty_int" "--count" "abc"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"integer"* ]]
+}
+
+@test "_knit_check_command_arguments rejects a real value that is not a real" {
+    knit_register knit_empty "ty_real" "Test."
+    knit_with_required "ratio:real" "A ratio."
+    knit_done
+    run _knit_check_command_arguments "ty_real" "--ratio" "notanumber"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"real"* ]]
+}
+
+@test "_knit_check_command_arguments accepts any value for a string parameter" {
+    knit_register knit_empty "ty_str" "Test."
+    knit_with_required "label:string" "A label."
+    knit_done
+    _knit_check_command_arguments "ty_str" "--label" "1a-b_?"
+}
+
+@test "_knit_check_command_arguments validates the --name=value form" {
+    knit_register knit_empty "ty_inline" "Test."
+    knit_with_required "count:integer" "A count."
+    knit_done
+    run _knit_check_command_arguments "ty_inline" "--count=abc"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"integer"* ]]
+}
+
+@test "_knit_check_command_arguments validates optional parameter values" {
+    knit_register knit_empty "ty_opt" "Test."
+    knit_with_optional "count:integer" "1" "A count."
+    knit_done
+    run _knit_check_command_arguments "ty_opt" "--count" "x"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"integer"* ]]
+}
+
+@test "_knit_check_command_arguments accepts a valid enum value" {
+    knit_define_enum "ty_color" "red" "green" "blue"
+    knit_register knit_empty "ty_enum_ok" "Test."
+    knit_with_required "shade:ty_color" "A color."
+    knit_done
+    _knit_check_command_arguments "ty_enum_ok" "--shade" "green"
+}
+
+@test "_knit_check_command_arguments rejects an invalid enum value and lists the choices" {
+    knit_define_enum "ty_color2" "red" "green" "blue"
+    knit_register knit_empty "ty_enum_bad" "Test."
+    knit_with_required "shade:ty_color2" "A color."
+    knit_done
+    run _knit_check_command_arguments "ty_enum_bad" "--shade" "ultraviolet"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"red"* ]]
+    [[ "$output" == *"green"* ]]
+    [[ "$output" == *"blue"* ]]
+}
+
+@test "_knit_invoke_command rejects an ill-typed argument before running the body" {
+    knit_register fn_ty_inv "ty_inv" "Test."
+    knit_with_required "count:integer" "A count."
+    fn_ty_inv() { echo "SHOULD NOT RUN"; }
+    knit_done
+    run _knit_invoke_command "ty_inv" "--count" "abc"
+    [ "$status" -ne 0 ]
+    [[ "$output" != *"SHOULD NOT RUN"* ]]
+}
+
 # ---------- __knit_expand_command_arguments ----------
 
 @test "__knit_expand_command_arguments fills in optional defaults" {
