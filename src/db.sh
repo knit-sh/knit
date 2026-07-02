@@ -105,7 +105,7 @@ _knit_db_create_table() {
 
     local cols_sql
     cols_sql=$(IFS=', '; printf '%s' "${col_defs[*]}")
-    _knit_sqlite3 "CREATE TABLE $(__knit_db_sql_ident "${table_name}") (${cols_sql});"
+    _knit_sqlite3_write "CREATE TABLE $(__knit_db_sql_ident "${table_name}") (${cols_sql});"
 }
 
 # ------------------------------------------------------------------------------
@@ -318,7 +318,7 @@ _knit_db_migrate_table() {
     select_exprs_sql=$(IFS=', '; printf '%s' "${select_exprs[*]}")
     tmp_name="${table_name}__knit_tmp"
 
-    _knit_sqlite3 <<EOF
+    _knit_sqlite3_write <<EOF
 BEGIN;
 ALTER TABLE $(__knit_db_sql_ident "${table_name}") RENAME TO $(__knit_db_sql_ident "${tmp_name}");
 CREATE TABLE $(__knit_db_sql_ident "${table_name}") (${cols_sql});
@@ -470,7 +470,7 @@ _knit_db_record_row() {
     local cols_sql vals_sql
     cols_sql=$(IFS=', '; printf '%s' "${cols[*]}")
     vals_sql=$(IFS=', '; printf '%s' "${vals[*]}")
-    _knit_sqlite3 \
+    _knit_sqlite3_write \
         "INSERT INTO $(__knit_db_sql_ident "${table}") (${cols_sql}) VALUES (${vals_sql});"
 }
 
@@ -502,6 +502,6 @@ _knit_db_update_row() {
 
     local set_sql
     set_sql=$(IFS=', '; printf '%s' "${sets[*]}")
-    _knit_sqlite3 \
+    _knit_sqlite3_write \
         "UPDATE $(__knit_db_sql_ident "${table}") SET ${set_sql} WHERE $(__knit_db_sql_ident "id")='$(_knit_sql_escape "${id}")';"
 }

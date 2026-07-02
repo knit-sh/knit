@@ -23,6 +23,14 @@ __KNIT_SQLITE_EXE="${_KNIT_PREFIX}/sqlite/bin/sqlite3"
 __KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
 
 # ------------------------------------------------------------------------------
+# Busy timeout (milliseconds) applied to every sqlite3 invocation. If another
+# writer holds the database lock, sqlite retries for up to this long before
+# giving up with "database is locked". A second line of defence behind the
+# advisory flock taken by _knit_sqlite3_write.
+# ------------------------------------------------------------------------------
+__KNIT_SQLITE_BUSY_TIMEOUT_MS="10000"
+
+# ------------------------------------------------------------------------------
 # @fn __knit_sqlite_framed_run()
 #
 # Run a command with its combined stdout/stderr written to _KNIT_TRACE_FILE and,
@@ -97,7 +105,7 @@ _knit_bootstrap_sqlite() {
 # needs a metadata table) can create one without duplicating the schema.
 # ------------------------------------------------------------------------------
 _knit_create_metadata_table() {
-    _knit_sqlite3 <<'EOF'
+    _knit_sqlite3_write <<'EOF'
 CREATE TABLE IF NOT EXISTS metadata (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -126,10 +134,35 @@ _knit_sql_escape() {
 # ------------------------------------------------------------------------------
 # @fn _knit_sqlite3()
 #
-# Invoke Knit's sqlite3-installed program on the main database.
+# Invoke Knit's sqlite3-installed program on the main database. Every invocation
+# sets a busy timeout so that a concurrent writer only causes a bounded wait
+# rather than an immediate "database is locked" failure. Use this for reads;
+# route writes through _knit_sqlite3_write so they are also serialized by the
+# advisory lock.
 #
 # @param ... Parameters to forward to the sqlite3 command.
 # ------------------------------------------------------------------------------
 _knit_sqlite3() {
-    ${__KNIT_SQLITE_EXE} "${__KNIT_DATABASE}" "$@"
+    ${__KNIT_SQLITE_EXE} -cmd ".timeout ${__KNIT_SQLITE_BUSY_TIMEOUT_MS}" \
+        "${__KNIT_DATABASE}" "$@"
+}
+
+# shellcheck disable=SC2120
+# ------------------------------------------------------------------------------
+# @fn _knit_sqlite3_write()
+#
+# Run a database write (INSERT/UPDATE/CREATE/migrate) while holding an advisory
+# lock, serializing writes across the independent processes that may touch the
+# same database at once (e.g. many jobs finishing simultaneously on compute
+# nodes). The lock is a file next to the database; flock blocks until it is
+# acquired, so writers queue rather than collide. The busy timeout set by
+# _knit_sqlite3 remains as a second line of defence. Standard input is inherited
+# by the subshell, so heredoc-fed statements work unchanged.
+#
+# @param ... Parameters to forward to _knit_sqlite3.
+# ------------------------------------------------------------------------------
+_knit_sqlite3_write() {
+    local lock="${__KNIT_DATABASE}.lock"
+    ( flock 9 || knit_fatal "Could not acquire database lock \"${lock}\"."
+      _knit_sqlite3 "$@" ) 9>"${lock}"
 }

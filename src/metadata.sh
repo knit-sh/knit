@@ -28,7 +28,7 @@ _knit_metadata_store() {
     local value
     key=$(knit_get_parameter "key" "$@")
     value=$(knit_get_parameter "value" "$@")
-    _knit_sqlite3 "INSERT INTO metadata (key, value) VALUES ('$(_knit_sql_escape "${key}")', '$(_knit_sql_escape "${value}")');"
+    _knit_sqlite3_write "INSERT INTO metadata (key, value) VALUES ('$(_knit_sql_escape "${key}")', '$(_knit_sql_escape "${value}")');"
 }
 knit_done
 

@@ -354,7 +354,7 @@ __test_register_cmd() {
     [ "$result" -eq 0 ]
 }
 
-# ---------- _knit_db_record_row (M10: automatic run recording) ----------
+# ---------- _knit_db_record_row ----------
 
 @test "invoking a table command records a row with params, flags and outputs" {
     knit_register _t_rec_fn "reccmd" "Rec."
@@ -435,7 +435,7 @@ __test_register_cmd() {
         = "22222222-2222-7222-8222-222222222222" ]
 }
 
-# ---------- _knit_db_update_row (M10: update by id) ----------
+# ---------- _knit_db_update_row ----------
 
 @test "_knit_db_update_row updates a column by id" {
     _knit_db_create_table "upd" "id:uuid" "state:string"
@@ -455,4 +455,46 @@ __test_register_cmd() {
     _knit_db_update_row "upd2" "abc" "job-name=new"
     [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT job_name FROM upd2 WHERE id='abc';")" \
         = "new" ]
+}
+
+# ---------- concurrency ----------
+
+@test "_knit_sqlite3_write writes and creates a lock file next to the database" {
+    _knit_db_create_table "runs" "id:uuid"
+    _knit_sqlite3_write "INSERT INTO runs (id) VALUES ('x');"
+
+    [ -f "${__KNIT_DATABASE}.lock" ]
+    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")" = "1" ]
+}
+
+@test "concurrent writers all land without a 'database is locked' failure" {
+    _knit_db_create_table "runs" "id:uuid" "n:integer"
+
+    local n=10 i
+    for (( i = 0; i < n; i++ )); do
+        _knit_sqlite3_write \
+            "INSERT INTO runs (id, n) VALUES ('id-${i}', ${i});" &
+    done
+    wait
+
+    # Every insert landed exactly once with its value intact.
+    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")" = "${n}" ]
+    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT COUNT(DISTINCT n) FROM runs;")" = "${n}" ]
+}
+
+@test "concurrent updates to one row serialize to a consistent final value" {
+    _knit_db_create_table "runs" "id:uuid" "state:string"
+    _knit_sqlite3_write "INSERT INTO runs (id, state) VALUES ('j', 'submitted');"
+
+    local n=10 i
+    for (( i = 0; i < n; i++ )); do
+        _knit_db_update_row "runs" "j" "state=s-${i}" &
+    done
+    wait
+
+    # The row is intact (no torn write) and holds one of the written values.
+    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")" = "1" ]
+    local final
+    final=$(sqlite3 "${__KNIT_DATABASE}" "SELECT state FROM runs WHERE id='j';")
+    [[ "${final}" =~ ^s-[0-9]+$ ]]
 }
