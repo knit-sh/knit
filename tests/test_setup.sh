@@ -136,6 +136,24 @@ teardown() {
     ! grep -q '^export KNIT_SETUP_PREFIX=' "${KNIT_SETUP_PREFIX}/.activate.sh"
 }
 
+@test "setup after callback excludes readonly variables from .activate.sh" {
+    export KNIT_SETUP_PREFIX="${__KNIT_TEST_TMPDIR}"
+    # A readonly exported variable cannot be re-exported: sourcing .activate.sh
+    # would fail with "readonly variable", so it must be skipped.
+    declare -xr _KNIT_TEST_RO="frozen"
+    __knit_setup_after_cb
+    ! grep -q '_KNIT_TEST_RO' "${KNIT_SETUP_PREFIX}/.activate.sh"
+}
+
+@test "setup after callback produces a source-able .activate.sh (no readonly errors)" {
+    export KNIT_SETUP_PREFIX="${__KNIT_TEST_TMPDIR}"
+    # KNIT_VERSION is declared readonly by knit; the generated file must be
+    # source-able in a fresh shell that has knit.sh loaded (KNIT_VERSION set).
+    __knit_setup_after_cb
+    run bash -c "source knit.sh >/dev/null 2>&1; source '${KNIT_SETUP_PREFIX}/.activate.sh'"
+    [ "$status" -eq 0 ]
+}
+
 # ---------- __knit_setup ----------
 
 @test "__knit_setup fails if path already exists" {

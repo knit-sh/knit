@@ -116,6 +116,13 @@ __knit_setup_after_cb() {
                 BASH_*|SHLVL|_|OLDPWD|PPID|RANDOM|LINENO|SECONDS|KNIT_SETUP_PREFIX)
                     continue ;;
             esac
+            # Skip readonly variables (e.g. KNIT_VERSION): re-exporting them when
+            # a job sources .activate.sh fails with "readonly variable".
+            local decl flags
+            decl="$(declare -p "${var}" 2>/dev/null)"
+            flags="${decl#declare -}"
+            flags="${flags%% *}"
+            [[ "${flags}" == *r* ]] && continue
             printf 'export %s=%s\n' "${var}" "$(printf '%q' "${!var}")"
         done < <(compgen -e)
     } > "${activate}"

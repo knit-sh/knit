@@ -61,6 +61,14 @@ __knit_submit() {
     local setup_path
     setup_path=$(knit_get_parameter "setup" "$@")
 
+    # Resolve the setup path to an absolute path. The generated batch script
+    # cd's into the job directory before re-entering the experiment, so every
+    # path baked into it (KNIT_SETUP_PREFIX, KNIT_JOB_PREFIX, the cd target, and
+    # the backend's .stdout/.stderr paths, all derived from this) must be
+    # absolute to survive that cd.
+    setup_path="$(realpath -m "${setup_path}" 2>/dev/null \
+        || printf '%s' "${setup_path}")"
+
     # Extract extra args (after --): the job name and its arguments.
     local args=("$@")
     local extra_index

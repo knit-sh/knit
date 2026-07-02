@@ -109,6 +109,30 @@ teardown() {
     knit_type_check "uuid" "${name}"
 }
 
+@test "__knit_submit absolutizes a relative setup path in the batch script" {
+    # The generated batch script cd's into the job dir before re-entering the
+    # experiment, so KNIT_SETUP_PREFIX / KNIT_JOB_PREFIX / the cd target must be
+    # absolute even when --setup is given as a relative path.
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_done
+    _knit_db_setup_table "submit" "submissions"
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    knit_pushd "${__KNIT_TEST_TMPDIR}"
+    mkdir -p relsetup
+    __knit_submit --setup ./relsetup -- myjob
+    knit_popd
+
+    local jobscript
+    jobscript=$(find "${__KNIT_TEST_TMPDIR}/relsetup/jobs" \
+        -name .job.sh -type f | head -1)
+    [[ -n "${jobscript}" ]]
+    grep -q "^export KNIT_SETUP_PREFIX=/" "${jobscript}"
+    grep -q "^export KNIT_JOB_PREFIX=/" "${jobscript}"
+    grep -q "^cd /" "${jobscript}"
+}
+
 # ---------- _knit_sched_resolve : precedence ----------
 
 @test "resolve uses the explicit argument over everything" {
