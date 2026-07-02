@@ -235,3 +235,22 @@ teardown() {
     __knit_setup --path "${newdir}" -- mysetup
     [ -f "${newdir}/.activate.sh" ]
 }
+
+@test "__knit_setup records the setup type in .setup.type" {
+    local newdir="${__KNIT_TEST_TMPDIR}/newdir"
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_done
+    __knit_setup --path "${newdir}" -- mysetup
+    [ -f "${newdir}/.setup.type" ]
+    [ "$(cat "${newdir}/.setup.type")" = "mysetup" ]
+}
+
+@test "__knit_setup does not write .setup.type when the setup fails" {
+    local newdir="${__KNIT_TEST_TMPDIR}/newdir"
+    _test_setup_fn() { return 1; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_done
+    run __knit_setup --path "${newdir}" -- mysetup
+    [ ! -f "${newdir}/.setup.type" ]
+}

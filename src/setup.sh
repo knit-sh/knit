@@ -20,8 +20,9 @@ knit_with_subcommand_title "Setups"
 # Entry point for the `setup` CLI command. Creates a directory at the given
 # path, exports `KNIT_SETUP_PREFIX` to that directory, invokes the named setup
 # subcommand inside it, and saves the resulting environment to
-# `$KNIT_SETUP_PREFIX/.activate.sh`. Removes the directory and fatals on
-# failure.
+# `$KNIT_SETUP_PREFIX/.activate.sh`. On success the setup name is also recorded
+# in `$KNIT_SETUP_PREFIX/.setup.type` so `knit submit` can validate a job's
+# knit_with_setup requirement. Removes the directory and fatals on failure.
 #
 # Usage:
 # ```
@@ -78,6 +79,10 @@ __knit_setup() {
         rm -rf "${path}"
         knit_fatal "Setup \"${setup_name}\" failed; removed \"${path}\"."
     fi
+
+    # Record the setup type that built this directory so that `knit submit` can
+    # check a job's knit_with_setup requirement against it.
+    printf '%s\n' "${setup_name}" > "${path}/.setup.type"
 }
 knit_done
 

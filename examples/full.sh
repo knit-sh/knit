@@ -166,6 +166,13 @@
 # job's UUID. On the compute node the job re-hydrates the setup environment
 # (sourcing .activate.sh, so MC_SEED/MC_SAMPLES are visible) and runs.
 #
+# `montecarlo` declares `knit_with_setup mcenv`, so it *requires* a setup built
+# by `mcenv`: `--setup` is mandatory and must point at an mcenv setup directory.
+# Point it at a directory built by another setup (or one that knit did not build)
+# and submit refuses up front with a clear type-mismatch error. A job that
+# declares no `knit_with_setup` needs no environment: `--setup` is optional for
+# it and, when omitted, its job directory is created under ./jobs/<uuid> instead.
+#
 #   --wait blocks until the job finishes. Without it, submit returns immediately
 #   and you poll the state yourself. Other options (see `submit --help`):
 #   --nodes, --walltime, --queue, --account, --gpus-per-node, --job-name.
@@ -313,6 +320,7 @@ knit_done
 # --samples overrides the count. Records the estimate in its own DB table.
 # -----------------------------------------------------------------------------
 knit_register_job "montecarlo" _montecarlo_job "Estimate pi as a submitted job."
+knit_with_setup    "mcenv"                # requires a setup built by `mcenv`
 knit_with_optional "samples:integer" ""  "Sample count (default: MC_SAMPLES from the setup)."
 knit_with_output   "pi:real" "0"         "The estimated value of pi."
 _montecarlo_job() {

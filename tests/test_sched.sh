@@ -133,6 +133,85 @@ teardown() {
     grep -q "^cd /" "${jobscript}"
 }
 
+# ---------- __knit_submit : setup requirement (knit_with_setup) ----------
+
+@test "__knit_submit accepts a setup of the required type" {
+    local setup_dir="${__KNIT_TEST_TMPDIR}/setup"
+    mkdir -p "${setup_dir}"
+    printf 'mcenv\n' > "${setup_dir}/.setup.type"
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_with_setup "mcenv"
+    knit_done
+    _knit_db_setup_table "submit" "submissions"
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    run __knit_submit --setup "${setup_dir}" -- myjob
+    [ "$status" -eq 0 ]
+    [ -d "${setup_dir}/jobs" ]
+}
+
+@test "__knit_submit rejects a setup built by a different type" {
+    local setup_dir="${__KNIT_TEST_TMPDIR}/setup"
+    mkdir -p "${setup_dir}"
+    printf 'otherenv\n' > "${setup_dir}/.setup.type"
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_with_setup "mcenv"
+    knit_done
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    run __knit_submit --setup "${setup_dir}" -- myjob
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"mcenv"* ]]
+    [[ "$output" == *"otherenv"* ]]
+}
+
+@test "__knit_submit rejects a setup with no recorded type" {
+    local setup_dir="${__KNIT_TEST_TMPDIR}/setup"
+    mkdir -p "${setup_dir}"
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_with_setup "mcenv"
+    knit_done
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    run __knit_submit --setup "${setup_dir}" -- myjob
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"no recorded type"* ]]
+}
+
+@test "__knit_submit requires --setup when the job declares a setup type" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_with_setup "mcenv"
+    knit_done
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    run __knit_submit -- myjob
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"requires a --setup"* ]]
+}
+
+@test "__knit_submit runs a setup-less job under jobs/<uuid> without --setup" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_done
+    _knit_db_setup_table "submit" "submissions"
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    knit_pushd "${__KNIT_TEST_TMPDIR}"
+    __knit_submit -- myjob
+    knit_popd
+
+    [ -d "${__KNIT_TEST_TMPDIR}/jobs" ]
+    local jobscript
+    jobscript=$(find "${__KNIT_TEST_TMPDIR}/jobs" -name .job.sh -type f | head -1)
+    [[ -n "${jobscript}" ]]
+    # A setup-less job must not export KNIT_SETUP_PREFIX in its batch script.
+    ! grep -q "KNIT_SETUP_PREFIX" "${jobscript}"
+}
+
 # ---------- _knit_sched_resolve : precedence ----------
 
 @test "resolve uses the explicit argument over everything" {

@@ -268,7 +268,9 @@ _knit_sched_submit() {
 # @param script_path Path of the batch script to create.
 # @param backend     Scheduler backend name.
 # @param arr_name    Name of the resolved-options associative array.
-# @param setup_path  Setup directory (exported as KNIT_SETUP_PREFIX).
+# @param setup_path  Setup directory (exported as KNIT_SETUP_PREFIX; empty for
+#                    a setup-less job, in which case KNIT_SETUP_PREFIX is not
+#                    exported).
 # @param jobdir      Job directory (exported as KNIT_JOB_PREFIX; the cd target).
 # @param job_name    Registered job name to run.
 # @param ...         Arguments to pass to the job.
@@ -287,7 +289,10 @@ _knit_sched_write_jobscript() {
         printf '#!/bin/bash\n'
         _knit_sched_directives "${backend}" "${arr_name}" "${jobdir}"
         printf 'export KNIT_JOB_PREFIX=%q\n' "${jobdir}"
-        printf 'export KNIT_SETUP_PREFIX=%q\n' "${setup_path}"
+        # Setup-less jobs (no knit_with_setup) carry no setup directory.
+        if [[ -n "${setup_path}" ]]; then
+            printf 'export KNIT_SETUP_PREFIX=%q\n' "${setup_path}"
+        fi
         # Pass the experiment's .knit down: the cd below moves the compute-side
         # cwd away from the experiment root, so it can no longer be derived.
         printf 'export _KNIT_PREFIX=%q\n' "${_KNIT_PREFIX}"

@@ -59,6 +59,44 @@ teardown() {
     [ "$result" -eq 1 ]
 }
 
+# ---------- knit_with_setup ----------
+
+@test "knit_with_setup records the required setup type for the job" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_with_setup "mcenv"
+    knit_done
+    [ "${_KNIT_JOB_SETUP[myjob]}" = "mcenv" ]
+}
+
+@test "a job without knit_with_setup has no _KNIT_JOB_SETUP entry" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_done
+    [[ ! -v _KNIT_JOB_SETUP["myjob"] ]]
+}
+
+@test "knit_with_setup rejects an invalid setup type name" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    run knit_with_setup "not a name"
+    [ "$status" -ne 0 ]
+    knit_done
+}
+
+@test "knit_with_setup fails when not registering a job" {
+    run knit_with_setup "mcenv"
+    [ "$status" -ne 0 ]
+}
+
+@test "knit_with_setup fails inside a non-job command registration" {
+    _test_fn() { :; }
+    knit_register "_test_fn" "notajob" "A plain command."
+    run knit_with_setup "mcenv"
+    [ "$status" -ne 0 ]
+    knit_done
+}
+
 @test "knit_register_job installs before callback" {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
@@ -127,6 +165,15 @@ _state_of() {
     [ "${_KNIT_JOB_CANARY}" = "activated" ]
     [ "$(_state_of "job")" = "running" ]
     unset _KNIT_JOB_CANARY
+}
+
+@test "job before callback marks running without sourcing when there is no setup" {
+    export KNIT_JOB_PREFIX="${__KNIT_TEST_TMPDIR}/job"
+    unset KNIT_SETUP_PREFIX
+    _seed_submissions "job" "submitted"
+    run __knit_job_before_cb
+    [ "$status" -eq 0 ]
+    [ "$(_state_of "job")" = "running" ]
 }
 
 @test "job before callback installs the kill trap on TERM and USR1" {
