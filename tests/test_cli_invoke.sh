@@ -283,9 +283,54 @@ teardown() {
     knit_done
     local result
     result=$(_knit_invoke_command "ic_cmd3" "--help")
-    [[ "$result" == *"ic_cmd3"* ]]
+    [[ "$result" == *"ic_cmd3 [OPTIONS]"* ]]
     [[ "$result" == *"--name"* ]]
     [[ "$result" == *"--help"* ]]
+}
+
+@test "help for an ordinary nested command has no -- in its usage line" {
+    knit_register knit_empty "ic_parent" "Parent."
+    knit_done
+    knit_register knit_empty "ic_parent:leaf" "Leaf."
+    knit_with_required "name:string" "A name."
+    knit_done
+    local result usage_line
+    result=$(_knit_invoke_command "ic_parent" "leaf" "--help")
+    [[ "$result" == *"ic_parent leaf [OPTIONS]"* ]]
+    # The usage line uses ordinary "parent child" nesting, not "-- child".
+    usage_line=$(printf '%s\n' "$result" | head -1)
+    [[ "$usage_line" != *"--"* ]]
+}
+
+@test "help for a dispatcher shows the -- placeholder in its usage line" {
+    knit_register knit_empty "ic_disp" "A dispatcher."
+    knit_with_optional "root-opt:string" "" "A dispatcher option."
+    knit_with_dispatch "target" "A target to dispatch to."
+    knit_done
+    local result
+    result=$(_knit_invoke_command "ic_disp" "--help")
+    [[ "$result" == *"ic_disp [OPTIONS] -- <target> [OPTIONS]"* ]]
+    [[ "$result" == *"--root-opt"* ]]
+}
+
+@test "help for a dispatched subcommand shows parent grammar and options" {
+    knit_register knit_empty "ic_disp2" "A dispatcher."
+    knit_with_optional "root-opt:string" "" "A dispatcher option."
+    knit_with_dispatch "target" "A target to dispatch to."
+    knit_done
+    knit_register knit_empty "ic_disp2:leaf" "A dispatched leaf."
+    knit_with_optional "leaf-opt:string" "" "A leaf option."
+    knit_done
+    local result
+    result=$(_knit_invoke_command "ic_disp2" "leaf" "--help")
+    # Usage reflects the "parent [OPTIONS] -- leaf [OPTIONS]" grammar.
+    [[ "$result" == *"ic_disp2 [OPTIONS] -- leaf [OPTIONS]"* ]]
+    # The leaf's own option and the borrowed parent option both appear.
+    [[ "$result" == *"--leaf-opt"* ]]
+    [[ "$result" == *"ic_disp2 options"* ]]
+    [[ "$result" == *"--root-opt"* ]]
+    # Exactly one --help line (the leaf's; the parent block omits it).
+    [ "$(printf '%s\n' "$result" | grep -c -- '--help')" -eq 1 ]
 }
 
 @test "_knit_invoke_command runs before and after callbacks in order" {

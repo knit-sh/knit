@@ -12,7 +12,7 @@ declare -A _KNIT_SETUPS
 
 knit_register __knit_setup "setup" "Setup an environment"
 knit_with_required "path:path" "Path to the setup"
-knit_with_extra "User-provided setup command to execute"
+knit_with_dispatch "setup" "User-provided setup command to execute"
 knit_with_subcommand_title "Setups"
 # ------------------------------------------------------------------------------
 # @fn __knit_setup()

@@ -181,6 +181,36 @@ teardown() {
     [ "$status" -eq 1 ]
 }
 
+# ---------- knit_with_dispatch ----------
+
+@test "knit_register initializes an empty dispatch marker" {
+    knit_register knit_empty "disp_init" "Test."
+    knit_done
+    [ -v _KNIT_CMD_disp_init_dispatch ]
+    [ -z "${_KNIT_CMD_disp_init_dispatch}" ]
+}
+
+@test "knit_with_dispatch stores the placeholder and description" {
+    knit_register knit_empty "disp_cmd" "Test."
+    knit_with_dispatch "job" "The job to submit."
+    knit_done
+    [ "${_KNIT_CMD_disp_cmd_dispatch}" = "job" ]
+    [ "${_KNIT_CMD_disp_cmd_extra}" = "The job to submit." ]
+}
+
+@test "knit_with_dispatch defaults the extra description to the placeholder" {
+    knit_register knit_empty "disp_cmd2" "Test."
+    knit_with_dispatch "program"
+    knit_done
+    [ "${_KNIT_CMD_disp_cmd2_dispatch}" = "program" ]
+    [ "${_KNIT_CMD_disp_cmd2_extra}" = "program" ]
+}
+
+@test "knit_with_dispatch fails outside of knit_register" {
+    run knit_with_dispatch "job"
+    [ "$status" -eq 1 ]
+}
+
 # ---------- __knit_param_check_declaration (edge cases) ----------
 
 @test "knit_with_required fails outside of knit_register" {

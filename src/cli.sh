@@ -429,9 +429,11 @@ knit_register() {
     printf -v "_KNIT_CMD_${cmd}_function"        '%s' "${name}"
     printf -v "_KNIT_CMD_${cmd}_description"     '%s' "$3"
     printf -v "_KNIT_CMD_${cmd}_extra"           '%s' ''
+    printf -v "_KNIT_CMD_${cmd}_dispatch"        '%s' ''
     printf -v "_KNIT_CMD_${cmd}_is_hidden"       '%s' 'false'
     declare -ga "_KNIT_CMD_${cmd}_before_cb"
     declare -ga "_KNIT_CMD_${cmd}_after_cb"
+    declare -ga "_KNIT_CMD_${cmd}_notes"
     printf -v "_KNIT_CMD_${cmd}_sucommand_title" '%s' 'Subcommands'
     _KNIT_DONE_CBS=()
     _KNIT_CURRENT_FUNCTION="${name}"
@@ -850,6 +852,33 @@ knit_with_extra() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_with_dispatch()
+#
+# Mark the command currently being registered as a dispatcher: a command that
+# takes a target after "--" and forwards the remaining arguments to it (e.g.
+# "submit" dispatches to a job, "setup" to a setup. This changes how "--help"
+# renders the usage line, both for the dispatcher itself
+# (`cmd [OPTIONS] -- <placeholder> [OPTIONS]`) and for its subcommands, which
+# are invoked through it rather than directly.
+#
+# The description is stored as the extra-arguments description (as with
+# knit_with_extra), so the "Extra" help section and the "extra allowed after
+# --" argument check keep working. If no description is given, the placeholder
+# is used.
+#
+# @param placeholder  Name shown after "--" in the usage line (e.g. "job").
+# @param description  Optional description of the extra arguments.
+# ------------------------------------------------------------------------------
+knit_with_dispatch() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_dispatch should be used after a call to \"knit_register\"."
+    fi
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    printf -v "_KNIT_CMD_${cmd}_dispatch" '%s' "$1"
+    printf -v "_KNIT_CMD_${cmd}_extra"    '%s' "${2:-$1}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_with_table()
 #
 # Declare a database table for recording invocations of the command currently
@@ -1227,32 +1256,32 @@ __knit_expand_command_arguments() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn __knit_print_command_usage()
+# @fn __knit_print_options_block()
 #
-# Print the help message for a command/subcommand.
+# Print the "Options"-style listing for a single command: a titled section with
+# an hrule, then (optionally) the "--help" entry, then the command's required
+# parameters, optional parameters, and flags, each column-aligned. Extracted so
+# it can be printed both for a command's own options and, for a subcommand
+# invoked through a dispatcher, for the dispatcher's options as well.
 #
-# @param ...cmds Command and subcommand names
+# @param cmd       Mangled command name whose options to print.
+# @param title     Section title (e.g. "Options" or "submit options").
+# @param with_help "true" to include the "--help" entry, "false" otherwise.
 # ------------------------------------------------------------------------------
-__knit_print_command_usage() {
-    local demanled_cmd="$*"
-    local cmd
-    cmd=$(__knit_command_mangle "${demangled_cmd}")
-    local extra_var="_KNIT_CMD_${cmd}_extra"
-    if [[ "${demanled_cmd}" == "__main__" ]]; then
-        printf "Usage: %s [OPTIONS]\n\n" "$0"
-    elif [ -z "${!extra_var}" ]; then
-        printf "Usage: %s %s [OPTIONS]\n\n" "$0" "${demangled_cmd}"
-    else
-        printf "Usage: %s %s [OPTIONS] -- [EXTRA]\n\n" "$0" "${demangled_cmd}"
-    fi
+__knit_print_options_block() {
+    local cmd="$1"
+    local title="$2"
+    local with_help="$3"
 
-    local description_var="_KNIT_CMD_${cmd}_description"
-    printf "  %s\n\n" "${!description_var}"
-
-    printf "Options\n-------\n"
     local required_args_varname="_KNIT_CMD_${cmd}_required"
     local optional_args_varname="_KNIT_CMD_${cmd}_optional"
     local flags_args_varname="_KNIT_CMD_${cmd}_flags"
+
+    local hrule
+    printf -v hrule "%*s" "${#title}" ""
+    hrule="${hrule// /-}"
+    printf "%s\n%s\n" "${title}" "${hrule}"
+
     local max_opt_length=4 # size of "help"
     local opt
     local opt2
@@ -1281,7 +1310,9 @@ __knit_print_command_usage() {
     local description
     local default
 
-    printf "  %-${max_opt_length}s  %s\n" "--help" "Print this help message and exit."
+    if [[ "${with_help}" == "true" ]]; then
+        printf "  %-${max_opt_length}s  %s\n" "--help" "Print this help message and exit."
+    fi
     while read -r opt; do
         description=$(__knit_param_description "${cmd}" "${opt}")
         opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
@@ -1314,6 +1345,78 @@ __knit_print_command_usage() {
         fi
         printf "  %-${max_opt_length}s  %s\n" "${opt2}" "        [${annotation}] ${description}"
     done < <(_knit_set_iter "${flags_args_varname}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_print_command_usage()
+#
+# Print the help message for a command/subcommand.
+#
+# @param ...cmds Command and subcommand names
+# ------------------------------------------------------------------------------
+__knit_print_command_usage() {
+    local cmd
+    cmd=$(__knit_command_mangle "$*")
+    local display
+    display=$(__knit_command_with_space "${cmd}")
+    local extra_var="_KNIT_CMD_${cmd}_extra"
+    local dispatch_var="_KNIT_CMD_${cmd}_dispatch"
+
+    # A subcommand invoked through a dispatcher (e.g. a job under "submit") is
+    # not run as "<parent> <name>" but as "<parent> [OPTIONS] -- <name>
+    # [OPTIONS]". Detect that case from the parent's dispatch marker so the
+    # usage line reflects the real grammar.
+    local parent
+    parent=$(__knit_command_get_parents "${cmd}")
+    local parent_is_dispatcher="false"
+    if [[ -n "${parent}" ]]; then
+        local parent_dispatch_var="_KNIT_CMD_${parent}_dispatch"
+        if [[ -v "${parent_dispatch_var}" && -n "${!parent_dispatch_var}" ]]; then
+            parent_is_dispatcher="true"
+        fi
+    fi
+
+    if [[ "${cmd}" == "__main__" ]]; then
+        printf "Usage: %s [OPTIONS]\n\n" "$0"
+    elif [[ -n "${!dispatch_var}" ]]; then
+        printf "Usage: %s %s [OPTIONS] -- <%s> [OPTIONS]\n\n" \
+            "$0" "${display}" "${!dispatch_var}"
+    elif [[ "${parent_is_dispatcher}" == "true" ]]; then
+        local parent_display leaf
+        parent_display=$(__knit_command_with_space "${parent}")
+        leaf=$(__knit_command_get_last "${cmd}")
+        printf "Usage: %s %s [OPTIONS] -- %s [OPTIONS]\n\n" \
+            "$0" "${parent_display}" "${leaf}"
+    elif [ -z "${!extra_var}" ]; then
+        printf "Usage: %s %s [OPTIONS]\n\n" "$0" "${display}"
+    else
+        printf "Usage: %s %s [OPTIONS] -- [EXTRA]\n\n" "$0" "${display}"
+    fi
+
+    local description_var="_KNIT_CMD_${cmd}_description"
+    printf "  %s\n\n" "${!description_var}"
+
+    __knit_print_options_block "${cmd}" "Options" "true"
+
+    # For a subcommand invoked through a dispatcher, also list the dispatcher's
+    # own options (e.g. "submit"'s --setup, "setup"'s --path), which are passed
+    # before the "--".
+    if [[ "${parent_is_dispatcher}" == "true" ]]; then
+        local parent_display
+        parent_display=$(__knit_command_with_space "${parent}")
+        printf "\n"
+        __knit_print_options_block "${parent}" "${parent_display} options" "false"
+    fi
+
+    # Free-form requirement notes (e.g. a job's knit_with_setup requirement).
+    local -n notes_ref="_KNIT_CMD_${cmd}_notes"
+    if [[ "${#notes_ref[@]}" -gt 0 ]]; then
+        printf "\nRequirements\n------------\n"
+        local note
+        for note in "${notes_ref[@]}"; do
+            printf "  %s\n" "${note}"
+        done
+    fi
 
     local subcommands=()
     local subcommands_full=()

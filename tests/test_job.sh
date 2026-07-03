@@ -69,6 +69,33 @@ teardown() {
     [ "${_KNIT_JOB_SETUP[myjob]}" = "mcenv" ]
 }
 
+@test "job --help shows the setup requirement and the parent --setup option" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_with_setup "mcenv"
+    knit_with_optional "samples:integer" "10" "Number of samples."
+    knit_done
+    local result
+    result=$(_knit_invoke_command "submit" "myjob" "--help")
+    [[ "$result" == *"submit [OPTIONS] -- myjob [OPTIONS]"* ]]
+    [[ "$result" == *"--samples"* ]]
+    [[ "$result" == *"submit options"* ]]
+    [[ "$result" == *"--setup"* ]]
+    [[ "$result" == *"Requirements"* ]]
+    [[ "$result" == *'Requires a --setup built by the "mcenv" setup.'* ]]
+}
+
+@test "job --help omits Requirements when the job needs no setup" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_with_optional "samples:integer" "10" "Number of samples."
+    knit_done
+    local result
+    result=$(_knit_invoke_command "submit" "myjob" "--help")
+    [[ "$result" == *"submit [OPTIONS] -- myjob [OPTIONS]"* ]]
+    [[ "$result" != *"Requirements"* ]]
+}
+
 @test "a job without knit_with_setup has no _KNIT_JOB_SETUP entry" {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."

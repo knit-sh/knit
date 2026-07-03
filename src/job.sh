@@ -49,7 +49,7 @@ knit_with_optional "gpus-per-node:integer" "0" "GPUs per node."
 # Behaviour. Job stdout/stderr are always written to <job-dir>/.stdout and
 # <job-dir>/.stderr, so there are no output/error options.
 knit_with_flag "wait" "Block until the job completes; return its exit code."
-knit_with_extra "User-provided job command to execute"
+knit_with_dispatch "job" "User-provided job command to execute"
 knit_with_subcommand_title "Jobs"
 # Record every submission as a row in the "submissions" table. The row id is the
 # job UUID (set in __knit_submit); these outputs track the job and its state.
@@ -304,6 +304,10 @@ knit_with_setup() {
     job_name=$(__knit_command_get_last "${_KNIT_CURRENT_COMMAND_DEMANGLED}")
     knit_trace "Job \"${job_name}\" requires a \"${setup_type}\" setup."
     _KNIT_JOB_SETUP["${job_name}"]="${setup_type}"
+    # Advertise the requirement in the job's `--help` output (see the
+    # "Requirements" section rendered by __knit_print_command_usage).
+    local -n _notes_ref="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_notes"
+    _notes_ref+=("Requires a --setup built by the \"${setup_type}\" setup.")
 }
 
 # ------------------------------------------------------------------------------

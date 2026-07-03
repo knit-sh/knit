@@ -46,6 +46,18 @@
 # The per-command help lists each parameter, its type, whether it is
 # required/optional (with the default), and its description.
 #
+# Jobs and setups are invoked through `submit`/`setup` after a `--`, and you can
+# ask for their help by name, e.g.
+#
+#   ./full.sh submit montecarlo --help
+#   ./full.sh setup mcenv --help
+#
+# The usage line reflects the real grammar
+# (`submit [OPTIONS] -- montecarlo [OPTIONS]`), and the help shows the job/setup's
+# own options, the enclosing `submit`/`setup` options (such as `--setup` /
+# `--path`), and — for a job declared with `knit_with_setup` — the setup type it
+# requires.
+#
 # -----------------------------------------------------------------------------
 # 2. Bootstrap the experiment
 # -----------------------------------------------------------------------------

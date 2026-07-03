@@ -38,6 +38,19 @@ teardown() {
     _knit_set_find _KNIT_COMMANDS "setup__1__mysetup"
 }
 
+@test "setup --help shows the parent grammar and the required --path option" {
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_with_optional "seed:integer" "1" "Random seed."
+    knit_done
+    local result
+    result=$(_knit_invoke_command "setup" "mysetup" "--help")
+    [[ "$result" == *"setup [OPTIONS] -- mysetup [OPTIONS]"* ]]
+    [[ "$result" == *"--seed"* ]]
+    [[ "$result" == *"setup options"* ]]
+    [[ "$result" == *"--path"* ]]
+}
+
 @test "knit_register_setup creates DB table named setup:<name>" {
     _test_setup_fn() { :; }
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
