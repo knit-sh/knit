@@ -258,6 +258,28 @@ __knit_param_default() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_resolve_default()
+#
+# Resolve a declared default value into the value actually used when an optional
+# parameter is not provided. A default written as "ENV[NAME]" means "fall back to
+# the value of the NAME environment variable"; it resolves to that variable's
+# current value (the empty string when the variable is unset). Any other string,
+# including one that merely looks like ENV[...] but does not name a valid shell
+# variable, is returned unchanged, so ordinary defaults keep their literal value.
+#
+# @param raw Raw default value as declared with knit_with_optional.
+# ------------------------------------------------------------------------------
+__knit_resolve_default() {
+    local raw="$1"
+    if [[ "${raw}" =~ ^ENV\[([A-Za-z_][A-Za-z0-9_]*)\]$ ]]; then
+        local name="${BASH_REMATCH[1]}"
+        printf "%s" "${!name-}"
+    else
+        printf "%s" "${raw}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn __knit_param_type()
 #
 # This function prints the type of a parameter for a given command.
@@ -609,8 +631,14 @@ knit_with_required() {
 # Indicates that the command "greet" has an optional parameter --name (string,
 # default "world") and --count (integer, default "1").
 #
+# The default may be written as "ENV[NAME]" to mean "fall back to the value of
+# the NAME environment variable when the parameter is not provided". This is
+# resolved when the parameter is filled in, so a job whose environment is set up
+# by a `knit setup` (e.g. `knit_with_optional "seed:integer" "ENV[MC_SEED]" ...`)
+# picks up the value exported by that setup.
+#
 # @param param Parameter name followed by ":type".
-# @param default Default value.
+# @param default Default value (or "ENV[NAME]" to read the NAME env variable).
 # @param description Description of the parameter.
 # @param --when Optional boolean constraint expression (jq syntax referring to
 #        the command's other parameters); the parameter only applies when the
@@ -1230,6 +1258,9 @@ __knit_expand_command_arguments() {
         fi
         local default_value
         default_value=$(__knit_param_default "${cmd}" "${option}")
+        # Resolve an "ENV[NAME]" default against the current environment (see
+        # __knit_resolve_default); ordinary defaults are returned unchanged.
+        default_value=$(__knit_resolve_default "${default_value}")
         args+=("--${option}" "${default_value}")
     done < <(_knit_set_iter "${optional_args_varname}")
     # Handle flags (add them as option with value "true" or "false")

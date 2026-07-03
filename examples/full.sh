@@ -178,6 +178,11 @@
 # job's UUID. On the compute node the job re-hydrates the setup environment
 # (sourcing .activate.sh, so MC_SEED/MC_SAMPLES are visible) and runs.
 #
+# `montecarlo` leaves --samples/--seed off above, so they take their ENV[...]
+# defaults: knit reads MC_SAMPLES/MC_SEED from the sourced setup environment.
+# Pass them explicitly (e.g. `... -- montecarlo --samples 50000 --seed 7`) to
+# override the setup's values.
+#
 # `montecarlo` declares `knit_with_setup mcenv`, so it *requires* a setup built
 # by `mcenv`: `--setup` is mandatory and must point at an mcenv setup directory.
 # Point it at a directory built by another setup (or one that knit did not build)
@@ -205,7 +210,7 @@
 # The job's own output (pi) is recorded in its own table:
 #
 #   ./full.sh db query --from '"submit:montecarlo"' \
-#       --select "id, samples, pi" --header --column
+#       --select "id, samples, seed, pi" --header --column
 #
 # -----------------------------------------------------------------------------
 # 9. Clean up
@@ -328,24 +333,29 @@ knit_done
 # -----------------------------------------------------------------------------
 # montecarlo — a job: run the estimate on a compute node.
 #
-# Uses MC_SEED / MC_SAMPLES from the activated setup environment, unless
-# --samples overrides the count. Records the estimate in its own DB table.
+# Its --samples and --seed default to "ENV[MC_SAMPLES]" / "ENV[MC_SEED]": when
+# not given on the command line, knit fills them from the MC_SAMPLES / MC_SEED
+# variables exported by the activated `mcenv` setup. Passing --samples / --seed
+# explicitly overrides that. Records the estimate in its own DB table.
 # -----------------------------------------------------------------------------
 knit_register_job "montecarlo" _montecarlo_job "Estimate pi as a submitted job."
-knit_with_setup    "mcenv"                # requires a setup built by `mcenv`
-knit_with_optional "samples:integer" ""  "Sample count (default: MC_SAMPLES from the setup)."
-knit_with_output   "pi:real" "0"         "The estimated value of pi."
+knit_with_setup    "mcenv"                             # requires an `mcenv` setup
+knit_with_optional "samples:integer" "ENV[MC_SAMPLES]" "Sample count (default: MC_SAMPLES from the setup)."
+knit_with_optional "seed:integer"    "ENV[MC_SEED]"    "PRNG seed (default: MC_SEED from the setup)."
+knit_with_output   "pi:real" "0"                       "The estimated value of pi."
 _montecarlo_job() {
-    local samples
+    # --samples and --seed are already resolved: either the values passed on the
+    # command line, or (via their ENV[...] defaults) the ones exported by the
+    # setup. No manual environment fallback is needed here.
+    local samples seed
     samples=$(knit_get_parameter "samples" "$@")
-    # Fall back to the value baked into the setup environment.
-    [[ -z "${samples}" ]] && samples="${MC_SAMPLES}"
+    seed=$(knit_get_parameter "seed" "$@")
 
     local pi
-    pi=$(_pi_monte_carlo "${samples}" "${MC_SEED}" "decimal")
+    pi=$(_pi_monte_carlo "${samples}" "${seed}" "decimal")
 
     knit_output "pi" "${pi}"
-    printf 'pi ~= %s  (%s samples, seed %s)\n' "${pi}" "${samples}" "${MC_SEED}"
+    printf 'pi ~= %s  (%s samples, seed %s)\n' "${pi}" "${samples}" "${seed}"
     printf 'computed on host: %s\n' "$(hostname)"
 }
 knit_done

@@ -218,3 +218,41 @@ teardown() {
     [ "$result" = "integer" ]
 }
 
+# ---------- __knit_resolve_default ----------
+
+@test "__knit_resolve_default returns a plain default unchanged" {
+    local result
+    result=$(__knit_resolve_default "hello")
+    [ "$result" = "hello" ]
+}
+
+@test "__knit_resolve_default resolves ENV[NAME] to the environment variable" {
+    export _KNIT_TEST_ENV_DEFAULT="from-env"
+    local result
+    result=$(__knit_resolve_default "ENV[_KNIT_TEST_ENV_DEFAULT]")
+    [ "$result" = "from-env" ]
+    unset _KNIT_TEST_ENV_DEFAULT
+}
+
+@test "__knit_resolve_default yields empty string when the variable is unset" {
+    unset _KNIT_TEST_ENV_MISSING
+    local result
+    result=$(__knit_resolve_default "ENV[_KNIT_TEST_ENV_MISSING]")
+    [ -z "$result" ]
+}
+
+@test "__knit_resolve_default leaves a malformed ENV[...] token literal" {
+    local result
+    # A space is not valid in a shell variable name, so this is not a reference.
+    result=$(__knit_resolve_default "ENV[not a name]")
+    [ "$result" = "ENV[not a name]" ]
+}
+
+@test "__knit_resolve_default does not treat a substring ENV[...] as a reference" {
+    export _KNIT_TEST_ENV_DEFAULT="from-env"
+    local result
+    result=$(__knit_resolve_default "prefix-ENV[_KNIT_TEST_ENV_DEFAULT]")
+    [ "$result" = "prefix-ENV[_KNIT_TEST_ENV_DEFAULT]" ]
+    unset _KNIT_TEST_ENV_DEFAULT
+}
+

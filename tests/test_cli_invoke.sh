@@ -204,6 +204,44 @@ teardown() {
     [ "$val" = "false" ]
 }
 
+@test "__knit_expand_command_arguments resolves an ENV[...] default from the environment" {
+    knit_register knit_empty "expa_cmd6" "Test."
+    knit_with_optional "seed:integer" "ENV[_KNIT_TEST_SEED]" "A seed."
+    knit_done
+    export _KNIT_TEST_SEED="7"
+    local -a args
+    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd6")
+    local val
+    val=$(knit_get_parameter "seed" "${args[@]}")
+    [ "$val" = "7" ]
+    unset _KNIT_TEST_SEED
+}
+
+@test "__knit_expand_command_arguments lets an explicit value override an ENV[...] default" {
+    knit_register knit_empty "expa_cmd7" "Test."
+    knit_with_optional "seed:integer" "ENV[_KNIT_TEST_SEED]" "A seed."
+    knit_done
+    export _KNIT_TEST_SEED="7"
+    local -a args
+    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd7" "--seed" "99")
+    local val
+    val=$(knit_get_parameter "seed" "${args[@]}")
+    [ "$val" = "99" ]
+    unset _KNIT_TEST_SEED
+}
+
+@test "__knit_expand_command_arguments resolves an unset ENV[...] default to empty" {
+    knit_register knit_empty "expa_cmd8" "Test."
+    knit_with_optional "seed:string" "ENV[_KNIT_TEST_UNSET_SEED]" "A seed."
+    knit_done
+    unset _KNIT_TEST_UNSET_SEED
+    local -a args
+    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd8")
+    local val
+    val=$(knit_get_parameter "seed" "${args[@]}")
+    [ -z "$val" ]
+}
+
 # ---------- _knit_invoke_command ----------
 
 @test "_knit_invoke_command invokes a registered command with arguments" {

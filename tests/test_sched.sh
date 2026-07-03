@@ -133,6 +133,49 @@ teardown() {
     grep -q "^cd /" "${jobscript}"
 }
 
+@test "__knit_submit sources the setup .activate.sh in the batch script" {
+    # The setup environment must be sourced before the experiment is re-entered
+    # so that ENV[...] parameter defaults (resolved during argument expansion)
+    # can see the variables the setup exported.
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_done
+    _knit_db_setup_table "submit" "submissions"
+
+    local setup_dir="${__KNIT_TEST_TMPDIR}/setup"
+    mkdir -p "${setup_dir}"
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    __knit_submit --setup "${setup_dir}" -- myjob
+
+    local jobscript
+    jobscript=$(find "${setup_dir}/jobs" -name .job.sh -type f | head -1)
+    [[ -n "${jobscript}" ]]
+    # The source line must come before the re-entry (exec) line.
+    grep -q "^source ${setup_dir}/.activate.sh$" "${jobscript}"
+    local src_line exec_line
+    src_line=$(grep -n "^source ${setup_dir}/.activate.sh$" "${jobscript}" | cut -d: -f1)
+    exec_line=$(grep -n "^exec " "${jobscript}" | cut -d: -f1)
+    [ "${src_line}" -lt "${exec_line}" ]
+}
+
+@test "__knit_submit does not add a source line for a setup-less job" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_done
+    _knit_db_setup_table "submit" "submissions"
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    knit_pushd "${__KNIT_TEST_TMPDIR}"
+    __knit_submit -- myjob
+    knit_popd
+
+    local jobscript
+    jobscript=$(find "${__KNIT_TEST_TMPDIR}/jobs" -name .job.sh -type f | head -1)
+    [[ -n "${jobscript}" ]]
+    ! grep -q "^source .*/.activate.sh$" "${jobscript}"
+}
+
 # ---------- __knit_submit : setup requirement (knit_with_setup) ----------
 
 @test "__knit_submit accepts a setup of the required type" {
