@@ -72,3 +72,151 @@ _seed_job() {
     run _knit_job_status --id "abc123"
     [ "$status" -eq 0 ]
 }
+
+# ---------- job list ----------
+
+@test "job list shows all jobs" {
+    _seed_job "id1" "/s/a" "alpha" "running"
+    _seed_job "id2" "/s/b" "beta" "completed"
+    run _knit_job_list
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"id1"* ]]
+    [[ "$output" == *"alpha"* ]]
+    [[ "$output" == *"id2"* ]]
+    [[ "$output" == *"beta"* ]]
+}
+
+@test "job list prints a header row" {
+    _seed_job "id1" "/s/a" "alpha" "running"
+    run _knit_job_list
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"state"* ]]
+}
+
+@test "job list --status filters by lifecycle state" {
+    _seed_job "id1" "/s/a" "alpha" "running"
+    _seed_job "id2" "/s/b" "beta" "completed"
+    run _knit_job_list --status "running"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alpha"* ]]
+    [[ "$output" != *"beta"* ]]
+}
+
+@test "job list --setup filters by setup path" {
+    _seed_job "id1" "/s/a" "alpha" "running"
+    _seed_job "id2" "/s/b" "beta" "running"
+    run _knit_job_list --setup "/s/b"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"beta"* ]]
+    [[ "$output" != *"alpha"* ]]
+}
+
+@test "job list --setup accepts a comma-separated list" {
+    _seed_job "id1" "a" "alpha" "running"
+    _seed_job "id2" "b" "beta" "running"
+    _seed_job "id3" "c" "gamma" "running"
+    run _knit_job_list --setup "a,c"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alpha"* ]]
+    [[ "$output" == *"gamma"* ]]
+    [[ "$output" != *"beta"* ]]
+}
+
+@test "job list without setup filters lists jobs of any setup" {
+    _seed_job "id1" "/s/a" "alpha" "running"
+    _seed_job "id2" "" "beta" "running"
+    run _knit_job_list
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alpha"* ]]
+    [[ "$output" == *"beta"* ]]
+}
+
+@test "job list --no-setup lists only setup-less jobs" {
+    _seed_job "id1" "/s/a" "alpha" "running"
+    _seed_job "id2" "" "beta" "running"
+    run _knit_job_list --no-setup true
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"beta"* ]]
+    [[ "$output" != *"alpha"* ]]
+}
+
+@test "job list --no-setup also matches NULL setups" {
+    sqlite3 "${__KNIT_DATABASE}" \
+        "CREATE TABLE IF NOT EXISTS jobs (id TEXT, setup TEXT, job TEXT, state TEXT);"
+    sqlite3 "${__KNIT_DATABASE}" \
+        "INSERT INTO jobs (id, job, state) VALUES ('idn', 'delta', 'running');"
+    _seed_job "id1" "/s/a" "alpha" "running"
+    run _knit_job_list --no-setup true
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"delta"* ]]
+    [[ "$output" != *"alpha"* ]]
+}
+
+@test "job list --no-setup combined with --setup lists both" {
+    _seed_job "id1" "a" "alpha" "running"
+    _seed_job "id2" "b" "beta" "running"
+    _seed_job "id3" "" "gamma" "running"
+    run _knit_job_list --no-setup true --setup "a"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alpha"* ]]
+    [[ "$output" == *"gamma"* ]]
+    [[ "$output" != *"beta"* ]]
+}
+
+@test "job list combines --status and --setup filters" {
+    _seed_job "id1" "/s/a" "alpha" "running"
+    _seed_job "id2" "/s/a" "beta" "completed"
+    _seed_job "id3" "/s/b" "gamma" "running"
+    run _knit_job_list --status "running" --setup "/s/a"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alpha"* ]]
+    [[ "$output" != *"beta"* ]]
+    [[ "$output" != *"gamma"* ]]
+}
+
+@test "job list --no-setup works as a bare flag through the pipeline" {
+    _seed_job "id1" "/s/a" "alpha" "running"
+    _seed_job "id2" "" "beta" "running"
+    run _knit_invoke_command "job__1__list" --no-setup
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"beta"* ]]
+    [[ "$output" != *"alpha"* ]]
+}
+
+@test "job list --no-setup --setup a,b through the pipeline lists both" {
+    _seed_job "id1" "a" "alpha" "running"
+    _seed_job "id2" "b" "beta" "running"
+    _seed_job "id3" "x" "chi" "running"
+    _seed_job "id4" "" "gamma" "running"
+    run _knit_invoke_command "job__1__list" --no-setup --setup "a,b"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alpha"* ]]
+    [[ "$output" == *"beta"* ]]
+    [[ "$output" == *"gamma"* ]]
+    [[ "$output" != *"chi"* ]]
+}
+
+@test "job list through the pipeline lists any setup when no filters given" {
+    _seed_job "id1" "/s/a" "alpha" "running"
+    _seed_job "id2" "" "beta" "running"
+    run _knit_invoke_command "job__1__list"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alpha"* ]]
+    [[ "$output" == *"beta"* ]]
+}
+
+@test "job list prints nothing for an empty jobs table" {
+    _seed_job "id1" "/s/a" "alpha" "running"
+    sqlite3 "${__KNIT_DATABASE}" "DELETE FROM jobs;"
+    run _knit_job_list
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
+@test "job list fails when not bootstrapped and not bootstrapping" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="false"
+    run _knit_job_list
+    [ "$status" -ne 0 ]
+}

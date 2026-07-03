@@ -1270,7 +1270,10 @@ __knit_expand_command_arguments() {
         if __knit_find_flag "--${flag}" "${args[@]}"; then
             local i
             for i in "${!args[@]}"; do
-                if [[ "${args[$i]}" == "--${flag}" ]]; then
+                # Match by normalized name so a flag registered as "no_setup"
+                # is found whether the user wrote --no-setup or --no_setup.
+                if [[ "${args[$i]}" == --* ]] \
+                    && [[ "$(__knit_arg_name "${args[$i]}")" == "${flag}" ]]; then
                     # Insert "true" after the flag
                     args=("${args[@]:0:i+1}" "true" "${args[@]:i+1}")
                     break

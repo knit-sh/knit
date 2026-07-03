@@ -193,6 +193,20 @@ teardown() {
     [ "$val" = "true" ]
 }
 
+@test "__knit_expand_command_arguments converts a hyphenated flag to true" {
+    # A flag registered with a hyphen is stored underscored ("no_setup"); the
+    # user still writes it with a hyphen. Expansion must insert "true" after the
+    # hyphenated token, not only after the underscored form.
+    knit_register knit_empty "expa_cmd4h" "Test."
+    knit_with_flag "no-setup" "No setup."
+    knit_done
+    local -a args
+    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd4h" "--no-setup")
+    local val
+    val=$(knit_get_parameter "no-setup" "${args[@]}")
+    [ "$val" = "true" ]
+}
+
 @test "__knit_expand_command_arguments converts absent flag to false" {
     knit_register knit_empty "expa_cmd5" "Test."
     knit_with_flag "verbose" "Enable verbose."
