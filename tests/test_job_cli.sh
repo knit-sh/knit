@@ -221,6 +221,67 @@ _seed_job() {
     [ "$status" -ne 0 ]
 }
 
+# ---------- job list --types ----------
+
+@test "job list --types filters by a single job type" {
+    _seed_job "id1" "" "alpha" "running"
+    _seed_job "id2" "" "beta" "running"
+    run _knit_job_list --types "alpha"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alpha"* ]]
+    [[ "$output" != *"beta"* ]]
+}
+
+@test "job list --types accepts a comma-separated list" {
+    _seed_job "id1" "" "alpha" "running"
+    _seed_job "id2" "" "beta" "running"
+    _seed_job "id3" "" "gamma" "running"
+    run _knit_job_list --types "alpha,gamma"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alpha"* ]]
+    [[ "$output" == *"gamma"* ]]
+    [[ "$output" != *"beta"* ]]
+}
+
+@test "job list combines --types with --status" {
+    _seed_job "id1" "" "alpha" "running"
+    _seed_job "id2" "" "alpha" "completed"
+    _seed_job "id3" "" "beta" "running"
+    run _knit_job_list --types "alpha" --status "running"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"id1"* ]]
+    [[ "$output" != *"id2"* ]]
+    [[ "$output" != *"beta"* ]]
+}
+
+@test "job list combines --types with --setup" {
+    _seed_job "id1" "a" "alpha" "running"
+    _seed_job "id2" "b" "alpha" "running"
+    _seed_job "id3" "a" "beta" "running"
+    run _knit_job_list --types "alpha" --setup "a"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"id1"* ]]
+    [[ "$output" != *"id2"* ]]
+    [[ "$output" != *"id3"* ]]
+}
+
+@test "job list --types matches nothing when no job has the type" {
+    _seed_job "id1" "" "alpha" "running"
+    run _knit_job_list --types "nosuchtype"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"alpha"* ]]
+}
+
+@test "job list --json applies the --types filter" {
+    command -v jq &>/dev/null || skip "jq not available"
+    _seed_job "id1" "" "alpha" "running"
+    _seed_job "id2" "" "beta" "running"
+    _seed_job "id3" "" "gamma" "running"
+    run _knit_job_list --json true --types "alpha,gamma"
+    [ "$status" -eq 0 ]
+    echo "$output" | jq -e '. | map(.job) == ["alpha","gamma"]' >/dev/null
+}
+
 # ---------- job list --json ----------
 
 @test "job list --json emits a valid JSON array of jobs" {

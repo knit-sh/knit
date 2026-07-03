@@ -226,6 +226,7 @@
 #   ./full.sh job list --status running      # only running jobs
 #   ./full.sh job list --setup ./env         # only jobs of this setup
 #   ./full.sh job list --no-setup            # only setup-less jobs
+#   ./full.sh job list --types montecarlo    # only jobs of these (comma-sep) types
 #   ./full.sh job list --json                # same listing as a JSON array
 #
 #   ./full.sh job status --id $uuid          # just the lifecycle state

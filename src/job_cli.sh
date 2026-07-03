@@ -41,12 +41,41 @@ _knit_job_status() {
 knit_done
 
 # ------------------------------------------------------------------------------
-# List submitted jobs, optionally filtered by state or setup.
+# @fn __knit_job_in_clause()
+#
+# Build a SQL "<column> IN (...)" condition from a comma-separated list of
+# values, each escaped as a single-quoted literal. Empty entries are dropped;
+# nothing is printed when the list has no non-empty value, so the caller can test
+# for an empty result and skip the condition entirely.
+#
+# @param column Column name to match (interpolated verbatim, so a trusted name).
+# @param csv    Comma-separated list of values.
+# ------------------------------------------------------------------------------
+__knit_job_in_clause() {
+    local column="$1" csv="$2"
+    local -a in_values=()
+    local part
+    local -a parts
+    IFS=',' read -ra parts <<< "${csv}"
+    for part in "${parts[@]}"; do
+        [[ -z "${part}" ]] && continue
+        in_values+=("'$(_knit_sql_escape "${part}")'")
+    done
+    [[ "${#in_values[@]}" -eq 0 ]] && return 0
+    local in_list
+    printf -v in_list '%s, ' "${in_values[@]}"
+    printf '%s IN (%s)' "${column}" "${in_list%, }"
+}
+
+# ------------------------------------------------------------------------------
+# List submitted jobs, optionally filtered by state, setup, or type.
 # ------------------------------------------------------------------------------
 knit_register _knit_job_list "job:list" "List submitted jobs."
 knit_with_optional "status:string" "" "Only list jobs in this lifecycle state."
 knit_with_optional "setup:string" "" \
     "Only list jobs whose setup is one of these (comma-separated) paths."
+knit_with_optional "types:string" "" \
+    "Only list jobs of these (comma-separated) job types."
 knit_with_flag "no-setup" "Include jobs that have no setup."
 knit_with_flag "json" "Emit the listing as a JSON array."
 # ------------------------------------------------------------------------------
@@ -59,8 +88,9 @@ knit_with_flag "json" "Emit the listing as a JSON array."
 # column NULL or empty), and --setup takes a comma-separated list of setup paths
 # matched with SQL IN. Given both, a job qualifies if it has no setup OR its
 # setup is in the list, e.g. "--no-setup --setup a,b,c". When neither is given
-# no setup filter is applied. The status filter (if any) is AND-ed with the
-# setup filter.
+# no setup filter is applied. --types takes a comma-separated list of job types
+# (the job name recorded in the "job" column) matched with SQL IN. All three
+# filters (status, setup, types) are AND-ed together.
 #
 # By default the result is rendered with aligned columns and a header row. With
 # --json the same filtered query is emitted as a JSON array (one object per job,
@@ -72,9 +102,10 @@ _knit_job_list() {
         [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
         knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
     fi
-    local status setup no_setup json
+    local status setup types no_setup json
     status=$(knit_get_parameter "status" "$@")
     setup=$(knit_get_parameter "setup" "$@")
+    types=$(knit_get_parameter "types" "$@")
     no_setup=$(knit_get_parameter "no-setup" "$@") || no_setup="false"
     json=$(knit_get_parameter "json" "$@") || json="false"
 
@@ -87,24 +118,21 @@ _knit_job_list() {
     [[ "${no_setup}" == "true" ]] \
         && setup_conditions+=("setup IS NULL OR setup = ''")
     if [[ -n "${setup}" ]]; then
-        local -a in_values=()
-        local part
-        local -a parts
-        IFS=',' read -ra parts <<< "${setup}"
-        for part in "${parts[@]}"; do
-            [[ -z "${part}" ]] && continue
-            in_values+=("'$(_knit_sql_escape "${part}")'")
-        done
-        if [[ "${#in_values[@]}" -gt 0 ]]; then
-            local in_list
-            printf -v in_list '%s, ' "${in_values[@]}"
-            setup_conditions+=("setup IN (${in_list%, })")
-        fi
+        local setup_in
+        setup_in="$(__knit_job_in_clause "setup" "${setup}")"
+        [[ -n "${setup_in}" ]] && setup_conditions+=("${setup_in}")
     fi
     if [[ "${#setup_conditions[@]}" -gt 0 ]]; then
         local setup_group
         printf -v setup_group '%s OR ' "${setup_conditions[@]}"
         conditions+=("(${setup_group% OR })")
+    fi
+
+    # Filter by job type (the "job" column) when --types is given.
+    if [[ -n "${types}" ]]; then
+        local types_in
+        types_in="$(__knit_job_in_clause "job" "${types}")"
+        [[ -n "${types_in}" ]] && conditions+=("${types_in}")
     fi
 
     local statement="SELECT id, job, state FROM jobs"
@@ -337,7 +365,7 @@ _knit_job_rm() {
 knit_done
 
 # ------------------------------------------------------------------------------
-# @fn __knit_job_reconstruct_args()
+# @fn __knit_job_reconstruct_args_from_db_row()
 #
 # Append CLI arguments reconstructing a command's recorded parameters from one
 # row of a table, so a past invocation can be replayed. Iteration is driven by
@@ -355,7 +383,7 @@ knit_done
 # @param skip     Space-separated normalized names to omit.
 # @param out_name Name of the array variable to append the reconstructed args to.
 # ------------------------------------------------------------------------------
-__knit_job_reconstruct_args() {
+__knit_job_reconstruct_args_from_db_row() {
     local cmd="$1" table="$2" id="$3" skip=" $4 "
     # shellcheck disable=SC2178 # nameref to the caller's args array
     local -n _out="$5"
@@ -408,7 +436,7 @@ knit_with_required "id:string" "Job UUID."
 # mints a new job UUID — the old id is never reused.
 #
 # The submission options and job arguments are rebuilt by
-# __knit_job_reconstruct_args from each command's declared schema, so bookkeeping
+# __knit_job_reconstruct_args_from_db_row from each command's declared schema, so bookkeeping
 # columns (id, state, and the "job" name itself) and job outputs are left out;
 # the setup path is skipped there too and passed as --setup instead. A job that
 # was submitted but never ran has no per-job table, so it is resubmitted with its
@@ -439,7 +467,7 @@ _knit_job_resubmit() {
     local setup
     setup="$(_knit_sqlite3 "SELECT setup FROM jobs WHERE id = '${escaped}';")"
     [[ -n "${setup}" ]] && submit_opts+=("--setup" "${setup}")
-    __knit_job_reconstruct_args "submit" "${__KNIT_JOBS_TABLE}" "${id}" "setup" \
+    __knit_job_reconstruct_args_from_db_row "submit" "${__KNIT_JOBS_TABLE}" "${id}" "setup" \
         submit_opts
 
     # Rebuild the job arguments from the per-job table, when the job has run at
@@ -453,7 +481,7 @@ _knit_job_resubmit() {
         cnt="$(_knit_sqlite3 \
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$(_knit_sql_escape "${job_name}")';")"
         if [[ "${cnt}" -ne 0 ]]; then
-            __knit_job_reconstruct_args "${job_cmd}" "${job_name}" "${id}" "" \
+            __knit_job_reconstruct_args_from_db_row "${job_cmd}" "${job_name}" "${id}" "" \
                 job_args
         fi
     fi
