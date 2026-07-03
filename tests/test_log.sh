@@ -4,20 +4,20 @@ setup() {
     source knit.sh
 }
 
-# --- __knit_log_level_to_int ---
+# --- _knit_log_level_to_int ---
 
 @test "log level to int converts all valid levels" {
-    [ "$(__knit_log_level_to_int trace)" -eq 0 ]
-    [ "$(__knit_log_level_to_int debug)" -eq 1 ]
-    [ "$(__knit_log_level_to_int info)" -eq 2 ]
-    [ "$(__knit_log_level_to_int warning)" -eq 3 ]
-    [ "$(__knit_log_level_to_int error)" -eq 4 ]
-    [ "$(__knit_log_level_to_int critical)" -eq 5 ]
+    [ "$(_knit_log_level_to_int trace)" -eq 0 ]
+    [ "$(_knit_log_level_to_int debug)" -eq 1 ]
+    [ "$(_knit_log_level_to_int info)" -eq 2 ]
+    [ "$(_knit_log_level_to_int warning)" -eq 3 ]
+    [ "$(_knit_log_level_to_int error)" -eq 4 ]
+    [ "$(_knit_log_level_to_int critical)" -eq 5 ]
 }
 
 @test "log level to int defaults to 2 for unrecognized values" {
-    [ "$(__knit_log_level_to_int bogus)" -eq 2 ]
-    [ "$(__knit_log_level_to_int "")" -eq 2 ]
+    [ "$(_knit_log_level_to_int bogus)" -eq 2 ]
+    [ "$(_knit_log_level_to_int "")" -eq 2 ]
 }
 
 # --- knit_log_set_level ---

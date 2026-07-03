@@ -8,15 +8,15 @@ setup() {
     source knit.sh
 
     # Override the sqlite executable and database path for testing
-    __KNIT_SQLITE_EXE="sqlite3"
-    __KNIT_DATABASE="$(mktemp --suffix=.db)"
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="$(mktemp --suffix=.db)"
 
     # Satisfy the bootstrap check — tests in this file work with a live DB
     _KNIT_IS_BOOTSTRAPPED="1"
 }
 
 teardown() {
-    rm -f "${__KNIT_DATABASE}"
+    rm -f "${_KNIT_DATABASE}"
     _KNIT_IS_BOOTSTRAPPED=""
 }
 
@@ -59,51 +59,51 @@ teardown() {
     [ "$status" -eq 1 ]
 }
 
-# ---------- __knit_push_done_cb ----------
+# ---------- _knit_push_done_cb ----------
 
-@test "__knit_push_done_cb fails outside of knit_register" {
-    run __knit_push_done_cb echo "hello"
+@test "_knit_push_done_cb fails outside of knit_register" {
+    run _knit_push_done_cb echo "hello"
     [ "$status" -eq 1 ]
 }
 
-@test "__knit_push_done_cb callback is invoked at knit_done" {
+@test "_knit_push_done_cb callback is invoked at knit_done" {
     _KNIT_PDC_CALLED=false
     _pdc_mark_called() { _KNIT_PDC_CALLED=true; }
     pdc_fn_a() { :; }
     knit_register pdc_fn_a "pdc_a" "Test."
-    __knit_push_done_cb _pdc_mark_called
+    _knit_push_done_cb _pdc_mark_called
     knit_done
     [ "${_KNIT_PDC_CALLED}" = "true" ]
 }
 
-@test "__knit_push_done_cb multiple callbacks run in reverse order" {
+@test "_knit_push_done_cb multiple callbacks run in reverse order" {
     declare -ga _KNIT_PDC_ORDER=()
     _pdc_order_append() { _KNIT_PDC_ORDER+=("$1"); }
     pdc_fn_b() { :; }
     knit_register pdc_fn_b "pdc_b" "Test."
-    __knit_push_done_cb _pdc_order_append "first"
-    __knit_push_done_cb _pdc_order_append "second"
-    __knit_push_done_cb _pdc_order_append "third"
+    _knit_push_done_cb _pdc_order_append "first"
+    _knit_push_done_cb _pdc_order_append "second"
+    _knit_push_done_cb _pdc_order_append "third"
     knit_done
     [ "${_KNIT_PDC_ORDER[0]}" = "third" ]
     [ "${_KNIT_PDC_ORDER[1]}" = "second" ]
     [ "${_KNIT_PDC_ORDER[2]}" = "first" ]
 }
 
-@test "__knit_push_done_cb _KNIT_DONE_CBS is unset after knit_done" {
+@test "_knit_push_done_cb _KNIT_DONE_CBS is unset after knit_done" {
     pdc_fn_c() { :; }
     knit_register pdc_fn_c "pdc_c" "Test."
-    __knit_push_done_cb echo "cb"
+    _knit_push_done_cb echo "cb"
     knit_done
     [[ ! -v _KNIT_DONE_CBS ]]
 }
 
-@test "__knit_push_done_cb callbacks do not carry over to next registration" {
+@test "_knit_push_done_cb callbacks do not carry over to next registration" {
     _KNIT_PDC_COUNT=0
     _pdc_increment() { _KNIT_PDC_COUNT=$(( _KNIT_PDC_COUNT + 1 )); }
     pdc_fn_d() { :; }
     knit_register pdc_fn_d "pdc_d" "Test."
-    __knit_push_done_cb _pdc_increment
+    _knit_push_done_cb _pdc_increment
     pdc_fn_e() { :; }
     knit_register pdc_fn_e "pdc_e" "Test."
     # implicit knit_done fired for pdc_d: count becomes 1
@@ -211,7 +211,7 @@ teardown() {
     [ "$status" -eq 1 ]
 }
 
-# ---------- __knit_param_check_declaration (edge cases) ----------
+# ---------- _knit_param_check_declaration (edge cases) ----------
 
 @test "knit_with_required fails outside of knit_register" {
     run knit_with_required "name:string" "A name."
@@ -263,60 +263,60 @@ teardown() {
     [ "$status" -eq 1 ]
 }
 
-# ---------- __knit_execute_before_commands / __knit_execute_after_commands ----------
+# ---------- _knit_execute_before_commands / _knit_execute_after_commands ----------
 
-@test "__knit_execute_before_commands executes registered callbacks" {
+@test "_knit_execute_before_commands executes registered callbacks" {
     knit_register knit_empty "eb_cmd" "Test."
     _knit_run_before echo "before_output"
     knit_done
     local result
-    result=$(__knit_execute_before_commands "eb_cmd")
+    result=$(_knit_execute_before_commands "eb_cmd")
     [ "$result" = "before_output" ]
 }
 
-@test "__knit_execute_before_commands does nothing when no callbacks registered" {
+@test "_knit_execute_before_commands does nothing when no callbacks registered" {
     knit_register knit_empty "eb_cmd2" "Test."
     knit_done
     local result
-    result=$(__knit_execute_before_commands "eb_cmd2")
+    result=$(_knit_execute_before_commands "eb_cmd2")
     [ -z "$result" ]
 }
 
-@test "__knit_execute_after_commands executes registered callbacks" {
+@test "_knit_execute_after_commands executes registered callbacks" {
     knit_register knit_empty "ea_cmd" "Test."
     _knit_run_after echo "after_output"
     knit_done
     local result
-    result=$(__knit_execute_after_commands "ea_cmd")
+    result=$(_knit_execute_after_commands "ea_cmd")
     [ "$result" = "after_output" ]
 }
 
-@test "__knit_execute_after_commands does nothing when no callbacks registered" {
+@test "_knit_execute_after_commands does nothing when no callbacks registered" {
     knit_register knit_empty "ea_cmd2" "Test."
     knit_done
     local result
-    result=$(__knit_execute_after_commands "ea_cmd2")
+    result=$(_knit_execute_after_commands "ea_cmd2")
     [ -z "$result" ]
 }
 
-# ---------- __knit_find_flag ----------
+# ---------- _knit_find_flag ----------
 
-@test "__knit_find_flag returns 0 when flag is present" {
-    __knit_find_flag "--verbose" "aaa" "--verbose" "bbb"
+@test "_knit_find_flag returns 0 when flag is present" {
+    _knit_find_flag "--verbose" "aaa" "--verbose" "bbb"
 }
 
-@test "__knit_find_flag returns 1 when flag is absent" {
-    run __knit_find_flag "--verbose" "aaa" "bbb"
+@test "_knit_find_flag returns 1 when flag is absent" {
+    run _knit_find_flag "--verbose" "aaa" "bbb"
     [ "$status" -eq 1 ]
 }
 
-@test "__knit_find_flag stops searching after double dash" {
-    run __knit_find_flag "--verbose" "aaa" "--" "--verbose"
+@test "_knit_find_flag stops searching after double dash" {
+    run _knit_find_flag "--verbose" "aaa" "--" "--verbose"
     [ "$status" -eq 1 ]
 }
 
-@test "__knit_find_flag matches hyphen and underscore variants" {
-    __knit_find_flag "--dry-run" "--dry_run"
-    __knit_find_flag "--dry_run" "--dry-run"
+@test "_knit_find_flag matches hyphen and underscore variants" {
+    _knit_find_flag "--dry-run" "--dry_run"
+    _knit_find_flag "--dry_run" "--dry-run"
 }
 

@@ -53,8 +53,8 @@ _knit_set_exists() {
 # @return 0 if the element is found, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_set_find() {
-    local -n __knit_set_ref="$1"
-    [[ -v __knit_set_ref["$2"] ]]
+    local -n _knit_set_ref="$1"
+    [[ -v _knit_set_ref["$2"] ]]
 }
 
 # ------------------------------------------------------------------------------
@@ -71,11 +71,11 @@ _knit_set_find() {
 # @param ...items Elements to add to the set.
 # ------------------------------------------------------------------------------
 _knit_set_add() {
-    local -n __knit_set_ref="$1"
+    local -n _knit_set_ref="$1"
     shift
     local item
     for item in "$@"; do
-        __knit_set_ref["${item}"]=1
+        _knit_set_ref["${item}"]=1
     done
 }
 
@@ -95,9 +95,9 @@ _knit_set_add() {
 # ------------------------------------------------------------------------------
 _knit_set_iter() {
     # shellcheck disable=SC2178 # nameref to associative array
-    local -n __knit_set_ref="$1"
+    local -n _knit_set_ref="$1"
     local key
-    for key in "${!__knit_set_ref[@]}"; do
+    for key in "${!_knit_set_ref[@]}"; do
         printf '%s\n' "${key}"
     done
 }
@@ -117,10 +117,10 @@ _knit_set_iter() {
 # ------------------------------------------------------------------------------
 _knit_set_remove() {
     # shellcheck disable=SC2178 # nameref to associative array
-    local -n __knit_set_ref="$1"
+    local -n _knit_set_ref="$1"
     shift
     local item
     for item in "$@"; do
-        unset '__knit_set_ref[${item}]'
+        unset '_knit_set_ref[${item}]'
     done
 }

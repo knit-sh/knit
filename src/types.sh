@@ -3,20 +3,20 @@
 ## @file types.sh
 
 # ------------------------------------------------------------------------------
-# @var __KNIT_TYPE_ALIASES
+# @var _KNIT_TYPE_ALIASES
 #
 # Associative array mapping type alias names to their canonical type names.
 # ------------------------------------------------------------------------------
-declare -gA __KNIT_TYPE_ALIASES
-__KNIT_TYPE_ALIASES=([int]=integer [double]=real [float]=real [bool]=boolean)
+declare -gA _KNIT_TYPE_ALIASES
+_KNIT_TYPE_ALIASES=([int]=integer [double]=real [float]=real [bool]=boolean)
 
 # ------------------------------------------------------------------------------
-# @var __KNIT_BUILTIN_TYPES
+# @var _KNIT_BUILTIN_TYPES
 #
 # Set of built-in canonical type names.
 # ------------------------------------------------------------------------------
-declare -gA __KNIT_BUILTIN_TYPES
-__KNIT_BUILTIN_TYPES=(
+declare -gA _KNIT_BUILTIN_TYPES
+_KNIT_BUILTIN_TYPES=(
     [integer]=1
     [real]=1
     [boolean]=1
@@ -31,14 +31,14 @@ __KNIT_BUILTIN_TYPES=(
 )
 
 # ------------------------------------------------------------------------------
-# @var __KNIT_ENUMS
+# @var _KNIT_ENUMS
 #
 # Set of user-defined enum type names.
 # ------------------------------------------------------------------------------
-declare -gA __KNIT_ENUMS
+declare -gA _KNIT_ENUMS
 
 # ------------------------------------------------------------------------------
-# @fn __knit_type_resolve_alias()
+# @fn _knit_type_resolve_alias()
 #
 # Resolve a type name or alias to its canonical type name. If the name is
 # already a canonical built-in type or an enum, it is returned as-is. If it
@@ -46,25 +46,25 @@ declare -gA __KNIT_ENUMS
 #
 # Example:
 # ```
-# __knit_type_resolve_alias "int"      # prints "integer"
-# __knit_type_resolve_alias "integer"  # prints "integer"
-# __knit_type_resolve_alias "color"    # prints "color" (if enum defined)
+# _knit_type_resolve_alias "int"      # prints "integer"
+# _knit_type_resolve_alias "integer"  # prints "integer"
+# _knit_type_resolve_alias "color"    # prints "color" (if enum defined)
 # ```
 #
 # @param type_name Type name or alias to resolve.
 # @return 0 if resolved successfully, 1 if the name is unknown.
 # ------------------------------------------------------------------------------
-__knit_type_resolve_alias() {
+_knit_type_resolve_alias() {
     local name="$1"
-    if [[ -v __KNIT_TYPE_ALIASES["${name}"] ]]; then
-        printf '%s\n' "${__KNIT_TYPE_ALIASES[${name}]}"
+    if [[ -v _KNIT_TYPE_ALIASES["${name}"] ]]; then
+        printf '%s\n' "${_KNIT_TYPE_ALIASES[${name}]}"
         return 0
     fi
-    if [[ -v __KNIT_BUILTIN_TYPES["${name}"] ]]; then
+    if [[ -v _KNIT_BUILTIN_TYPES["${name}"] ]]; then
         printf '%s\n' "${name}"
         return 0
     fi
-    if [[ -v __KNIT_ENUMS["${name}"] ]]; then
+    if [[ -v _KNIT_ENUMS["${name}"] ]]; then
         printf '%s\n' "${name}"
         return 0
     fi
@@ -88,7 +88,7 @@ __knit_type_resolve_alias() {
 # @return 0 if the type exists, 1 otherwise.
 # ------------------------------------------------------------------------------
 knit_type_exists() {
-    __knit_type_resolve_alias "$1" > /dev/null
+    _knit_type_resolve_alias "$1" > /dev/null
 }
 
 # ------------------------------------------------------------------------------
@@ -107,9 +107,9 @@ knit_type_exists() {
 knit_define_enum() {
     local name="$1"
     shift
-    __KNIT_ENUMS["${name}"]=1
-    _knit_set_new "__KNIT_ENUM_${name}"
-    _knit_set_add "__KNIT_ENUM_${name}" "$@"
+    _KNIT_ENUMS["${name}"]=1
+    _knit_set_new "_KNIT_ENUM_${name}"
+    _knit_set_add "_KNIT_ENUM_${name}" "$@"
 }
 
 # ------------------------------------------------------------------------------
@@ -131,8 +131,8 @@ knit_define_enum() {
 # ------------------------------------------------------------------------------
 knit_enum_values() {
     local name="$1"
-    local set_name="__KNIT_ENUM_${name}"
-    if [[ ! -v __KNIT_ENUMS["${name}"] ]]; then
+    local set_name="_KNIT_ENUM_${name}"
+    if [[ ! -v _KNIT_ENUMS["${name}"] ]]; then
         return 1
     fi
     if [[ $# -lt 2 ]]; then
@@ -156,14 +156,14 @@ knit_enum_values() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn __knit_type_check_date()
+# @fn _knit_type_check_date()
 #
 # Validate that a string is a date in YYYY-MM-DD format with valid ranges.
 #
 # @param value String to validate.
 # @return 0 if valid, 1 otherwise.
 # ------------------------------------------------------------------------------
-__knit_type_check_date() {
+_knit_type_check_date() {
     local value="$1"
     local date_re='^([0-9]{4})-([0-9]{2})-([0-9]{2})$'
     [[ "${value}" =~ ${date_re} ]] || return 1
@@ -173,14 +173,14 @@ __knit_type_check_date() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn __knit_type_check_time()
+# @fn _knit_type_check_time()
 #
 # Validate that a string is a time in hh:mm:ss format with valid ranges.
 #
 # @param value String to validate.
 # @return 0 if valid, 1 otherwise.
 # ------------------------------------------------------------------------------
-__knit_type_check_time() {
+_knit_type_check_time() {
     local value="$1"
     local time_re='^([0-9]{2}):([0-9]{2}):([0-9]{2})$'
     [[ "${value}" =~ ${time_re} ]] || return 1
@@ -223,7 +223,7 @@ knit_type_check() {
     local type="$1"
     local value="$2"
     local resolved
-    resolved=$(__knit_type_resolve_alias "${type}") || return 1
+    resolved=$(_knit_type_resolve_alias "${type}") || return 1
 
     local integer_re='^-?[0-9]+$'
     local real_re='^-?([0-9]+\.?[0-9]*|[0-9]*\.[0-9]+)([eE][+-]?[0-9]+)?$'
@@ -249,17 +249,17 @@ knit_type_check() {
             [[ -f "${value}" ]]
             ;;
         date)
-            __knit_type_check_date "${value}"
+            _knit_type_check_date "${value}"
             ;;
         time)
-            __knit_type_check_time "${value}"
+            _knit_type_check_time "${value}"
             ;;
         datetime)
             [[ "${value}" =~ ${datetime_re} ]] || return 1
             local __date_part="${BASH_REMATCH[1]}"
             local __time_part="${BASH_REMATCH[2]}"
-            __knit_type_check_date "${__date_part}" \
-                && __knit_type_check_time "${__time_part}"
+            _knit_type_check_date "${__date_part}" \
+                && _knit_type_check_time "${__time_part}"
             ;;
         uuid)
             local uuid_re='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
@@ -267,13 +267,13 @@ knit_type_check() {
             ;;
         *)
             # Enum type
-            _knit_set_find "__KNIT_ENUM_${resolved}" "${value}"
+            _knit_set_find "_KNIT_ENUM_${resolved}" "${value}"
             ;;
     esac
 }
 
 # ------------------------------------------------------------------------------
-# @fn __knit_type_to_sqlite()
+# @fn _knit_type_to_sqlite()
 #
 # Map a Knit type name (or alias) to its corresponding SQLite type affinity.
 # Returns INTEGER for integer, REAL for real, and TEXT for all other types
@@ -282,18 +282,18 @@ knit_type_check() {
 #
 # Example:
 # ```
-# __knit_type_to_sqlite "integer"  # prints: INTEGER
-# __knit_type_to_sqlite "real"     # prints: REAL
-# __knit_type_to_sqlite "uuid"     # prints: TEXT
-# __knit_type_to_sqlite "int"      # prints: INTEGER (alias resolved)
+# _knit_type_to_sqlite "integer"  # prints: INTEGER
+# _knit_type_to_sqlite "real"     # prints: REAL
+# _knit_type_to_sqlite "uuid"     # prints: TEXT
+# _knit_type_to_sqlite "int"      # prints: INTEGER (alias resolved)
 # ```
 #
 # @param type_name Knit type name or alias.
 # @return 0 on success, 1 if the type is unknown.
 # ------------------------------------------------------------------------------
-__knit_type_to_sqlite() {
+_knit_type_to_sqlite() {
     local resolved
-    resolved=$(__knit_type_resolve_alias "$1") || return 1
+    resolved=$(_knit_type_resolve_alias "$1") || return 1
     case "${resolved}" in
         integer) printf 'INTEGER' ;;
         real)    printf 'REAL' ;;

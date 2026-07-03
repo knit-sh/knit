@@ -3,14 +3,14 @@
 ## @file local.sh
 
 # ------------------------------------------------------------------------------
-# @fn __knit_walltime_to_seconds()
+# @fn _knit_walltime_to_seconds()
 #
 # Convert a wall-clock time string in HH:MM:SS format to an integer number of
 # seconds.
 #
 # @param walltime Wall-clock time in HH:MM:SS format.
 # ------------------------------------------------------------------------------
-__knit_walltime_to_seconds() {
+_knit_walltime_to_seconds() {
     local walltime="$1"
     local h m s
     IFS=: read -r h m s <<< "${walltime}"
@@ -74,7 +74,7 @@ _knit_submit_local() {
     local -a full_cmd=()
     if [[ -n "${walltime}" ]]; then
         local timeout_secs
-        timeout_secs="$(__knit_walltime_to_seconds "${walltime}")"
+        timeout_secs="$(_knit_walltime_to_seconds "${walltime}")"
         full_cmd=(timeout "${timeout_secs}" "${cmd[@]}")
     else
         full_cmd=("${cmd[@]}")

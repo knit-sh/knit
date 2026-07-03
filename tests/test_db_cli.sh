@@ -8,12 +8,12 @@ setup() {
     source knit.sh
 
     # Override the sqlite executable and database path for testing
-    __KNIT_SQLITE_EXE="sqlite3"
-    __KNIT_DATABASE="$(mktemp --suffix=.db)"
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="$(mktemp --suffix=.db)"
 
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "CREATE TABLE runs (id TEXT, n INTEGER, label TEXT);"
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO runs (id, n, label) VALUES ('c', 3, 'gamma'), ('a', 1, 'alpha'), ('b', 2, 'beta');"
 
     # Satisfy the bootstrap check — tests in this file work with a live DB
@@ -21,7 +21,7 @@ setup() {
 }
 
 teardown() {
-    rm -f "${__KNIT_DATABASE}"
+    rm -f "${_KNIT_DATABASE}"
     _KNIT_IS_BOOTSTRAPPED=""
 }
 
@@ -93,9 +93,9 @@ db_tables() { _knit_invoke_command "db__1__tables" "$@"; }
 # ---------- db query: table names needing SQL quoting ----------
 
 @test "db query accepts a table name containing a colon without manual quoting" {
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         'CREATE TABLE "aaa:bbb" (id TEXT, v TEXT);'
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO \"aaa:bbb\" (id, v) VALUES ('x', 'nested');"
     run db_query --from aaa:bbb
     [ "$status" -eq 0 ]
@@ -133,7 +133,7 @@ db_tables() { _knit_invoke_command "db__1__tables" "$@"; }
 }
 
 @test "db tables excludes internal sqlite tables" {
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "CREATE TABLE t2 (x INTEGER); CREATE INDEX i ON t2(x);"
     run db_tables
     [ "$status" -eq 0 ]
@@ -141,7 +141,7 @@ db_tables() { _knit_invoke_command "db__1__tables" "$@"; }
 }
 
 @test "db tables sorts the table names" {
-    sqlite3 "${__KNIT_DATABASE}" "CREATE TABLE aardvark (x INTEGER);"
+    sqlite3 "${_KNIT_DATABASE}" "CREATE TABLE aardvark (x INTEGER);"
     run db_tables
     [ "$status" -eq 0 ]
     [ "${lines[0]}" = "aardvark" ]

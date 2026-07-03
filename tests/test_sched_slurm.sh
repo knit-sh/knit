@@ -43,7 +43,7 @@ _mk_opts() {
     _mk_opts o
     local out
     out="$(_knit_sched_slurm_directives o /jobs/x)"
-    [[ "${out}" == *"#SBATCH --signal=B:USR1@${__KNIT_SCHED_KILL_WARNING_SEC}"* ]]
+    [[ "${out}" == *"#SBATCH --signal=B:USR1@${_KNIT_SCHED_KILL_WARNING_SEC}"* ]]
 }
 
 @test "slurm directives fix output and error to the job directory" {

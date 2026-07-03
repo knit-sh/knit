@@ -5,9 +5,9 @@
 # ------------------------------------------------------------------------------
 # Seconds before the walltime limit at which a scheduler is asked to warn the
 # job (Slurm --signal). The warning lets the job record itself as "killed"
-# before it is hard-killed (see __knit_job_killed_trap).
+# before it is hard-killed (see _knit_job_killed_trap).
 # ------------------------------------------------------------------------------
-__KNIT_SCHED_KILL_WARNING_SEC="60"
+_KNIT_SCHED_KILL_WARNING_SEC="60"
 
 # ------------------------------------------------------------------------------
 # Seconds between polls when a backend has to wait for a job by polling its
@@ -15,8 +15,8 @@ __KNIT_SCHED_KILL_WARNING_SEC="60"
 # "wait for completion" primitive). Overridable, chiefly so tests can drive the
 # poll loops quickly.
 # ------------------------------------------------------------------------------
-declare __KNIT_SCHED_POLL_INTERVAL
-__KNIT_SCHED_POLL_INTERVAL="${__KNIT_SCHED_POLL_INTERVAL:-5}"
+declare _KNIT_SCHED_POLL_INTERVAL
+_KNIT_SCHED_POLL_INTERVAL="${_KNIT_SCHED_POLL_INTERVAL:-5}"
 
 # ------------------------------------------------------------------------------
 # @fn _knit_uuidv7()
@@ -178,7 +178,7 @@ _knit_sched_resolve() {
 #
 # Caps come from the profile named by the "__profile__" metadata (nothing is
 # checked when no profile or queue resolves, or when a given queue declares no
-# cap). Walltime is compared in seconds via __knit_walltime_to_seconds; nodes as
+# cap). Walltime is compared in seconds via _knit_walltime_to_seconds; nodes as
 # integers. Either breach is fatal.
 #
 # @param arr_name Name of the resolved-options associative array.
@@ -199,8 +199,8 @@ _knit_sched_validate_caps() {
         ".scheduler.queues.\"${queue}\".max_walltime")"
     if [[ -n "${max_walltime}" ]]; then
         local req_s cap_s
-        req_s="$(__knit_walltime_to_seconds "${resolved[walltime]}")"
-        cap_s="$(__knit_walltime_to_seconds "${max_walltime}")"
+        req_s="$(_knit_walltime_to_seconds "${resolved[walltime]}")"
+        cap_s="$(_knit_walltime_to_seconds "${max_walltime}")"
         if (( req_s > cap_s )); then
             knit_fatal "Requested walltime ${resolved[walltime]} exceeds the ${max_walltime} limit of queue \"${queue}\"."
         fi

@@ -8,15 +8,15 @@ setup() {
     source knit.sh
 
     # Override the sqlite executable and database path for testing
-    __KNIT_SQLITE_EXE="sqlite3"
-    __KNIT_DATABASE="$(mktemp --suffix=.db)"
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="$(mktemp --suffix=.db)"
 
     # Satisfy the bootstrap check — tests in this file work with a live DB
     _KNIT_IS_BOOTSTRAPPED="1"
 }
 
 teardown() {
-    rm -f "${__KNIT_DATABASE}"
+    rm -f "${_KNIT_DATABASE}"
     _KNIT_IS_BOOTSTRAPPED=""
 }
 
@@ -147,53 +147,53 @@ teardown() {
     [[ "$output" != *"SHOULD NOT RUN"* ]]
 }
 
-# ---------- __knit_expand_command_arguments ----------
+# ---------- _knit_expand_command_arguments ----------
 
-@test "__knit_expand_command_arguments fills in optional defaults" {
+@test "_knit_expand_command_arguments fills in optional defaults" {
     knit_register knit_empty "expa_cmd" "Test."
     knit_with_optional "count:integer" "10" "A count."
     knit_done
     local -a args
-    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd")
+    readarray -d '' -t args < <(_knit_expand_command_arguments "expa_cmd")
     local val
     val=$(knit_get_parameter "count" "${args[@]}")
     [ "$val" = "10" ]
 }
 
-@test "__knit_expand_command_arguments does not override provided optional" {
+@test "_knit_expand_command_arguments does not override provided optional" {
     knit_register knit_empty "expa_cmd2" "Test."
     knit_with_optional "count:integer" "10" "A count."
     knit_done
     local -a args
-    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd2" "--count" "99")
+    readarray -d '' -t args < <(_knit_expand_command_arguments "expa_cmd2" "--count" "99")
     local val
     val=$(knit_get_parameter "count" "${args[@]}")
     [ "$val" = "99" ]
 }
 
-@test "__knit_expand_command_arguments preserves --key=value for knit_get_parameter" {
+@test "_knit_expand_command_arguments preserves --key=value for knit_get_parameter" {
     knit_register knit_empty "expa_cmd3" "Test."
     knit_with_required "name:string" "A name."
     knit_done
     local -a args
-    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd3" "--name=Alice")
+    readarray -d '' -t args < <(_knit_expand_command_arguments "expa_cmd3" "--name=Alice")
     local val
     val=$(knit_get_parameter "name" "${args[@]}")
     [ "$val" = "Alice" ]
 }
 
-@test "__knit_expand_command_arguments converts present flag to true" {
+@test "_knit_expand_command_arguments converts present flag to true" {
     knit_register knit_empty "expa_cmd4" "Test."
     knit_with_flag "verbose" "Enable verbose."
     knit_done
     local -a args
-    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd4" "--verbose")
+    readarray -d '' -t args < <(_knit_expand_command_arguments "expa_cmd4" "--verbose")
     local val
     val=$(knit_get_parameter "verbose" "${args[@]}")
     [ "$val" = "true" ]
 }
 
-@test "__knit_expand_command_arguments converts a hyphenated flag to true" {
+@test "_knit_expand_command_arguments converts a hyphenated flag to true" {
     # A flag registered with a hyphen is stored underscored ("no_setup"); the
     # user still writes it with a hyphen. Expansion must insert "true" after the
     # hyphenated token, not only after the underscored form.
@@ -201,56 +201,56 @@ teardown() {
     knit_with_flag "no-setup" "No setup."
     knit_done
     local -a args
-    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd4h" "--no-setup")
+    readarray -d '' -t args < <(_knit_expand_command_arguments "expa_cmd4h" "--no-setup")
     local val
     val=$(knit_get_parameter "no-setup" "${args[@]}")
     [ "$val" = "true" ]
 }
 
-@test "__knit_expand_command_arguments converts absent flag to false" {
+@test "_knit_expand_command_arguments converts absent flag to false" {
     knit_register knit_empty "expa_cmd5" "Test."
     knit_with_flag "verbose" "Enable verbose."
     knit_done
     local -a args
-    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd5")
+    readarray -d '' -t args < <(_knit_expand_command_arguments "expa_cmd5")
     local val
     val=$(knit_get_parameter "verbose" "${args[@]}")
     [ "$val" = "false" ]
 }
 
-@test "__knit_expand_command_arguments resolves an ENV[...] default from the environment" {
+@test "_knit_expand_command_arguments resolves an ENV[...] default from the environment" {
     knit_register knit_empty "expa_cmd6" "Test."
     knit_with_optional "seed:integer" "ENV[_KNIT_TEST_SEED]" "A seed."
     knit_done
     export _KNIT_TEST_SEED="7"
     local -a args
-    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd6")
+    readarray -d '' -t args < <(_knit_expand_command_arguments "expa_cmd6")
     local val
     val=$(knit_get_parameter "seed" "${args[@]}")
     [ "$val" = "7" ]
     unset _KNIT_TEST_SEED
 }
 
-@test "__knit_expand_command_arguments lets an explicit value override an ENV[...] default" {
+@test "_knit_expand_command_arguments lets an explicit value override an ENV[...] default" {
     knit_register knit_empty "expa_cmd7" "Test."
     knit_with_optional "seed:integer" "ENV[_KNIT_TEST_SEED]" "A seed."
     knit_done
     export _KNIT_TEST_SEED="7"
     local -a args
-    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd7" "--seed" "99")
+    readarray -d '' -t args < <(_knit_expand_command_arguments "expa_cmd7" "--seed" "99")
     local val
     val=$(knit_get_parameter "seed" "${args[@]}")
     [ "$val" = "99" ]
     unset _KNIT_TEST_SEED
 }
 
-@test "__knit_expand_command_arguments resolves an unset ENV[...] default to empty" {
+@test "_knit_expand_command_arguments resolves an unset ENV[...] default to empty" {
     knit_register knit_empty "expa_cmd8" "Test."
     knit_with_optional "seed:string" "ENV[_KNIT_TEST_UNSET_SEED]" "A seed."
     knit_done
     unset _KNIT_TEST_UNSET_SEED
     local -a args
-    readarray -d '' -t args < <(__knit_expand_command_arguments "expa_cmd8")
+    readarray -d '' -t args < <(_knit_expand_command_arguments "expa_cmd8")
     local val
     val=$(knit_get_parameter "seed" "${args[@]}")
     [ -z "$val" ]

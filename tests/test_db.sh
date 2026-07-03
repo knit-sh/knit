@@ -8,15 +8,15 @@ setup() {
     source knit.sh
 
     # Override the sqlite executable and database path for testing
-    __KNIT_SQLITE_EXE="sqlite3"
-    __KNIT_DATABASE="$(mktemp --suffix=.db)"
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="$(mktemp --suffix=.db)"
 
     # Satisfy the bootstrap check — tests in this file work with a live DB
     _KNIT_IS_BOOTSTRAPPED="1"
 }
 
 teardown() {
-    rm -f "${__KNIT_DATABASE}"
+    rm -f "${_KNIT_DATABASE}"
     _KNIT_IS_BOOTSTRAPPED=""
 }
 
@@ -25,7 +25,7 @@ teardown() {
 @test "create table creates the table in the database" {
     _knit_db_create_table "runs" "id:uuid" "duration:real"
     local result
-    result=$(sqlite3 "${__KNIT_DATABASE}" \
+    result=$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='runs';")
     [ "$result" -eq 1 ]
 }
@@ -33,8 +33,8 @@ teardown() {
 @test "create table stores correct column names and types" {
     _knit_db_create_table "runs" "id:uuid" "count:integer" "label:string"
     local names types
-    names=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2)
-    types=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f3)
+    names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2)
+    types=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f3)
     [ "$(echo "$names" | sed -n '1p')" = "id" ]
     [ "$(echo "$types" | sed -n '1p')" = "TEXT" ]
     [ "$(echo "$names" | sed -n '2p')" = "count" ]
@@ -67,7 +67,7 @@ teardown() {
 @test "create table normalizes hyphen in column name" {
     _knit_db_create_table "runs" "my-col:integer"
     local name
-    name=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2)
+    name=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2)
     [ "$name" = "my_col" ]
 }
 
@@ -135,10 +135,10 @@ teardown() {
 
 @test "migrate table is a no-op when schema is unchanged" {
     _knit_db_create_table "runs" "id:uuid" "count:integer"
-    sqlite3 "${__KNIT_DATABASE}" "INSERT INTO runs (id, count) VALUES ('550e8400-e29b-41d4-a716-446655440000', 1);"
+    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO runs (id, count) VALUES ('550e8400-e29b-41d4-a716-446655440000', 1);"
     _knit_db_migrate_table "runs" "id:uuid" "count:integer"
     local rows
-    rows=$(sqlite3 "${__KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")
+    rows=$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")
     [ "$rows" -eq 1 ]
 }
 
@@ -146,16 +146,16 @@ teardown() {
     _knit_db_create_table "runs" "id:uuid"
     _knit_db_migrate_table "runs" "id:uuid" "label:string=unknown"
     local col
-    col=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2 | sed -n '2p')
+    col=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2 | sed -n '2p')
     [ "$col" = "label" ]
 }
 
 @test "migrate table fills new column with default for existing rows" {
     _knit_db_create_table "runs" "id:uuid"
-    sqlite3 "${__KNIT_DATABASE}" "INSERT INTO runs (id) VALUES ('550e8400-e29b-41d4-a716-446655440000');"
+    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO runs (id) VALUES ('550e8400-e29b-41d4-a716-446655440000');"
     _knit_db_migrate_table "runs" "id:uuid" "label:string=unknown"
     local val
-    val=$(sqlite3 "${__KNIT_DATABASE}" "SELECT label FROM runs;")
+    val=$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM runs;")
     [ "$val" = "unknown" ]
 }
 
@@ -163,16 +163,16 @@ teardown() {
     _knit_db_create_table "runs" "id:uuid" "count:integer"
     _knit_db_migrate_table "runs" "id:uuid"
     local ncols
-    ncols=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('runs');" | wc -l)
+    ncols=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('runs');" | wc -l)
     [ "$ncols" -eq 1 ]
 }
 
 @test "migrate table preserves existing row values" {
     _knit_db_create_table "runs" "id:uuid" "count:integer"
-    sqlite3 "${__KNIT_DATABASE}" "INSERT INTO runs (id, count) VALUES ('550e8400-e29b-41d4-a716-446655440000', 42);"
+    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO runs (id, count) VALUES ('550e8400-e29b-41d4-a716-446655440000', 42);"
     _knit_db_migrate_table "runs" "id:uuid" "count:integer" "label:string=x"
     local val
-    val=$(sqlite3 "${__KNIT_DATABASE}" "SELECT count FROM runs;")
+    val=$(sqlite3 "${_KNIT_DATABASE}" "SELECT count FROM runs;")
     [ "$val" -eq 42 ]
 }
 
@@ -180,17 +180,17 @@ teardown() {
     _knit_db_create_table "runs" "id:uuid" "score:integer"
     _knit_db_migrate_table "runs" "id:uuid" "score:real"
     local col_type
-    col_type=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f3 | sed -n '2p')
+    col_type=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f3 | sed -n '2p')
     [ "$col_type" = "REAL" ]
 }
 
 @test "migrate table handles multiple simultaneous changes" {
     _knit_db_create_table "runs" "id:uuid" "old_col:integer"
-    sqlite3 "${__KNIT_DATABASE}" "INSERT INTO runs (id, old_col) VALUES ('550e8400-e29b-41d4-a716-446655440000', 7);"
+    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO runs (id, old_col) VALUES ('550e8400-e29b-41d4-a716-446655440000', 7);"
     _knit_db_migrate_table "runs" "id:uuid" "new_col:string=hello"
     local names col_val
-    names=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2 | tr '\n' ',')
-    col_val=$(sqlite3 "${__KNIT_DATABASE}" "SELECT new_col FROM runs;")
+    names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2 | tr '\n' ',')
+    col_val=$(sqlite3 "${_KNIT_DATABASE}" "SELECT new_col FROM runs;")
     [ "$names" = "id,new_col," ]
     [ "$col_val" = "hello" ]
 }
@@ -199,16 +199,16 @@ teardown() {
     _knit_db_create_table "runs" "id:uuid"
     _knit_db_migrate_table "runs" "id:uuid" "my-col:string=x"
     local col
-    col=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2 | sed -n '2p')
+    col=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2 | sed -n '2p')
     [ "$col" = "my_col" ]
 }
 
 @test "migrate table default value with single quote is handled correctly" {
     _knit_db_create_table "runs" "id:uuid"
-    sqlite3 "${__KNIT_DATABASE}" "INSERT INTO runs (id) VALUES ('550e8400-e29b-41d4-a716-446655440000');"
+    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO runs (id) VALUES ('550e8400-e29b-41d4-a716-446655440000');"
     _knit_db_migrate_table "runs" "id:uuid" "label:string=it's here"
     local val
-    val=$(sqlite3 "${__KNIT_DATABASE}" "SELECT label FROM runs;")
+    val=$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM runs;")
     [ "$val" = "it's here" ]
 }
 
@@ -229,7 +229,7 @@ __test_register_cmd() {
     knit_with_table
     knit_done
     local result
-    result=$(sqlite3 "${__KNIT_DATABASE}" \
+    result=$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='mycmd';")
     [ "$result" -eq 1 ]
 }
@@ -239,7 +239,7 @@ __test_register_cmd() {
     knit_with_table
     knit_done
     local first_col
-    first_col=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | head -1)
+    first_col=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | head -1)
     [ "$first_col" = "id" ]
 }
 
@@ -249,7 +249,7 @@ __test_register_cmd() {
     knit_with_table
     knit_done
     local names
-    names=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
+    names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
     [ "$names" = "id,count," ]
 }
 
@@ -259,7 +259,7 @@ __test_register_cmd() {
     knit_with_table
     knit_done
     local names
-    names=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
+    names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
     [ "$names" = "id,label," ]
 }
 
@@ -269,8 +269,8 @@ __test_register_cmd() {
     knit_with_table
     knit_done
     local names types
-    names=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
-    types=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f3 | tr '\n' ',')
+    names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
+    types=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f3 | tr '\n' ',')
     [ "$names" = "id,verbose," ]
     [ "$types" = "TEXT,TEXT," ]
 }
@@ -281,7 +281,7 @@ __test_register_cmd() {
     knit_with_table
     knit_done
     local names
-    names=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
+    names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
     [ "$names" = "id,result," ]
 }
 
@@ -290,11 +290,11 @@ __test_register_cmd() {
     knit_with_required "count:integer" "A count."
     knit_with_table
     knit_done
-    sqlite3 "${__KNIT_DATABASE}" "INSERT INTO mycmd (id, count) VALUES ('550e8400-e29b-41d4-a716-446655440000', 1);"
+    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO mycmd (id, count) VALUES ('550e8400-e29b-41d4-a716-446655440000', 1);"
     # Call _knit_db_setup_table directly a second time — table must survive intact
     _knit_db_setup_table "mycmd" "mycmd"
     local rows
-    rows=$(sqlite3 "${__KNIT_DATABASE}" "SELECT COUNT(*) FROM mycmd;")
+    rows=$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM mycmd;")
     [ "$rows" -eq 1 ]
 }
 
@@ -304,7 +304,7 @@ __test_register_cmd() {
     knit_with_required "count:integer" "A count."
     knit_with_table
     knit_done
-    sqlite3 "${__KNIT_DATABASE}" "INSERT INTO mycmd (id, count) VALUES ('550e8400-e29b-41d4-a716-446655440000', 7);"
+    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO mycmd (id, count) VALUES ('550e8400-e29b-41d4-a716-446655440000', 7);"
 
     # Simulate a new output being added by calling _knit_db_setup_table with
     # a modified command state (add result to outputs set directly)
@@ -314,10 +314,10 @@ __test_register_cmd() {
     _knit_db_setup_table "mycmd" "mycmd"
 
     local names
-    names=$(sqlite3 "${__KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
+    names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
     [ "$names" = "id,count,result," ]
     local preserved
-    preserved=$(sqlite3 "${__KNIT_DATABASE}" "SELECT count FROM mycmd;")
+    preserved=$(sqlite3 "${_KNIT_DATABASE}" "SELECT count FROM mycmd;")
     [ "$preserved" -eq 7 ]
 }
 
@@ -333,7 +333,7 @@ __test_register_cmd() {
     run knit_done
     [ "$status" -eq 0 ]
     local result
-    result=$(sqlite3 "${__KNIT_DATABASE}" \
+    result=$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='guarded';")
     [ "$result" -eq 0 ]
 }
@@ -349,7 +349,7 @@ __test_register_cmd() {
     run knit_done
     [ "$status" -eq 0 ]
     local result
-    result=$(sqlite3 "${__KNIT_DATABASE}" \
+    result=$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='guarded2';")
     [ "$result" -eq 0 ]
 }
@@ -367,12 +367,12 @@ __test_register_cmd() {
 
     _knit_invoke_command "reccmd" "--label" "hello" "--verbose"
 
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT COUNT(*) FROM recs;")" -eq 1 ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT label FROM recs;")" = "hello" ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT verbose FROM recs;")" = "true" ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT result FROM recs;")" = "computed" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM recs;")" -eq 1 ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM recs;")" = "hello" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT verbose FROM recs;")" = "true" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT result FROM recs;")" = "computed" ]
     local id
-    id=$(sqlite3 "${__KNIT_DATABASE}" "SELECT id FROM recs;")
+    id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM recs;")
     knit_type_check "uuid" "${id}"
 }
 
@@ -386,8 +386,8 @@ __test_register_cmd() {
 
     _knit_invoke_command "defcmd"
 
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT label FROM defs;")" = "thedefault" ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT result FROM defs;")" = "noresult" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM defs;")" = "thedefault" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT result FROM defs;")" = "noresult" ]
 }
 
 @test "invoking a command without a table records nothing" {
@@ -397,7 +397,7 @@ __test_register_cmd() {
 
     run _knit_invoke_command "ntcmd"
     [ "$status" -eq 0 ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ntcmd';")" -eq 0 ]
 }
 
@@ -409,7 +409,7 @@ __test_register_cmd() {
     knit_done
 
     _knit_invoke_command "esccmd" "--label" "it's here"
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT label FROM escs;")" = "it's here" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM escs;")" = "it's here" ]
 }
 
 @test "recording honours an explicit row id set with _knit_set_row_id" {
@@ -419,7 +419,7 @@ __test_register_cmd() {
     knit_done
 
     _knit_invoke_command "idcmd"
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT id FROM ids;")" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM ids;")" \
         = "11111111-1111-7111-8111-111111111111" ]
 }
 
@@ -431,7 +431,7 @@ __test_register_cmd() {
 
     KNIT_JOB_PREFIX="/some/where/jobs/22222222-2222-7222-8222-222222222222" \
         _knit_invoke_command "jpcmd"
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT id FROM jps;")" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM jps;")" \
         = "22222222-2222-7222-8222-222222222222" ]
 }
 
@@ -439,21 +439,21 @@ __test_register_cmd() {
 
 @test "_knit_db_update_row updates a column by id" {
     _knit_db_create_table "upd" "id:uuid" "state:string"
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO upd (id, state) VALUES ('abc', 'submitted');"
 
     _knit_db_update_row "upd" "abc" "state=completed"
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT state FROM upd WHERE id='abc';")" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT state FROM upd WHERE id='abc';")" \
         = "completed" ]
 }
 
 @test "_knit_db_update_row normalizes hyphenated column names" {
     _knit_db_create_table "upd2" "id:uuid" "job-name:string"
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO upd2 (id, job_name) VALUES ('abc', 'old');"
 
     _knit_db_update_row "upd2" "abc" "job-name=new"
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT job_name FROM upd2 WHERE id='abc';")" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT job_name FROM upd2 WHERE id='abc';")" \
         = "new" ]
 }
 
@@ -463,8 +463,8 @@ __test_register_cmd() {
     _knit_db_create_table "runs" "id:uuid"
     _knit_sqlite3_write "INSERT INTO runs (id) VALUES ('x');"
 
-    [ -f "${__KNIT_DATABASE}.lock" ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")" = "1" ]
+    [ -f "${_KNIT_DATABASE}.lock" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")" = "1" ]
 }
 
 @test "concurrent writers all land without a 'database is locked' failure" {
@@ -478,8 +478,8 @@ __test_register_cmd() {
     wait
 
     # Every insert landed exactly once with its value intact.
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")" = "${n}" ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT COUNT(DISTINCT n) FROM runs;")" = "${n}" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")" = "${n}" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(DISTINCT n) FROM runs;")" = "${n}" ]
 }
 
 @test "concurrent updates to one row serialize to a consistent final value" {
@@ -493,8 +493,8 @@ __test_register_cmd() {
     wait
 
     # The row is intact (no torn write) and holds one of the written values.
-    [ "$(sqlite3 "${__KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")" = "1" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")" = "1" ]
     local final
-    final=$(sqlite3 "${__KNIT_DATABASE}" "SELECT state FROM runs WHERE id='j';")
+    final=$(sqlite3 "${_KNIT_DATABASE}" "SELECT state FROM runs WHERE id='j';")
     [[ "${final}" =~ ^s-[0-9]+$ ]]
 }

@@ -5,22 +5,22 @@
 # ------------------------------------------------------------------------------
 # Name of the SQLite source archive.
 # ------------------------------------------------------------------------------
-__KNIT_SQLITE_SOURCE_NAME="sqlite-autoconf-3480000"
+_KNIT_SQLITE_SOURCE_NAME="sqlite-autoconf-3480000"
 
 # ------------------------------------------------------------------------------
 # URL to download the SQLite source archive.
 # ------------------------------------------------------------------------------
-__KNIT_SQLITE_SOURCE_URL="https://www.sqlite.org/2025/${__KNIT_SQLITE_SOURCE_NAME}.tar.gz"
+_KNIT_SQLITE_SOURCE_URL="https://www.sqlite.org/2025/${_KNIT_SQLITE_SOURCE_NAME}.tar.gz"
 
 # ------------------------------------------------------------------------------
 # Path to the SQLite executable.
 # ------------------------------------------------------------------------------
-__KNIT_SQLITE_EXE="${_KNIT_PREFIX}/sqlite/bin/sqlite3"
+_KNIT_SQLITE_EXE="${_KNIT_PREFIX}/sqlite/bin/sqlite3"
 
 # ------------------------------------------------------------------------------
 # Path to the Knit database file.
 # ------------------------------------------------------------------------------
-__KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
+_KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
 
 # ------------------------------------------------------------------------------
 # Busy timeout (milliseconds) applied to every sqlite3 invocation. If another
@@ -28,10 +28,10 @@ __KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
 # giving up with "database is locked". A second line of defence behind the
 # advisory flock taken by _knit_sqlite3_write.
 # ------------------------------------------------------------------------------
-__KNIT_SQLITE_BUSY_TIMEOUT_MS="10000"
+_KNIT_SQLITE_BUSY_TIMEOUT_MS="10000"
 
 # ------------------------------------------------------------------------------
-# @fn __knit_sqlite_framed_run()
+# @fn _knit_sqlite_framed_run()
 #
 # Run a command with its combined stdout/stderr written to _KNIT_TRACE_FILE and,
 # when KNIT_LOG_LEVEL is trace, also displayed live in a 10-line frame.
@@ -40,7 +40,7 @@ __KNIT_SQLITE_BUSY_TIMEOUT_MS="10000"
 # @param title Title shown on the frame's top border.
 # @param ... Command and arguments to execute.
 # ------------------------------------------------------------------------------
-__knit_sqlite_framed_run() {
+_knit_sqlite_framed_run() {
     local title="$1"
     shift
     _knit_ensure_trace_file
@@ -59,36 +59,36 @@ _knit_bootstrap_sqlite() {
     knit_pushd "${_KNIT_PREFIX}"
 
     knit_trace "Downloading sqlite source..."
-    if ! __knit_sqlite_framed_run "sqlite: download" \
-            curl -L -O "${__KNIT_SQLITE_SOURCE_URL}" ; then
+    if ! _knit_sqlite_framed_run "sqlite: download" \
+            curl -L -O "${_KNIT_SQLITE_SOURCE_URL}" ; then
         knit_fatal "Could not download sqlite sources. See ${_KNIT_TRACE_FILE} for more information."
     fi
 
     knit_trace "Extracting sqlite source..."
-    if ! __knit_sqlite_framed_run "sqlite: extract" \
-            tar -xvf "${__KNIT_SQLITE_SOURCE_NAME}.tar.gz" ; then
+    if ! _knit_sqlite_framed_run "sqlite: extract" \
+            tar -xvf "${_KNIT_SQLITE_SOURCE_NAME}.tar.gz" ; then
         knit_fatal "Could not extract sqlite sources. See ${_KNIT_TRACE_FILE} for more information."
     fi
 
     knit_trace "Building sqlite..."
-    mkdir "${__KNIT_SQLITE_SOURCE_NAME}/build"
-    knit_pushd "${__KNIT_SQLITE_SOURCE_NAME}/build"
-    if ! __knit_sqlite_framed_run "sqlite: configure" \
+    mkdir "${_KNIT_SQLITE_SOURCE_NAME}/build"
+    knit_pushd "${_KNIT_SQLITE_SOURCE_NAME}/build"
+    if ! _knit_sqlite_framed_run "sqlite: configure" \
             ../configure --prefix="${_KNIT_PREFIX}/sqlite" ; then
         knit_fatal "Could not configure sqlite sources. See ${_KNIT_TRACE_FILE} for more information."
     fi
-    if ! __knit_sqlite_framed_run "sqlite: make" \
+    if ! _knit_sqlite_framed_run "sqlite: make" \
             make ; then
         knit_fatal "Could not build sqlite sources. See ${_KNIT_TRACE_FILE} for more information."
     fi
-    if ! __knit_sqlite_framed_run "sqlite: make install" \
+    if ! _knit_sqlite_framed_run "sqlite: make install" \
             make install ; then
         knit_fatal "Could not install sqlite. See ${_KNIT_TRACE_FILE} for more information."
     fi
-    knit_popd # from "${__KNIT_SQLITE_SOURCE_NAME}/build"
+    knit_popd # from "${_KNIT_SQLITE_SOURCE_NAME}/build"
 
     knit_trace "Deleting sqlite sources and archive..."
-    rm -rf "${__KNIT_SQLITE_SOURCE_NAME}" "${__KNIT_SQLITE_SOURCE_NAME}.tar.gz" 2>"${_KNIT_TRACE_FILE}"
+    rm -rf "${_KNIT_SQLITE_SOURCE_NAME}" "${_KNIT_SQLITE_SOURCE_NAME}.tar.gz" 2>"${_KNIT_TRACE_FILE}"
 
     knit_popd # from "${_KNIT_PREFIX}"
 
@@ -164,8 +164,8 @@ _knit_sql_quote_identifier() {
 # @param ... Parameters to forward to the sqlite3 command.
 # ------------------------------------------------------------------------------
 _knit_sqlite3() {
-    ${__KNIT_SQLITE_EXE} -cmd ".timeout ${__KNIT_SQLITE_BUSY_TIMEOUT_MS}" \
-        "${__KNIT_DATABASE}" "$@"
+    ${_KNIT_SQLITE_EXE} -cmd ".timeout ${_KNIT_SQLITE_BUSY_TIMEOUT_MS}" \
+        "${_KNIT_DATABASE}" "$@"
 }
 
 # shellcheck disable=SC2120
@@ -183,7 +183,7 @@ _knit_sqlite3() {
 # @param ... Parameters to forward to _knit_sqlite3.
 # ------------------------------------------------------------------------------
 _knit_sqlite3_write() {
-    local lock="${__KNIT_DATABASE}.lock"
+    local lock="${_KNIT_DATABASE}.lock"
     ( flock 9 || knit_fatal "Could not acquire database lock \"${lock}\"."
       _knit_sqlite3 "$@" ) 9>"${lock}"
 }

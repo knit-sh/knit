@@ -10,10 +10,10 @@ setup() {
 
     source knit.sh
 
-    __KNIT_SQLITE_EXE="sqlite3"
-    __KNIT_JQ_EXE="jq"
-    __KNIT_DATABASE="$(mktemp --suffix=.db)"
-    __KNIT_TEST_TMPDIR="$(mktemp -d)"
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_JQ_EXE="jq"
+    _KNIT_DATABASE="$(mktemp --suffix=.db)"
+    _KNIT_TEST_TMPDIR="$(mktemp -d)"
 
     # Satisfy the bootstrap check — tests in this file work with a live DB
     _KNIT_IS_BOOTSTRAPPED="1"
@@ -22,8 +22,8 @@ setup() {
 }
 
 teardown() {
-    rm -f "${__KNIT_DATABASE}"
-    rm -rf "${__KNIT_TEST_TMPDIR}"
+    rm -f "${_KNIT_DATABASE}"
+    rm -rf "${_KNIT_TEST_TMPDIR}"
     _KNIT_IS_BOOTSTRAPPED=""
 }
 
@@ -62,24 +62,24 @@ teardown() {
     [[ "${a}" < "${b}" ]]
 }
 
-# ---------- __knit_submit job directory creation ----------
+# ---------- _knit_submit job directory creation ----------
 
-@test "__knit_submit creates <setup>/jobs/<uuid> directory" {
-    local setup_dir="${__KNIT_TEST_TMPDIR}/setup"
+@test "_knit_submit creates <setup>/jobs/<uuid> directory" {
+    local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
     mkdir -p "${setup_dir}"
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_done
 
-    # __knit_submit records its jobs row before dispatching, so the table
+    # _knit_submit records its jobs row before dispatching, so the table
     # must exist (normally ensured lazily by _knit_invoke_command on first use).
     _knit_db_setup_table "submit" "jobs"
 
-    # __knit_submit is normally reached via _knit_invoke_command; when calling it
+    # _knit_submit is normally reached via _knit_invoke_command; when calling it
     # directly, provide the executing-command context that its knit_output /
     # _knit_set_row_id calls require.
     _KNIT_EXECUTING_COMMAND=("submit")
-    __knit_submit --setup "${setup_dir}" -- myjob
+    _knit_submit --setup "${setup_dir}" -- myjob
 
     [ -d "${setup_dir}/jobs" ]
     local count
@@ -87,29 +87,29 @@ teardown() {
     [ "${count}" -eq 1 ]
 }
 
-@test "__knit_submit job directory name is a valid uuid" {
-    local setup_dir="${__KNIT_TEST_TMPDIR}/setup"
+@test "_knit_submit job directory name is a valid uuid" {
+    local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
     mkdir -p "${setup_dir}"
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_done
 
-    # __knit_submit records its jobs row before dispatching, so the table
+    # _knit_submit records its jobs row before dispatching, so the table
     # must exist (normally ensured lazily by _knit_invoke_command on first use).
     _knit_db_setup_table "submit" "jobs"
 
-    # __knit_submit is normally reached via _knit_invoke_command; when calling it
+    # _knit_submit is normally reached via _knit_invoke_command; when calling it
     # directly, provide the executing-command context that its knit_output /
     # _knit_set_row_id calls require.
     _KNIT_EXECUTING_COMMAND=("submit")
-    __knit_submit --setup "${setup_dir}" -- myjob
+    _knit_submit --setup "${setup_dir}" -- myjob
 
     local name
     name=$(find "${setup_dir}/jobs" -mindepth 1 -maxdepth 1 -type d -printf '%f\n')
     knit_type_check "uuid" "${name}"
 }
 
-@test "__knit_submit absolutizes a relative setup path in the batch script" {
+@test "_knit_submit absolutizes a relative setup path in the batch script" {
     # The generated batch script cd's into the job dir before re-entering the
     # experiment, so KNIT_SETUP_PREFIX / KNIT_JOB_PREFIX / the cd target must be
     # absolute even when --setup is given as a relative path.
@@ -119,13 +119,13 @@ teardown() {
     _knit_db_setup_table "submit" "jobs"
 
     _KNIT_EXECUTING_COMMAND=("submit")
-    knit_pushd "${__KNIT_TEST_TMPDIR}"
+    knit_pushd "${_KNIT_TEST_TMPDIR}"
     mkdir -p relsetup
-    __knit_submit --setup ./relsetup -- myjob
+    _knit_submit --setup ./relsetup -- myjob
     knit_popd
 
     local jobscript
-    jobscript=$(find "${__KNIT_TEST_TMPDIR}/relsetup/jobs" \
+    jobscript=$(find "${_KNIT_TEST_TMPDIR}/relsetup/jobs" \
         -name .job.sh -type f | head -1)
     [[ -n "${jobscript}" ]]
     grep -q "^export KNIT_SETUP_PREFIX=/" "${jobscript}"
@@ -133,7 +133,7 @@ teardown() {
     grep -q "^cd /" "${jobscript}"
 }
 
-@test "__knit_submit sources the setup .activate.sh in the batch script" {
+@test "_knit_submit sources the setup .activate.sh in the batch script" {
     # The setup environment must be sourced before the experiment is re-entered
     # so that ENV[...] parameter defaults (resolved during argument expansion)
     # can see the variables the setup exported.
@@ -142,11 +142,11 @@ teardown() {
     knit_done
     _knit_db_setup_table "submit" "jobs"
 
-    local setup_dir="${__KNIT_TEST_TMPDIR}/setup"
+    local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
     mkdir -p "${setup_dir}"
 
     _KNIT_EXECUTING_COMMAND=("submit")
-    __knit_submit --setup "${setup_dir}" -- myjob
+    _knit_submit --setup "${setup_dir}" -- myjob
 
     local jobscript
     jobscript=$(find "${setup_dir}/jobs" -name .job.sh -type f | head -1)
@@ -159,27 +159,27 @@ teardown() {
     [ "${src_line}" -lt "${exec_line}" ]
 }
 
-@test "__knit_submit does not add a source line for a setup-less job" {
+@test "_knit_submit does not add a source line for a setup-less job" {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_done
     _knit_db_setup_table "submit" "jobs"
 
     _KNIT_EXECUTING_COMMAND=("submit")
-    knit_pushd "${__KNIT_TEST_TMPDIR}"
-    __knit_submit -- myjob
+    knit_pushd "${_KNIT_TEST_TMPDIR}"
+    _knit_submit -- myjob
     knit_popd
 
     local jobscript
-    jobscript=$(find "${__KNIT_TEST_TMPDIR}/jobs" -name .job.sh -type f | head -1)
+    jobscript=$(find "${_KNIT_TEST_TMPDIR}/jobs" -name .job.sh -type f | head -1)
     [[ -n "${jobscript}" ]]
     ! grep -q "^source .*/.activate.sh$" "${jobscript}"
 }
 
-# ---------- __knit_submit : setup requirement (knit_with_setup) ----------
+# ---------- _knit_submit : setup requirement (knit_with_setup) ----------
 
-@test "__knit_submit accepts a setup of the required type" {
-    local setup_dir="${__KNIT_TEST_TMPDIR}/setup"
+@test "_knit_submit accepts a setup of the required type" {
+    local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
     mkdir -p "${setup_dir}"
     printf 'mcenv\n' > "${setup_dir}/.setup.type"
     _test_job_fn() { :; }
@@ -189,13 +189,13 @@ teardown() {
     _knit_db_setup_table "submit" "jobs"
 
     _KNIT_EXECUTING_COMMAND=("submit")
-    run __knit_submit --setup "${setup_dir}" -- myjob
+    run _knit_submit --setup "${setup_dir}" -- myjob
     [ "$status" -eq 0 ]
     [ -d "${setup_dir}/jobs" ]
 }
 
-@test "__knit_submit rejects a setup built by a different type" {
-    local setup_dir="${__KNIT_TEST_TMPDIR}/setup"
+@test "_knit_submit rejects a setup built by a different type" {
+    local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
     mkdir -p "${setup_dir}"
     printf 'otherenv\n' > "${setup_dir}/.setup.type"
     _test_job_fn() { :; }
@@ -204,14 +204,14 @@ teardown() {
     knit_done
 
     _KNIT_EXECUTING_COMMAND=("submit")
-    run __knit_submit --setup "${setup_dir}" -- myjob
+    run _knit_submit --setup "${setup_dir}" -- myjob
     [ "$status" -ne 0 ]
     [[ "$output" == *"mcenv"* ]]
     [[ "$output" == *"otherenv"* ]]
 }
 
-@test "__knit_submit rejects a setup with no recorded type" {
-    local setup_dir="${__KNIT_TEST_TMPDIR}/setup"
+@test "_knit_submit rejects a setup with no recorded type" {
+    local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
     mkdir -p "${setup_dir}"
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
@@ -219,37 +219,37 @@ teardown() {
     knit_done
 
     _KNIT_EXECUTING_COMMAND=("submit")
-    run __knit_submit --setup "${setup_dir}" -- myjob
+    run _knit_submit --setup "${setup_dir}" -- myjob
     [ "$status" -ne 0 ]
     [[ "$output" == *"no recorded type"* ]]
 }
 
-@test "__knit_submit requires --setup when the job declares a setup type" {
+@test "_knit_submit requires --setup when the job declares a setup type" {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_with_setup "mcenv"
     knit_done
 
     _KNIT_EXECUTING_COMMAND=("submit")
-    run __knit_submit -- myjob
+    run _knit_submit -- myjob
     [ "$status" -ne 0 ]
     [[ "$output" == *"requires a --setup"* ]]
 }
 
-@test "__knit_submit runs a setup-less job under jobs/<uuid> without --setup" {
+@test "_knit_submit runs a setup-less job under jobs/<uuid> without --setup" {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_done
     _knit_db_setup_table "submit" "jobs"
 
     _KNIT_EXECUTING_COMMAND=("submit")
-    knit_pushd "${__KNIT_TEST_TMPDIR}"
-    __knit_submit -- myjob
+    knit_pushd "${_KNIT_TEST_TMPDIR}"
+    _knit_submit -- myjob
     knit_popd
 
-    [ -d "${__KNIT_TEST_TMPDIR}/jobs" ]
+    [ -d "${_KNIT_TEST_TMPDIR}/jobs" ]
     local jobscript
-    jobscript=$(find "${__KNIT_TEST_TMPDIR}/jobs" -name .job.sh -type f | head -1)
+    jobscript=$(find "${_KNIT_TEST_TMPDIR}/jobs" -name .job.sh -type f | head -1)
     [[ -n "${jobscript}" ]]
     # A setup-less job must not export KNIT_SETUP_PREFIX in its batch script.
     ! grep -q "KNIT_SETUP_PREFIX" "${jobscript}"
@@ -440,16 +440,16 @@ teardown() {
 # ---------- _knit_sched_cancel ----------
 
 @test "_knit_sched_cancel dispatches to the backend cancel primitive" {
-    _knit_sched_local_cancel() { printf 'local:%s\n' "$1" > "${__KNIT_TEST_TMPDIR}/c"; }
-    _knit_sched_slurm_cancel() { printf 'slurm:%s\n' "$1" > "${__KNIT_TEST_TMPDIR}/c"; }
-    _knit_sched_pbs_cancel()   { printf 'pbs:%s\n'   "$1" > "${__KNIT_TEST_TMPDIR}/c"; }
+    _knit_sched_local_cancel() { printf 'local:%s\n' "$1" > "${_KNIT_TEST_TMPDIR}/c"; }
+    _knit_sched_slurm_cancel() { printf 'slurm:%s\n' "$1" > "${_KNIT_TEST_TMPDIR}/c"; }
+    _knit_sched_pbs_cancel()   { printf 'pbs:%s\n'   "$1" > "${_KNIT_TEST_TMPDIR}/c"; }
 
     _knit_sched_cancel local 111
-    [ "$(< "${__KNIT_TEST_TMPDIR}/c")" = "local:111" ]
+    [ "$(< "${_KNIT_TEST_TMPDIR}/c")" = "local:111" ]
     _knit_sched_cancel slurm 222
-    [ "$(< "${__KNIT_TEST_TMPDIR}/c")" = "slurm:222" ]
+    [ "$(< "${_KNIT_TEST_TMPDIR}/c")" = "slurm:222" ]
     _knit_sched_cancel pbs 333
-    [ "$(< "${__KNIT_TEST_TMPDIR}/c")" = "pbs:333" ]
+    [ "$(< "${_KNIT_TEST_TMPDIR}/c")" = "pbs:333" ]
 }
 
 @test "_knit_sched_cancel fatals on an unknown backend" {

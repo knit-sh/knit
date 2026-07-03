@@ -95,7 +95,7 @@ _knit_sched_pbs_submit() {
 # @fn _knit_sched_pbs_wait()
 #
 # Block until PBS no longer runs the job. OpenPBS ships no `qwait`, so poll
-# `qstat` every __KNIT_SCHED_POLL_INTERVAL seconds. `-x` also reports finished
+# `qstat` every _KNIT_SCHED_POLL_INTERVAL seconds. `-x` also reports finished
 # jobs from history when it is enabled. A job that is gone (unknown/purged, so no
 # job_state line) is treated as finished; a job whose job_state is "E" (exiting,
 # its Exit_status is already set) or "F" (finished) is terminal. "E" is treated
@@ -113,7 +113,7 @@ _knit_sched_pbs_wait() {
             | awk -F'=' '/job_state/ { gsub(/ /, "", $2); print $2; exit }')"
         [[ -z "${state}" ]] && return 0
         [[ "${state}" == "E" || "${state}" == "F" ]] && return 0
-        sleep "${__KNIT_SCHED_POLL_INTERVAL}"
+        sleep "${_KNIT_SCHED_POLL_INTERVAL}"
     done
 }
 
@@ -122,7 +122,7 @@ _knit_sched_pbs_wait() {
 #
 # Cancel a PBS job with qdel. qdel sends SIGTERM then SIGKILL, letting the batch
 # shell's pre-termination handler record the job "killed" (see
-# __knit_job_killed_trap). A qdel of an already-finished/unknown job may print a
+# _knit_job_killed_trap). A qdel of an already-finished/unknown job may print a
 # diagnostic; that is not treated as a knit-level failure since the job is gone.
 #
 # @param jobid PBS job id (from the job's .job.id).

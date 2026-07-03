@@ -8,24 +8,24 @@ setup() {
     source knit.sh
 
     # Override the sqlite executable and database path for testing
-    __KNIT_SQLITE_EXE="sqlite3"
-    __KNIT_DATABASE="$(mktemp --suffix=.db)"
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="$(mktemp --suffix=.db)"
 
     # Satisfy the bootstrap check — tests in this file work with a live DB
     _KNIT_IS_BOOTSTRAPPED="1"
 }
 
 teardown() {
-    rm -f "${__KNIT_DATABASE}"
+    rm -f "${_KNIT_DATABASE}"
     _KNIT_IS_BOOTSTRAPPED=""
 }
 
 # Create a jobs table and insert one row with the given id/setup/job/state.
 _seed_job() {
     local id="$1" setup="$2" job="$3" state="$4"
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "CREATE TABLE IF NOT EXISTS jobs (id TEXT, setup TEXT, job TEXT, state TEXT);"
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO jobs (id, setup, job, state) VALUES ('${id}', '${setup}', '${job}', '${state}');"
 }
 
@@ -141,9 +141,9 @@ _seed_job() {
 }
 
 @test "job list --no-setup also matches NULL setups" {
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "CREATE TABLE IF NOT EXISTS jobs (id TEXT, setup TEXT, job TEXT, state TEXT);"
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO jobs (id, job, state) VALUES ('idn', 'delta', 'running');"
     _seed_job "id1" "/s/a" "alpha" "running"
     run _knit_job_list --no-setup true
@@ -207,7 +207,7 @@ _seed_job() {
 
 @test "job list prints nothing for an empty jobs table" {
     _seed_job "id1" "/s/a" "alpha" "running"
-    sqlite3 "${__KNIT_DATABASE}" "DELETE FROM jobs;"
+    sqlite3 "${_KNIT_DATABASE}" "DELETE FROM jobs;"
     run _knit_job_list
     [ "$status" -eq 0 ]
     [ -z "$output" ]
@@ -299,7 +299,7 @@ _seed_job() {
 @test "job list --json emits [] for an empty jobs table" {
     command -v jq &>/dev/null || skip "jq not available"
     _seed_job "id1" "/s/a" "alpha" "running"
-    sqlite3 "${__KNIT_DATABASE}" "DELETE FROM jobs;"
+    sqlite3 "${_KNIT_DATABASE}" "DELETE FROM jobs;"
     run _knit_job_list --json true
     [ "$status" -eq 0 ]
     [ "$output" = "[]" ]
@@ -390,12 +390,12 @@ _seed_job() {
     _KNIT_PREFIX="${root}/.knit"
     mkdir -p "${root}/jobs/id1"
     echo "999" > "${root}/jobs/id1/.job.id"
-    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    _KNIT_SCHED_POLL_INTERVAL="0.1"
     # Force the local backend and stub its wait to flip the state, standing in
     # for the scheduler unblocking + the compute-side terminal-state write.
     _knit_sched_backend() { echo "local"; }
     _knit_sched_local_wait() {
-        sqlite3 "${__KNIT_DATABASE}" \
+        sqlite3 "${_KNIT_DATABASE}" \
             "UPDATE jobs SET state = 'completed' WHERE id = 'id1';"
     }
     run _knit_job_wait --id "id1"
@@ -410,10 +410,10 @@ _seed_job() {
     _KNIT_PREFIX="${root}/.knit"
     mkdir -p "${root}/jobs/id1"
     echo "999" > "${root}/jobs/id1/.job.id"
-    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    _KNIT_SCHED_POLL_INTERVAL="0.1"
     _knit_sched_backend() { echo "local"; }
     _knit_sched_local_wait() {
-        sqlite3 "${__KNIT_DATABASE}" \
+        sqlite3 "${_KNIT_DATABASE}" \
             "UPDATE jobs SET state = 'killed' WHERE id = 'id1';"
     }
     run _knit_job_wait --id "id1"
@@ -453,7 +453,7 @@ _seed_job() {
     run _knit_job_cancel --id "id1"
     [ "$status" -eq 0 ]
     [ "$(cat "${root}/cancelled")" = "999" ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT state FROM jobs WHERE id='id1';")" = "killed" ]
 }
 
@@ -462,7 +462,7 @@ _seed_job() {
     run _knit_job_cancel --id "id1"
     [ "$status" -eq 0 ]
     [[ "$output" == *"already completed"* ]]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT state FROM jobs WHERE id='id1';")" = "completed" ]
 }
 
@@ -487,7 +487,7 @@ _seed_job() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"launcher id"* ]]
     # The state must not have moved: no cancellation actually happened.
-    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT state FROM jobs WHERE id='id1';")" = "running" ]
 }
 
@@ -502,7 +502,7 @@ _seed_job() {
     _knit_sched_local_cancel() { :; }
     run _knit_invoke_command "job__1__cancel" --id "id1"
     [ "$status" -eq 0 ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT state FROM jobs WHERE id='id1';")" = "killed" ]
 }
 
@@ -534,7 +534,7 @@ _seed_job() {
     run _knit_job_rm --id "id1"
     [ "$status" -eq 0 ]
     [ ! -d "${root}/jobs/id1" ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM jobs WHERE id='id1';")" = "0" ]
 }
 
@@ -546,7 +546,7 @@ _seed_job() {
     run _knit_job_rm --id "id1"
     [ "$status" -eq 0 ]
     [ ! -d "${setup}/jobs/id1" ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM jobs WHERE id='id1';")" = "0" ]
 }
 
@@ -561,7 +561,7 @@ _seed_job() {
     [[ "$output" == *"still running"* ]]
     # Neither the directory nor the row must have been touched.
     [ -d "${root}/jobs/id1" ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM jobs WHERE id='id1';")" = "1" ]
 }
 
@@ -574,7 +574,7 @@ _seed_job() {
     run _knit_job_rm --id "id1" --force true
     [ "$status" -eq 0 ]
     [ ! -d "${root}/jobs/id1" ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM jobs WHERE id='id1';")" = "0" ]
 }
 
@@ -594,7 +594,7 @@ _seed_job() {
     run _knit_invoke_command "job__1__rm" --id "id1"
     [ "$status" -eq 0 ]
     [ ! -d "${root}/jobs/id1" ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM jobs WHERE id='id1';")" = "0" ]
 }
 
@@ -607,7 +607,7 @@ _seed_job() {
     run _knit_invoke_command "job__1__rm" --id "id1" --force
     [ "$status" -eq 0 ]
     [ ! -d "${root}/jobs/id1" ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM jobs WHERE id='id1';")" = "0" ]
 }
 
@@ -630,7 +630,7 @@ _seed_job() {
 # ---------- backend wait primitives ----------
 
 @test "local wait blocks until a process exits" {
-    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    _KNIT_SCHED_POLL_INTERVAL="0.1"
     sleep 0.4 &
     local pid=$!
     local start end
@@ -644,13 +644,13 @@ _seed_job() {
 }
 
 @test "local wait returns immediately for a non-numeric id" {
-    __KNIT_SCHED_POLL_INTERVAL="5"
+    _KNIT_SCHED_POLL_INTERVAL="5"
     run _knit_sched_local_wait "not-a-pid"
     [ "$status" -eq 0 ]
 }
 
 @test "slurm wait polls squeue until the job leaves the queue" {
-    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    _KNIT_SCHED_POLL_INTERVAL="0.1"
     local counter
     counter="$(mktemp)"
     echo 0 > "${counter}"
@@ -670,7 +670,7 @@ _seed_job() {
 }
 
 @test "pbs wait polls qstat until the job reaches a terminal state" {
-    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    _KNIT_SCHED_POLL_INTERVAL="0.1"
     local counter
     counter="$(mktemp)"
     echo 0 > "${counter}"
@@ -693,7 +693,7 @@ _seed_job() {
 }
 
 @test "pbs wait treats an unknown job as finished" {
-    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    _KNIT_SCHED_POLL_INTERVAL="0.1"
     qstat() { return 0; }  # no job_state line -> job gone
     run _knit_sched_pbs_wait 123
     [ "$status" -eq 0 ]
@@ -704,9 +704,9 @@ _seed_job() {
 # Create a per-job parameter table named after the job and insert one row.
 _seed_params() {
     local table="$1" id="$2" samples="$3"
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "CREATE TABLE IF NOT EXISTS \"${table}\" (id TEXT, samples TEXT);"
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO \"${table}\" (id, samples) VALUES ('${id}', '${samples}');"
 }
 
@@ -740,7 +740,7 @@ _seed_params() {
 
 @test "job show --json emits a submission and parameters object" {
     command -v jq &>/dev/null || skip "jq not available"
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
     _seed_job "abc123" "/exp/env" "montecarlo" "completed"
     _seed_params "montecarlo" "abc123" "1000"
     run _knit_job_show --id "abc123" --json true
@@ -752,7 +752,7 @@ _seed_params() {
 
 @test "job show --json yields null parameters when the job has not run" {
     command -v jq &>/dev/null || skip "jq not available"
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
     _seed_job "abc123" "" "montecarlo" "submitted"
     run _knit_job_show --id "abc123" --json true
     [ "$status" -eq 0 ]
@@ -762,7 +762,7 @@ _seed_params() {
 
 @test "job show --json works as a bare flag through the pipeline" {
     command -v jq &>/dev/null || skip "jq not available"
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
     _seed_job "abc123" "/exp/env" "montecarlo" "completed"
     _seed_params "montecarlo" "abc123" "1000"
     run _knit_invoke_command "job__1__show" --id "abc123" --json
@@ -953,15 +953,15 @@ _seed_params() {
 
 # ---------- job show --follow ----------
 
-@test "__knit_job_state_is_terminal recognizes terminal and non-terminal states" {
+@test "_knit_job_state_is_terminal recognizes terminal and non-terminal states" {
     _seed_job "done" "" "montecarlo" "completed"
     _seed_job "gone" "" "montecarlo" "killed"
     _seed_job "live" "" "montecarlo" "running"
-    __knit_job_state_is_terminal "done"
-    __knit_job_state_is_terminal "gone"
-    run __knit_job_state_is_terminal "live"
+    _knit_job_state_is_terminal "done"
+    _knit_job_state_is_terminal "gone"
+    run _knit_job_state_is_terminal "live"
     [ "$status" -ne 0 ]
-    run __knit_job_state_is_terminal "nope"
+    run _knit_job_state_is_terminal "nope"
     [ "$status" -ne 0 ]
 }
 
@@ -1018,9 +1018,9 @@ _seed_params() {
     _seed_job "abc123" "" "montecarlo" "running"
     mkdir -p "${root}/jobs/abc123"
     printf 'streamed line\n' > "${root}/jobs/abc123/.stdout"
-    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    _KNIT_SCHED_POLL_INTERVAL="0.1"
     # Report running for the initial check, then terminal so the follow loop ends.
-    __knit_job_state_is_terminal() {
+    _knit_job_state_is_terminal() {
         local n
         n="$(cat "${cf}" 2>/dev/null || echo 0)"
         n=$((n + 1))
@@ -1040,10 +1040,10 @@ _seed_params() {
     _KNIT_PREFIX="${root}/.knit"
     _seed_job "abc123" "" "montecarlo" "running"
     mkdir -p "${root}/jobs/abc123"
-    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    _KNIT_SCHED_POLL_INTERVAL="0.1"
     # Stay non-terminal for the first checks (top check + one wait-loop pass +
     # one follow-loop pass), then terminal.
-    __knit_job_state_is_terminal() {
+    _knit_job_state_is_terminal() {
         local n
         n="$(cat "${cf}" 2>/dev/null || echo 0)"
         n=$((n + 1))
@@ -1066,10 +1066,10 @@ _seed_params() {
     _KNIT_PREFIX="${root}/.knit"
     _seed_job "abc123" "" "montecarlo" "running"
     mkdir -p "${root}/jobs/abc123"
-    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    _KNIT_SCHED_POLL_INTERVAL="0.1"
     # Non-terminal for the top check, then terminal while still waiting for the
     # file that never appears.
-    __knit_job_state_is_terminal() {
+    _knit_job_state_is_terminal() {
         local n
         n="$(cat "${cf}" 2>/dev/null || echo 0)"
         n=$((n + 1))
@@ -1147,9 +1147,9 @@ _register_mc_job() {
 @test "job resubmit replays a recorded submission flag" {
     _register_mc_job
     # Seed a jobs table that carries the "wait" flag column set to true.
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "CREATE TABLE jobs (id TEXT, setup TEXT, wait TEXT, job TEXT, state TEXT);"
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO jobs (id, setup, wait, job, state) VALUES ('id1', '', 'true', 'montecarlo', 'completed');"
     _knit_invoke_command() { printf 'INVOKE: %s\n' "$*"; }
     run _knit_job_resubmit --id "id1"
@@ -1171,7 +1171,7 @@ _register_mc_job() {
     _seed_job "id1" "" "montecarlo" "completed"
     _seed_params "montecarlo" "id1" "1000"
     # Stub the submit entry point so the real scheduler is never contacted.
-    __knit_submit() { printf 'SUBMITTED %s\n' "$*"; }
+    _knit_submit() { printf 'SUBMITTED %s\n' "$*"; }
     run _knit_invoke_command "job__1__resubmit" --id "id1"
     [ "$status" -eq 0 ]
     [[ "$output" == *"Resubmitting job"* ]]

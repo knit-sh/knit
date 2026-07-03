@@ -34,9 +34,9 @@ _knit_sched_slurm_directives() {
     fi
     printf '#SBATCH --time=%s\n' "${resolved[walltime]}"
     # Warn the batch shell before the walltime kill so the job can record itself
-    # as "killed" (see __knit_job_killed_trap). B: targets the batch shell;
+    # as "killed" (see _knit_job_killed_trap). B: targets the batch shell;
     # @<sec> is how many seconds before the limit to deliver the signal.
-    printf '#SBATCH --signal=B:USR1@%s\n' "${__KNIT_SCHED_KILL_WARNING_SEC}"
+    printf '#SBATCH --signal=B:USR1@%s\n' "${_KNIT_SCHED_KILL_WARNING_SEC}"
     if [[ "${resolved[gpus-per-node]}" != "0" ]]; then
         printf '#SBATCH --gpus-per-node=%s\n' "${resolved[gpus-per-node]}"
     fi
@@ -100,7 +100,7 @@ _knit_sched_slurm_submit() {
 # blocking "wait for completion" primitive after submission: `scontrol wait_job`
 # returns as soon as the job is allocated (not when it finishes), and `sbatch
 # --wait` only applies at submit time. So poll `squeue` for the job id every
-# __KNIT_SCHED_POLL_INTERVAL seconds until it produces no rows, which is true
+# _KNIT_SCHED_POLL_INTERVAL seconds until it produces no rows, which is true
 # once the job has completed, failed, or been cancelled (a running or completing
 # CG job still lists). The job's knit terminal state is read from the DB by the
 # caller afterwards.
@@ -110,7 +110,7 @@ _knit_sched_slurm_submit() {
 _knit_sched_slurm_wait() {
     local jobid="$1"
     while squeue -h -j "${jobid}" -o '%T' 2>/dev/null | grep -q .; do
-        sleep "${__KNIT_SCHED_POLL_INTERVAL}"
+        sleep "${_KNIT_SCHED_POLL_INTERVAL}"
     done
 }
 
@@ -119,7 +119,7 @@ _knit_sched_slurm_wait() {
 #
 # Cancel a Slurm job with scancel. scancel sends SIGTERM (then SIGKILL after a
 # grace period), which lets the batch shell's pre-termination handler record the
-# job "killed" (see __knit_job_killed_trap). scancel exits 0 even for a job that
+# job "killed" (see _knit_job_killed_trap). scancel exits 0 even for a job that
 # has already finished, so no special-casing is needed here.
 #
 # @param jobid Slurm job id (from the job's .job.id).

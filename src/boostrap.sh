@@ -45,12 +45,12 @@ _knit_is_bootstrapped() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn __knit_bootstrap_on_exit()
+# @fn _knit_bootstrap_on_exit()
 #
 # Clean up on exit if bootstrap did not complete successfully.
 # ------------------------------------------------------------------------------
-__knit_bootstrap_on_exit() {
-    if [ -z "${__KNIT_BOOTSTRAP_COMPLETED}" ]; then
+_knit_bootstrap_on_exit() {
+    if [ -z "${_KNIT_BOOTSTRAP_COMPLETED}" ]; then
         knit_warning "Bootstrap did not complete successfully, deleting ${_KNIT_PREFIX}"
         _knit_ensure_trace_file
         rm -rf "${_KNIT_PREFIX}" > "${_KNIT_TRACE_FILE}" 2>&1
@@ -115,7 +115,7 @@ _knit_bootstrap() {
     knit_trace "Creating ${_KNIT_PREFIX} directory"
     _knit_ensure_trace_file
     mkdir "${_KNIT_PREFIX}" > "${_KNIT_TRACE_FILE}" 2>&1
-    trap __knit_bootstrap_on_exit EXIT
+    trap _knit_bootstrap_on_exit EXIT
 
     if [[ "${need_spack}" == "true" ]]; then
         knit_trace "Bootstrapping spack..."
@@ -190,6 +190,6 @@ _knit_bootstrap() {
     knit metadata store --key "__node_ngpus__"             --value "${node_ngpus}"
 
     # Bootstrap completed successfully
-    __KNIT_BOOTSTRAP_COMPLETED="true"
+    _KNIT_BOOTSTRAP_COMPLETED="true"
 }
 knit_done

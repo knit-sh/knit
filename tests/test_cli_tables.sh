@@ -8,15 +8,15 @@ setup() {
     source knit.sh
 
     # Override the sqlite executable and database path for testing
-    __KNIT_SQLITE_EXE="sqlite3"
-    __KNIT_DATABASE="$(mktemp --suffix=.db)"
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="$(mktemp --suffix=.db)"
 
     # Satisfy the bootstrap check — tests in this file work with a live DB
     _KNIT_IS_BOOTSTRAPPED="1"
 }
 
 teardown() {
-    rm -f "${__KNIT_DATABASE}"
+    rm -f "${_KNIT_DATABASE}"
     _KNIT_IS_BOOTSTRAPPED=""
 }
 
@@ -29,7 +29,7 @@ teardown() {
     knit_with_table
     knit_done
     local result
-    result=$(sqlite3 "${__KNIT_DATABASE}" \
+    result=$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='foo:bar';")
     [ "$result" -eq 1 ]
 }
@@ -39,7 +39,7 @@ teardown() {
     knit_with_table "my_runs"
     knit_done
     local result
-    result=$(sqlite3 "${__KNIT_DATABASE}" \
+    result=$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='my_runs';")
     [ "$result" -eq 1 ]
 }
@@ -49,7 +49,7 @@ teardown() {
     knit_with_table
     knit_done
     local result
-    result=$(sqlite3 "${__KNIT_DATABASE}" \
+    result=$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='run';")
     [ "$result" -eq 1 ]
 }
@@ -64,9 +64,9 @@ teardown() {
     knit_done
 
     local r1 r2
-    r1=$(sqlite3 "${__KNIT_DATABASE}" \
+    r1=$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='table1';")
-    r2=$(sqlite3 "${__KNIT_DATABASE}" \
+    r2=$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='table2';")
     [ "$r1" -eq 1 ]
     [ "$r2" -eq 1 ]
@@ -93,7 +93,7 @@ teardown() {
     knit_with_table
     knit_done
     local first_col
-    first_col=$(sqlite3 "${__KNIT_DATABASE}" \
+    first_col=$(sqlite3 "${_KNIT_DATABASE}" \
         "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | head -1)
     [ "$first_col" = "id" ]
 }
@@ -107,7 +107,7 @@ teardown() {
     knit_with_table
     knit_done
     local names
-    names=$(sqlite3 "${__KNIT_DATABASE}" \
+    names=$(sqlite3 "${_KNIT_DATABASE}" \
         "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
     [ "$names" = "id,iters,label,verbose,score," ]
 }
@@ -117,7 +117,7 @@ teardown() {
     knit_register knit_empty "mycmd" "A command."
     knit_with_table
     knit_done
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO mycmd (id) VALUES ('550e8400-e29b-41d4-a716-446655440000');"
 
     # Now add an optional parameter and re-run setup directly
@@ -127,7 +127,7 @@ teardown() {
     _knit_db_setup_table "mycmd" "mycmd"
 
     local val
-    val=$(sqlite3 "${__KNIT_DATABASE}" "SELECT label FROM mycmd;")
+    val=$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM mycmd;")
     [ "$val" = "mydefault" ]
 }
 

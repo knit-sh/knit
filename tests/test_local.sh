@@ -9,34 +9,34 @@ teardown() {
     rm -rf "${TMPDIR_LOCAL}"
 }
 
-# ---------- __knit_walltime_to_seconds ----------
+# ---------- _knit_walltime_to_seconds ----------
 
-@test "__knit_walltime_to_seconds converts 00:00:01 to 1" {
-    run __knit_walltime_to_seconds "00:00:01"
+@test "_knit_walltime_to_seconds converts 00:00:01 to 1" {
+    run _knit_walltime_to_seconds "00:00:01"
     [ "$status" -eq 0 ]
     [ "$output" = "1" ]
 }
 
-@test "__knit_walltime_to_seconds converts 00:01:00 to 60" {
-    run __knit_walltime_to_seconds "00:01:00"
+@test "_knit_walltime_to_seconds converts 00:01:00 to 60" {
+    run _knit_walltime_to_seconds "00:01:00"
     [ "$status" -eq 0 ]
     [ "$output" = "60" ]
 }
 
-@test "__knit_walltime_to_seconds converts 01:00:00 to 3600" {
-    run __knit_walltime_to_seconds "01:00:00"
+@test "_knit_walltime_to_seconds converts 01:00:00 to 3600" {
+    run _knit_walltime_to_seconds "01:00:00"
     [ "$status" -eq 0 ]
     [ "$output" = "3600" ]
 }
 
-@test "__knit_walltime_to_seconds converts 24:00:00 to 86400" {
-    run __knit_walltime_to_seconds "24:00:00"
+@test "_knit_walltime_to_seconds converts 24:00:00 to 86400" {
+    run _knit_walltime_to_seconds "24:00:00"
     [ "$status" -eq 0 ]
     [ "$output" = "86400" ]
 }
 
-@test "__knit_walltime_to_seconds handles leading zeros without octal interpretation" {
-    run __knit_walltime_to_seconds "00:08:09"
+@test "_knit_walltime_to_seconds handles leading zeros without octal interpretation" {
+    run _knit_walltime_to_seconds "00:08:09"
     [ "$status" -eq 0 ]
     [ "$output" = "489" ]
 }

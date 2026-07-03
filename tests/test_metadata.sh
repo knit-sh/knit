@@ -8,8 +8,8 @@ setup() {
     source knit.sh
 
     # Override the sqlite executable and database path for testing
-    __KNIT_SQLITE_EXE="sqlite3"
-    __KNIT_DATABASE="$(mktemp --suffix=.db)"
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="$(mktemp --suffix=.db)"
 
     _knit_create_metadata_table
 
@@ -18,7 +18,7 @@ setup() {
 }
 
 teardown() {
-    rm -f "${__KNIT_DATABASE}"
+    rm -f "${_KNIT_DATABASE}"
     _KNIT_IS_BOOTSTRAPPED=""
 }
 
@@ -27,21 +27,21 @@ teardown() {
 @test "metadata store inserts a key-value pair" {
     _knit_metadata_store --key "mykey" --value "myvalue"
     local result
-    result=$(sqlite3 "${__KNIT_DATABASE}" "SELECT value FROM metadata WHERE key='mykey';")
+    result=$(sqlite3 "${_KNIT_DATABASE}" "SELECT value FROM metadata WHERE key='mykey';")
     [ "$result" = "myvalue" ]
 }
 
 @test "metadata store handles values with spaces" {
     _knit_metadata_store --key "desc" --value "hello world"
     local result
-    result=$(sqlite3 "${__KNIT_DATABASE}" "SELECT value FROM metadata WHERE key='desc';")
+    result=$(sqlite3 "${_KNIT_DATABASE}" "SELECT value FROM metadata WHERE key='desc';")
     [ "$result" = "hello world" ]
 }
 
 @test "metadata store handles values with single quotes" {
     _knit_metadata_store --key "desc" --value "it's here"
     local result
-    result=$(sqlite3 "${__KNIT_DATABASE}" "SELECT value FROM metadata WHERE key='desc';")
+    result=$(sqlite3 "${_KNIT_DATABASE}" "SELECT value FROM metadata WHERE key='desc';")
     [ "$result" = "it's here" ]
 }
 
@@ -55,14 +55,14 @@ teardown() {
     _knit_metadata_store --key "mykey" --value "first"
     _knit_metadata_store --key "mykey" --value "second" --force true
     local result
-    result=$(sqlite3 "${__KNIT_DATABASE}" "SELECT value FROM metadata WHERE key='mykey';")
+    result=$(sqlite3 "${_KNIT_DATABASE}" "SELECT value FROM metadata WHERE key='mykey';")
     [ "$result" = "second" ]
 }
 
 @test "metadata store --force inserts when the key does not exist" {
     _knit_metadata_store --key "newkey" --value "val" --force true
     local result
-    result=$(sqlite3 "${__KNIT_DATABASE}" "SELECT value FROM metadata WHERE key='newkey';")
+    result=$(sqlite3 "${_KNIT_DATABASE}" "SELECT value FROM metadata WHERE key='newkey';")
     [ "$result" = "val" ]
 }
 
@@ -70,21 +70,21 @@ teardown() {
     _knit_metadata_store --key "mykey" --value "first"
     _knit_metadata_store --key "mykey" --value "second" --force true
     local count
-    count=$(sqlite3 "${__KNIT_DATABASE}" "SELECT COUNT(*) FROM metadata WHERE key='mykey';")
+    count=$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM metadata WHERE key='mykey';")
     [ "$count" = "1" ]
 }
 
 # ---------- _knit_metadata_load ----------
 
 @test "metadata load returns the value for an existing key" {
-    sqlite3 "${__KNIT_DATABASE}" "INSERT INTO metadata (key, value) VALUES ('k', 'v');"
+    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO metadata (key, value) VALUES ('k', 'v');"
     local result
     result=$(_knit_metadata_load --key "k")
     [ "$result" = "v" ]
 }
 
 @test "metadata load handles key with single quote" {
-    sqlite3 "${__KNIT_DATABASE}" "INSERT INTO metadata (key, value) VALUES ('it''s', 'found');"
+    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO metadata (key, value) VALUES ('it''s', 'found');"
     local result
     result=$(_knit_metadata_load --key "it's")
     [ "$result" = "found" ]
@@ -105,7 +105,7 @@ teardown() {
 }
 
 @test "metadata show includes all stored keys and values" {
-    sqlite3 "${__KNIT_DATABASE}" \
+    sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO metadata (key, value) VALUES ('alpha', '1'), ('beta', '2');"
     local result
     result=$(_knit_metadata_show)

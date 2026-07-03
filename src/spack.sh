@@ -10,8 +10,8 @@ KNIT_SPACK_VERSION="v0.23.0"
 # ------------------------------------------------------------------------------
 # Root directory for the Spack installation.
 # ------------------------------------------------------------------------------
-declare -g __KNIT_SPACK_ROOT
-__KNIT_SPACK_ROOT="${_KNIT_PREFIX}/spack"
+declare -g _KNIT_SPACK_ROOT
+_KNIT_SPACK_ROOT="${_KNIT_PREFIX}/spack"
 
 #export SPACK_DISABLE_LOCAL_CONFIG=true
 #export SPACK_USER_CACHE_PATH=/tmp/spack
@@ -27,7 +27,7 @@ export SPACK_USER_CONFIG_PATH="${_KNIT_PREFIX}/.spack"
 _knit_bootstrap_spack() {
     _knit_ensure_trace_file
     knit_trace "Cloning spack repository..."
-    git clone https://github.com/spack/spack.git "${__KNIT_SPACK_ROOT}" > "${_KNIT_TRACE_FILE}" 2>&1
+    git clone https://github.com/spack/spack.git "${_KNIT_SPACK_ROOT}" > "${_KNIT_TRACE_FILE}" 2>&1
     local ref="${1:-${KNIT_SPACK_VERSION}}"
     knit_pushd "${_KNIT_PREFIX}/spack"
     knit_trace "Checking out spack ${ref}..."
@@ -45,7 +45,7 @@ _knit_bootstrap_spack() {
 _knit_spack_install() {
     (
         # shellcheck disable=SC1091
-        source "${__KNIT_SPACK_ROOT}/share/spack/setup-env.sh"
+        source "${_KNIT_SPACK_ROOT}/share/spack/setup-env.sh"
         local spec
         for spec in "$@"; do
             knit_info "Installing package ${spec}..."

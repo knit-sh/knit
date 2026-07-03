@@ -24,9 +24,9 @@ declare -A _KNIT_JOB_SETUP
 # the job UUID; the "state" column moves submitted -> running -> completed, or
 # -> killed when the scheduler terminates a job before it finishes.
 # ------------------------------------------------------------------------------
-__KNIT_JOBS_TABLE="jobs"
+_KNIT_JOBS_TABLE="jobs"
 
-knit_register __knit_submit "submit" "Submit a job."
+knit_register _knit_submit "submit" "Submit a job."
 knit_with_optional "setup:path" "" \
     "Path to the setup to use (required if the job declares a setup type)."
 # Identity. Empty defaults are the "not set" sentinel: _knit_sched_resolve fills
@@ -52,13 +52,13 @@ knit_with_flag "wait" "Block until the job completes; return its exit code."
 knit_with_dispatch "job" "User-provided job command to execute"
 knit_with_subcommand_title "Jobs"
 # Record every submission as a row in the "jobs" table. The row id is the job
-# UUID (set in __knit_submit); these outputs track the job and its state.
-knit_with_table "${__KNIT_JOBS_TABLE}"
+# UUID (set in _knit_submit); these outputs track the job and its state.
+knit_with_table "${_KNIT_JOBS_TABLE}"
 knit_with_output "job:string" "" "Name of the submitted job (the token after --)."
 knit_with_output "state:string" "submitted" "Lifecycle state of the submitted job."
 
 # ------------------------------------------------------------------------------
-# @fn __knit_submit()
+# @fn _knit_submit()
 #
 # Entry point for the `submit` CLI command.
 #
@@ -67,7 +67,7 @@ knit_with_output "state:string" "submitted" "Lifecycle state of the submitted jo
 # ./exp.sh submit --setup /path/to/setup [sched-args...] -- job-name [args...]
 # ```
 # ------------------------------------------------------------------------------
-__knit_submit() {
+_knit_submit() {
     # --setup is optional: it is required only for jobs that declare a setup
     # type (see knit_with_setup), so a missing value is not an error here.
     local setup_path
@@ -125,7 +125,7 @@ __knit_submit() {
 
     # Validate args for the job subcommand (knit_fatal on bad args)
     local subcmd
-    subcmd=$(__knit_command_mangle "submit:${job_name}")
+    subcmd=$(_knit_command_mangle "submit:${job_name}")
     _knit_check_command_arguments "${subcmd}" "${job_args[@]}"
 
     # Create the job directory with a time-ordered uuidv7 name: under the setup
@@ -175,7 +175,7 @@ __knit_submit() {
     # KNIT_JOB_PREFIX/KNIT_SETUP_PREFIX, cd's into the job directory, then calls
     # `path/to/exp.sh submit <job-name> [args...]` on the compute node.
     #
-    # Note: `knit submit ... -- <job-name>` calls __knit_submit, while
+    # Note: `knit submit ... -- <job-name>` calls _knit_submit, while
     # `knit submit <job-name> [args]` is an actual invocation of the job's
     # registered function.
     local script="${jobdir}/.job.sh"
@@ -213,13 +213,13 @@ _knit_job_set_state() {
     _knit_is_bootstrapped || return 0
     local uuid
     uuid="$(basename "${KNIT_JOB_PREFIX}")"
-    _knit_db_update_row "${__KNIT_JOBS_TABLE}" "${uuid}" "state=${state}" \
+    _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" "state=${state}" \
         2>/dev/null \
         || knit_warning "Could not update job \"${uuid}\" state to \"${state}\"."
 }
 
 # ------------------------------------------------------------------------------
-# @fn __knit_job_killed_trap()
+# @fn _knit_job_killed_trap()
 #
 # Signal handler installed while a job runs on the compute node. Schedulers warn
 # a job before killing it: Slurm can send a chosen signal a configurable time
@@ -229,13 +229,13 @@ _knit_job_set_state() {
 # "running", then exits so the after-callback (which would mark it "completed")
 # does not run.
 # ------------------------------------------------------------------------------
-__knit_job_killed_trap() {
+_knit_job_killed_trap() {
     _knit_job_set_state "killed"
     exit 143
 }
 
 # ------------------------------------------------------------------------------
-# @fn __knit_job_before_cb()
+# @fn _knit_job_before_cb()
 #
 # Before-callback installed on every setup subcommand by knit_register_job.
 # Verifies that KNIT_JOB_PREFIX is set, ensuring the job was invoked through
@@ -243,13 +243,13 @@ __knit_job_killed_trap() {
 # handler, marks the job "running", and sources the setup environment when the
 # job uses one.
 # ------------------------------------------------------------------------------
-__knit_job_before_cb() {
+_knit_job_before_cb() {
     if [[ ! -v KNIT_JOB_PREFIX ]]; then
         knit_fatal "Job commands must be invoked via \"knit submit [OPTIONS] -- <job> [OPTIONS]\", not directly."
     fi
     # Catch the scheduler's pre-termination signal so an out-of-time or cancelled
-    # job records "killed" before it is hard-killed (see __knit_job_killed_trap).
-    trap '__knit_job_killed_trap' TERM USR1
+    # job records "killed" before it is hard-killed (see _knit_job_killed_trap).
+    trap '_knit_job_killed_trap' TERM USR1
     _knit_job_set_state "running"
     # Setup-less jobs (no knit_with_setup) run without a KNIT_SETUP_PREFIX, so
     # there is no environment to source.
@@ -260,12 +260,12 @@ __knit_job_before_cb() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn __knit_job_after_cb()
+# @fn _knit_job_after_cb()
 #
 # After-callback installed on every submit subcommand by knit_register_job.
 # Marks the job "completed" once its body has returned normally.
 # ------------------------------------------------------------------------------
-__knit_job_after_cb() {
+_knit_job_after_cb() {
     _knit_job_set_state "completed"
 }
 
@@ -295,15 +295,15 @@ knit_with_setup() {
         knit_fatal "knit_with_setup must be called between knit_register_job and knit_done."
     fi
     local setup_type="$1"
-    if ! __knit_name_is_valid "${setup_type}"; then
+    if ! _knit_name_is_valid "${setup_type}"; then
         knit_fatal "Setup type \"${setup_type}\" is not a valid name."
     fi
     local job_name
-    job_name=$(__knit_command_get_last "${_KNIT_CURRENT_COMMAND_DEMANGLED}")
+    job_name=$(_knit_command_get_last "${_KNIT_CURRENT_COMMAND_DEMANGLED}")
     knit_trace "Job \"${job_name}\" requires a \"${setup_type}\" setup."
     _KNIT_JOB_SETUP["${job_name}"]="${setup_type}"
     # Advertise the requirement in the job's `--help` output (see the
-    # "Requirements" section rendered by __knit_print_command_usage).
+    # "Requirements" section rendered by _knit_print_command_usage).
     local -n _notes_ref="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_notes"
     _notes_ref+=("Requires a --setup built by the \"${setup_type}\" setup.")
 }
@@ -341,6 +341,6 @@ knit_register_job() {
     # no SQL quoting of the colon.
     knit_with_table "${name}"
     _KNIT_JOBS["${name}"]=1
-    _knit_run_before __knit_job_before_cb
-    _knit_run_after  __knit_job_after_cb
+    _knit_run_before _knit_job_before_cb
+    _knit_run_after  _knit_job_after_cb
 }

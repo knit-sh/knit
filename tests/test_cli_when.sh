@@ -8,15 +8,15 @@ setup() {
     source knit.sh
 
     # Override the sqlite executable and database path for testing
-    __KNIT_SQLITE_EXE="sqlite3"
-    __KNIT_DATABASE="$(mktemp --suffix=.db)"
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="$(mktemp --suffix=.db)"
 
     # Satisfy the bootstrap check — tests in this file work with a live DB
     _KNIT_IS_BOOTSTRAPPED="1"
 }
 
 teardown() {
-    rm -f "${__KNIT_DATABASE}"
+    rm -f "${_KNIT_DATABASE}"
     _KNIT_IS_BOOTSTRAPPED=""
 }
 
@@ -96,7 +96,7 @@ teardown() {
 
 @test "constraint passes: required param provided when condition is true" {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
 
     local captured_x captured_y
     constrained_cmd() {
@@ -115,7 +115,7 @@ teardown() {
 
 @test "constraint fails: required param missing when condition is true" {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
 
     knit_register knit_empty "constrained_cmd2" "A command."
     knit_with_required "x:integer" "X value."
@@ -128,7 +128,7 @@ teardown() {
 
 @test "constraint passes: required param absent when condition is false" {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
 
     knit_register knit_empty "constrained_cmd3" "A command."
     knit_with_required "x:integer" "X value."
@@ -140,7 +140,7 @@ teardown() {
 
 @test "constraint fails: param provided when condition is false" {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
 
     knit_register knit_empty "constrained_cmd4" "A command."
     knit_with_required "x:integer" "X value."
@@ -153,7 +153,7 @@ teardown() {
 
 @test "optional param constraint: absent when condition false is OK" {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
 
     knit_register knit_empty "opt_when_cmd1" "A command."
     knit_with_required "x:integer" "X value."
@@ -165,7 +165,7 @@ teardown() {
 
 @test "optional param constraint: provided when condition false is an error" {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
 
     knit_register knit_empty "opt_when_cmd2" "A command."
     knit_with_required "x:integer" "X value."
@@ -178,7 +178,7 @@ teardown() {
 
 @test "flag constraint: passing flag when condition is false is an error" {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
 
     knit_register knit_empty "flag_when_cmd1" "A command."
     knit_with_required "x:integer" "X value."
@@ -191,7 +191,7 @@ teardown() {
 
 @test "flag constraint: flag absent when condition false is OK" {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
 
     knit_register knit_empty "flag_when_cmd2" "A command."
     knit_with_required "x:integer" "X value."
@@ -203,7 +203,7 @@ teardown() {
 
 @test "multi-param condition: both params provided when both conditions true" {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
 
     knit_register knit_empty "multi_when_cmd" "A command."
     knit_with_required "x:integer" "X value."
@@ -216,7 +216,7 @@ teardown() {
 
 @test "multi-param condition: z absent when x <= 0" {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
 
     knit_register knit_empty "multi_when_cmd2" "A command."
     knit_with_required "x:integer" "X value."
@@ -229,7 +229,7 @@ teardown() {
 
 @test "non-boolean constraint expression produces a fatal error" {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
 
     knit_register knit_empty "nonbool_when_cmd" "A command."
     knit_with_required "x:integer" "X value."
@@ -256,7 +256,7 @@ teardown() {
 
 @test "constraint from parameter set is enforced" {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
 
     knit_define_parameter_set "enforced_set"
     knit_with_required "x:integer" "X value."

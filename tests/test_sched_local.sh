@@ -14,10 +14,10 @@ setup() {
 
     source knit.sh
 
-    __KNIT_SQLITE_EXE="sqlite3"
-    __KNIT_JQ_EXE="jq"
-    __KNIT_DATABASE="$(mktemp --suffix=.db)"
-    __KNIT_TEST_TMPDIR="$(mktemp -d)"
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_JQ_EXE="jq"
+    _KNIT_DATABASE="$(mktemp --suffix=.db)"
+    _KNIT_TEST_TMPDIR="$(mktemp -d)"
 
     # Satisfy the bootstrap check and force the local backend regardless of what
     # scheduler happens to be installed on the test host.
@@ -28,8 +28,8 @@ setup() {
 }
 
 teardown() {
-    rm -f "${__KNIT_DATABASE}"
-    rm -rf "${__KNIT_TEST_TMPDIR}"
+    rm -f "${_KNIT_DATABASE}"
+    rm -rf "${_KNIT_TEST_TMPDIR}"
     _KNIT_IS_BOOTSTRAPPED=""
     _KNIT_DETECTED_JOB_MANAGER=""
 }
@@ -46,7 +46,7 @@ teardown() {
 
 @test "write_jobscript emits shebang, prefixes, cd and exec lines" {
     KNIT_SCRIPT_PATH="/fake/exp.sh"
-    local jobdir="${__KNIT_TEST_TMPDIR}/jd"
+    local jobdir="${_KNIT_TEST_TMPDIR}/jd"
     mkdir -p "${jobdir}"
     declare -A o
     local script="${jobdir}/.job.sh"
@@ -64,7 +64,7 @@ teardown() {
 
 @test "write_jobscript %q-quotes arguments containing spaces" {
     KNIT_SCRIPT_PATH="/fake/exp.sh"
-    local jobdir="${__KNIT_TEST_TMPDIR}/jd2"
+    local jobdir="${_KNIT_TEST_TMPDIR}/jd2"
     mkdir -p "${jobdir}"
     declare -A o
     local script="${jobdir}/.job.sh"
@@ -77,7 +77,7 @@ teardown() {
 
 @test "write_jobscript emits no scheduler directives for the local backend" {
     KNIT_SCRIPT_PATH="/fake/exp.sh"
-    local jobdir="${__KNIT_TEST_TMPDIR}/jd3"
+    local jobdir="${_KNIT_TEST_TMPDIR}/jd3"
     mkdir -p "${jobdir}"
     declare -A o
     local script="${jobdir}/.job.sh"
@@ -92,7 +92,7 @@ teardown() {
 # ---------- _knit_sched_local_submit ----------
 
 @test "local_submit redirects stdout and stderr into the job directory" {
-    local jobdir="${__KNIT_TEST_TMPDIR}/run"
+    local jobdir="${_KNIT_TEST_TMPDIR}/run"
     mkdir -p "${jobdir}"
     local script="${jobdir}/run.sh"
     {
@@ -112,8 +112,8 @@ teardown() {
 }
 
 @test "local_submit forwards walltime and waits when requested" {
-    local args="${__KNIT_TEST_TMPDIR}/args"
-    local waited="${__KNIT_TEST_TMPDIR}/waited"
+    local args="${_KNIT_TEST_TMPDIR}/args"
+    local waited="${_KNIT_TEST_TMPDIR}/waited"
     _knit_submit_local() { printf '%s\n' "$*" > "${args}"; printf '4242\n'; }
     _knit_wait_local()   { printf '%s\n' "$1" > "${waited}"; }
 
@@ -133,9 +133,9 @@ teardown() {
 }
 
 @test "local_submit omits walltime and does not wait when not requested" {
-    local args="${__KNIT_TEST_TMPDIR}/args2"
+    local args="${_KNIT_TEST_TMPDIR}/args2"
     _knit_submit_local() { printf '%s\n' "$*" > "${args}"; printf '7\n'; }
-    _knit_wait_local()   { printf 'waited\n' > "${__KNIT_TEST_TMPDIR}/should-not-exist"; }
+    _knit_wait_local()   { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/should-not-exist"; }
 
     declare -A o
     o[wait]="false"
@@ -144,19 +144,19 @@ teardown() {
     _knit_sched_local_submit o "/tmp/x/run.sh" "/tmp/x" >/dev/null
 
     ! grep -Fq -- "--walltime" "${args}"
-    [ ! -f "${__KNIT_TEST_TMPDIR}/should-not-exist" ]
+    [ ! -f "${_KNIT_TEST_TMPDIR}/should-not-exist" ]
 }
 
-# ---------- __knit_submit : full end-to-end ----------
+# ---------- _knit_submit : full end-to-end ----------
 
-@test "__knit_submit returns the job UUID and records the launcher id" {
+@test "_knit_submit returns the job UUID and records the launcher id" {
     # Stub the launcher so the submission side is exercised end-to-end without
     # spawning a compute-side process (which would need its own bootstrapped
     # experiment). The real compute-side execution is covered by the integration
     # tests.
     _knit_submit_local() { printf '9999\n'; }
 
-    local setup="${__KNIT_TEST_TMPDIR}/setup"
+    local setup="${_KNIT_TEST_TMPDIR}/setup"
     mkdir -p "${setup}"
     KNIT_SCRIPT_PATH="/fake/exp.sh"
 
@@ -168,27 +168,27 @@ teardown() {
     # (normally created lazily by _knit_invoke_command on first submit).
     _knit_db_setup_table "submit" "jobs"
 
-    # __knit_submit is normally run via _knit_invoke_command; calling it directly
+    # _knit_submit is normally run via _knit_invoke_command; calling it directly
     # here, simulate the executing-command context so its knit_output /
     # _knit_set_row_id calls resolve to the "submit" command.
     _KNIT_EXECUTING_COMMAND=("submit")
 
     local out
-    out="$(__knit_submit --setup "${setup}" --nodes 2 -- myjob)"
+    out="$(_knit_submit --setup "${setup}" --nodes 2 -- myjob)"
 
     local jobdir
     jobdir="$(find "${setup}/jobs" -mindepth 1 -maxdepth 1 -type d)"
     [ -n "${jobdir}" ]
 
-    # __knit_submit returns the job UUID (the jobdir basename), not the launcher id.
+    # _knit_submit returns the job UUID (the jobdir basename), not the launcher id.
     [ "${out}" = "$(basename "${jobdir}")" ]
     knit_type_check "uuid" "${out}"
 
     # The submission is recorded (before dispatch) as a jobs row keyed by
     # the UUID, capturing the job name and initial "submitted" state.
-    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT job FROM jobs WHERE id='${out}';")" = "myjob" ]
-    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT state FROM jobs WHERE id='${out}';")" = "submitted" ]
 
     # .job.id holds the implementation-dependent launcher id.

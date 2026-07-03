@@ -31,22 +31,21 @@ modules.
 
 ### Functions and variable names
 
-- All the function names should start with `knit_`, `_knit_`, or `__knit_`.
-- All the global variable names should start with `KNIT_`, `_KNIT_`, or `__KNIT_`.
-- Variables and functions starting with two underscores should be considered
-  **private** and used only in the file in which they are defined. There is no
-  expectation of stable API for these variables and functions.
+- All the function names should start with `knit_` or `_knit_`.
+- All the global variable names should start with `KNIT_` or `_KNIT_`.
 - Variables and functions starting with one underscore should be considered
-  **internal**, they can be used within any other file, but are not meant to be
-  used by the end-user. There is no expectation of stable API for these variables
-  and functions.
+  **private**, they may be used within any file, but are not meant to be used by
+  the end-user. There is no expectation of stable API for these variables and
+  functions. (Whether a private symbol will be needed across files is hard to
+  predict, so a single underscore is used for all of them regardless of current
+  usage.)
 - Variables and functions starting with no underscore are part of the public API.
 
 Note that a private function can be registered as a command, e.g.:
 
 ```
-knit_register my_command __knit_my_command
-__knit_my_command() {
+knit_register my_command _knit_my_command
+_knit_my_command() {
     ...
 }
 knit_done

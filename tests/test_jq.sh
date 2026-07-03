@@ -8,7 +8,7 @@ setup() {
     source knit.sh
 
     # Override the jq executable for testing
-    __KNIT_JQ_EXE="jq"
+    _KNIT_JQ_EXE="jq"
 
     # Satisfy the bootstrap check
     _KNIT_IS_BOOTSTRAPPED="1"
@@ -37,16 +37,16 @@ teardown() {
     [ "$status" -ne 0 ]
 }
 
-# ---------- __knit_jq_platform ----------
+# ---------- _knit_jq_platform ----------
 
-@test "__knit_jq_platform returns a non-empty string" {
-    run __knit_jq_platform
+@test "_knit_jq_platform returns a non-empty string" {
+    run _knit_jq_platform
     [ "$status" -eq 0 ]
     [ -n "$output" ]
 }
 
-@test "__knit_jq_platform output starts with jq-" {
-    run __knit_jq_platform
+@test "_knit_jq_platform output starts with jq-" {
+    run _knit_jq_platform
     [ "$status" -eq 0 ]
     [[ "$output" == jq-* ]]
 }

@@ -8,15 +8,15 @@ setup() {
     source knit.sh
 
     # Override the sqlite executable and database path for testing
-    __KNIT_SQLITE_EXE="sqlite3"
-    __KNIT_DATABASE="$(mktemp --suffix=.db)"
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="$(mktemp --suffix=.db)"
 
     # Satisfy the bootstrap check — tests in this file work with a live DB
     _KNIT_IS_BOOTSTRAPPED="1"
 }
 
 teardown() {
-    rm -f "${__KNIT_DATABASE}"
+    rm -f "${_KNIT_DATABASE}"
     _KNIT_IS_BOOTSTRAPPED=""
 }
 
@@ -225,52 +225,52 @@ teardown() {
     [ "${_KNIT_CMD_ko_outer_cmd_output_value[outer_out]}" = "outer_val" ]
 }
 
-# ---------- __knit_output_description_var / __knit_output_default_var / __knit_output_type_var ----------
+# ---------- _knit_output_description_var / _knit_output_default_var / _knit_output_type_var ----------
 
-@test "__knit_output_description_var returns expected variable name" {
+@test "_knit_output_description_var returns expected variable name" {
     local result
-    result=$(__knit_output_description_var "mycmd" "myoutput")
+    result=$(_knit_output_description_var "mycmd" "myoutput")
     [ "$result" = "_KNIT_CMD_mycmd_3_myoutput_description" ]
 }
 
-@test "__knit_output_default_var returns expected variable name" {
+@test "_knit_output_default_var returns expected variable name" {
     local result
-    result=$(__knit_output_default_var "mycmd" "myoutput")
+    result=$(_knit_output_default_var "mycmd" "myoutput")
     [ "$result" = "_KNIT_CMD_mycmd_3_myoutput_default" ]
 }
 
-@test "__knit_output_type_var returns expected variable name" {
+@test "_knit_output_type_var returns expected variable name" {
     local result
-    result=$(__knit_output_type_var "mycmd" "myoutput")
+    result=$(_knit_output_type_var "mycmd" "myoutput")
     [ "$result" = "_KNIT_CMD_mycmd_3_myoutput_type" ]
 }
 
-# ---------- __knit_output_description / __knit_output_default / __knit_output_type ----------
+# ---------- _knit_output_description / _knit_output_default / _knit_output_type ----------
 
-@test "__knit_output_description returns stored description" {
+@test "_knit_output_description returns stored description" {
     knit_register knit_empty "od_cmd" "Test."
     knit_with_output "score:real" "0.0" "The score."
     knit_done
     local result
-    result=$(__knit_output_description "od_cmd" "score")
+    result=$(_knit_output_description "od_cmd" "score")
     [ "$result" = "The score." ]
 }
 
-@test "__knit_output_default returns stored default value" {
+@test "_knit_output_default returns stored default value" {
     knit_register knit_empty "odef_cmd" "Test."
     knit_with_output "count:integer" "42" "A count."
     knit_done
     local result
-    result=$(__knit_output_default "odef_cmd" "count")
+    result=$(_knit_output_default "odef_cmd" "count")
     [ "$result" = "42" ]
 }
 
-@test "__knit_output_type returns stored type" {
+@test "_knit_output_type returns stored type" {
     knit_register knit_empty "ot_cmd" "Test."
     knit_with_output "count:integer" "0" "A count."
     knit_done
     local result
-    result=$(__knit_output_type "ot_cmd" "count")
+    result=$(_knit_output_type "ot_cmd" "count")
     [ "$result" = "integer" ]
 }
 

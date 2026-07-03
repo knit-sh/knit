@@ -10,12 +10,12 @@
 # ------------------------------------------------------------------------------
 declare -A _KNIT_SETUPS
 
-knit_register __knit_setup "setup" "Setup an environment"
+knit_register _knit_setup "setup" "Setup an environment"
 knit_with_required "path:path" "Path to the setup"
 knit_with_dispatch "setup" "User-provided setup command to execute"
 knit_with_subcommand_title "Setups"
 # ------------------------------------------------------------------------------
-# @fn __knit_setup()
+# @fn _knit_setup()
 #
 # Entry point for the `setup` CLI command. Creates a directory at the given
 # path, exports `KNIT_SETUP_PREFIX` to that directory, invokes the named setup
@@ -29,7 +29,7 @@ knit_with_subcommand_title "Setups"
 # ./exp.sh setup --path </path/to/setup> -- <setup-name> [args...]
 # ```
 # ------------------------------------------------------------------------------
-__knit_setup() {
+_knit_setup() {
     local path
     path=$(knit_get_parameter "path" "$@")
 
@@ -58,7 +58,7 @@ __knit_setup() {
 
     # Validate args for the setup subcommand (knit_fatal on bad args)
     local subcmd
-    subcmd=$(__knit_command_mangle "setup:${setup_name}")
+    subcmd=$(_knit_command_mangle "setup:${setup_name}")
     _knit_check_command_arguments "${subcmd}" "${setup_args[@]}"
 
     # Create directory and enter it
@@ -87,20 +87,20 @@ __knit_setup() {
 knit_done
 
 # ------------------------------------------------------------------------------
-# @fn __knit_setup_before_cb()
+# @fn _knit_setup_before_cb()
 #
 # Before-callback installed on every setup subcommand by knit_register_setup.
 # Verifies that KNIT_SETUP_PREFIX is set, ensuring the setup was invoked
 # through `knit setup` rather than called directly.
 # ------------------------------------------------------------------------------
-__knit_setup_before_cb() {
+_knit_setup_before_cb() {
     if [[ ! -v KNIT_SETUP_PREFIX ]]; then
         knit_fatal "Setup commands must be invoked via \"knit setup [OPTIONS] -- <setup> [OPTIONS]\", not directly."
     fi
 }
 
 # ------------------------------------------------------------------------------
-# @fn __knit_setup_after_cb()
+# @fn _knit_setup_after_cb()
 #
 # After-callback installed on every setup subcommand by knit_register_setup.
 # Dumps all exported environment variables into
@@ -110,7 +110,7 @@ __knit_setup_before_cb() {
 # Dynamic bash internals (BASH_*, SHLVL, _, OLDPWD, PPID, RANDOM, LINENO,
 # SECONDS, KNIT_SETUP_PREFIX) are excluded from the dump.
 # ------------------------------------------------------------------------------
-__knit_setup_after_cb() {
+_knit_setup_after_cb() {
     local activate="${KNIT_SETUP_PREFIX}/.activate.sh"
     {
         printf '#!/usr/bin/env bash\n'
@@ -167,6 +167,6 @@ knit_register_setup() {
     knit_register "${fn}" "setup:${name}" "${description}"
     knit_with_table
     _KNIT_SETUPS["${name}"]=1
-    _knit_run_before __knit_setup_before_cb
-    _knit_run_after  __knit_setup_after_cb
+    _knit_run_before _knit_setup_before_cb
+    _knit_run_after  _knit_setup_after_cb
 }

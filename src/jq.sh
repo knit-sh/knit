@@ -5,19 +5,19 @@
 # ------------------------------------------------------------------------------
 # Version of jq to download.
 # ------------------------------------------------------------------------------
-__KNIT_JQ_VERSION="1.7.1"
+_KNIT_JQ_VERSION="1.7.1"
 
 # ------------------------------------------------------------------------------
 # Path to the jq executable.
 # ------------------------------------------------------------------------------
-__KNIT_JQ_EXE="${_KNIT_PREFIX}/jq/bin/jq"
+_KNIT_JQ_EXE="${_KNIT_PREFIX}/jq/bin/jq"
 
 # ------------------------------------------------------------------------------
-# @fn __knit_jq_platform()
+# @fn _knit_jq_platform()
 #
 # Prints the platform suffix for the jq prebuilt binary, e.g. "jq-linux-amd64".
 # ------------------------------------------------------------------------------
-__knit_jq_platform() {
+_knit_jq_platform() {
     local os arch
     case "$(uname -s)" in
         Linux)  os="linux"  ;;
@@ -35,7 +35,7 @@ __knit_jq_platform() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn __knit_jq_framed_run()
+# @fn _knit_jq_framed_run()
 #
 # Run a command with its combined stdout/stderr written to _KNIT_TRACE_FILE and,
 # when KNIT_LOG_LEVEL is trace, also displayed live in a 10-line frame.
@@ -44,7 +44,7 @@ __knit_jq_platform() {
 # @param title Title shown on the frame's top border.
 # @param ... Command and arguments to execute.
 # ------------------------------------------------------------------------------
-__knit_jq_framed_run() {
+_knit_jq_framed_run() {
     local title="$1"
     shift
     _knit_ensure_trace_file
@@ -62,16 +62,16 @@ __knit_jq_framed_run() {
 # ------------------------------------------------------------------------------
 _knit_bootstrap_jq() {
     local platform
-    platform=$(__knit_jq_platform)
-    local url="https://github.com/jqlang/jq/releases/download/jq-${__KNIT_JQ_VERSION}/${platform}"
+    platform=$(_knit_jq_platform)
+    local url="https://github.com/jqlang/jq/releases/download/jq-${_KNIT_JQ_VERSION}/${platform}"
     knit_trace "Downloading jq binary (${platform})..."
-    mkdir -p "$(dirname "${__KNIT_JQ_EXE}")"
-    if ! __knit_jq_framed_run "jq: download" \
-            curl -L -o "${__KNIT_JQ_EXE}" "${url}" ; then
+    mkdir -p "$(dirname "${_KNIT_JQ_EXE}")"
+    if ! _knit_jq_framed_run "jq: download" \
+            curl -L -o "${_KNIT_JQ_EXE}" "${url}" ; then
         knit_fatal "Could not download jq binary. See ${_KNIT_TRACE_FILE} for more information."
     fi
-    chmod +x "${__KNIT_JQ_EXE}"
-    knit_trace "jq installed at ${__KNIT_JQ_EXE}."
+    chmod +x "${_KNIT_JQ_EXE}"
+    knit_trace "jq installed at ${_KNIT_JQ_EXE}."
 }
 
 # shellcheck disable=SC2120
@@ -83,5 +83,5 @@ _knit_bootstrap_jq() {
 # @param ... Parameters to forward to the jq command.
 # ------------------------------------------------------------------------------
 _knit_jq() {
-    "${__KNIT_JQ_EXE}" "$@"
+    "${_KNIT_JQ_EXE}" "$@"
 }

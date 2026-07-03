@@ -41,7 +41,7 @@ _knit_job_status() {
 knit_done
 
 # ------------------------------------------------------------------------------
-# @fn __knit_job_in_clause()
+# @fn _knit_job_in_clause()
 #
 # Build a SQL "<column> IN (...)" condition from a comma-separated list of
 # values, each escaped as a single-quoted literal. Empty entries are dropped;
@@ -51,7 +51,7 @@ knit_done
 # @param column Column name to match (interpolated verbatim, so a trusted name).
 # @param csv    Comma-separated list of values.
 # ------------------------------------------------------------------------------
-__knit_job_in_clause() {
+_knit_job_in_clause() {
     local column="$1" csv="$2"
     local -a in_values=()
     local part
@@ -119,7 +119,7 @@ _knit_job_list() {
         && setup_conditions+=("setup IS NULL OR setup = ''")
     if [[ -n "${setup}" ]]; then
         local setup_in
-        setup_in="$(__knit_job_in_clause "setup" "${setup}")"
+        setup_in="$(_knit_job_in_clause "setup" "${setup}")"
         [[ -n "${setup_in}" ]] && setup_conditions+=("${setup_in}")
     fi
     if [[ "${#setup_conditions[@]}" -gt 0 ]]; then
@@ -131,7 +131,7 @@ _knit_job_list() {
     # Filter by job type (the "job" column) when --types is given.
     if [[ -n "${types}" ]]; then
         local types_in
-        types_in="$(__knit_job_in_clause "job" "${types}")"
+        types_in="$(_knit_job_in_clause "job" "${types}")"
         [[ -n "${types_in}" ]] && conditions+=("${types_in}")
     fi
 
@@ -239,7 +239,7 @@ _knit_job_wait() {
         esac
         tries=$(( tries + 1 ))
         [[ "${tries}" -ge 5 ]] && break
-        sleep "${__KNIT_SCHED_POLL_INTERVAL}"
+        sleep "${_KNIT_SCHED_POLL_INTERVAL}"
     done
 
     # The scheduler finished the job but knit never recorded a terminal state
@@ -305,7 +305,7 @@ _knit_job_cancel() {
     IFS= read -r jobid < "${jobdir}/.job.id"
 
     _knit_sched_cancel "$(_knit_sched_backend)" "${jobid}"
-    _knit_db_update_row "${__KNIT_JOBS_TABLE}" "${id}" "state=killed"
+    _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${id}" "state=killed"
     knit_info "Cancelled job \"${id}\"."
 }
 knit_done
@@ -365,7 +365,7 @@ _knit_job_rm() {
 knit_done
 
 # ------------------------------------------------------------------------------
-# @fn __knit_job_reconstruct_args_from_db_row()
+# @fn _knit_job_reconstruct_args_from_db_row()
 #
 # Append CLI arguments reconstructing a command's recorded parameters from one
 # row of a table, so a past invocation can be replayed. Iteration is driven by
@@ -383,7 +383,7 @@ knit_done
 # @param skip     Space-separated normalized names to omit.
 # @param out_name Name of the array variable to append the reconstructed args to.
 # ------------------------------------------------------------------------------
-__knit_job_reconstruct_args_from_db_row() {
+_knit_job_reconstruct_args_from_db_row() {
     local cmd="$1" table="$2" id="$3" skip=" $4 "
     # shellcheck disable=SC2178 # nameref to the caller's args array
     local -n _out="$5"
@@ -436,7 +436,7 @@ knit_with_required "id:string" "Job UUID."
 # mints a new job UUID — the old id is never reused.
 #
 # The submission options and job arguments are rebuilt by
-# __knit_job_reconstruct_args_from_db_row from each command's declared schema, so bookkeeping
+# _knit_job_reconstruct_args_from_db_row from each command's declared schema, so bookkeeping
 # columns (id, state, and the "job" name itself) and job outputs are left out;
 # the setup path is skipped there too and passed as --setup instead. A job that
 # was submitted but never ran has no per-job table, so it is resubmitted with its
@@ -467,7 +467,7 @@ _knit_job_resubmit() {
     local setup
     setup="$(_knit_sqlite3 "SELECT setup FROM jobs WHERE id = '${escaped}';")"
     [[ -n "${setup}" ]] && submit_opts+=("--setup" "${setup}")
-    __knit_job_reconstruct_args_from_db_row "submit" "${__KNIT_JOBS_TABLE}" "${id}" "setup" \
+    _knit_job_reconstruct_args_from_db_row "submit" "${_KNIT_JOBS_TABLE}" "${id}" "setup" \
         submit_opts
 
     # Rebuild the job arguments from the per-job table, when the job has run at
@@ -475,13 +475,13 @@ _knit_job_resubmit() {
     # job command whose schema we can consult.
     local -a job_args=()
     local job_cmd
-    job_cmd=$(__knit_command_mangle "submit:${job_name}")
+    job_cmd=$(_knit_command_mangle "submit:${job_name}")
     if [[ -n "${job_name}" ]] && _knit_set_find _KNIT_COMMANDS "${job_cmd}"; then
         local cnt
         cnt="$(_knit_sqlite3 \
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$(_knit_sql_escape "${job_name}")';")"
         if [[ "${cnt}" -ne 0 ]]; then
-            __knit_job_reconstruct_args_from_db_row "${job_cmd}" "${job_name}" "${id}" "" \
+            _knit_job_reconstruct_args_from_db_row "${job_cmd}" "${job_name}" "${id}" "" \
                 job_args
         fi
     fi
@@ -576,7 +576,7 @@ _knit_job_show() {
 knit_done
 
 # ------------------------------------------------------------------------------
-# @fn __knit_job_show_file()
+# @fn _knit_job_show_file()
 #
 # Print the contents of one of the files in a job's working directory. Shared by
 # the `job show stdout`, `job show stderr` and `job show script` subcommands. The
@@ -591,7 +591,7 @@ knit_done
 # @param label    Human-readable name of the file for error messages (e.g.
 #                 "stdout", "stderr", "script").
 # ------------------------------------------------------------------------------
-__knit_job_show_file() {
+_knit_job_show_file() {
     local id="$1" filename="$2" label="$3"
     local found
     found="$(_knit_sqlite3 \
@@ -609,7 +609,7 @@ __knit_job_show_file() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn __knit_job_state_is_terminal()
+# @fn _knit_job_state_is_terminal()
 #
 # Succeed (return 0) if the job's recorded lifecycle state is terminal
 # (completed or killed), meaning no more output will be written. Any other state
@@ -618,7 +618,7 @@ __knit_job_show_file() {
 #
 # @param id Job UUID.
 # ------------------------------------------------------------------------------
-__knit_job_state_is_terminal() {
+_knit_job_state_is_terminal() {
     local state
     state="$(_knit_sqlite3 \
         "SELECT state FROM jobs WHERE id = '$(_knit_sql_escape "$1")';")"
@@ -629,7 +629,7 @@ __knit_job_state_is_terminal() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn __knit_job_follow_file()
+# @fn _knit_job_follow_file()
 #
 # Stream one of a job's output files live, like `tail -f`, and stop cleanly once
 # the job finishes. Shared by `job show stdout --follow` and
@@ -652,7 +652,7 @@ __knit_job_state_is_terminal() {
 # @param filename Name of the file within the job directory (".stdout"/".stderr").
 # @param label    Human-readable name of the file for error messages.
 # ------------------------------------------------------------------------------
-__knit_job_follow_file() {
+_knit_job_follow_file() {
     local id="$1" filename="$2" label="$3"
     local found
     found="$(_knit_sqlite3 \
@@ -665,7 +665,7 @@ __knit_job_follow_file() {
     file="${jobdir}/${filename}"
 
     # A finished job has nothing left to stream: print what it captured and stop.
-    if __knit_job_state_is_terminal "${id}"; then
+    if _knit_job_state_is_terminal "${id}"; then
         if [[ ! -f "${file}" ]]; then
             knit_fatal "No ${label} recorded for job \"${id}\" (${file} is missing)."
         fi
@@ -676,22 +676,22 @@ __knit_job_follow_file() {
     # Wait for the stream file to be created, unless the job finishes first
     # without ever writing it.
     while [[ ! -f "${file}" ]]; do
-        if __knit_job_state_is_terminal "${id}"; then
+        if _knit_job_state_is_terminal "${id}"; then
             knit_fatal "No ${label} recorded for job \"${id}\" (${file} is missing)."
         fi
-        sleep "${__KNIT_SCHED_POLL_INTERVAL}"
+        sleep "${_KNIT_SCHED_POLL_INTERVAL}"
     done
 
     # Follow the file in the background; stop once the job reaches a terminal
     # state.
     tail -n +1 -f "${file}" &
     local tail_pid=$!
-    while ! __knit_job_state_is_terminal "${id}"; do
-        sleep "${__KNIT_SCHED_POLL_INTERVAL}"
+    while ! _knit_job_state_is_terminal "${id}"; do
+        sleep "${_KNIT_SCHED_POLL_INTERVAL}"
     done
     # Give tail one more read cycle to flush output written just before the job
     # finished, then stop it.
-    sleep "${__KNIT_SCHED_POLL_INTERVAL}"
+    sleep "${_KNIT_SCHED_POLL_INTERVAL}"
     kill "${tail_pid}" 2>/dev/null
     wait "${tail_pid}" 2>/dev/null
     return 0
@@ -709,7 +709,7 @@ knit_with_flag "follow" "Follow the stream as it grows, like tail -f."
 # Print the standard output a job captured while running (the .stdout file in the
 # job's working directory). An unknown id or an absent file is a fatal error.
 # With --follow, stream the output live and stop once the job finishes (see
-# __knit_job_follow_file).
+# _knit_job_follow_file).
 # ------------------------------------------------------------------------------
 _knit_job_show_stdout() {
     if ! _knit_is_bootstrapped; then
@@ -720,9 +720,9 @@ _knit_job_show_stdout() {
     id=$(knit_get_parameter "id" "$@")
     follow=$(knit_get_parameter "follow" "$@") || follow="false"
     if [[ "${follow}" == "true" ]]; then
-        __knit_job_follow_file "${id}" ".stdout" "stdout"
+        _knit_job_follow_file "${id}" ".stdout" "stdout"
     else
-        __knit_job_show_file "${id}" ".stdout" "stdout"
+        _knit_job_show_file "${id}" ".stdout" "stdout"
     fi
 }
 knit_done
@@ -739,7 +739,7 @@ knit_with_flag "follow" "Follow the stream as it grows, like tail -f."
 # Print the standard error a job captured while running (the .stderr file in the
 # job's working directory). An unknown id or an absent file is a fatal error.
 # With --follow, stream the output live and stop once the job finishes (see
-# __knit_job_follow_file).
+# _knit_job_follow_file).
 # ------------------------------------------------------------------------------
 _knit_job_show_stderr() {
     if ! _knit_is_bootstrapped; then
@@ -750,9 +750,9 @@ _knit_job_show_stderr() {
     id=$(knit_get_parameter "id" "$@")
     follow=$(knit_get_parameter "follow" "$@") || follow="false"
     if [[ "${follow}" == "true" ]]; then
-        __knit_job_follow_file "${id}" ".stderr" "stderr"
+        _knit_job_follow_file "${id}" ".stderr" "stderr"
     else
-        __knit_job_show_file "${id}" ".stderr" "stderr"
+        _knit_job_show_file "${id}" ".stderr" "stderr"
     fi
 }
 knit_done
@@ -773,6 +773,6 @@ _knit_job_show_script() {
         [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
         knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
     fi
-    __knit_job_show_file "$(knit_get_parameter "id" "$@")" ".job.sh" "script"
+    _knit_job_show_file "$(knit_get_parameter "id" "$@")" ".job.sh" "script"
 }
 knit_done

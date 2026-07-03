@@ -48,7 +48,7 @@ knit_framed() {
         esac
     fi
     if [[ -n "$log_level" ]] && \
-       (( $(__knit_log_level_to_int "${KNIT_LOG_LEVEL}") > $(__knit_log_level_to_int "$log_level") )); then
+       (( $(_knit_log_level_to_int "${KNIT_LOG_LEVEL}") > $(_knit_log_level_to_int "$log_level") )); then
         cat > /dev/null
         return 0
     fi
@@ -123,13 +123,13 @@ knit_framed() {
     local -a buffer=()
 
     # --------------------------------------------------------------------------
-    # @fn __knit_draw_frame()
+    # @fn _knit_draw_frame()
     #
     # Redraws the frame in place by moving the cursor up and overwriting.
     # Reads from the outer function's `buffer`, `inner_width`, and
     # `inner_height` variables.
     # --------------------------------------------------------------------------
-    __knit_draw_frame() {
+    _knit_draw_frame() {
         # Move cursor up to overwrite old frame.
         printf "\033[%dA" "$height" 2>/dev/null || true
 
@@ -180,12 +180,12 @@ knit_framed() {
     # Print blank lines so the initial draw_frame has room to move back up.
     for ((i = 0; i < height; i++)); do echo; done
 
-    __knit_draw_frame
+    _knit_draw_frame
 
     # Stream input line by line, redrawing after each.
     while IFS= read -r line; do
         buffer+=("$line")
-        __knit_draw_frame
+        _knit_draw_frame
     done
 
     if [[ "$cleanup" == "true" ]]; then
