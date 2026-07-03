@@ -226,6 +226,7 @@
 #   ./full.sh job list --status running      # only running jobs
 #   ./full.sh job list --setup ./env         # only jobs of this setup
 #   ./full.sh job list --no-setup            # only setup-less jobs
+#   ./full.sh job list --json                # same listing as a JSON array
 #
 #   ./full.sh job status --id $uuid          # just the lifecycle state
 #   ./full.sh job wait   --id $uuid          # block until terminal (non-zero if killed)

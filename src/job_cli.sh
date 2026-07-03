@@ -48,6 +48,7 @@ knit_with_optional "status:string" "" "Only list jobs in this lifecycle state."
 knit_with_optional "setup:string" "" \
     "Only list jobs whose setup is one of these (comma-separated) paths."
 knit_with_flag "no-setup" "Include jobs that have no setup."
+knit_with_flag "json" "Emit the listing as a JSON array."
 # ------------------------------------------------------------------------------
 # @fn _knit_job_list()
 #
@@ -59,17 +60,23 @@ knit_with_flag "no-setup" "Include jobs that have no setup."
 # matched with SQL IN. Given both, a job qualifies if it has no setup OR its
 # setup is in the list, e.g. "--no-setup --setup a,b,c". When neither is given
 # no setup filter is applied. The status filter (if any) is AND-ed with the
-# setup filter. Output is rendered with aligned columns and a header row.
+# setup filter.
+#
+# By default the result is rendered with aligned columns and a header row. With
+# --json the same filtered query is emitted as a JSON array (one object per job,
+# or [] when nothing matches), using sqlite's -json output; the filters apply
+# identically in both modes.
 # ------------------------------------------------------------------------------
 _knit_job_list() {
     if ! _knit_is_bootstrapped; then
         [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
         knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
     fi
-    local status setup no_setup
+    local status setup no_setup json
     status=$(knit_get_parameter "status" "$@")
     setup=$(knit_get_parameter "setup" "$@")
     no_setup=$(knit_get_parameter "no-setup" "$@") || no_setup="false"
+    json=$(knit_get_parameter "json" "$@") || json="false"
 
     local -a conditions=()
     [[ -n "${status}" ]] \
@@ -107,6 +114,14 @@ _knit_job_list() {
         statement="${statement} WHERE ${where# AND }"
     fi
     statement="${statement} ORDER BY id;"
+
+    if [[ "${json}" == "true" ]]; then
+        local out
+        out="$(_knit_sqlite3 -json "${statement}")"
+        [[ -z "${out}" ]] && out="[]"
+        printf '%s\n' "${out}"
+        return 0
+    fi
 
     _knit_sqlite3 -header -column "${statement}"
 }

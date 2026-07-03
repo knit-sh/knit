@@ -221,6 +221,59 @@ _seed_job() {
     [ "$status" -ne 0 ]
 }
 
+# ---------- job list --json ----------
+
+@test "job list --json emits a valid JSON array of jobs" {
+    command -v jq &>/dev/null || skip "jq not available"
+    _seed_job "id1" "/s/a" "alpha" "running"
+    _seed_job "id2" "/s/b" "beta" "completed"
+    run _knit_job_list --json true
+    [ "$status" -eq 0 ]
+    # Parses as JSON and holds both jobs.
+    echo "$output" | jq -e '. | length == 2' >/dev/null
+    echo "$output" | jq -e '.[0].id == "id1" and .[0].job == "alpha" and .[0].state == "running"' >/dev/null
+    echo "$output" | jq -e '.[1].id == "id2"' >/dev/null
+}
+
+@test "job list --json emits [] for an empty jobs table" {
+    command -v jq &>/dev/null || skip "jq not available"
+    _seed_job "id1" "/s/a" "alpha" "running"
+    sqlite3 "${__KNIT_DATABASE}" "DELETE FROM jobs;"
+    run _knit_job_list --json true
+    [ "$status" -eq 0 ]
+    [ "$output" = "[]" ]
+    echo "$output" | jq -e '. == []' >/dev/null
+}
+
+@test "job list --json applies the --status filter" {
+    command -v jq &>/dev/null || skip "jq not available"
+    _seed_job "id1" "/s/a" "alpha" "running"
+    _seed_job "id2" "/s/b" "beta" "completed"
+    run _knit_job_list --json true --status "running"
+    [ "$status" -eq 0 ]
+    echo "$output" | jq -e '. | length == 1' >/dev/null
+    echo "$output" | jq -e '.[0].id == "id1"' >/dev/null
+}
+
+@test "job list --json applies the --setup filter" {
+    command -v jq &>/dev/null || skip "jq not available"
+    _seed_job "id1" "a" "alpha" "running"
+    _seed_job "id2" "b" "beta" "running"
+    _seed_job "id3" "c" "gamma" "running"
+    run _knit_job_list --json true --setup "a,c"
+    [ "$status" -eq 0 ]
+    echo "$output" | jq -e '. | map(.id) == ["id1","id3"]' >/dev/null
+}
+
+@test "job list --json works as a bare flag through the pipeline" {
+    command -v jq &>/dev/null || skip "jq not available"
+    _seed_job "id1" "/s/a" "alpha" "running"
+    _seed_job "id2" "/s/b" "beta" "completed"
+    run _knit_invoke_command "job__1__list" --json
+    [ "$status" -eq 0 ]
+    echo "$output" | jq -e '. | length == 2' >/dev/null
+}
+
 # ---------- job dir resolution ----------
 
 @test "job dir resolves under the setup for a job with a setup" {
