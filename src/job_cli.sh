@@ -290,3 +290,72 @@ _knit_job_show() {
     fi
 }
 knit_done
+
+# ------------------------------------------------------------------------------
+# @fn __knit_job_show_stream()
+#
+# Print the contents of one of a job's captured output streams. Shared by the
+# `job show stdout` and `job show stderr` subcommands. The job must exist in the
+# jobs table (an unknown id is fatal), and the requested stream file must be
+# present in the job's working directory (a missing file is fatal — it usually
+# means the job has not produced that output yet).
+#
+# @param id     Job UUID.
+# @param stream Stream name without the leading dot: "stdout" or "stderr".
+# ------------------------------------------------------------------------------
+__knit_job_show_stream() {
+    local id="$1" stream="$2"
+    local found
+    found="$(_knit_sqlite3 \
+        "SELECT id FROM jobs WHERE id = '$(_knit_sql_escape "${id}")';")"
+    if [[ -z "${found}" ]]; then
+        knit_fatal "No job found with id \"${id}\"."
+    fi
+    local jobdir file
+    jobdir="$(_knit_job_dir "${id}")"
+    file="${jobdir}/.${stream}"
+    if [[ ! -f "${file}" ]]; then
+        knit_fatal "No ${stream} recorded for job \"${id}\" (${file} is missing)."
+    fi
+    cat "${file}"
+}
+
+# ------------------------------------------------------------------------------
+# Print a job's captured standard output.
+# ------------------------------------------------------------------------------
+knit_register _knit_job_show_stdout "job:show:stdout" "Print a job's captured standard output."
+knit_with_required "id:string" "Job UUID."
+# ------------------------------------------------------------------------------
+# @fn _knit_job_show_stdout()
+#
+# Print the standard output a job captured while running (the .stdout file in the
+# job's working directory). An unknown id or an absent file is a fatal error.
+# ------------------------------------------------------------------------------
+_knit_job_show_stdout() {
+    if ! _knit_is_bootstrapped; then
+        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
+        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
+    fi
+    __knit_job_show_stream "$(knit_get_parameter "id" "$@")" "stdout"
+}
+knit_done
+
+# ------------------------------------------------------------------------------
+# Print a job's captured standard error.
+# ------------------------------------------------------------------------------
+knit_register _knit_job_show_stderr "job:show:stderr" "Print a job's captured standard error."
+knit_with_required "id:string" "Job UUID."
+# ------------------------------------------------------------------------------
+# @fn _knit_job_show_stderr()
+#
+# Print the standard error a job captured while running (the .stderr file in the
+# job's working directory). An unknown id or an absent file is a fatal error.
+# ------------------------------------------------------------------------------
+_knit_job_show_stderr() {
+    if ! _knit_is_bootstrapped; then
+        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
+        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
+    fi
+    __knit_job_show_stream "$(knit_get_parameter "id" "$@")" "stderr"
+}
+knit_done

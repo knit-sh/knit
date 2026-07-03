@@ -482,3 +482,103 @@ _seed_params() {
     run _knit_job_show --id "abc123"
     [ "$status" -eq 0 ]
 }
+
+# ---------- job show stdout / stderr ----------
+
+@test "job show stdout prints the captured standard output" {
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "completed"
+    mkdir -p "${root}/jobs/abc123"
+    printf 'hello stdout\n' > "${root}/jobs/abc123/.stdout"
+    run _knit_job_show_stdout --id "abc123"
+    rm -rf "${root}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "hello stdout" ]
+}
+
+@test "job show stderr prints the captured standard error" {
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "completed"
+    mkdir -p "${root}/jobs/abc123"
+    printf 'boom stderr\n' > "${root}/jobs/abc123/.stderr"
+    run _knit_job_show_stderr --id "abc123"
+    rm -rf "${root}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "boom stderr" ]
+}
+
+@test "job show stdout resolves the job dir under the setup" {
+    local setup
+    setup="$(mktemp -d)"
+    _seed_job "abc123" "${setup}" "montecarlo" "completed"
+    mkdir -p "${setup}/jobs/abc123"
+    printf 'from setup\n' > "${setup}/jobs/abc123/.stdout"
+    run _knit_job_show_stdout --id "abc123"
+    rm -rf "${setup}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "from setup" ]
+}
+
+@test "job show stdout fails for an unknown id" {
+    _seed_job "abc123" "" "montecarlo" "completed"
+    run _knit_job_show_stdout --id "nope"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No job found"* ]]
+}
+
+@test "job show stdout fails when the stdout file is missing" {
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "completed"
+    mkdir -p "${root}/jobs/abc123"
+    run _knit_job_show_stdout --id "abc123"
+    rm -rf "${root}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No stdout recorded"* ]]
+}
+
+@test "job show stderr fails when the stderr file is missing" {
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "completed"
+    mkdir -p "${root}/jobs/abc123"
+    run _knit_job_show_stderr --id "abc123"
+    rm -rf "${root}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No stderr recorded"* ]]
+}
+
+@test "job show stdout resolves through the dispatcher" {
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "completed"
+    mkdir -p "${root}/jobs/abc123"
+    printf 'dispatched\n' > "${root}/jobs/abc123/.stdout"
+    run _knit_invoke_command "job__1__show__1__stdout" --id "abc123"
+    rm -rf "${root}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "dispatched" ]
+}
+
+@test "job show stdout fails when not bootstrapped and not bootstrapping" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="false"
+    run _knit_job_show_stdout --id "abc123"
+    [ "$status" -ne 0 ]
+}
+
+@test "job show stdout is a no-op when bootstrapping and not yet bootstrapped" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="true"
+    run _knit_job_show_stdout --id "abc123"
+    [ "$status" -eq 0 ]
+}

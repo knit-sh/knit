@@ -217,7 +217,32 @@
 #       --select "id, samples, seed, pi" --header --column
 #
 # -----------------------------------------------------------------------------
-# 9. Clean up
+# 9. Inspect jobs
+# -----------------------------------------------------------------------------
+# The `job` commands read the tracking above without writing raw SQL. List every
+# job (optionally filtered by state or setup), then drill into one by UUID:
+#
+#   ./full.sh job list                       # id, job, state for all jobs
+#   ./full.sh job list --status running      # only running jobs
+#   ./full.sh job list --setup ./env         # only jobs of this setup
+#   ./full.sh job list --no-setup            # only setup-less jobs
+#
+#   ./full.sh job status --id $uuid          # just the lifecycle state
+#   ./full.sh job wait   --id $uuid          # block until terminal (non-zero if killed)
+#
+# `job show` combines both tables for one job: its submission options and, once
+# it has run, the parameters it recorded. Add --json for machine-readable output:
+#
+#   ./full.sh job show --id $uuid            # Submission: + Parameters: sections
+#   ./full.sh job show --id $uuid --json
+#
+# And read a job's captured output straight from its working directory:
+#
+#   ./full.sh job show stdout --id $uuid     # the job's standard output
+#   ./full.sh job show stderr --id $uuid     # the job's standard error
+#
+# -----------------------------------------------------------------------------
+# 10. Clean up
 # -----------------------------------------------------------------------------
 #   rm -rf .knit env
 #
