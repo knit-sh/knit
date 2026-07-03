@@ -95,7 +95,7 @@ knit_done
 # ------------------------------------------------------------------------------
 __knit_setup_before_cb() {
     if [[ ! -v KNIT_SETUP_PREFIX ]]; then
-        knit_fatal "Setup commands must be invoked via \"knit setup\", not directly."
+        knit_fatal "Setup commands must be invoked via \"knit setup [OPTIONS] -- <setup> [OPTIONS]\", not directly."
     fi
 }
 

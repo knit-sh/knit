@@ -247,7 +247,7 @@ __knit_job_killed_trap() {
 # ------------------------------------------------------------------------------
 __knit_job_before_cb() {
     if [[ ! -v KNIT_JOB_PREFIX ]]; then
-        knit_fatal "Job commands must be invoked via \"knit submit\", not directly."
+        knit_fatal "Job commands must be invoked via \"knit submit [OPTIONS] -- <job> [OPTIONS]\", not directly."
     fi
     # Catch the scheduler's pre-termination signal so an out-of-time or cancelled
     # job records "killed" before it is hard-killed (see __knit_job_killed_trap).
