@@ -229,6 +229,7 @@
 #
 #   ./full.sh job status --id $uuid          # just the lifecycle state
 #   ./full.sh job wait   --id $uuid          # block until terminal (non-zero if killed)
+#   ./full.sh job cancel --id $uuid          # stop a running job (marks it killed)
 #
 # `job show` combines both tables for one job: its submission options and, once
 # it has run, the parameters it recorded. Add --json for machine-readable output:

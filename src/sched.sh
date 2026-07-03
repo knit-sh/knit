@@ -266,6 +266,28 @@ _knit_sched_submit() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sched_cancel()
+#
+# Dispatch to the configured backend's cancel function, which asks the scheduler
+# to terminate a running job. Each backend uses its native primitive (local:
+# kill, slurm: scancel, pbs: qdel). Cancelling a job that is already gone is not
+# an error. Knit's terminal state (killed) is recorded by the caller.
+#
+# @param backend Scheduler backend name ("local", "slurm", "pbs").
+# @param jobid   Backend job id (scheduler id, or a PID for the local backend).
+# ------------------------------------------------------------------------------
+_knit_sched_cancel() {
+    local backend="$1"
+    local jobid="$2"
+    case "${backend}" in
+        local) _knit_sched_local_cancel "${jobid}" ;;
+        slurm) _knit_sched_slurm_cancel "${jobid}" ;;
+        pbs)   _knit_sched_pbs_cancel "${jobid}" ;;
+        *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_backend()
 #
 # Resolve which scheduler backend to use: bootstrap metadata (__scheduler__),

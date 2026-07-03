@@ -182,3 +182,12 @@ _mk_opts() {
     run _knit_sched_slurm_submit o /jobs/x/.job.sh /jobs/x
     [ "${status}" -ne 0 ]
 }
+
+# ---------- _knit_sched_slurm_cancel ----------
+
+@test "slurm cancel calls scancel with the job id" {
+    scancel() { printf '%s\n' "$*" > "${TMP}/argv"; }
+    run _knit_sched_slurm_cancel 12345
+    [ "${status}" -eq 0 ]
+    [ "$(< "${TMP}/argv")" = "12345" ]
+}

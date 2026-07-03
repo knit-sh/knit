@@ -177,3 +177,12 @@ _mk_opts() {
     run _knit_sched_pbs_submit o /jobs/x/.job.sh /jobs/x
     [ "${status}" -ne 0 ]
 }
+
+# ---------- _knit_sched_pbs_cancel ----------
+
+@test "pbs cancel calls qdel with the job id" {
+    qdel() { printf '%s\n' "$*" > "${TMP}/argv"; }
+    run _knit_sched_pbs_cancel 98765.pbsserver
+    [ "${status}" -eq 0 ]
+    [ "$(< "${TMP}/argv")" = "98765.pbsserver" ]
+}

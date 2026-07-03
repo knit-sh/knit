@@ -199,3 +199,28 @@ teardown() {
     [ "$(head -n1 "${jobdir}/.job.sh")" = "#!/bin/bash" ]
     grep -Fxq "exec /fake/exp.sh submit myjob" "${jobdir}/.job.sh"
 }
+
+# ---------- _knit_sched_local_cancel ----------
+
+@test "_knit_sched_local_cancel signals a running process" {
+    local pid
+    pid="$(_knit_submit_local -- bash -c 'sleep 5')"
+    _knit_sched_local_cancel "${pid}"
+    # SIGTERM stops the sleeper; give it a moment, then it must be gone.
+    sleep 0.3
+    run kill -0 "${pid}"
+    [ "$status" -ne 0 ]
+}
+
+@test "_knit_sched_local_cancel is a no-op for an already-finished process" {
+    local pid
+    pid="$(_knit_submit_local -- true)"
+    sleep 0.2
+    run _knit_sched_local_cancel "${pid}"
+    [ "$status" -eq 0 ]
+}
+
+@test "_knit_sched_local_cancel is a no-op for a non-numeric pid" {
+    run _knit_sched_local_cancel "notapid"
+    [ "$status" -eq 0 ]
+}

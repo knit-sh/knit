@@ -71,3 +71,20 @@ _knit_sched_local_wait() {
         sleep "${__KNIT_SCHED_POLL_INTERVAL}"
     done
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_local_cancel()
+#
+# Cancel a locally-launched job by sending SIGTERM to its process. SIGTERM (not
+# SIGKILL) is used deliberately: the running job installs a handler for it (see
+# __knit_job_killed_trap) so it can record itself "killed" before exiting. A pid
+# that is not a positive integer, or a process that is already gone, is treated
+# as nothing to do.
+#
+# @param pid Process id recorded in the job's .job.id by the local backend.
+# ------------------------------------------------------------------------------
+_knit_sched_local_cancel() {
+    local pid="$1"
+    [[ "${pid}" =~ ^[0-9]+$ ]] || return 0
+    kill "${pid}" 2>/dev/null || true
+}

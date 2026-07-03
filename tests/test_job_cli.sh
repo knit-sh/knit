@@ -323,6 +323,91 @@ _seed_job() {
     [ "$status" -ne 0 ]
 }
 
+# ---------- job cancel ----------
+
+@test "job cancel terminates a running job and marks it killed" {
+    _seed_job "id1" "" "alpha" "running"
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    mkdir -p "${root}/jobs/id1"
+    echo "999" > "${root}/jobs/id1/.job.id"
+    # Force the local backend and capture the id handed to its cancel primitive
+    # instead of really killing a process.
+    _knit_sched_backend() { echo "local"; }
+    _knit_sched_local_cancel() { echo "$1" > "${root}/cancelled"; }
+    run _knit_job_cancel --id "id1"
+    [ "$status" -eq 0 ]
+    [ "$(cat "${root}/cancelled")" = "999" ]
+    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='id1';")" = "killed" ]
+}
+
+@test "job cancel is a no-op for an already-completed job" {
+    _seed_job "id1" "" "alpha" "completed"
+    run _knit_job_cancel --id "id1"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"already completed"* ]]
+    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='id1';")" = "completed" ]
+}
+
+@test "job cancel is a no-op for an already-killed job" {
+    _seed_job "id1" "" "alpha" "killed"
+    run _knit_job_cancel --id "id1"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"already killed"* ]]
+}
+
+@test "job cancel fails for an unknown id" {
+    _seed_job "id1" "" "alpha" "running"
+    run _knit_job_cancel --id "does-not-exist"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No job found"* ]]
+}
+
+@test "job cancel errors when a running job has no recorded launcher id" {
+    _seed_job "id1" "" "alpha" "running"
+    _KNIT_PREFIX="$(mktemp -d)/.knit"
+    run _knit_job_cancel --id "id1"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"launcher id"* ]]
+    # The state must not have moved: no cancellation actually happened.
+    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='id1';")" = "running" ]
+}
+
+@test "job cancel resolves through the dispatcher" {
+    _seed_job "id1" "" "alpha" "running"
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    mkdir -p "${root}/jobs/id1"
+    echo "999" > "${root}/jobs/id1/.job.id"
+    _knit_sched_backend() { echo "local"; }
+    _knit_sched_local_cancel() { :; }
+    run _knit_invoke_command "job__1__cancel" --id "id1"
+    [ "$status" -eq 0 ]
+    [ "$(sqlite3 "${__KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='id1';")" = "killed" ]
+}
+
+@test "job cancel is a no-op when bootstrapping and not yet bootstrapped" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="true"
+    run _knit_job_cancel --id "id1"
+    [ "$status" -eq 0 ]
+}
+
+@test "job cancel fails when not bootstrapped and not bootstrapping" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="false"
+    run _knit_job_cancel --id "id1"
+    [ "$status" -ne 0 ]
+}
+
 # ---------- backend wait primitives ----------
 
 @test "local wait blocks until a process exits" {

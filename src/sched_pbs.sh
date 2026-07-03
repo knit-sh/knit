@@ -116,3 +116,18 @@ _knit_sched_pbs_wait() {
         sleep "${__KNIT_SCHED_POLL_INTERVAL}"
     done
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_pbs_cancel()
+#
+# Cancel a PBS job with qdel. qdel sends SIGTERM then SIGKILL, letting the batch
+# shell's pre-termination handler record the job "killed" (see
+# __knit_job_killed_trap). A qdel of an already-finished/unknown job may print a
+# diagnostic; that is not treated as a knit-level failure since the job is gone.
+#
+# @param jobid PBS job id (from the job's .job.id).
+# ------------------------------------------------------------------------------
+_knit_sched_pbs_cancel() {
+    local jobid="$1"
+    qdel "${jobid}" 2>/dev/null || true
+}

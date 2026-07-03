@@ -436,3 +436,24 @@ teardown() {
     run _knit_sched_validate_caps r
     [ "$status" -eq 0 ]
 }
+
+# ---------- _knit_sched_cancel ----------
+
+@test "_knit_sched_cancel dispatches to the backend cancel primitive" {
+    _knit_sched_local_cancel() { printf 'local:%s\n' "$1" > "${__KNIT_TEST_TMPDIR}/c"; }
+    _knit_sched_slurm_cancel() { printf 'slurm:%s\n' "$1" > "${__KNIT_TEST_TMPDIR}/c"; }
+    _knit_sched_pbs_cancel()   { printf 'pbs:%s\n'   "$1" > "${__KNIT_TEST_TMPDIR}/c"; }
+
+    _knit_sched_cancel local 111
+    [ "$(< "${__KNIT_TEST_TMPDIR}/c")" = "local:111" ]
+    _knit_sched_cancel slurm 222
+    [ "$(< "${__KNIT_TEST_TMPDIR}/c")" = "slurm:222" ]
+    _knit_sched_cancel pbs 333
+    [ "$(< "${__KNIT_TEST_TMPDIR}/c")" = "pbs:333" ]
+}
+
+@test "_knit_sched_cancel fatals on an unknown backend" {
+    run _knit_sched_cancel bogus 111
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not implemented"* ]]
+}

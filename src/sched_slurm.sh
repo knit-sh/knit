@@ -113,3 +113,18 @@ _knit_sched_slurm_wait() {
         sleep "${__KNIT_SCHED_POLL_INTERVAL}"
     done
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_slurm_cancel()
+#
+# Cancel a Slurm job with scancel. scancel sends SIGTERM (then SIGKILL after a
+# grace period), which lets the batch shell's pre-termination handler record the
+# job "killed" (see __knit_job_killed_trap). scancel exits 0 even for a job that
+# has already finished, so no special-casing is needed here.
+#
+# @param jobid Slurm job id (from the job's .job.id).
+# ------------------------------------------------------------------------------
+_knit_sched_slurm_cancel() {
+    local jobid="$1"
+    scancel "${jobid}"
+}

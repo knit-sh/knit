@@ -208,6 +208,66 @@ _knit_job_wait() {
 knit_done
 
 # ------------------------------------------------------------------------------
+# Cancel a running job through its scheduler backend.
+# ------------------------------------------------------------------------------
+knit_register _knit_job_cancel "job:cancel" "Cancel a running job."
+knit_with_required "id:string" "Job UUID."
+# ------------------------------------------------------------------------------
+# @fn _knit_job_cancel()
+#
+# Cancel a job that is still running by asking its scheduler backend to terminate
+# it, then recording the job's row as "killed". The backend job id is read from
+# the job directory's .job.id (as `job wait` does) and handed to the backend's
+# cancel primitive (local -> kill, slurm -> scancel, pbs -> qdel).
+#
+# Cancelling a job that has already reached a terminal state (completed or
+# killed) is a no-op with an informational message. An unknown id is fatal, and
+# a still-running job whose .job.id is missing errors rather than reporting a
+# cancellation that did not happen.
+#
+# The compute side may also record "killed" via its pre-termination signal trap,
+# but the row is updated here as well so it stays consistent for backends or
+# races where that handler never runs (e.g. a hard kill, or a remote node whose
+# write has not yet landed).
+# ------------------------------------------------------------------------------
+_knit_job_cancel() {
+    if ! _knit_is_bootstrapped; then
+        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
+        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
+    fi
+    local id
+    id=$(knit_get_parameter "id" "$@")
+    local escaped
+    escaped=$(_knit_sql_escape "${id}")
+
+    local state
+    state="$(_knit_sqlite3 "SELECT state FROM jobs WHERE id = '${escaped}';")"
+    if [[ -z "${state}" ]]; then
+        knit_fatal "No job found with id \"${id}\"."
+    fi
+    # Already finished: there is nothing to cancel.
+    case "${state}" in
+        completed|killed)
+            knit_info "Job \"${id}\" is already ${state}; nothing to cancel."
+            return 0
+            ;;
+    esac
+
+    # Resolve the backend job id recorded at submit time.
+    local jobdir jobid
+    jobdir="$(_knit_job_dir "${id}")"
+    if [[ ! -f "${jobdir}/.job.id" ]]; then
+        knit_fatal "Job \"${id}\" has no recorded launcher id (${jobdir}/.job.id is missing)."
+    fi
+    IFS= read -r jobid < "${jobdir}/.job.id"
+
+    _knit_sched_cancel "$(_knit_sched_backend)" "${jobid}"
+    _knit_db_update_row "${__KNIT_JOBS_TABLE}" "${id}" "state=killed"
+    knit_info "Cancelled job \"${id}\"."
+}
+knit_done
+
+# ------------------------------------------------------------------------------
 # Show a job's submission options together with its job parameters.
 # ------------------------------------------------------------------------------
 knit_register _knit_job_show "job:show" "Show a job's submission options and job parameters."
