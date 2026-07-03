@@ -325,22 +325,121 @@ __knit_job_show_file() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn __knit_job_state_is_terminal()
+#
+# Succeed (return 0) if the job's recorded lifecycle state is terminal
+# (completed or killed), meaning no more output will be written. Any other state
+# (including an unknown id, which yields an empty result) returns non-zero. Used
+# by the follow loop as a backend-agnostic "job is done" signal.
+#
+# @param id Job UUID.
+# ------------------------------------------------------------------------------
+__knit_job_state_is_terminal() {
+    local state
+    state="$(_knit_sqlite3 \
+        "SELECT state FROM jobs WHERE id = '$(_knit_sql_escape "$1")';")"
+    case "${state}" in
+        completed|killed) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn __knit_job_follow_file()
+#
+# Stream one of a job's output files live, like `tail -f`, and stop cleanly once
+# the job finishes. Shared by `job show stdout --follow` and
+# `job show stderr --follow`. An unknown id is fatal (as for the non-following
+# form).
+#
+# Behaviour depends on the job's lifecycle state:
+#   - Already terminal: nothing more will be written, so print the file once and
+#     return (a missing file is fatal, exactly as `job show ${label}`).
+#   - Still running: wait for the file to appear (it is created on the job's first
+#     write), then follow it from the beginning. A bare `tail -f` would hang
+#     forever after the job exits, so it runs in the background and is stopped
+#     once the job's jobs-table row reaches a terminal state. That state is
+#     polled rather than tied to a local pid so following works for remote
+#     scheduler backends where the job runs on another node. If the job finishes
+#     without ever producing the file, that is fatal (as for the non-following
+#     form).
+#
+# @param id       Job UUID.
+# @param filename Name of the file within the job directory (".stdout"/".stderr").
+# @param label    Human-readable name of the file for error messages.
+# ------------------------------------------------------------------------------
+__knit_job_follow_file() {
+    local id="$1" filename="$2" label="$3"
+    local found
+    found="$(_knit_sqlite3 \
+        "SELECT id FROM jobs WHERE id = '$(_knit_sql_escape "${id}")';")"
+    if [[ -z "${found}" ]]; then
+        knit_fatal "No job found with id \"${id}\"."
+    fi
+    local jobdir file
+    jobdir="$(_knit_job_dir "${id}")"
+    file="${jobdir}/${filename}"
+
+    # A finished job has nothing left to stream: print what it captured and stop.
+    if __knit_job_state_is_terminal "${id}"; then
+        if [[ ! -f "${file}" ]]; then
+            knit_fatal "No ${label} recorded for job \"${id}\" (${file} is missing)."
+        fi
+        cat "${file}"
+        return 0
+    fi
+
+    # Wait for the stream file to be created, unless the job finishes first
+    # without ever writing it.
+    while [[ ! -f "${file}" ]]; do
+        if __knit_job_state_is_terminal "${id}"; then
+            knit_fatal "No ${label} recorded for job \"${id}\" (${file} is missing)."
+        fi
+        sleep "${__KNIT_SCHED_POLL_INTERVAL}"
+    done
+
+    # Follow the file in the background; stop once the job reaches a terminal
+    # state.
+    tail -n +1 -f "${file}" &
+    local tail_pid=$!
+    while ! __knit_job_state_is_terminal "${id}"; do
+        sleep "${__KNIT_SCHED_POLL_INTERVAL}"
+    done
+    # Give tail one more read cycle to flush output written just before the job
+    # finished, then stop it.
+    sleep "${__KNIT_SCHED_POLL_INTERVAL}"
+    kill "${tail_pid}" 2>/dev/null
+    wait "${tail_pid}" 2>/dev/null
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # Print a job's captured standard output.
 # ------------------------------------------------------------------------------
 knit_register _knit_job_show_stdout "job:show:stdout" "Print a job's captured standard output."
 knit_with_required "id:string" "Job UUID."
+knit_with_flag "follow" "Follow the stream as it grows, like tail -f."
 # ------------------------------------------------------------------------------
 # @fn _knit_job_show_stdout()
 #
 # Print the standard output a job captured while running (the .stdout file in the
 # job's working directory). An unknown id or an absent file is a fatal error.
+# With --follow, stream the output live and stop once the job finishes (see
+# __knit_job_follow_file).
 # ------------------------------------------------------------------------------
 _knit_job_show_stdout() {
     if ! _knit_is_bootstrapped; then
         [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
         knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
     fi
-    __knit_job_show_file "$(knit_get_parameter "id" "$@")" ".stdout" "stdout"
+    local id follow
+    id=$(knit_get_parameter "id" "$@")
+    follow=$(knit_get_parameter "follow" "$@") || follow="false"
+    if [[ "${follow}" == "true" ]]; then
+        __knit_job_follow_file "${id}" ".stdout" "stdout"
+    else
+        __knit_job_show_file "${id}" ".stdout" "stdout"
+    fi
 }
 knit_done
 
@@ -349,18 +448,28 @@ knit_done
 # ------------------------------------------------------------------------------
 knit_register _knit_job_show_stderr "job:show:stderr" "Print a job's captured standard error."
 knit_with_required "id:string" "Job UUID."
+knit_with_flag "follow" "Follow the stream as it grows, like tail -f."
 # ------------------------------------------------------------------------------
 # @fn _knit_job_show_stderr()
 #
 # Print the standard error a job captured while running (the .stderr file in the
 # job's working directory). An unknown id or an absent file is a fatal error.
+# With --follow, stream the output live and stop once the job finishes (see
+# __knit_job_follow_file).
 # ------------------------------------------------------------------------------
 _knit_job_show_stderr() {
     if ! _knit_is_bootstrapped; then
         [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
         knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
     fi
-    __knit_job_show_file "$(knit_get_parameter "id" "$@")" ".stderr" "stderr"
+    local id follow
+    id=$(knit_get_parameter "id" "$@")
+    follow=$(knit_get_parameter "follow" "$@") || follow="false"
+    if [[ "${follow}" == "true" ]]; then
+        __knit_job_follow_file "${id}" ".stderr" "stderr"
+    else
+        __knit_job_show_file "${id}" ".stderr" "stderr"
+    fi
 }
 knit_done
 

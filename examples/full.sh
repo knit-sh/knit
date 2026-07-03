@@ -242,6 +242,11 @@
 #   ./full.sh job show stderr --id $uuid     # the job's standard error
 #   ./full.sh job show script --id $uuid     # the generated batch script
 #
+# Add --follow to stdout/stderr to stream a running job's output live (like
+# tail -f); it stops on its own once the job finishes:
+#
+#   ./full.sh job show stdout --id $uuid --follow
+#
 # -----------------------------------------------------------------------------
 # 10. Clean up
 # -----------------------------------------------------------------------------

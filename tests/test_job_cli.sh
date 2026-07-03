@@ -646,3 +646,147 @@ _seed_params() {
     run _knit_job_show_script --id "abc123"
     [ "$status" -eq 0 ]
 }
+
+# ---------- job show --follow ----------
+
+@test "__knit_job_state_is_terminal recognizes terminal and non-terminal states" {
+    _seed_job "done" "" "montecarlo" "completed"
+    _seed_job "gone" "" "montecarlo" "killed"
+    _seed_job "live" "" "montecarlo" "running"
+    __knit_job_state_is_terminal "done"
+    __knit_job_state_is_terminal "gone"
+    run __knit_job_state_is_terminal "live"
+    [ "$status" -ne 0 ]
+    run __knit_job_state_is_terminal "nope"
+    [ "$status" -ne 0 ]
+}
+
+@test "job show stdout --follow prints and exits on an already-finished job" {
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "completed"
+    mkdir -p "${root}/jobs/abc123"
+    printf 'final output\n' > "${root}/jobs/abc123/.stdout"
+    run _knit_job_show_stdout --id "abc123" --follow true
+    rm -rf "${root}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "final output" ]
+}
+
+@test "job show stderr --follow prints and exits on an already-finished job" {
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "completed"
+    mkdir -p "${root}/jobs/abc123"
+    printf 'final error\n' > "${root}/jobs/abc123/.stderr"
+    run _knit_job_show_stderr --id "abc123" --follow true
+    rm -rf "${root}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "final error" ]
+}
+
+@test "job show stdout --follow errors on a finished job with no output" {
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "completed"
+    mkdir -p "${root}/jobs/abc123"
+    run _knit_job_show_stdout --id "abc123" --follow true
+    rm -rf "${root}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No stdout recorded"* ]]
+}
+
+@test "job show stdout --follow fails for an unknown id" {
+    _seed_job "abc123" "" "montecarlo" "running"
+    run _knit_job_show_stdout --id "nope" --follow true
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No job found"* ]]
+}
+
+@test "job show stdout --follow streams a running job and stops when it finishes" {
+    local root cf
+    root="$(mktemp -d)"
+    cf="$(mktemp)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "running"
+    mkdir -p "${root}/jobs/abc123"
+    printf 'streamed line\n' > "${root}/jobs/abc123/.stdout"
+    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    # Report running for the initial check, then terminal so the follow loop ends.
+    __knit_job_state_is_terminal() {
+        local n
+        n="$(cat "${cf}" 2>/dev/null || echo 0)"
+        n=$((n + 1))
+        printf '%s' "${n}" > "${cf}"
+        [[ "${n}" -ge 2 ]]
+    }
+    run _knit_job_show_stdout --id "abc123" --follow true
+    rm -rf "${root}" "${cf}"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"streamed line"* ]]
+}
+
+@test "job show stdout --follow waits for the output file to appear" {
+    local root cf
+    root="$(mktemp -d)"
+    cf="$(mktemp)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "running"
+    mkdir -p "${root}/jobs/abc123"
+    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    # Stay non-terminal for the first checks (top check + one wait-loop pass +
+    # one follow-loop pass), then terminal.
+    __knit_job_state_is_terminal() {
+        local n
+        n="$(cat "${cf}" 2>/dev/null || echo 0)"
+        n=$((n + 1))
+        printf '%s' "${n}" > "${cf}"
+        [[ "${n}" -ge 4 ]]
+    }
+    # The file appears shortly after the follow starts waiting for it.
+    ( sleep 0.05; printf 'late line\n' > "${root}/jobs/abc123/.stdout" ) &
+    run _knit_job_show_stdout --id "abc123" --follow true
+    wait
+    rm -rf "${root}" "${cf}"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"late line"* ]]
+}
+
+@test "job show stdout --follow errors if a running job finishes without output" {
+    local root cf
+    root="$(mktemp -d)"
+    cf="$(mktemp)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "running"
+    mkdir -p "${root}/jobs/abc123"
+    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    # Non-terminal for the top check, then terminal while still waiting for the
+    # file that never appears.
+    __knit_job_state_is_terminal() {
+        local n
+        n="$(cat "${cf}" 2>/dev/null || echo 0)"
+        n=$((n + 1))
+        printf '%s' "${n}" > "${cf}"
+        [[ "${n}" -ge 2 ]]
+    }
+    run _knit_job_show_stdout --id "abc123" --follow true
+    rm -rf "${root}" "${cf}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No stdout recorded"* ]]
+}
+
+@test "job show stdout --follow works as a bare flag through the pipeline" {
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "completed"
+    mkdir -p "${root}/jobs/abc123"
+    printf 'piped follow\n' > "${root}/jobs/abc123/.stdout"
+    run _knit_invoke_command "job__1__show__1__stdout" --id "abc123" --follow
+    rm -rf "${root}"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"piped follow"* ]]
+}
