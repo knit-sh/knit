@@ -92,3 +92,24 @@ _knit_sched_slurm_submit() {
     out="$("${cmd[@]}")" || return 1
     _knit_sched_slurm_parse_jobid "${out}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_slurm_wait()
+#
+# Block until Slurm no longer lists the job as active. Slurm has no reliable
+# blocking "wait for completion" primitive after submission: `scontrol wait_job`
+# returns as soon as the job is allocated (not when it finishes), and `sbatch
+# --wait` only applies at submit time. So poll `squeue` for the job id every
+# __KNIT_SCHED_POLL_INTERVAL seconds until it produces no rows, which is true
+# once the job has completed, failed, or been cancelled (a running or completing
+# CG job still lists). The job's knit terminal state is read from the DB by the
+# caller afterwards.
+#
+# @param jobid Slurm job id (from the job's .job.id).
+# ------------------------------------------------------------------------------
+_knit_sched_slurm_wait() {
+    local jobid="$1"
+    while squeue -h -j "${jobid}" -o '%T' 2>/dev/null | grep -q .; do
+        sleep "${__KNIT_SCHED_POLL_INTERVAL}"
+    done
+}

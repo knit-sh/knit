@@ -10,6 +10,15 @@
 __KNIT_SCHED_KILL_WARNING_SEC="60"
 
 # ------------------------------------------------------------------------------
+# Seconds between polls when a backend has to wait for a job by polling its
+# scheduler (Slurm squeue, PBS qstat — neither offers a reliable blocking
+# "wait for completion" primitive). Overridable, chiefly so tests can drive the
+# poll loops quickly.
+# ------------------------------------------------------------------------------
+declare __KNIT_SCHED_POLL_INTERVAL
+__KNIT_SCHED_POLL_INTERVAL="${__KNIT_SCHED_POLL_INTERVAL:-5}"
+
+# ------------------------------------------------------------------------------
 # @fn _knit_uuidv7()
 #
 # Generate a version-7 UUID (RFC 9562) and print it to stdout.
@@ -252,6 +261,44 @@ _knit_sched_submit() {
         local) _knit_sched_local_submit "${arr_name}" "${script}" "${jobdir}" ;;
         slurm) _knit_sched_slurm_submit "${arr_name}" "${script}" "${jobdir}" ;;
         pbs)   _knit_sched_pbs_submit "${arr_name}" "${script}" "${jobdir}" ;;
+        *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_backend()
+#
+# Resolve which scheduler backend to use: bootstrap metadata (__scheduler__),
+# else live detection, with "none" (no scheduler detected) mapping to the local
+# background-process backend. Prints one of "local", "slurm", "pbs".
+# ------------------------------------------------------------------------------
+_knit_sched_backend() {
+    local backend
+    backend="$(_knit_metadata_load --key "__scheduler__")"
+    [[ -z "${backend}" ]] && backend="$(_knit_detect_job_manager)"
+    [[ "${backend}" == "none" ]] && backend="local"
+    printf '%s\n' "${backend}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_wait()
+#
+# Dispatch to the configured backend's blocking wait, which returns once the
+# scheduler no longer considers the job active. Each backend blocks using the
+# native mechanism its scheduler actually provides (see the per-backend
+# functions); knit's own terminal state (completed/killed) is read from the jobs
+# table afterwards, so this only has to unblock when the job stops running.
+#
+# @param backend Scheduler backend name ("local", "slurm", "pbs").
+# @param jobid   Backend job id (scheduler id, or a PID for the local backend).
+# ------------------------------------------------------------------------------
+_knit_sched_wait() {
+    local backend="$1"
+    local jobid="$2"
+    case "${backend}" in
+        local) _knit_sched_local_wait "${jobid}" ;;
+        slurm) _knit_sched_slurm_wait "${jobid}" ;;
+        pbs)   _knit_sched_pbs_wait "${jobid}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
     esac
 }

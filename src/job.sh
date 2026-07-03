@@ -169,9 +169,7 @@ __knit_submit() {
     # Pick the scheduler backend: bootstrap metadata, else live detection, with
     # "none" mapping to the local (no-scheduler) backend.
     local backend
-    backend="$(_knit_metadata_load --key "__scheduler__")"
-    [[ -z "${backend}" ]] && backend="$(_knit_detect_job_manager)"
-    [[ "${backend}" == "none" ]] && backend="local"
+    backend="$(_knit_sched_backend)"
 
     # Generate the batch script and submit it. The generated script exports
     # KNIT_JOB_PREFIX/KNIT_SETUP_PREFIX, cd's into the job directory, then calls

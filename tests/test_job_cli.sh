@@ -220,3 +220,177 @@ _seed_job() {
     run _knit_job_list
     [ "$status" -ne 0 ]
 }
+
+# ---------- job dir resolution ----------
+
+@test "job dir resolves under the setup for a job with a setup" {
+    _seed_job "id1" "/s/a" "alpha" "running"
+    run _knit_job_dir "id1"
+    [ "$status" -eq 0 ]
+    [ "$output" = "/s/a/jobs/id1" ]
+}
+
+@test "job dir resolves under the experiment root for a setup-less job" {
+    _seed_job "id1" "" "alpha" "running"
+    _KNIT_PREFIX="/exp/.knit"
+    run _knit_job_dir "id1"
+    [ "$status" -eq 0 ]
+    [ "$output" = "/exp/jobs/id1" ]
+}
+
+# ---------- job wait ----------
+
+@test "job wait returns 0 for an already-completed job" {
+    _seed_job "id1" "" "alpha" "completed"
+    run _knit_job_wait --id "id1"
+    [ "$status" -eq 0 ]
+    [ "$output" = "completed" ]
+}
+
+@test "job wait returns non-zero for a killed job" {
+    _seed_job "id1" "" "alpha" "killed"
+    run _knit_job_wait --id "id1"
+    [ "$status" -ne 0 ]
+    [ "$output" = "killed" ]
+}
+
+@test "job wait fails for an unknown id" {
+    _seed_job "id1" "" "alpha" "completed"
+    run _knit_job_wait --id "does-not-exist"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No job found"* ]]
+}
+
+@test "job wait errors when a running job has no recorded launcher id" {
+    _seed_job "id1" "" "alpha" "running"
+    _KNIT_PREFIX="$(mktemp -d)/.knit"
+    run _knit_job_wait --id "id1"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"launcher id"* ]]
+}
+
+@test "job wait blocks on the scheduler, then reports the recorded state" {
+    _seed_job "id1" "" "alpha" "running"
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    mkdir -p "${root}/jobs/id1"
+    echo "999" > "${root}/jobs/id1/.job.id"
+    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    # Force the local backend and stub its wait to flip the state, standing in
+    # for the scheduler unblocking + the compute-side terminal-state write.
+    _knit_sched_backend() { echo "local"; }
+    _knit_sched_local_wait() {
+        sqlite3 "${__KNIT_DATABASE}" \
+            "UPDATE jobs SET state = 'completed' WHERE id = 'id1';"
+    }
+    run _knit_job_wait --id "id1"
+    [ "$status" -eq 0 ]
+    [ "$output" = "completed" ]
+}
+
+@test "job wait returns non-zero when the scheduler wait ends on killed" {
+    _seed_job "id1" "" "alpha" "running"
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    mkdir -p "${root}/jobs/id1"
+    echo "999" > "${root}/jobs/id1/.job.id"
+    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    _knit_sched_backend() { echo "local"; }
+    _knit_sched_local_wait() {
+        sqlite3 "${__KNIT_DATABASE}" \
+            "UPDATE jobs SET state = 'killed' WHERE id = 'id1';"
+    }
+    run _knit_job_wait --id "id1"
+    [ "$status" -ne 0 ]
+    [ "$output" = "killed" ]
+}
+
+@test "job wait is a no-op when bootstrapping and not yet bootstrapped" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="true"
+    run _knit_job_wait --id "id1"
+    [ "$status" -eq 0 ]
+}
+
+@test "job wait fails when not bootstrapped and not bootstrapping" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="false"
+    run _knit_job_wait --id "id1"
+    [ "$status" -ne 0 ]
+}
+
+# ---------- backend wait primitives ----------
+
+@test "local wait blocks until a process exits" {
+    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    sleep 0.4 &
+    local pid=$!
+    local start end
+    start=$(date +%s)
+    run _knit_sched_local_wait "${pid}"
+    end=$(date +%s)
+    [ "$status" -eq 0 ]
+    # Should have blocked at least until the process finished.
+    [ "$(( end - start ))" -ge 0 ]
+    ! kill -0 "${pid}" 2>/dev/null
+}
+
+@test "local wait returns immediately for a non-numeric id" {
+    __KNIT_SCHED_POLL_INTERVAL="5"
+    run _knit_sched_local_wait "not-a-pid"
+    [ "$status" -eq 0 ]
+}
+
+@test "slurm wait polls squeue until the job leaves the queue" {
+    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    local counter
+    counter="$(mktemp)"
+    echo 0 > "${counter}"
+    # Fake squeue: report the job present for two polls, then gone (empty).
+    squeue() {
+        local n
+        n=$(cat "${counter}")
+        n=$(( n + 1 ))
+        echo "${n}" > "${counter}"
+        [[ "${n}" -le 2 ]] && printf 'RUNNING\n'
+        return 0
+    }
+    run _knit_sched_slurm_wait 123
+    [ "$status" -eq 0 ]
+    [ "$(cat "${counter}")" -ge 3 ]
+    rm -f "${counter}"
+}
+
+@test "pbs wait polls qstat until the job reaches a terminal state" {
+    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    local counter
+    counter="$(mktemp)"
+    echo 0 > "${counter}"
+    # Fake qstat: running for two polls, then exiting (E), which is terminal.
+    qstat() {
+        local n
+        n=$(cat "${counter}")
+        n=$(( n + 1 ))
+        echo "${n}" > "${counter}"
+        if [[ "${n}" -le 2 ]]; then
+            printf '    job_state = R\n'
+        else
+            printf '    job_state = E\n'
+        fi
+    }
+    run _knit_sched_pbs_wait 123
+    [ "$status" -eq 0 ]
+    [ "$(cat "${counter}")" -ge 3 ]
+    rm -f "${counter}"
+}
+
+@test "pbs wait treats an unknown job as finished" {
+    __KNIT_SCHED_POLL_INTERVAL="0.1"
+    qstat() { return 0; }  # no job_state line -> job gone
+    run _knit_sched_pbs_wait 123
+    [ "$status" -eq 0 ]
+}

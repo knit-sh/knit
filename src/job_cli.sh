@@ -111,3 +111,98 @@ _knit_job_list() {
     _knit_sqlite3 -header -column "${statement}"
 }
 knit_done
+
+# ------------------------------------------------------------------------------
+# @fn _knit_job_dir()
+#
+# Print the working directory of a job given its UUID. A job that used a setup
+# lives at <setup>/jobs/<id>; a setup-less job lives at <experiment-root>/jobs/
+# <id>, where the root is the .knit prefix with its /.knit suffix removed. The
+# setup is read from the job's jobs-table row.
+#
+# @param id Job UUID.
+# ------------------------------------------------------------------------------
+_knit_job_dir() {
+    local id="$1"
+    local setup
+    setup="$(_knit_sqlite3 \
+        "SELECT setup FROM jobs WHERE id = '$(_knit_sql_escape "${id}")';")"
+    if [[ -n "${setup}" ]]; then
+        printf '%s\n' "${setup}/jobs/${id}"
+    else
+        printf '%s\n' "${_KNIT_PREFIX%/.knit}/jobs/${id}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# Block until a job reaches a terminal lifecycle state.
+# ------------------------------------------------------------------------------
+knit_register _knit_job_wait "job:wait" "Wait for a job to reach a terminal state."
+knit_with_required "id:string" "Job UUID."
+# ------------------------------------------------------------------------------
+# @fn _knit_job_wait()
+#
+# Block until a job finishes, then print its terminal lifecycle state; a "killed"
+# state yields a non-zero exit so callers can detect failure.
+#
+# Rather than busy-polling the database, this blocks on the scheduler itself:
+# once the job's row is not already terminal, it looks up the backend job id
+# (.job.id in the job directory) and calls the backend's native wait
+# (_knit_sched_wait), which returns when the scheduler stops running the job. The
+# job's terminal state (completed/killed) is recorded by its compute-side
+# callbacks over the shared filesystem; that write is read back afterwards, with
+# a short reconciliation window since it may land a moment after the scheduler
+# reports the job gone. An unknown id is a fatal error rather than an endless
+# wait.
+# ------------------------------------------------------------------------------
+_knit_job_wait() {
+    if ! _knit_is_bootstrapped; then
+        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
+        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
+    fi
+    local id
+    id=$(knit_get_parameter "id" "$@")
+    local escaped
+    escaped=$(_knit_sql_escape "${id}")
+
+    local state
+    state="$(_knit_sqlite3 "SELECT state FROM jobs WHERE id = '${escaped}';")"
+    if [[ -z "${state}" ]]; then
+        knit_fatal "No job found with id \"${id}\"."
+    fi
+    # Already finished: no need to involve the scheduler.
+    case "${state}" in
+        completed) printf '%s\n' "${state}"; return 0 ;;
+        killed)    printf '%s\n' "${state}"; return 1 ;;
+    esac
+
+    # Block on the scheduler using the backend job id recorded at submit time.
+    local jobdir jobid
+    jobdir="$(_knit_job_dir "${id}")"
+    if [[ ! -f "${jobdir}/.job.id" ]]; then
+        knit_fatal "Job \"${id}\" has no recorded launcher id (${jobdir}/.job.id is missing)."
+    fi
+    IFS= read -r jobid < "${jobdir}/.job.id"
+    _knit_sched_wait "$(_knit_sched_backend)" "${jobid}"
+
+    # The scheduler reports the job gone; give the compute-side terminal-state
+    # write a brief window to become visible, then report it.
+    local tries=0
+    while true; do
+        state="$(_knit_sqlite3 "SELECT state FROM jobs WHERE id = '${escaped}';")"
+        case "${state}" in
+            completed) printf '%s\n' "${state}"; return 0 ;;
+            killed)    printf '%s\n' "${state}"; return 1 ;;
+        esac
+        tries=$(( tries + 1 ))
+        [[ "${tries}" -ge 5 ]] && break
+        sleep "${__KNIT_SCHED_POLL_INTERVAL}"
+    done
+
+    # The scheduler finished the job but knit never recorded a terminal state
+    # (e.g. status tracking was disabled or failed). Report what we have.
+    knit_warning "Job \"${id}\" is no longer running but its recorded state is \"${state}\"."
+    printf '%s\n' "${state}"
+    return 0
+}
+knit_done

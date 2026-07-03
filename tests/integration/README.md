@@ -33,7 +33,9 @@ tests/integration/
     ├── 01_bootstrap/                  # Verify bootstrap (sqlite build, DB creation)
     ├── 02_setup_basic/                # Verify setup lifecycle + .activate.sh
     ├── 03_submit_basic/               # Job submission (knit submit → scheduler)
-    └── 04_submit_mpi/                 # [SKIP] MPI job (not yet implemented)
+    ├── 04_submit_mpi/                 # [SKIP] MPI job (not yet implemented)
+    ├── 05_job_killed/                 # Kill detection (cancel → "killed" state)
+    └── 06_job_wait/                   # job wait blocks on the scheduler
 ```
 
 ## Running the tests

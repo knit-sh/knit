@@ -51,3 +51,23 @@ _knit_sched_local_submit() {
 
     printf '%s\n' "${pid}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_local_wait()
+#
+# Block until a locally-launched job process exits. The `job wait` command runs
+# in a different process than the `submit` that launched the job, so the pid is
+# not a child of this shell and the `wait` builtin cannot be used; instead poll
+# `kill -0` (a liveness probe that sends no signal) every
+# __KNIT_SCHED_POLL_INTERVAL seconds until the process is gone. A pid that is not
+# a positive integer, or is already gone, returns immediately.
+#
+# @param pid Process id recorded in the job's .job.id by the local backend.
+# ------------------------------------------------------------------------------
+_knit_sched_local_wait() {
+    local pid="$1"
+    [[ "${pid}" =~ ^[0-9]+$ ]] || return 0
+    while kill -0 "${pid}" 2>/dev/null; do
+        sleep "${__KNIT_SCHED_POLL_INTERVAL}"
+    done
+}

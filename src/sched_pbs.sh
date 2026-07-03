@@ -90,3 +90,29 @@ _knit_sched_pbs_submit() {
     out="$("${cmd[@]}")" || return 1
     _knit_sched_pbs_parse_jobid "${out}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_pbs_wait()
+#
+# Block until PBS no longer runs the job. OpenPBS ships no `qwait`, so poll
+# `qstat` every __KNIT_SCHED_POLL_INTERVAL seconds. `-x` also reports finished
+# jobs from history when it is enabled. A job that is gone (unknown/purged, so no
+# job_state line) is treated as finished; a job whose job_state is "E" (exiting,
+# its Exit_status is already set) or "F" (finished) is terminal. "E" is treated
+# as terminal because a job can linger in it after its script has stopped
+# running, and waiting for "F" would then block far longer than the job runs.
+# The job's knit terminal state is read from the DB by the caller afterwards.
+#
+# @param jobid PBS job id (from the job's .job.id).
+# ------------------------------------------------------------------------------
+_knit_sched_pbs_wait() {
+    local jobid="$1"
+    local state
+    while true; do
+        state="$(qstat -x -f "${jobid}" 2>/dev/null \
+            | awk -F'=' '/job_state/ { gsub(/ /, "", $2); print $2; exit }')"
+        [[ -z "${state}" ]] && return 0
+        [[ "${state}" == "E" || "${state}" == "F" ]] && return 0
+        sleep "${__KNIT_SCHED_POLL_INTERVAL}"
+    done
+}
