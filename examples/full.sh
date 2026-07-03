@@ -205,15 +205,15 @@
 #   cat env/jobs/$uuid/.job.sh    # the generated batch script
 #   cat env/jobs/$uuid/.job.id    # the scheduler's job id (or local PID)
 #
-# Every submission is tracked in the `submissions` table, and its lifecycle
+# Every submission is tracked in the `jobs` table, and its lifecycle
 # state advances submitted -> running -> completed (or -> killed if cancelled):
 #
-#   ./full.sh db query --from submissions \
+#   ./full.sh db query --from jobs \
 #       --select "id, job, state" --header --column
 #
-# The job's own output (pi) is recorded in its own table:
+# The job's own output (pi) is recorded in its own table, named after the job:
 #
-#   ./full.sh db query --from '"submit:montecarlo"' \
+#   ./full.sh db query --from montecarlo \
 #       --select "id, samples, seed, pi" --header --column
 #
 # -----------------------------------------------------------------------------

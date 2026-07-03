@@ -20,11 +20,11 @@ declare -A _KNIT_JOBS
 declare -A _KNIT_JOB_SETUP
 
 # ------------------------------------------------------------------------------
-# Name of the table recording every submission and its lifecycle state. The row
-# id is the job UUID; the "state" column moves submitted -> running -> completed,
-# or -> killed when the scheduler terminates a job before it finishes.
+# Name of the table recording every job and its lifecycle state. The row id is
+# the job UUID; the "state" column moves submitted -> running -> completed, or
+# -> killed when the scheduler terminates a job before it finishes.
 # ------------------------------------------------------------------------------
-__KNIT_SUBMISSIONS_TABLE="submissions"
+__KNIT_JOBS_TABLE="jobs"
 
 knit_register __knit_submit "submit" "Submit a job."
 knit_with_optional "setup:path" "" \
@@ -51,9 +51,9 @@ knit_with_optional "gpus-per-node:integer" "0" "GPUs per node."
 knit_with_flag "wait" "Block until the job completes; return its exit code."
 knit_with_dispatch "job" "User-provided job command to execute"
 knit_with_subcommand_title "Jobs"
-# Record every submission as a row in the "submissions" table. The row id is the
-# job UUID (set in __knit_submit); these outputs track the job and its state.
-knit_with_table "${__KNIT_SUBMISSIONS_TABLE}"
+# Record every submission as a row in the "jobs" table. The row id is the job
+# UUID (set in __knit_submit); these outputs track the job and its state.
+knit_with_table "${__KNIT_JOBS_TABLE}"
 knit_with_output "job:string" "" "Name of the submitted job (the token after --)."
 knit_with_output "state:string" "submitted" "Lifecycle state of the submitted job."
 
@@ -142,7 +142,7 @@ __knit_submit() {
     mkdir -p "${jobdir}"
 
     # Record this submission: the recorded row's id is the canonical job
-    # UUID, and the submissions table tracks the job name and lifecycle state.
+    # UUID, and the jobs table tracks the job name and lifecycle state.
     _knit_set_row_id "${uuid}"
     knit_output "job" "${job_name}"
     knit_output "state" "submitted"
@@ -159,7 +159,7 @@ __knit_submit() {
     # writing a script or contacting the scheduler.
     _knit_sched_validate_caps opts
 
-    # Persist the submissions row now, before dispatching. This must precede a
+    # Persist the jobs row now, before dispatching. This must precede a
     # blocking --wait submission: the job then runs (on this host for the local
     # backend, or on a compute node) and transitions this row's "state" while it
     # executes, so the row has to exist first. The automatic post-invocation
@@ -188,7 +188,7 @@ __knit_submit() {
     jobid="$(_knit_sched_submit "${backend}" opts "${script}" "${jobdir}")"
 
     # Record the implementation-dependent launcher id in .job.id. The full
-    # submission record lives in the "submissions" table (see M10/M11 recording).
+    # submission record lives in the "jobs" table (see M10/M11 recording).
     printf '%s\n' "${jobid}" > "${jobdir}/.job.id"
 
     # Return the job UUID (the canonical, scheduler-independent identifier). The
@@ -200,7 +200,7 @@ knit_done
 # ------------------------------------------------------------------------------
 # @fn _knit_job_set_state()
 #
-# Update the lifecycle state of the running job's submissions row. Called on the
+# Update the lifecycle state of the running job's jobs-table row. Called on the
 # compute side, where the experiment's .knit is shared over the parallel file
 # system, so the row inserted by knit submit on the login node can be updated in
 # place. The row id is the job UUID, i.e. the basename of KNIT_JOB_PREFIX (the
@@ -215,7 +215,7 @@ _knit_job_set_state() {
     _knit_is_bootstrapped || return 0
     local uuid
     uuid="$(basename "${KNIT_JOB_PREFIX}")"
-    _knit_db_update_row "${__KNIT_SUBMISSIONS_TABLE}" "${uuid}" "state=${state}" \
+    _knit_db_update_row "${__KNIT_JOBS_TABLE}" "${uuid}" "state=${state}" \
         2>/dev/null \
         || knit_warning "Could not update job \"${uuid}\" state to \"${state}\"."
 }
@@ -338,7 +338,10 @@ knit_register_job() {
     local fn="$2"
     local description="$3"
     knit_register "${fn}" "submit:${name}" "${description}"
-    knit_with_table
+    # Record each job's invocations in a table named after the job itself (not
+    # the "submit:<name>" command name), so the table reads naturally and needs
+    # no SQL quoting of the colon.
+    knit_with_table "${name}"
     _KNIT_JOBS["${name}"]=1
     _knit_run_before __knit_job_before_cb
     _knit_run_after  __knit_job_after_cb

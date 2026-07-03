@@ -5,7 +5,7 @@
 #   - a setup "env" (trivial; just produces a .activate.sh)
 #   - a job "sleeper" that sleeps long enough to be cancelled while running
 #
-# The test submits the job WITHOUT --wait, waits until the submissions row
+# The test submits the job WITHOUT --wait, waits until the jobs row
 # reaches "running", then cancels the job through the scheduler. The scheduler
 # sends the job a SIGTERM before killing it; knit's compute-side trap records the
 # job as "killed" (M8) before the process dies.

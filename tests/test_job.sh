@@ -49,13 +49,13 @@ teardown() {
     _knit_set_find _KNIT_COMMANDS "submit__1__myjob"
 }
 
-@test "knit_register_job creates DB table named submit:<name>" {
+@test "knit_register_job creates DB table named after the job" {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_done
     local result
     result=$(sqlite3 "${__KNIT_DATABASE}" \
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='submit:myjob';")
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='myjob';")
     [ "$result" -eq 1 ]
 }
 
@@ -146,18 +146,18 @@ teardown() {
     [[ "${cb_content}" == *__knit_job_after_cb* ]]
 }
 
-# Create a minimal submissions table and seed one row. _knit_job_set_state only
+# Create a minimal jobs table and seed one row. _knit_job_set_state only
 # updates the "state" column by id, so the two-column table is enough here.
-_seed_submissions() {
+_seed_jobs() {
     local id="$1" state="$2"
     sqlite3 "${__KNIT_DATABASE}" \
-        "CREATE TABLE IF NOT EXISTS submissions (id TEXT, state TEXT);"
+        "CREATE TABLE IF NOT EXISTS jobs (id TEXT, state TEXT);"
     sqlite3 "${__KNIT_DATABASE}" \
-        "INSERT INTO submissions (id, state) VALUES ('${id}', '${state}');"
+        "INSERT INTO jobs (id, state) VALUES ('${id}', '${state}');"
 }
 
 _state_of() {
-    sqlite3 "${__KNIT_DATABASE}" "SELECT state FROM submissions WHERE id='$1';"
+    sqlite3 "${__KNIT_DATABASE}" "SELECT state FROM jobs WHERE id='$1';"
 }
 
 # ---------- _knit_job_set_state ----------
@@ -168,9 +168,9 @@ _state_of() {
     [ "$status" -eq 0 ]
 }
 
-@test "set state updates the submissions row keyed by the job UUID" {
+@test "set state updates the jobs row keyed by the job UUID" {
     export KNIT_JOB_PREFIX="${__KNIT_TEST_TMPDIR}/abc-uuid"
-    _seed_submissions "abc-uuid" "submitted"
+    _seed_jobs "abc-uuid" "submitted"
     _knit_job_set_state "running"
     [ "$(_state_of "abc-uuid")" = "running" ]
 }
@@ -187,7 +187,7 @@ _state_of() {
     export KNIT_JOB_PREFIX="${__KNIT_TEST_TMPDIR}/job"
     export KNIT_SETUP_PREFIX="${__KNIT_TEST_TMPDIR}"
     printf 'export _KNIT_JOB_CANARY=activated\n' > "${KNIT_SETUP_PREFIX}/.activate.sh"
-    _seed_submissions "job" "submitted"
+    _seed_jobs "job" "submitted"
     __knit_job_before_cb
     [ "${_KNIT_JOB_CANARY}" = "activated" ]
     [ "$(_state_of "job")" = "running" ]
@@ -197,7 +197,7 @@ _state_of() {
 @test "job before callback marks running without sourcing when there is no setup" {
     export KNIT_JOB_PREFIX="${__KNIT_TEST_TMPDIR}/job"
     unset KNIT_SETUP_PREFIX
-    _seed_submissions "job" "submitted"
+    _seed_jobs "job" "submitted"
     run __knit_job_before_cb
     [ "$status" -eq 0 ]
     [ "$(_state_of "job")" = "running" ]
@@ -207,7 +207,7 @@ _state_of() {
     export KNIT_JOB_PREFIX="${__KNIT_TEST_TMPDIR}/job"
     export KNIT_SETUP_PREFIX="${__KNIT_TEST_TMPDIR}"
     : > "${KNIT_SETUP_PREFIX}/.activate.sh"
-    _seed_submissions "job" "submitted"
+    _seed_jobs "job" "submitted"
     __knit_job_before_cb
     trap -p TERM | grep -q __knit_job_killed_trap
     trap -p USR1 | grep -q __knit_job_killed_trap
@@ -217,7 +217,7 @@ _state_of() {
 
 @test "kill trap records the job as killed and exits non-zero" {
     export KNIT_JOB_PREFIX="${__KNIT_TEST_TMPDIR}/job"
-    _seed_submissions "job" "running"
+    _seed_jobs "job" "running"
     run __knit_job_killed_trap
     [ "$status" -eq 143 ]
     [ "$(_state_of "job")" = "killed" ]
@@ -227,7 +227,7 @@ _state_of() {
 
 @test "job after callback marks the job completed" {
     export KNIT_JOB_PREFIX="${__KNIT_TEST_TMPDIR}/job"
-    _seed_submissions "job" "running"
+    _seed_jobs "job" "running"
     __knit_job_after_cb
     [ "$(_state_of "job")" = "completed" ]
 }

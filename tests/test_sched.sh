@@ -71,9 +71,9 @@ teardown() {
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_done
 
-    # __knit_submit records its submissions row before dispatching, so the table
+    # __knit_submit records its jobs row before dispatching, so the table
     # must exist (normally ensured lazily by _knit_invoke_command on first use).
-    _knit_db_setup_table "submit" "submissions"
+    _knit_db_setup_table "submit" "jobs"
 
     # __knit_submit is normally reached via _knit_invoke_command; when calling it
     # directly, provide the executing-command context that its knit_output /
@@ -94,9 +94,9 @@ teardown() {
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_done
 
-    # __knit_submit records its submissions row before dispatching, so the table
+    # __knit_submit records its jobs row before dispatching, so the table
     # must exist (normally ensured lazily by _knit_invoke_command on first use).
-    _knit_db_setup_table "submit" "submissions"
+    _knit_db_setup_table "submit" "jobs"
 
     # __knit_submit is normally reached via _knit_invoke_command; when calling it
     # directly, provide the executing-command context that its knit_output /
@@ -116,7 +116,7 @@ teardown() {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_done
-    _knit_db_setup_table "submit" "submissions"
+    _knit_db_setup_table "submit" "jobs"
 
     _KNIT_EXECUTING_COMMAND=("submit")
     knit_pushd "${__KNIT_TEST_TMPDIR}"
@@ -140,7 +140,7 @@ teardown() {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_done
-    _knit_db_setup_table "submit" "submissions"
+    _knit_db_setup_table "submit" "jobs"
 
     local setup_dir="${__KNIT_TEST_TMPDIR}/setup"
     mkdir -p "${setup_dir}"
@@ -163,7 +163,7 @@ teardown() {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_done
-    _knit_db_setup_table "submit" "submissions"
+    _knit_db_setup_table "submit" "jobs"
 
     _KNIT_EXECUTING_COMMAND=("submit")
     knit_pushd "${__KNIT_TEST_TMPDIR}"
@@ -186,7 +186,7 @@ teardown() {
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_with_setup "mcenv"
     knit_done
-    _knit_db_setup_table "submit" "submissions"
+    _knit_db_setup_table "submit" "jobs"
 
     _KNIT_EXECUTING_COMMAND=("submit")
     run __knit_submit --setup "${setup_dir}" -- myjob
@@ -240,7 +240,7 @@ teardown() {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_done
-    _knit_db_setup_table "submit" "submissions"
+    _knit_db_setup_table "submit" "jobs"
 
     _KNIT_EXECUTING_COMMAND=("submit")
     knit_pushd "${__KNIT_TEST_TMPDIR}"

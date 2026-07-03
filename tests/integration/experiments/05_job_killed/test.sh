@@ -3,10 +3,10 @@
 #
 # Exercises M8 kill detection against the cluster scheduler:
 #   - submit a long-running job (no --wait) so it starts on a compute node
-#   - wait until the submissions row reaches "running" (compute-side before-cb)
+#   - wait until the jobs row reaches "running" (compute-side before-cb)
 #   - cancel the job through the scheduler (scancel/qdel)
 #   - the scheduler signals the job before killing it; knit's compute-side trap
-#     records the submissions row as "killed" before the process dies
+#     records the jobs row as "killed" before the process dies
 #
 # Run from inside the cluster login node as hpcuser:
 #   bash /shared/knit/tests/integration/experiments/05_job_killed/test.sh
@@ -54,7 +54,7 @@ launcher=$(cat "${jobdir}/.job.id")
 
 state_of() {
     "${SQLITE}" ".knit/knit.db" \
-        "SELECT state FROM submissions WHERE id='${uuid}';"
+        "SELECT state FROM jobs WHERE id='${uuid}';"
 }
 
 # --------------------------------------------------------------------------

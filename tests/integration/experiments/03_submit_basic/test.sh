@@ -8,7 +8,7 @@
 #     scheduler, the job runs on a compute node, re-hydrates the setup
 #     environment, and writes its stdout to <jobdir>/.stdout
 #   - the job directory records .job.sh / .job.id, and the submission is stored
-#     as a row in the "submissions" table
+#     as a row in the "jobs" table
 #
 # Run from inside the cluster login node as hpcuser:
 #   bash /shared/knit/tests/integration/experiments/03_submit_basic/test.sh
@@ -82,22 +82,22 @@ done
 check_file "${jobdir}/.job.sh" "batch script generated"
 check_file "${jobdir}/.job.id" "launcher job id recorded"
 
-# The submission is recorded as one row in the "submissions" table, keyed by the
+# The submission is recorded as one row in the "jobs" table, keyed by the
 # job UUID, recording the job name. Because we submitted with --wait, the job has
 # run to completion, so its lifecycle state has advanced submitted -> running ->
 # completed by the compute-side callbacks (M8).
 check_sqlite ".knit/knit.db" \
-    "SELECT COUNT(*) FROM submissions WHERE id='${uuid}';" \
+    "SELECT COUNT(*) FROM jobs WHERE id='${uuid}';" \
     "1" \
-    "submissions table has a row for this job UUID"
+    "jobs table has a row for this job UUID"
 check_sqlite ".knit/knit.db" \
-    "SELECT job FROM submissions WHERE id='${uuid}';" \
+    "SELECT job FROM jobs WHERE id='${uuid}';" \
     "hello" \
-    "submissions row records the job name"
+    "jobs row records the job name"
 check_sqlite ".knit/knit.db" \
-    "SELECT state FROM submissions WHERE id='${uuid}';" \
+    "SELECT state FROM jobs WHERE id='${uuid}';" \
     "completed" \
-    "submissions row advanced to completed after the --wait job finished"
+    "jobs row advanced to completed after the --wait job finished"
 
 # --------------------------------------------------------------------------
 # Assertions: the batch script carries the scheduler's directives
