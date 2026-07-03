@@ -206,3 +206,87 @@ _knit_job_wait() {
     return 0
 }
 knit_done
+
+# ------------------------------------------------------------------------------
+# Show a job's submission options together with its job parameters.
+# ------------------------------------------------------------------------------
+knit_register _knit_job_show "job:show" "Show a job's submission options and job parameters."
+knit_with_required "id:string" "Job UUID."
+knit_with_flag "json" "Emit the result as JSON."
+# ------------------------------------------------------------------------------
+# @fn _knit_job_show()
+#
+# Show everything recorded about one job. Two rows describe a job: the submission
+# row in the jobs table (the scheduler options passed to `knit submit` plus the
+# lifecycle state), and, once the job has actually run, the row it recorded in
+# its own per-job table (the arguments passed to the job after --). The per-job
+# table is named after the job, read from the submission row's "job" column.
+#
+# Text mode prints two labelled, column-aligned sections (Submission and
+# Parameters). --json emits { "submission": <row>, "parameters": <row> }, each a
+# single object (or null when absent), built from sqlite's -json output merged
+# with the bundled jq. The per-job table exists only after the job has run at
+# least once; until then the parameters section is empty (null in JSON).
+#
+# An unknown id is a fatal error.
+# ------------------------------------------------------------------------------
+_knit_job_show() {
+    if ! _knit_is_bootstrapped; then
+        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
+        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
+    fi
+    local id json
+    id=$(knit_get_parameter "id" "$@")
+    json=$(knit_get_parameter "json" "$@") || json="false"
+    local escaped
+    escaped=$(_knit_sql_escape "${id}")
+
+    # The submission row must exist; its "job" column names the per-job table.
+    # An empty result means no such row (a present row always has a non-empty
+    # id); split sqlite's default "|"-separated columns to read the job name.
+    local row job_name
+    row="$(_knit_sqlite3 "SELECT id, job FROM jobs WHERE id = '${escaped}';")"
+    if [[ -z "${row}" ]]; then
+        knit_fatal "No job found with id \"${id}\"."
+    fi
+    IFS='|' read -r _ job_name <<< "${row}"
+
+    # The per-job table is created lazily on the job's first invocation, so it
+    # may not exist yet for a job that was submitted but has not run.
+    local param_table_exists=0
+    if [[ -n "${job_name}" ]]; then
+        local cnt
+        cnt="$(_knit_sqlite3 \
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$(_knit_sql_escape "${job_name}")';")"
+        [[ "${cnt}" -ne 0 ]] && param_table_exists=1
+    fi
+
+    if [[ "${json}" == "true" ]]; then
+        local sub_json param_json
+        sub_json="$(_knit_sqlite3 -json \
+            "SELECT * FROM jobs WHERE id = '${escaped}';")"
+        [[ -z "${sub_json}" ]] && sub_json="[]"
+        param_json="[]"
+        if [[ "${param_table_exists}" -eq 1 ]]; then
+            param_json="$(_knit_sqlite3 -json \
+                "SELECT * FROM $(_knit_sql_quote_identifier "${job_name}") WHERE id = '${escaped}';")"
+            [[ -z "${param_json}" ]] && param_json="[]"
+        fi
+        # shellcheck disable=SC2016 # $submission/$parameters are jq variables, not shell
+        _knit_jq -n \
+            --argjson submission "${sub_json}" \
+            --argjson parameters "${param_json}" \
+            '{submission: ($submission[0] // null), parameters: ($parameters[0] // null)}'
+        return 0
+    fi
+
+    printf 'Submission:\n'
+    _knit_sqlite3 -header -column \
+        "SELECT * FROM jobs WHERE id = '${escaped}';"
+    printf '\nParameters:\n'
+    if [[ "${param_table_exists}" -eq 1 ]]; then
+        _knit_sqlite3 -header -column \
+            "SELECT * FROM $(_knit_sql_quote_identifier "${job_name}") WHERE id = '${escaped}';"
+    fi
+}
+knit_done

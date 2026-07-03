@@ -394,3 +394,91 @@ _seed_job() {
     run _knit_sched_pbs_wait 123
     [ "$status" -eq 0 ]
 }
+
+# ---------- job show ----------
+
+# Create a per-job parameter table named after the job and insert one row.
+_seed_params() {
+    local table="$1" id="$2" samples="$3"
+    sqlite3 "${__KNIT_DATABASE}" \
+        "CREATE TABLE IF NOT EXISTS \"${table}\" (id TEXT, samples TEXT);"
+    sqlite3 "${__KNIT_DATABASE}" \
+        "INSERT INTO \"${table}\" (id, samples) VALUES ('${id}', '${samples}');"
+}
+
+@test "job show prints a submission and a parameters section" {
+    _seed_job "abc123" "/exp/env" "montecarlo" "completed"
+    _seed_params "montecarlo" "abc123" "1000"
+    run _knit_job_show --id "abc123"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Submission:"* ]]
+    [[ "$output" == *"Parameters:"* ]]
+    # The submission section shows the state column, the parameters the samples.
+    [[ "$output" == *"completed"* ]]
+    [[ "$output" == *"1000"* ]]
+}
+
+@test "job show works when the per-job table does not exist yet" {
+    _seed_job "abc123" "" "montecarlo" "submitted"
+    run _knit_job_show --id "abc123"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Submission:"* ]]
+    [[ "$output" == *"submitted"* ]]
+    [[ "$output" == *"Parameters:"* ]]
+}
+
+@test "job show fails for an unknown id" {
+    _seed_job "abc123" "" "montecarlo" "running"
+    run _knit_job_show --id "does-not-exist"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No job found"* ]]
+}
+
+@test "job show --json emits a submission and parameters object" {
+    command -v jq &>/dev/null || skip "jq not available"
+    __KNIT_JQ_EXE="jq"
+    _seed_job "abc123" "/exp/env" "montecarlo" "completed"
+    _seed_params "montecarlo" "abc123" "1000"
+    run _knit_job_show --id "abc123" --json true
+    [ "$status" -eq 0 ]
+    [ "$(echo "$output" | jq -r '.submission.state')" = "completed" ]
+    [ "$(echo "$output" | jq -r '.submission.job')" = "montecarlo" ]
+    [ "$(echo "$output" | jq -r '.parameters.samples')" = "1000" ]
+}
+
+@test "job show --json yields null parameters when the job has not run" {
+    command -v jq &>/dev/null || skip "jq not available"
+    __KNIT_JQ_EXE="jq"
+    _seed_job "abc123" "" "montecarlo" "submitted"
+    run _knit_job_show --id "abc123" --json true
+    [ "$status" -eq 0 ]
+    [ "$(echo "$output" | jq -r '.submission.state')" = "submitted" ]
+    [ "$(echo "$output" | jq -r '.parameters')" = "null" ]
+}
+
+@test "job show --json works as a bare flag through the pipeline" {
+    command -v jq &>/dev/null || skip "jq not available"
+    __KNIT_JQ_EXE="jq"
+    _seed_job "abc123" "/exp/env" "montecarlo" "completed"
+    _seed_params "montecarlo" "abc123" "1000"
+    run _knit_invoke_command "job__1__show" --id "abc123" --json
+    [ "$status" -eq 0 ]
+    [ "$(echo "$output" | jq -r '.submission.job')" = "montecarlo" ]
+    [ "$(echo "$output" | jq -r '.parameters.samples')" = "1000" ]
+}
+
+@test "job show fails when not bootstrapped and not bootstrapping" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="false"
+    run _knit_job_show --id "abc123"
+    [ "$status" -ne 0 ]
+}
+
+@test "job show is a no-op when bootstrapping and not yet bootstrapped" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="true"
+    run _knit_job_show --id "abc123"
+    [ "$status" -eq 0 ]
+}
