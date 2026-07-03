@@ -1,0 +1,21 @@
+{
+    "description": "LCRC Improv — 2× AMD EPYC 7713, 128 cores per node (CPU-only)",
+    "scheduler": {
+        "type": "pbs",
+        "command": "qsub",
+        "default_queue": "compute",
+        "queues": {
+            "compute":  { "max_walltime": "72:00:00", "max_nodes": 805 },
+            "bigmem":   { "max_walltime": "72:00:00", "max_nodes": 12 },
+            "debug":    { "max_walltime": "01:00:00", "max_nodes": 8 },
+            "backfill": { "max_walltime": "04:00:00", "max_nodes": 825 }
+        }
+    },
+    "launcher": {
+        "type": "openmpi",
+        "command": "mpirun"
+    },
+    "hardware": {
+        "cores_per_node": 128
+    }
+}
