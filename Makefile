@@ -22,6 +22,7 @@ KNIT_SOURCE = src/global.sh   \
               src/sched_pbs.sh \
               src/setup.sh    \
               src/job.sh      \
+              src/job_cli.sh  \
               src/main.sh
 
 KNIT_OUTPUT = knit.sh
