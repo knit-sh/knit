@@ -56,7 +56,10 @@ _knit_db_query() {
     else
         [[ -n "${from}" ]] \
             || knit_fatal "db query requires --from <table> (or --sql <statement>)."
-        statement="SELECT ${select} FROM ${from}"
+        # Quote --from as a SQL identifier so a nested command's default table
+        # name (e.g. "aaa:bbb", which contains a colon) can be passed verbatim,
+        # without the user having to add SQL quotes themselves.
+        statement="SELECT ${select} FROM $(_knit_sql_quote_identifier "${from}")"
         [[ -n "${where}" ]] && statement="${statement} WHERE ${where}"
         [[ -n "${order_by}" ]] && statement="${statement} ORDER BY ${order_by}"
         [[ -n "${limit}" ]] && statement="${statement} LIMIT ${limit}"

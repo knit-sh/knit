@@ -52,6 +52,26 @@ teardown() {
     [ -z "$result" ]
 }
 
+# ---------- _knit_sql_quote_identifier ----------
+
+@test "sql quote identifier wraps a plain name in double quotes" {
+    local result
+    result=$(_knit_sql_quote_identifier "runs")
+    [ "$result" = '"runs"' ]
+}
+
+@test "sql quote identifier quotes a name containing a colon" {
+    local result
+    result=$(_knit_sql_quote_identifier "aaa:bbb")
+    [ "$result" = '"aaa:bbb"' ]
+}
+
+@test "sql quote identifier doubles embedded double quotes" {
+    local result
+    result=$(_knit_sql_quote_identifier 'a"b')
+    [ "$result" = '"a""b"' ]
+}
+
 # ---------- _knit_sqlite3 ----------
 
 @test "_knit_sqlite3 executes a query and returns output" {

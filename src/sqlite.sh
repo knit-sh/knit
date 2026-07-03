@@ -130,6 +130,27 @@ _knit_sql_escape() {
     printf '%s' "${1//\'/\'\'}"
 }
 
+# ------------------------------------------------------------------------------
+# @fn _knit_sql_quote_identifier()
+#
+# Quote a SQL identifier (e.g. a table or column name) so it can be interpolated
+# safely into a statement. The name is wrapped in double quotes and every
+# embedded double quote is doubled, per the SQL standard. This lets an
+# identifier that would otherwise be invalid unquoted -- such as a nested
+# command's default table name "aaa:bbb", which contains a colon -- be used
+# without the caller having to add quotes by hand.
+#
+# Example:
+# ```
+# _knit_sql_quote_identifier "aaa:bbb"   # prints: "aaa:bbb"
+# ```
+#
+# @param name Identifier to quote.
+# ------------------------------------------------------------------------------
+_knit_sql_quote_identifier() {
+    printf '"%s"' "${1//\"/\"\"}"
+}
+
 # shellcheck disable=SC2120
 # ------------------------------------------------------------------------------
 # @fn _knit_sqlite3()

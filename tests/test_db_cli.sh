@@ -90,6 +90,18 @@ db_tables() { _knit_invoke_command "db__1__tables" "$@"; }
     [[ "$output" == *"-----"* ]]
 }
 
+# ---------- db query: table names needing SQL quoting ----------
+
+@test "db query accepts a table name containing a colon without manual quoting" {
+    sqlite3 "${__KNIT_DATABASE}" \
+        'CREATE TABLE "aaa:bbb" (id TEXT, v TEXT);'
+    sqlite3 "${__KNIT_DATABASE}" \
+        "INSERT INTO \"aaa:bbb\" (id, v) VALUES ('x', 'nested');"
+    run db_query --from aaa:bbb
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"nested"* ]]
+}
+
 # ---------- db query: --sql escape hatch ----------
 
 @test "db query runs a raw statement given via --sql" {
