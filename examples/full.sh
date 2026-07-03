@@ -240,6 +240,7 @@
 #
 #   ./full.sh job show stdout --id $uuid     # the job's standard output
 #   ./full.sh job show stderr --id $uuid     # the job's standard error
+#   ./full.sh job show script --id $uuid     # the generated batch script
 #
 # -----------------------------------------------------------------------------
 # 10. Clean up

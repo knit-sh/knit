@@ -582,3 +582,67 @@ _seed_params() {
     run _knit_job_show_stdout --id "abc123"
     [ "$status" -eq 0 ]
 }
+
+# ---------- job show script ----------
+
+@test "job show script prints the generated batch script" {
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "completed"
+    mkdir -p "${root}/jobs/abc123"
+    printf '#!/bin/bash\necho run\n' > "${root}/jobs/abc123/.job.sh"
+    run _knit_job_show_script --id "abc123"
+    rm -rf "${root}"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"#!/bin/bash"* ]]
+    [[ "$output" == *"echo run"* ]]
+}
+
+@test "job show script fails for an unknown id" {
+    _seed_job "abc123" "" "montecarlo" "completed"
+    run _knit_job_show_script --id "nope"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No job found"* ]]
+}
+
+@test "job show script fails when the script file is missing" {
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "completed"
+    mkdir -p "${root}/jobs/abc123"
+    run _knit_job_show_script --id "abc123"
+    rm -rf "${root}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No script recorded"* ]]
+}
+
+@test "job show script resolves through the dispatcher" {
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "" "montecarlo" "completed"
+    mkdir -p "${root}/jobs/abc123"
+    printf '#!/bin/bash\nscript body\n' > "${root}/jobs/abc123/.job.sh"
+    run _knit_invoke_command "job__1__show__1__script" --id "abc123"
+    rm -rf "${root}"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"script body"* ]]
+}
+
+@test "job show script fails when not bootstrapped and not bootstrapping" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="false"
+    run _knit_job_show_script --id "abc123"
+    [ "$status" -ne 0 ]
+}
+
+@test "job show script is a no-op when bootstrapping and not yet bootstrapped" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="true"
+    run _knit_job_show_script --id "abc123"
+    [ "$status" -eq 0 ]
+}
