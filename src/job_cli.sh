@@ -337,6 +337,133 @@ _knit_job_rm() {
 knit_done
 
 # ------------------------------------------------------------------------------
+# @fn __knit_job_reconstruct_args()
+#
+# Append CLI arguments reconstructing a command's recorded parameters from one
+# row of a table, so a past invocation can be replayed. Iteration is driven by
+# the command's declared schema (not the raw table columns) so that only genuine
+# parameters are emitted and outputs are ignored: each required or optional
+# parameter with a non-empty recorded value is appended as "--name value", and
+# each flag recorded as "true" is appended as a bare "--name". A column named in
+# the space-separated skip list is left out (e.g. "setup", handled specially by
+# the caller). A parameter whose column is absent from the table is skipped, so a
+# job whose per-job table predates a newly added parameter still replays.
+#
+# @param cmd      Mangled command whose schema drives the reconstruction.
+# @param table    Table holding the recorded row.
+# @param id       Value of the row's "id" column.
+# @param skip     Space-separated normalized names to omit.
+# @param out_name Name of the array variable to append the reconstructed args to.
+# ------------------------------------------------------------------------------
+__knit_job_reconstruct_args() {
+    local cmd="$1" table="$2" id="$3" skip=" $4 "
+    # shellcheck disable=SC2178 # nameref to the caller's args array
+    local -n _out="$5"
+    local escaped
+    escaped=$(_knit_sql_escape "${id}")
+
+    # Columns actually present in the table (a parameter may have been added to
+    # the command after this row was recorded).
+    local -A cols=()
+    local _cid col _rest
+    while IFS='|' read -r _cid col _rest; do
+        [[ -n "${col}" ]] && cols["${col}"]=1
+    done < <(_knit_sqlite3 "PRAGMA table_info('$(_knit_sql_escape "${table}")');")
+
+    local group name value
+    for group in required optional; do
+        while IFS= read -r name; do
+            [[ -z "${name}" ]] && continue
+            [[ "${skip}" == *" ${name} "* ]] && continue
+            [[ -v cols["${name}"] ]] || continue
+            value=$(_knit_sqlite3 \
+                "SELECT $(_knit_sql_quote_identifier "${name}") FROM $(_knit_sql_quote_identifier "${table}") WHERE id = '${escaped}';")
+            [[ -n "${value}" ]] && _out+=("--${name}" "${value}")
+        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_${group}" | sort)
+    done
+
+    while IFS= read -r name; do
+        [[ -z "${name}" ]] && continue
+        [[ "${skip}" == *" ${name} "* ]] && continue
+        [[ -v cols["${name}"] ]] || continue
+        value=$(_knit_sqlite3 \
+            "SELECT $(_knit_sql_quote_identifier "${name}") FROM $(_knit_sql_quote_identifier "${table}") WHERE id = '${escaped}';")
+        [[ "${value}" == "true" ]] && _out+=("--${name}")
+    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_flags" | sort)
+}
+
+# ------------------------------------------------------------------------------
+# Re-run a job reusing the parameters recorded for a previous run.
+# ------------------------------------------------------------------------------
+knit_register _knit_job_resubmit "job:resubmit" "Re-run a job reusing its recorded parameters."
+knit_with_required "id:string" "Job UUID."
+# ------------------------------------------------------------------------------
+# @fn _knit_job_resubmit()
+#
+# Re-submit an existing job by replaying what was recorded for it. The jobs row
+# supplies the setup path, the job name (the "job" output column, used as the
+# token after --) and the submission options; the per-job <jobname> table
+# supplies the arguments passed to the job itself. These are reconstructed into a
+# fresh `knit submit --setup <setup> [options] -- <job> [args]` invocation, which
+# mints a new job UUID — the old id is never reused.
+#
+# The submission options and job arguments are rebuilt by
+# __knit_job_reconstruct_args from each command's declared schema, so bookkeeping
+# columns (id, state, and the "job" name itself) and job outputs are left out;
+# the setup path is skipped there too and passed as --setup instead. A job that
+# was submitted but never ran has no per-job table, so it is resubmitted with its
+# submission options only. An unknown id is a fatal error.
+# ------------------------------------------------------------------------------
+_knit_job_resubmit() {
+    if ! _knit_is_bootstrapped; then
+        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
+        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
+    fi
+    local id
+    id=$(knit_get_parameter "id" "$@")
+    local escaped
+    escaped=$(_knit_sql_escape "${id}")
+
+    # The submission row must exist; its "job" column names both the dispatch
+    # target and the per-job parameter table.
+    local row job_name
+    row="$(_knit_sqlite3 "SELECT id, job FROM jobs WHERE id = '${escaped}';")"
+    if [[ -z "${row}" ]]; then
+        knit_fatal "No job found with id \"${id}\"."
+    fi
+    IFS='|' read -r _ job_name <<< "${row}"
+
+    # Rebuild the submit options from the jobs row (setup is passed as --setup,
+    # not as a generic option).
+    local -a submit_opts=()
+    local setup
+    setup="$(_knit_sqlite3 "SELECT setup FROM jobs WHERE id = '${escaped}';")"
+    [[ -n "${setup}" ]] && submit_opts+=("--setup" "${setup}")
+    __knit_job_reconstruct_args "submit" "${__KNIT_JOBS_TABLE}" "${id}" "setup" \
+        submit_opts
+
+    # Rebuild the job arguments from the per-job table, when the job has run at
+    # least once (the table is created lazily on first run) and is a registered
+    # job command whose schema we can consult.
+    local -a job_args=()
+    local job_cmd
+    job_cmd=$(__knit_command_mangle "submit:${job_name}")
+    if [[ -n "${job_name}" ]] && _knit_set_find _KNIT_COMMANDS "${job_cmd}"; then
+        local cnt
+        cnt="$(_knit_sqlite3 \
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$(_knit_sql_escape "${job_name}")';")"
+        if [[ "${cnt}" -ne 0 ]]; then
+            __knit_job_reconstruct_args "${job_cmd}" "${job_name}" "${id}" "" \
+                job_args
+        fi
+    fi
+
+    knit_info "Resubmitting job \"${id}\" as \"${job_name}\"."
+    _knit_invoke_command "submit" "${submit_opts[@]}" -- "${job_name}" "${job_args[@]}"
+}
+knit_done
+
+# ------------------------------------------------------------------------------
 # Show a job's submission options together with its job parameters.
 # ------------------------------------------------------------------------------
 knit_register _knit_job_show "job:show" "Show a job's submission options and job parameters."

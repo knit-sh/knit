@@ -1033,3 +1033,101 @@ _seed_params() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"piped follow"* ]]
 }
+
+# ---------- job resubmit ----------
+
+# Register a montecarlo job so its parameter schema (and its per-job table)
+# exist, mirroring what an experiment script would declare.
+_register_mc_job() {
+    knit_register_job "montecarlo" _mc_job_fn "Estimate pi as a job."
+    knit_with_optional "samples:integer" "100" "Number of samples."
+    _mc_job_fn() { :; }
+    knit_done
+}
+
+@test "job resubmit invokes submit with the recorded setup, job and params" {
+    _register_mc_job
+    _seed_job "id1" "/exp/env" "montecarlo" "completed"
+    _seed_params "montecarlo" "id1" "1000"
+    # Capture the submit invocation instead of really submitting.
+    _knit_invoke_command() { printf 'INVOKE: %s\n' "$*"; }
+    run _knit_job_resubmit --id "id1"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"INVOKE: submit "* ]]
+    [[ "$output" == *"--setup /exp/env"* ]]
+    [[ "$output" == *"-- montecarlo"* ]]
+    [[ "$output" == *"--samples 1000"* ]]
+}
+
+@test "job resubmit omits --setup for a setup-less job" {
+    _register_mc_job
+    _seed_job "id1" "" "montecarlo" "completed"
+    _seed_params "montecarlo" "id1" "1000"
+    _knit_invoke_command() { printf 'INVOKE: %s\n' "$*"; }
+    run _knit_job_resubmit --id "id1"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"-- montecarlo"* ]]
+    [[ "$output" == *"--samples 1000"* ]]
+    [[ "$output" != *"--setup"* ]]
+}
+
+@test "job resubmit uses submission options only when the job never ran" {
+    _register_mc_job
+    # A job that was submitted but never ran has an empty per-job table.
+    _seed_job "id1" "/exp/env" "montecarlo" "submitted"
+    _knit_invoke_command() { printf 'INVOKE: %s\n' "$*"; }
+    run _knit_job_resubmit --id "id1"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--setup /exp/env"* ]]
+    [[ "$output" == *"-- montecarlo"* ]]
+    [[ "$output" != *"--samples"* ]]
+}
+
+@test "job resubmit replays a recorded submission flag" {
+    _register_mc_job
+    # Seed a jobs table that carries the "wait" flag column set to true.
+    sqlite3 "${__KNIT_DATABASE}" \
+        "CREATE TABLE jobs (id TEXT, setup TEXT, wait TEXT, job TEXT, state TEXT);"
+    sqlite3 "${__KNIT_DATABASE}" \
+        "INSERT INTO jobs (id, setup, wait, job, state) VALUES ('id1', '', 'true', 'montecarlo', 'completed');"
+    _knit_invoke_command() { printf 'INVOKE: %s\n' "$*"; }
+    run _knit_job_resubmit --id "id1"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--wait"* ]]
+}
+
+@test "job resubmit fails for an unknown id" {
+    _register_mc_job
+    _seed_job "id1" "" "montecarlo" "completed"
+    _knit_invoke_command() { printf 'INVOKE: %s\n' "$*"; }
+    run _knit_job_resubmit --id "does-not-exist"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No job found"* ]]
+}
+
+@test "job resubmit resolves through the dispatcher" {
+    _register_mc_job
+    _seed_job "id1" "" "montecarlo" "completed"
+    _seed_params "montecarlo" "id1" "1000"
+    # Stub the submit entry point so the real scheduler is never contacted.
+    __knit_submit() { printf 'SUBMITTED %s\n' "$*"; }
+    run _knit_invoke_command "job__1__resubmit" --id "id1"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Resubmitting job"* ]]
+}
+
+@test "job resubmit is a no-op when bootstrapping and not yet bootstrapped" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="true"
+    run _knit_job_resubmit --id "id1"
+    [ "$status" -eq 0 ]
+}
+
+@test "job resubmit fails when not bootstrapped and not bootstrapping" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="/nonexistent/path"
+    _KNIT_IS_BOOTSTRAPPING="false"
+    run _knit_job_resubmit --id "id1"
+    [ "$status" -ne 0 ]
+}
