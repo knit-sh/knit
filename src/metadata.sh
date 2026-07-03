@@ -14,10 +14,13 @@ knit_done
 knit_register _knit_metadata_store "metadata:store" "Store a key/value pair of metadata."
 knit_with_required "key:string" "Key."
 knit_with_required "value:string" "Value."
+knit_with_flag "force" "Overwrite the value if the key already exists."
 # ------------------------------------------------------------------------------
 # @fn _knit_metadata_store()
 #
-# Store a key/value pair in the metadata table.
+# Store a key/value pair in the metadata table. When the --force flag is set,
+# an existing value for the same key is overwritten; otherwise storing a
+# duplicate key fails on the table's uniqueness constraint.
 # ------------------------------------------------------------------------------
 _knit_metadata_store() {
     if ! _knit_is_bootstrapped; then
@@ -26,9 +29,13 @@ _knit_metadata_store() {
     fi
     local key
     local value
+    local force
     key=$(knit_get_parameter "key" "$@")
     value=$(knit_get_parameter "value" "$@")
-    _knit_sqlite3_write "INSERT INTO metadata (key, value) VALUES ('$(_knit_sql_escape "${key}")', '$(_knit_sql_escape "${value}")');"
+    force=$(knit_get_parameter "force" "$@") || force="false"
+    local verb="INSERT"
+    [[ "${force}" == "true" ]] && verb="INSERT OR REPLACE"
+    _knit_sqlite3_write "${verb} INTO metadata (key, value) VALUES ('$(_knit_sql_escape "${key}")', '$(_knit_sql_escape "${value}")');"
 }
 knit_done
 

@@ -51,6 +51,29 @@ teardown() {
     [ "$status" -ne 0 ]
 }
 
+@test "metadata store --force overwrites an existing value" {
+    _knit_metadata_store --key "mykey" --value "first"
+    _knit_metadata_store --key "mykey" --value "second" --force true
+    local result
+    result=$(sqlite3 "${__KNIT_DATABASE}" "SELECT value FROM metadata WHERE key='mykey';")
+    [ "$result" = "second" ]
+}
+
+@test "metadata store --force inserts when the key does not exist" {
+    _knit_metadata_store --key "newkey" --value "val" --force true
+    local result
+    result=$(sqlite3 "${__KNIT_DATABASE}" "SELECT value FROM metadata WHERE key='newkey';")
+    [ "$result" = "val" ]
+}
+
+@test "metadata store --force leaves a single row for the key" {
+    _knit_metadata_store --key "mykey" --value "first"
+    _knit_metadata_store --key "mykey" --value "second" --force true
+    local count
+    count=$(sqlite3 "${__KNIT_DATABASE}" "SELECT COUNT(*) FROM metadata WHERE key='mykey';")
+    [ "$count" = "1" ]
+}
+
 # ---------- _knit_metadata_load ----------
 
 @test "metadata load returns the value for an existing key" {

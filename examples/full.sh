@@ -101,6 +101,10 @@
 #
 #   ./full.sh metadata load  --key __scheduler__
 #   ./full.sh metadata store --key note --value "first tour"
+#   ./full.sh metadata store --key note --value "second tour" --force
+#
+# Storing a key that already exists fails unless you pass --force, which
+# overwrites the existing value.
 #
 # -----------------------------------------------------------------------------
 # 5. Run a quick, typed command (no scheduler involved)
