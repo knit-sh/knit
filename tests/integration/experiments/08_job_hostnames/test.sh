@@ -10,6 +10,8 @@
 #   - --separator and --json render that same deduplicated list
 #   - --raw carries the backend's verbatim hostfile entries (>= the deduplicated
 #     count), whose unique hostnames match the default list
+#   - the job's row in the "jobs" table records the deduplicated hostnames,
+#     comma-separated, written compute-side when the job started
 #
 # Run from inside the cluster login node as hpcuser:
 #   bash /shared/knit/tests/integration/experiments/08_job_hostnames/test.sh
@@ -145,5 +147,15 @@ mapfile -t selected < <(section select)
 check_eq "${#selected[@]}" "1" "--select 1:1 prints exactly one host"
 check_eq "${selected[0]}" "${defaults[1]}" \
     "--select 1:1 prints the second deduplicated host"
+
+# --------------------------------------------------------------------------
+# The job's row records the allocated nodes: hostnames is the deduplicated
+# host list joined by commas (recorded compute-side when the job started).
+# --------------------------------------------------------------------------
+expected_hostnames=$(IFS=','; printf '%s' "${defaults[*]}")
+check_sqlite ".knit/knit.db" \
+    "SELECT hostnames FROM jobs WHERE id='${uuid}';" \
+    "${expected_hostnames}" \
+    "jobs row records the comma-separated deduplicated hostnames"
 
 assert_summary

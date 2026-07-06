@@ -56,6 +56,8 @@ knit_with_subcommand_title "Jobs"
 knit_with_table "${_KNIT_JOBS_TABLE}"
 knit_with_output "job:string" "" "Name of the submitted job (the token after --)."
 knit_with_output "state:string" "submitted" "Lifecycle state of the submitted job."
+knit_with_output "hostnames:string" "" \
+    "Comma-separated deduplicated nodes the job ran on (recorded at start)."
 
 # ------------------------------------------------------------------------------
 # @fn _knit_submit()
@@ -219,6 +221,31 @@ _knit_job_set_state() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_job_record_hostnames()
+#
+# Record the nodes the running job was allocated into its jobs-table row. Called
+# on the compute side, once the job is running, where the scheduler has populated
+# the node allocation and the experiment's .knit is shared over the parallel file
+# system (so the row inserted by knit submit on the login node can be updated in
+# place). The stored value is the deduplicated, comma-separated host list, i.e.
+# the output of `knit_job_hostnames --separator ,`. The row id is the job UUID,
+# i.e. the basename of KNIT_JOB_PREFIX. Best-effort: like state tracking, a
+# failure is downgraded to a warning so it never takes down the job.
+# ------------------------------------------------------------------------------
+_knit_job_record_hostnames() {
+    [[ -v KNIT_JOB_PREFIX ]] || return 0
+    _knit_is_bootstrapped || return 0
+    local uuid hosts
+    uuid="$(basename "${KNIT_JOB_PREFIX}")"
+    # Command substitution strips the trailing newline, leaving a bare
+    # comma-separated list (empty if host discovery finds nothing).
+    hosts="$(knit_job_hostnames --separator ,)"
+    _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" "hostnames=${hosts}" \
+        2>/dev/null \
+        || knit_warning "Could not record hostnames for job \"${uuid}\"."
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_job_killed_trap()
 #
 # Signal handler installed while a job runs on the compute node. Schedulers warn
@@ -240,8 +267,8 @@ _knit_job_killed_trap() {
 # Before-callback installed on every setup subcommand by knit_register_job.
 # Verifies that KNIT_JOB_PREFIX is set, ensuring the job was invoked through
 # `knit submit` rather than called directly, installs the pre-termination signal
-# handler, marks the job "running", and sources the setup environment when the
-# job uses one.
+# handler, marks the job "running", records the allocated hostnames, and sources
+# the setup environment when the job uses one.
 # ------------------------------------------------------------------------------
 _knit_job_before_cb() {
     if [[ ! -v KNIT_JOB_PREFIX ]]; then
@@ -251,6 +278,7 @@ _knit_job_before_cb() {
     # job records "killed" before it is hard-killed (see _knit_job_killed_trap).
     trap '_knit_job_killed_trap' TERM USR1
     _knit_job_set_state "running"
+    _knit_job_record_hostnames
     # Setup-less jobs (no knit_with_setup) run without a KNIT_SETUP_PREFIX, so
     # there is no environment to source.
     if [[ -n "${KNIT_SETUP_PREFIX:-}" ]]; then

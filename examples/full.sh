@@ -206,10 +206,13 @@
 #   cat env/jobs/$uuid/.job.id    # the scheduler's job id (or local PID)
 #
 # Every submission is tracked in the `jobs` table, and its lifecycle
-# state advances submitted -> running -> completed (or -> killed if cancelled):
+# state advances submitted -> running -> completed (or -> killed if cancelled).
+# The `hostnames` column records the nodes each job actually ran on (the
+# deduplicated list, comma-separated), filled in automatically when the job
+# starts — no experiment code required:
 #
 #   ./full.sh db query --from jobs \
-#       --select "id, job, state" --header --column
+#       --select "id, job, state, hostnames" --header --column
 #
 # The job's own output (pi) is recorded in its own table, named after the job:
 #

@@ -146,18 +146,29 @@ teardown() {
     [[ "${cb_content}" == *_knit_job_after_cb* ]]
 }
 
-# Create a minimal jobs table and seed one row. _knit_job_set_state only
-# updates the "state" column by id, so the two-column table is enough here.
+# Create a minimal jobs table and seed one row. The lifecycle callbacks update
+# the "state" column and _knit_job_record_hostnames updates "hostnames", both by
+# id, so a three-column table is enough here.
 _seed_jobs() {
     local id="$1" state="$2"
     sqlite3 "${_KNIT_DATABASE}" \
-        "CREATE TABLE IF NOT EXISTS jobs (id TEXT, state TEXT);"
+        "CREATE TABLE IF NOT EXISTS jobs (id TEXT, state TEXT, hostnames TEXT);"
     sqlite3 "${_KNIT_DATABASE}" \
-        "INSERT INTO jobs (id, state) VALUES ('${id}', '${state}');"
+        "INSERT INTO jobs (id, state, hostnames) VALUES ('${id}', '${state}', '');"
 }
 
 _state_of() {
     sqlite3 "${_KNIT_DATABASE}" "SELECT state FROM jobs WHERE id='$1';"
+}
+
+_hostnames_of() {
+    sqlite3 "${_KNIT_DATABASE}" "SELECT hostnames FROM jobs WHERE id='$1';"
+}
+
+# Replace the backend host source with a fixture exercising the two raw hostfile
+# shapes knit_job_hostnames normalises: a ":N" slot suffix and a repeated host.
+_stub_hostfile() {
+    _knit_sched_hostfile() { printf 'nodeA\nnodeA:4\nnodeB\n'; }
 }
 
 # ---------- _knit_job_set_state ----------
@@ -175,6 +186,23 @@ _state_of() {
     [ "$(_state_of "abc-uuid")" = "running" ]
 }
 
+# ---------- _knit_job_record_hostnames ----------
+
+@test "record hostnames is a no-op when KNIT_JOB_PREFIX is not set" {
+    unset KNIT_JOB_PREFIX
+    _stub_hostfile
+    run _knit_job_record_hostnames
+    [ "$status" -eq 0 ]
+}
+
+@test "record hostnames writes the deduplicated comma-separated list by UUID" {
+    export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/abc-uuid"
+    _seed_jobs "abc-uuid" "running"
+    _stub_hostfile
+    _knit_job_record_hostnames
+    [ "$(_hostnames_of "abc-uuid")" = "nodeA,nodeB" ]
+}
+
 # ---------- _knit_job_before_cb ----------
 
 @test "job before callback fails when KNIT_JOB_PREFIX is not set" {
@@ -183,14 +211,16 @@ _state_of() {
     [ "$status" -ne 0 ]
 }
 
-@test "job before callback sources .activate.sh and marks the job running" {
+@test "job before callback sources .activate.sh, marks running, records hosts" {
     export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
     printf 'export _KNIT_JOB_CANARY=activated\n' > "${KNIT_SETUP_PREFIX}/.activate.sh"
     _seed_jobs "job" "submitted"
+    _stub_hostfile
     _knit_job_before_cb
     [ "${_KNIT_JOB_CANARY}" = "activated" ]
     [ "$(_state_of "job")" = "running" ]
+    [ "$(_hostnames_of "job")" = "nodeA,nodeB" ]
     unset _KNIT_JOB_CANARY
 }
 
@@ -198,6 +228,7 @@ _state_of() {
     export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
     unset KNIT_SETUP_PREFIX
     _seed_jobs "job" "submitted"
+    _stub_hostfile
     run _knit_job_before_cb
     [ "$status" -eq 0 ]
     [ "$(_state_of "job")" = "running" ]
@@ -208,6 +239,7 @@ _state_of() {
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
     : > "${KNIT_SETUP_PREFIX}/.activate.sh"
     _seed_jobs "job" "submitted"
+    _stub_hostfile
     _knit_job_before_cb
     trap -p TERM | grep -q _knit_job_killed_trap
     trap -p USR1 | grep -q _knit_job_killed_trap
