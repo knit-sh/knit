@@ -6,7 +6,7 @@
 # @var _KNIT_DETECTED_JOB_MANAGER
 #
 # Cache for _knit_detect_job_manager(). Empty means "not yet detected"; one of
-# "slurm", "pbs", or "none" after the first successful detection call.
+# "slurm", "pbs", or "<unknown>" after the first successful detection call.
 # ------------------------------------------------------------------------------
 declare -g _KNIT_DETECTED_JOB_MANAGER
 _KNIT_DETECTED_JOB_MANAGER=""
@@ -15,7 +15,7 @@ _KNIT_DETECTED_JOB_MANAGER=""
 # @var _KNIT_DETECTED_MPI
 #
 # Cache for _knit_detect_mpi(). Empty means "not yet detected"; one of
-# "openmpi", "mpich", or "none" after the first successful detection call.
+# "openmpi", "mpich", or "<unknown>" after the first successful detection call.
 # ------------------------------------------------------------------------------
 declare -g _KNIT_DETECTED_MPI
 _KNIT_DETECTED_MPI=""
@@ -26,9 +26,9 @@ _KNIT_DETECTED_MPI=""
 # Detect which batch job manager is available in the current environment.
 #
 # Outputs one of the following strings to stdout and returns 0:
-#   - "slurm"  — sbatch is present in PATH
-#   - "pbs"    — qsub is present in PATH (and sbatch is not)
-#   - "none"   — neither sbatch nor qsub is in PATH
+#   - "slurm"     — sbatch is present in PATH
+#   - "pbs"       — qsub is present in PATH (and sbatch is not)
+#   - "<unknown>" — neither sbatch nor qsub is in PATH
 #
 # The result is cached in _KNIT_DETECTED_JOB_MANAGER so that subsequent calls
 # within the same session return immediately without re-probing the PATH.
@@ -45,7 +45,7 @@ _knit_detect_job_manager() {
     elif command -v qsub &>/dev/null; then
         _KNIT_DETECTED_JOB_MANAGER="pbs"
     else
-        _KNIT_DETECTED_JOB_MANAGER="none"
+        _KNIT_DETECTED_JOB_MANAGER="<unknown>"
     fi
 
     knit_trace "Detected job manager: ${_KNIT_DETECTED_JOB_MANAGER}"
@@ -58,9 +58,9 @@ _knit_detect_job_manager() {
 # Detect which MPI implementation is available in the current environment.
 #
 # Outputs one of the following strings to stdout and returns 0:
-#   - "openmpi" — mpirun is present and its --version output contains "Open MPI"
-#   - "mpich"   — mpirun is present and its --version output contains "HYDRA"
-#   - "none"    — mpirun is absent or its version string is not recognised
+#   - "openmpi"   — mpirun is present and its --version output contains "Open MPI"
+#   - "mpich"     — mpirun is present and its --version output contains "HYDRA"
+#   - "<unknown>" — mpirun is absent or its version string is not recognised
 #
 # The result is cached in _KNIT_DETECTED_MPI so that subsequent calls within
 # the same session return immediately without re-running mpirun.
@@ -72,7 +72,7 @@ _knit_detect_mpi() {
     fi
 
     if ! command -v mpirun &>/dev/null; then
-        _KNIT_DETECTED_MPI="none"
+        _KNIT_DETECTED_MPI="<unknown>"
     else
         local version_output
         version_output=$(mpirun --version 2>&1)
@@ -81,7 +81,7 @@ _knit_detect_mpi() {
         elif [[ "${version_output}" == *"HYDRA"* ]]; then
             _KNIT_DETECTED_MPI="mpich"
         else
-            _KNIT_DETECTED_MPI="none"
+            _KNIT_DETECTED_MPI="<unknown>"
         fi
     fi
 
@@ -93,7 +93,7 @@ _knit_detect_mpi() {
 # @var _KNIT_DETECTED_LAUNCHER
 #
 # Cache for _knit_detect_launcher(). Empty means "not yet detected"; one of
-# "pals", "openmpi", "mpich", or "none" after the first successful detection
+# "pals", "openmpi", "mpich", or "<unknown>" after the first successful detection
 # call.
 # ------------------------------------------------------------------------------
 declare -g _KNIT_DETECTED_LAUNCHER
@@ -109,7 +109,7 @@ _KNIT_DETECTED_LAUNCHER=""
 #                 "Parallel Application Launch Service"
 #   - "openmpi" — mpirun is present and its --version output contains "Open MPI"
 #   - "mpich"   — mpirun is present and its --version output contains "HYDRA"
-#   - "none"    — no recognised launcher found
+#   - "<unknown>" — no recognised launcher found
 #
 # PALS is checked first because PALS provides mpiexec but not mpirun; OpenMPI
 # and MPICH also provide mpiexec as an alias so the first-line check
@@ -143,10 +143,10 @@ _knit_detect_launcher() {
         elif [[ "${version_output}" == *"HYDRA"* ]]; then
             _KNIT_DETECTED_LAUNCHER="mpich"
         else
-            _KNIT_DETECTED_LAUNCHER="none"
+            _KNIT_DETECTED_LAUNCHER="<unknown>"
         fi
     else
-        _KNIT_DETECTED_LAUNCHER="none"
+        _KNIT_DETECTED_LAUNCHER="<unknown>"
     fi
 
     knit_trace "Detected launcher: ${_KNIT_DETECTED_LAUNCHER}"

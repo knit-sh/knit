@@ -431,11 +431,14 @@ teardown() {
 
 @test "_knit_sched_cancel dispatches to the backend cancel primitive" {
     _knit_sched_local_cancel() { printf 'local:%s\n' "$1" > "${_KNIT_TEST_TMPDIR}/c"; }
+    _knit_sched_none_cancel()  { printf 'none:%s\n'  "$1" > "${_KNIT_TEST_TMPDIR}/c"; }
     _knit_sched_slurm_cancel() { printf 'slurm:%s\n' "$1" > "${_KNIT_TEST_TMPDIR}/c"; }
     _knit_sched_pbs_cancel()   { printf 'pbs:%s\n'   "$1" > "${_KNIT_TEST_TMPDIR}/c"; }
 
     _knit_sched_cancel local 111
     [ "$(< "${_KNIT_TEST_TMPDIR}/c")" = "local:111" ]
+    _knit_sched_cancel none 444
+    [ "$(< "${_KNIT_TEST_TMPDIR}/c")" = "none:444" ]
     _knit_sched_cancel slurm 222
     [ "$(< "${_KNIT_TEST_TMPDIR}/c")" = "slurm:222" ]
     _knit_sched_cancel pbs 333
@@ -446,4 +449,40 @@ teardown() {
     run _knit_sched_cancel bogus 111
     [ "$status" -ne 0 ]
     [[ "$output" == *"not implemented"* ]]
+}
+
+# ---------- _knit_sched_backend ----------
+
+@test "_knit_sched_backend honours an explicit 'none' from metadata" {
+    _knit_metadata_load() { printf 'none\n'; }
+    run _knit_sched_backend
+    [ "$status" -eq 0 ]
+    [ "$output" = "none" ]
+}
+
+@test "_knit_sched_backend passes slurm/pbs/local metadata through" {
+    _knit_metadata_load() { printf 'slurm\n'; }
+    run _knit_sched_backend
+    [ "$output" = "slurm" ]
+    _knit_metadata_load() { printf 'pbs\n'; }
+    run _knit_sched_backend
+    [ "$output" = "pbs" ]
+    _knit_metadata_load() { printf 'local\n'; }
+    run _knit_sched_backend
+    [ "$output" = "local" ]
+}
+
+@test "_knit_sched_backend maps detection's <unknown> to local when unbootstrapped" {
+    _knit_metadata_load() { printf '\n'; }
+    _knit_detect_job_manager() { printf '<unknown>\n'; }
+    run _knit_sched_backend
+    [ "$status" -eq 0 ]
+    [ "$output" = "local" ]
+}
+
+@test "_knit_sched_backend uses detection when metadata is empty" {
+    _knit_metadata_load() { printf '\n'; }
+    _knit_detect_job_manager() { printf 'slurm\n'; }
+    run _knit_sched_backend
+    [ "$output" = "slurm" ]
 }

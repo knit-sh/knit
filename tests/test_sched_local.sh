@@ -15,8 +15,8 @@ setup() {
     _KNIT_TEST_TMPDIR="$(mktemp -d)"
 
     # Force the local backend regardless of what scheduler happens to be
-    # installed on the test host.
-    _KNIT_DETECTED_JOB_MANAGER="none"
+    # installed on the test host: detection's "<unknown>" degrades to local.
+    _KNIT_DETECTED_JOB_MANAGER="<unknown>"
 
     _knit_create_metadata_table
 }

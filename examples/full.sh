@@ -76,6 +76,12 @@
 #   ./full.sh bootstrap --project pi-demo --scheduler local
 #   ./full.sh bootstrap --project pi-demo --scheduler slurm --account MYALLOC
 #
+# If you run on a self-managed cluster with no batch scheduler, use --scheduler
+# none and point it at a file listing your nodes (one host per line). Jobs then
+# run locally, but knit_job_hostnames reports that node list as the allocation:
+#
+#   ./full.sh bootstrap --project pi-demo --scheduler none --default-nodefile ~/nodes.txt
+#
 # To force the from-source/download path even when a system sqlite3/jq exists:
 #
 #   ./full.sh bootstrap --project pi-demo --ignore-system-sqlite --ignore-system-jq

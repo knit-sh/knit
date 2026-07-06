@@ -226,6 +226,24 @@ teardown() {
     [ "${output}" = "$(hostname)" ]
 }
 
+@test "none hostfile reads the configured nodefile" {
+    local nf="${_KNIT_TEST_TMPDIR}/nodes"
+    printf 'c1\nc1\nc2\n' > "${nf}"
+    _knit_metadata_load() { printf '%s\n' "${nf}"; }
+    run _knit_sched_none_hostfile
+    [ "${status}" -eq 0 ]
+    [ "${#lines[@]}" -eq 3 ]
+    [ "${lines[0]}" = "c1" ]
+    [ "${lines[2]}" = "c2" ]
+}
+
+@test "none hostfile falls back to hostname when no nodefile is configured" {
+    _knit_metadata_load() { printf '\n'; }
+    run _knit_sched_none_hostfile
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"$(hostname)"* ]]
+}
+
 @test "slurm hostfile expands the nodelist via scontrol" {
     scontrol() { printf 'n1\nn2\n'; }
     export SLURM_JOB_NODELIST="n[1-2]"
@@ -251,4 +269,12 @@ teardown() {
     run _knit_sched_hostfile
     [ "${status}" -eq 0 ]
     [ "${output}" = "ROUTED" ]
+}
+
+@test "hostfile dispatcher routes to the none backend" {
+    _knit_sched_backend() { printf 'none\n'; }
+    _knit_sched_none_hostfile() { printf 'NONE-ROUTED\n'; }
+    run _knit_sched_hostfile
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "NONE-ROUTED" ]
 }

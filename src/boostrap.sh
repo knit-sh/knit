@@ -62,7 +62,7 @@ _knit_bootstrap_on_exit() {
 #
 # @param ... Arguments for bootstrap.
 # ------------------------------------------------------------------------------
-knit_define_enum "__scheduler__" "auto" "slurm" "pbs" "local"
+knit_define_enum "__scheduler__" "auto" "slurm" "pbs" "local" "none"
 knit_define_enum "__launcher__"  "auto" "openmpi" "mpich" "pals"
 knit_register _knit_bootstrap "bootstrap" "Bootstrap the Knit framework."
 knit_with_flag "spack" "Whether to download spack."
@@ -70,7 +70,7 @@ knit_with_optional "project:string" "" "Name of the project to use when submitti
 knit_with_optional "profile:string" "" \
     "Machine profile name (e.g. polaris). Prepopulates scheduler, launcher, and hardware defaults."
 knit_with_optional "scheduler:__scheduler__" "auto" \
-    "Batch job scheduler. One of: auto, slurm, pbs. With auto the scheduler is detected automatically."
+    "Batch job scheduler. One of: auto, slurm, pbs, local, none. With auto the scheduler is detected automatically. Use none for a self-managed cluster (no scheduler); pair it with --default-nodefile."
 knit_with_optional "launcher:__launcher__" "auto" \
     "MPI launcher. One of: auto, openmpi, mpich, pals. With auto the launcher is detected automatically."
 knit_with_optional "account:string" "" \
@@ -79,6 +79,8 @@ knit_with_optional "default-walltime:string" "" \
     "Default job wall-clock limit as HH:MM:SS (default: the profile's default-queue cap)."
 knit_with_optional "default-cpus-per-node:string" "" \
     "Cores per node for whole-node allocation (default: profile hardware, else live detection)."
+knit_with_optional "default-nodefile:string" "" \
+    "Path to a file listing cluster nodes (one host per line). Used by the 'none' scheduler to report a job's allocation."
 knit_with_flag "ignore-system-sqlite" \
     "Build sqlite from source even if a system sqlite3 is available."
 knit_with_flag "ignore-system-jq" \
@@ -99,6 +101,7 @@ _knit_bootstrap() {
     local account
     local default_walltime
     local cpus_flag
+    local default_nodefile
     local ignore_system_sqlite
     local ignore_system_jq
     project="$(knit_get_parameter "project" "$@")"
@@ -109,6 +112,7 @@ _knit_bootstrap() {
     account="$(knit_get_parameter "account" "$@")"
     default_walltime="$(knit_get_parameter "default-walltime" "$@")"
     cpus_flag="$(knit_get_parameter "default-cpus-per-node" "$@")"
+    default_nodefile="$(knit_get_parameter "default-nodefile" "$@")"
     ignore_system_sqlite="$(knit_get_parameter "ignore-system-sqlite" "$@")"
     ignore_system_jq="$(knit_get_parameter "ignore-system-jq" "$@")"
 
@@ -161,7 +165,7 @@ _knit_bootstrap() {
 
     if [[ "${scheduler}" == "auto" ]]; then
         scheduler="$(_knit_detect_job_manager)"
-        if [[ "${scheduler}" == "none" ]]; then
+        if [[ "${scheduler}" == "<unknown>" ]]; then
             knit_warning "No job scheduler detected; using local process execution." \
                 "Pass --scheduler local to suppress this warning."
             scheduler="local"
@@ -184,6 +188,21 @@ _knit_bootstrap() {
         node_ncpus="$(_knit_detect_node_ncpus)"
     fi
 
+    # Default nodefile: resolve to an absolute path so it survives the compute-side
+    # cd into the job directory (the none scheduler reads it at job runtime). Warn
+    # (non-fatal) when the none scheduler has no nodefile — it will report only the
+    # local hostname — and when a given nodefile is not currently readable (it may
+    # appear later).
+    if [[ -n "${default_nodefile}" ]]; then
+        default_nodefile="$(realpath -m "${default_nodefile}" 2>/dev/null \
+            || printf '%s' "${default_nodefile}")"
+        if [[ ! -r "${default_nodefile}" ]]; then
+            knit_warning "Default nodefile \"${default_nodefile}\" is not readable; the 'none' scheduler will report only the local hostname until it exists."
+        fi
+    elif [[ "${scheduler}" == "none" ]]; then
+        knit_warning "The 'none' scheduler was selected without --default-nodefile; jobs will report only the local hostname."
+    fi
+
     knit_trace "Writing initial metadata..."
     knit metadata store --key "__project__"                --value "${project}"
     knit metadata store --key "__account__"                --value "${account}"
@@ -196,6 +215,7 @@ _knit_bootstrap() {
     knit metadata store --key "__default_launcher_args__"  --value "${default_launcher_args}"
     knit metadata store --key "__node_ncpus__"             --value "${node_ncpus}"
     knit metadata store --key "__node_ngpus__"             --value "${node_ngpus}"
+    knit metadata store --key "__default_nodefile__"       --value "${default_nodefile}"
 
     # Bootstrap completed successfully
     _KNIT_BOOTSTRAP_COMPLETED="true"

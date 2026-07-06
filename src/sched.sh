@@ -222,9 +222,9 @@ _knit_sched_validate_caps() {
 #
 # Dispatch to the configured backend's directive generator, printing the batch
 # scheduler directive lines (e.g. "#SBATCH ..." / "#PBS ...") for the resolved
-# options. The local backend prints nothing.
+# options. The local and none backends print nothing.
 #
-# @param backend  Scheduler backend name ("local", "slurm"; pbs added later).
+# @param backend  Scheduler backend name ("local", "none", "slurm", "pbs").
 # @param arr_name Name of the resolved-options associative array.
 # @param jobdir   Job directory (used by backends for --output/--error paths).
 # ------------------------------------------------------------------------------
@@ -234,6 +234,7 @@ _knit_sched_directives() {
     local jobdir="$3"
     case "${backend}" in
         local) _knit_sched_local_directives "${arr_name}" "${jobdir}" ;;
+        none)  _knit_sched_none_directives "${arr_name}" "${jobdir}" ;;
         slurm) _knit_sched_slurm_directives "${arr_name}" "${jobdir}" ;;
         pbs)   _knit_sched_pbs_directives "${arr_name}" "${jobdir}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
@@ -245,12 +246,12 @@ _knit_sched_directives() {
 #
 # Dispatch to the configured backend's submission function, which submits the
 # already-written batch script and prints the resulting scheduler job id (or, for
-# the local backend, the process id) to stdout.
+# the local/none backend, the process id) to stdout.
 #
-# @param backend  Scheduler backend name ("local", "slurm"; pbs added later).
+# @param backend  Scheduler backend name ("local", "none", "slurm", "pbs").
 # @param arr_name Name of the resolved-options associative array.
 # @param script   Path to the batch script to submit.
-# @param jobdir   Job directory (holds .stdout/.stderr for the local backend).
+# @param jobdir   Job directory (holds .stdout/.stderr for local/none backends).
 # ------------------------------------------------------------------------------
 _knit_sched_submit() {
     local backend="$1"
@@ -259,6 +260,7 @@ _knit_sched_submit() {
     local jobdir="$4"
     case "${backend}" in
         local) _knit_sched_local_submit "${arr_name}" "${script}" "${jobdir}" ;;
+        none)  _knit_sched_none_submit "${arr_name}" "${script}" "${jobdir}" ;;
         slurm) _knit_sched_slurm_submit "${arr_name}" "${script}" "${jobdir}" ;;
         pbs)   _knit_sched_pbs_submit "${arr_name}" "${script}" "${jobdir}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
@@ -273,14 +275,15 @@ _knit_sched_submit() {
 # kill, slurm: scancel, pbs: qdel). Cancelling a job that is already gone is not
 # an error. Knit's terminal state (killed) is recorded by the caller.
 #
-# @param backend Scheduler backend name ("local", "slurm", "pbs").
-# @param jobid   Backend job id (scheduler id, or a PID for the local backend).
+# @param backend Scheduler backend name ("local", "none", "slurm", "pbs").
+# @param jobid   Backend job id (scheduler id, or a PID for local/none backends).
 # ------------------------------------------------------------------------------
 _knit_sched_cancel() {
     local backend="$1"
     local jobid="$2"
     case "${backend}" in
         local) _knit_sched_local_cancel "${jobid}" ;;
+        none)  _knit_sched_none_cancel "${jobid}" ;;
         slurm) _knit_sched_slurm_cancel "${jobid}" ;;
         pbs)   _knit_sched_pbs_cancel "${jobid}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
@@ -291,14 +294,17 @@ _knit_sched_cancel() {
 # @fn _knit_sched_backend()
 #
 # Resolve which scheduler backend to use: bootstrap metadata (__scheduler__),
-# else live detection, with "none" (no scheduler detected) mapping to the local
-# background-process backend. Prints one of "local", "slurm", "pbs".
+# else live detection. Detection's "<unknown>" (no batch scheduler present) means
+# the workstation case and maps to the local background-process backend. An
+# explicit "none" in metadata is a real, deliberate backend (a user-owned
+# cluster driven without a scheduler) and flows through untouched. Prints one of
+# "local", "none", "slurm", "pbs".
 # ------------------------------------------------------------------------------
 _knit_sched_backend() {
     local backend
     backend="$(_knit_metadata_load --key "__scheduler__")"
     [[ -z "${backend}" ]] && backend="$(_knit_detect_job_manager)"
-    [[ "${backend}" == "none" ]] && backend="local"
+    [[ "${backend}" == "<unknown>" ]] && backend="local"
     printf '%s\n' "${backend}"
 }
 
@@ -311,14 +317,15 @@ _knit_sched_backend() {
 # functions); knit's own terminal state (completed/killed) is read from the jobs
 # table afterwards, so this only has to unblock when the job stops running.
 #
-# @param backend Scheduler backend name ("local", "slurm", "pbs").
-# @param jobid   Backend job id (scheduler id, or a PID for the local backend).
+# @param backend Scheduler backend name ("local", "none", "slurm", "pbs").
+# @param jobid   Backend job id (scheduler id, or a PID for local/none backends).
 # ------------------------------------------------------------------------------
 _knit_sched_wait() {
     local backend="$1"
     local jobid="$2"
     case "${backend}" in
         local) _knit_sched_local_wait "${jobid}" ;;
+        none)  _knit_sched_none_wait "${jobid}" ;;
         slurm) _knit_sched_slurm_wait "${jobid}" ;;
         pbs)   _knit_sched_pbs_wait "${jobid}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
@@ -342,6 +349,7 @@ _knit_sched_hostfile() {
     backend="$(_knit_sched_backend)"
     case "${backend}" in
         local) _knit_sched_local_hostfile ;;
+        none)  _knit_sched_none_hostfile ;;
         slurm) _knit_sched_slurm_hostfile ;;
         pbs)   _knit_sched_pbs_hostfile ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
