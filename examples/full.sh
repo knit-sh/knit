@@ -201,7 +201,7 @@
 # Capture the printed UUID and inspect the job directory:
 #
 #   uuid=$(./full.sh submit --setup ./env --wait -- montecarlo --samples 50000)
-#   cat env/jobs/$uuid/.stdout    # the job's output (pi estimate + hostname)
+#   cat env/jobs/$uuid/.stdout    # the job's output (pi estimate + host list)
 #   cat env/jobs/$uuid/.job.sh    # the generated batch script
 #   cat env/jobs/$uuid/.job.id    # the scheduler's job id (or local PID)
 #
@@ -377,6 +377,10 @@ knit_done
 # not given on the command line, knit fills them from the MC_SAMPLES / MC_SEED
 # variables exported by the activated `mcenv` setup. Passing --samples / --seed
 # explicitly overrides that. Records the estimate in its own DB table.
+#
+# The body calls knit_job_hostnames to report the node(s) the scheduler gave the
+# job (deduplicated by default; also supports --json and --raw for a per-slot
+# hostfile suitable for an MPI launcher).
 # -----------------------------------------------------------------------------
 knit_register_job "montecarlo" _montecarlo_job "Estimate pi as a submitted job."
 knit_with_setup    "mcenv"                             # requires an `mcenv` setup
@@ -396,7 +400,9 @@ _montecarlo_job() {
 
     knit_output "pi" "${pi}"
     printf 'pi ~= %s  (%s samples, seed %s)\n' "${pi}" "${samples}" "${seed}"
-    printf 'computed on host: %s\n' "$(hostname)"
+    # knit_job_hostnames reports the nodes the scheduler allocated to this job
+    # (deduplicated by default; also supports --json and --raw).
+    printf 'ran on hosts: %s\n' "$(knit_job_hostnames --separator ', ')"
 }
 knit_done
 

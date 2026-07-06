@@ -88,3 +88,13 @@ _knit_sched_local_cancel() {
     [[ "${pid}" =~ ^[0-9]+$ ]] || return 0
     kill "${pid}" 2>/dev/null || true
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_local_hostfile()
+#
+# Print the host list for the local backend. A local run has no scheduler and no
+# node allocation, so it runs on a single host: print this machine's hostname.
+# ------------------------------------------------------------------------------
+_knit_sched_local_hostfile() {
+    hostname
+}

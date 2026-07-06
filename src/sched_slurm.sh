@@ -128,3 +128,27 @@ _knit_sched_slurm_cancel() {
     local jobid="$1"
     scancel "${jobid}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_slurm_hostfile()
+#
+# Print the host list for a Slurm job, one hostname per line. Slurm exposes the
+# allocation as a compressed nodelist ($SLURM_JOB_NODELIST, e.g. "node[01-03]")
+# rather than a hostfile, so expand it with `scontrol show hostnames`, which
+# prints one hostname per allocated node. This is a per-node list (not per-task):
+# Slurm has no native per-slot hostfile, so a raw request yields the same
+# per-node entries. If the nodelist is unset or the expansion fails (e.g. not
+# running inside a Slurm job), warn and fall back to this machine's hostname.
+# ------------------------------------------------------------------------------
+_knit_sched_slurm_hostfile() {
+    local nodelist="${SLURM_JOB_NODELIST:-${SLURM_NODELIST:-}}"
+    local hosts
+    if [[ -n "${nodelist}" ]] \
+    && hosts="$(scontrol show hostnames "${nodelist}" 2>/dev/null)" \
+    && [[ -n "${hosts}" ]]; then
+        printf '%s\n' "${hosts}"
+    else
+        knit_warning "Slurm nodelist is unavailable; reporting the local hostname only."
+        hostname
+    fi
+}

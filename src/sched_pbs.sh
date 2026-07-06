@@ -131,3 +131,21 @@ _knit_sched_pbs_cancel() {
     local jobid="$1"
     qdel "${jobid}" 2>/dev/null || true
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_pbs_hostfile()
+#
+# Print the host list for a PBS job. PBS writes the allocated slots to the file
+# named by $PBS_NODEFILE, one hostname per line, each repeated once per launchable
+# slot (mpiprocs) on that node. Print its contents verbatim. If $PBS_NODEFILE is
+# unset or unreadable (e.g. not running inside a PBS job), warn and fall back to
+# this machine's hostname.
+# ------------------------------------------------------------------------------
+_knit_sched_pbs_hostfile() {
+    if [[ -n "${PBS_NODEFILE:-}" && -r "${PBS_NODEFILE}" ]]; then
+        cat "${PBS_NODEFILE}"
+    else
+        knit_warning "\$PBS_NODEFILE is unavailable; reporting the local hostname only."
+        hostname
+    fi
+}

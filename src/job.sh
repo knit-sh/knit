@@ -309,6 +309,97 @@ knit_with_setup() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_job_hostnames()
+#
+# Print the hostnames the current job is running on, discovered from the active
+# scheduler backend (see _knit_sched_hostfile). Intended to be called inside a
+# job body. Outside a scheduler allocation it reports the local hostname.
+#
+# By default each host is printed once, on its own line, with any trailing ":N"
+# slot-count or extra columns removed and duplicates collapsed (first-seen order
+# preserved). Use --raw to print the backend's hostfile entries verbatim (e.g.
+# one line per launchable slot), which is the form an MPI launcher hostfile wants.
+#
+# Usage: `knit_job_hostnames [--json] [--separator <sep>] [--raw] [--select <s>:<n>]`
+#
+# @param --json      Print the hostnames as a JSON array of strings.
+# @param --separator Separator used to join hostnames (default: a newline).
+#                    Ignored when --json is given.
+# @param --raw       Print the raw hostfile entries verbatim (no ":N" stripping,
+#                    no deduplication); only the separator / JSON wrapping is
+#                    applied.
+# @param --select    Print only a slice of the resulting list: <start>:<length>,
+#                    where <start> is a 0-based index and <length> is the number
+#                    of hostnames to print. The slice is taken after the raw or
+#                    deduplication step, so it counts the entries that would
+#                    otherwise be printed. Out-of-range requests are clamped (a
+#                    start past the end yields nothing).
+# ------------------------------------------------------------------------------
+knit_job_hostnames() {
+    local as_json=0 raw=0 sep=$'\n' have_sep=0 sel=""
+    while (( $# )); do
+        case "$1" in
+            --json)         as_json=1; shift ;;
+            --raw)          raw=1; shift ;;
+            --separator)    sep="$2"; have_sep=1; shift 2 ;;
+            --separator=*)  sep="${1#*=}"; have_sep=1; shift ;;
+            --select)       sel="$2"; shift 2 ;;
+            --select=*)     sel="${1#*=}"; shift ;;
+            --)             shift ;;
+            *) knit_error "knit_job_hostnames: unknown argument \"%s\"." "$1"
+               return 1 ;;
+        esac
+    done
+    if (( as_json && have_sep )); then
+        knit_warning "knit_job_hostnames: --separator is ignored with --json."
+    fi
+    if [[ -n "${sel}" && ! "${sel}" =~ ^[0-9]+:[0-9]+$ ]]; then
+        knit_error "knit_job_hostnames: --select must be <start_index>:<length>, got \"%s\"." "${sel}"
+        return 1
+    fi
+
+    local -a lines=()
+    mapfile -t lines < <(_knit_sched_hostfile)
+
+    local -a hosts=()
+    if (( raw )); then
+        hosts=("${lines[@]}")
+    else
+        # Strip a trailing ":N" or extra whitespace-separated columns, drop blank
+        # lines, and keep each hostname once in first-seen order.
+        local -A seen=()
+        local line h
+        for line in "${lines[@]}"; do
+            h="${line%%:*}"
+            h="${h%%[[:space:]]*}"
+            [[ -z "${h}" ]] && continue
+            [[ -n "${seen[${h}]:-}" ]] && continue
+            seen[${h}]=1
+            hosts+=("${h}")
+        done
+    fi
+
+    if [[ -n "${sel}" ]]; then
+        # Keep only <length> entries starting at the 0-based <start_index>; bash
+        # slicing clamps a length that runs past the end and yields nothing for a
+        # start past the end.
+        hosts=("${hosts[@]:${sel%%:*}:${sel#*:}}")
+    fi
+
+    if (( as_json )); then
+        # shellcheck disable=SC2016 # $ARGS is jq syntax, not a shell variable.
+        _knit_jq -nc '$ARGS.positional' --args "${hosts[@]}"
+    else
+        (( ${#hosts[@]} == 0 )) && return 0
+        local out="${hosts[0]}" i
+        for (( i = 1; i < ${#hosts[@]}; i++ )); do
+            out+="${sep}${hosts[i]}"
+        done
+        printf '%s\n' "${out}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_register_job()
 #
 # Register a job, i.e. a subcommand of the "submit" command that executes as a

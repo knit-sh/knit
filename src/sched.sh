@@ -326,6 +326,29 @@ _knit_sched_wait() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sched_hostfile()
+#
+# Print, one per line, the raw host entries a job is running on, as the current
+# backend's scheduler reports them. Unlike the other dispatchers this resolves
+# the backend itself (via _knit_sched_backend): it is meant to be called at
+# runtime from inside a job body, where no backend has been resolved by a caller.
+#
+# The output is the "raw" host list: hostnames may be repeated (once per slot,
+# e.g. PBS's $PBS_NODEFILE) or carry trailing ":N" info. Callers that want a
+# deduplicated, cleaned list post-process it (see knit_job_hostnames).
+# ------------------------------------------------------------------------------
+_knit_sched_hostfile() {
+    local backend
+    backend="$(_knit_sched_backend)"
+    case "${backend}" in
+        local) _knit_sched_local_hostfile ;;
+        slurm) _knit_sched_slurm_hostfile ;;
+        pbs)   _knit_sched_pbs_hostfile ;;
+        *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_write_jobscript()
 #
 # Write the batch script that a scheduler runs on the compute node. The script
