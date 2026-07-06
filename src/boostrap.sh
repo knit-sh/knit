@@ -79,6 +79,10 @@ knit_with_optional "default-walltime:string" "" \
     "Default job wall-clock limit as HH:MM:SS (default: the profile's default-queue cap)."
 knit_with_optional "default-cpus-per-node:string" "" \
     "Cores per node for whole-node allocation (default: profile hardware, else live detection)."
+knit_with_flag "ignore-system-sqlite" \
+    "Build sqlite from source even if a system sqlite3 is available."
+knit_with_flag "ignore-system-jq" \
+    "Download jq even if a system jq is available."
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap()
 #
@@ -95,6 +99,8 @@ _knit_bootstrap() {
     local account
     local default_walltime
     local cpus_flag
+    local ignore_system_sqlite
+    local ignore_system_jq
     project="$(knit_get_parameter "project" "$@")"
     need_spack="$(knit_get_parameter "spack" "$@")"
     profile="$(knit_get_parameter "profile" "$@")"
@@ -103,6 +109,8 @@ _knit_bootstrap() {
     account="$(knit_get_parameter "account" "$@")"
     default_walltime="$(knit_get_parameter "default-walltime" "$@")"
     cpus_flag="$(knit_get_parameter "default-cpus-per-node" "$@")"
+    ignore_system_sqlite="$(knit_get_parameter "ignore-system-sqlite" "$@")"
+    ignore_system_jq="$(knit_get_parameter "ignore-system-jq" "$@")"
 
     if [[ -n "${profile}" ]] && ! knit_profile_exists "${profile}"; then
         knit_fatal "Unknown profile: ${profile}. Run 'knit profile list' to see available profiles."
@@ -123,10 +131,10 @@ _knit_bootstrap() {
     fi
 
     knit_trace "Bootstrapping sqlite..."
-    _knit_bootstrap_sqlite
+    _knit_bootstrap_sqlite "${ignore_system_sqlite}"
 
     knit_trace "Bootstrapping jq..."
-    _knit_bootstrap_jq
+    _knit_bootstrap_jq "${ignore_system_jq}"
 
     # Load profile defaults (jq is now available).
     local default_queue=""

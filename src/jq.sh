@@ -57,10 +57,37 @@ _knit_jq_framed_run() {
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_jq()
 #
+# Make a jq program available at _KNIT_JQ_EXE. When a system jq is found on PATH
+# and the caller did not request otherwise, symlink it into the .knit directory
+# instead of downloading; otherwise download the prebuilt jq binary for the
+# current platform.
+#
+# @param ignore_system When "true", always download jq even if a system jq is
+#        present.
+# ------------------------------------------------------------------------------
+_knit_bootstrap_jq() {
+    local ignore_system="${1:-false}"
+    local system_jq=""
+    if [[ "${ignore_system}" != "true" ]]; then
+        system_jq="$(_knit_command_path jq)"
+    fi
+
+    if [[ -n "${system_jq}" ]]; then
+        knit_info "Using system jq at ${system_jq} (symlinked)."
+        mkdir -p "$(dirname "${_KNIT_JQ_EXE}")"
+        ln -s "${system_jq}" "${_KNIT_JQ_EXE}"
+    else
+        _knit_download_jq
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_download_jq()
+#
 # Download the prebuilt jq binary for the current platform and install it in
 # the .knit directory.
 # ------------------------------------------------------------------------------
-_knit_bootstrap_jq() {
+_knit_download_jq() {
     local platform
     platform=$(_knit_jq_platform)
     local url="https://github.com/jqlang/jq/releases/download/jq-${_KNIT_JQ_VERSION}/${platform}"

@@ -227,3 +227,17 @@ _knit_detect_node_ncpus() {
     knit_trace "Detected node ncpus: ${_KNIT_DETECTED_NODE_NCPUS:-<none>}"
     echo "${_KNIT_DETECTED_NODE_NCPUS}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_command_path()
+#
+# Print the absolute path to a system executable if it exists on PATH, or
+# nothing when it is absent. Thin wrapper around `command -v` that gives the
+# bootstrap a single, easily stubbable resolution point for the system
+# binaries (sqlite3, jq) it may symlink instead of building from source.
+#
+# @param name Name of the executable to look up.
+# ------------------------------------------------------------------------------
+_knit_command_path() {
+    command -v "$1" 2>/dev/null
+}

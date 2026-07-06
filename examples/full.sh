@@ -19,9 +19,12 @@
 # unchanged on your laptop (local backend) and on an HPC login node (Slurm/PBS)
 # — that portability is the whole point of knit.
 #
-# Prerequisites: bash, git, make, a C compiler and curl/wget (bootstrap builds
-# a private copy of sqlite and jq from source). Everything knit installs lives
-# under ./.knit and is removed with `rm -rf .knit`.
+# Prerequisites: bash, git, make, and curl/wget. Bootstrap prefers a system
+# sqlite3/jq when present (it symlinks them into ./.knit); only when they are
+# missing does it build sqlite from source and download jq, which additionally
+# needs a C compiler. Pass --ignore-system-sqlite / --ignore-system-jq to force
+# the from-source/download path even when a system binary exists. Everything
+# knit installs lives under ./.knit and is removed with `rm -rf .knit`.
 #
 # -----------------------------------------------------------------------------
 # 0. Build knit.sh (once, from the repo root) and copy this example next to it
@@ -63,14 +66,19 @@
 # -----------------------------------------------------------------------------
 #   ./full.sh bootstrap --project pi-demo
 #
-# This creates ./.knit, downloads and BUILDS sqlite and jq from source (this
-# takes a minute or two the first time), creates the ./.knit/knit.db database,
+# This creates ./.knit, makes sqlite and jq available (symlinking the system
+# binaries when present, otherwise building sqlite from source and downloading
+# jq — a minute or two the first time), creates the ./.knit/knit.db database,
 # and records some metadata. knit auto-detects the batch scheduler; on a machine
 # without one it falls back to local execution and warns you. You can be
 # explicit:
 #
 #   ./full.sh bootstrap --project pi-demo --scheduler local
 #   ./full.sh bootstrap --project pi-demo --scheduler slurm --account MYALLOC
+#
+# To force the from-source/download path even when a system sqlite3/jq exists:
+#
+#   ./full.sh bootstrap --project pi-demo --ignore-system-sqlite --ignore-system-jq
 #
 # If your machine has a built-in profile (see step 3), pass it to prepopulate
 # the scheduler, launcher, queue, walltime cap and per-node core count:

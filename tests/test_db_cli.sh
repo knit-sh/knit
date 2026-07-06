@@ -1,28 +1,18 @@
 #!/usr/bin/env bats
 
 setup() {
-    if ! command -v sqlite3 &>/dev/null; then
-        skip "sqlite3 not available"
-    fi
-
-    source knit.sh
-
-    # Override the sqlite executable and database path for testing
-    _KNIT_SQLITE_EXE="sqlite3"
-    _KNIT_DATABASE="$(mktemp --suffix=.db)"
+    source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
+    knit_test_require_sqlite
+    knit_test_db_setup
 
     sqlite3 "${_KNIT_DATABASE}" \
         "CREATE TABLE runs (id TEXT, n INTEGER, label TEXT);"
     sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO runs (id, n, label) VALUES ('c', 3, 'gamma'), ('a', 1, 'alpha'), ('b', 2, 'beta');"
-
-    # Satisfy the bootstrap check — tests in this file work with a live DB
-    _KNIT_IS_BOOTSTRAPPED="1"
 }
 
 teardown() {
-    rm -f "${_KNIT_DATABASE}"
-    _KNIT_IS_BOOTSTRAPPED=""
+    knit_test_db_teardown
 }
 
 # Commands are exercised through the full invocation pipeline so that optional

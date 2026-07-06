@@ -53,9 +53,39 @@ _knit_sqlite_framed_run() {
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_sqlite()
 #
-# Download and build Sqlite3, and install it in the .knit directory.
+# Make an sqlite3 program available at _KNIT_SQLITE_EXE. When a system sqlite3
+# is found on PATH and the caller did not request otherwise, symlink it into the
+# .knit directory instead of building from source; otherwise download and build
+# sqlite3 from source. The metadata table is created in either case.
+#
+# @param ignore_system When "true", always build from source even if a system
+#        sqlite3 is present.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_sqlite() {
+    local ignore_system="${1:-false}"
+    local system_sqlite=""
+    if [[ "${ignore_system}" != "true" ]]; then
+        system_sqlite="$(_knit_command_path sqlite3)"
+    fi
+
+    if [[ -n "${system_sqlite}" ]]; then
+        knit_info "Using system sqlite3 at ${system_sqlite} (symlinked)."
+        mkdir -p "$(dirname "${_KNIT_SQLITE_EXE}")"
+        ln -s "${system_sqlite}" "${_KNIT_SQLITE_EXE}"
+    else
+        _knit_build_sqlite
+    fi
+
+    knit_trace "Creating database and tables..."
+    _knit_create_metadata_table
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_build_sqlite()
+#
+# Download and build Sqlite3, and install it in the .knit directory.
+# ------------------------------------------------------------------------------
+_knit_build_sqlite() {
     knit_pushd "${_KNIT_PREFIX}"
 
     knit_trace "Downloading sqlite source..."
@@ -91,10 +121,6 @@ _knit_bootstrap_sqlite() {
     rm -rf "${_KNIT_SQLITE_SOURCE_NAME}" "${_KNIT_SQLITE_SOURCE_NAME}.tar.gz" 2>"${_KNIT_TRACE_FILE}"
 
     knit_popd # from "${_KNIT_PREFIX}"
-
-    knit_trace "Creating database and tables..."
-    _knit_create_metadata_table
-
 }
 
 # ------------------------------------------------------------------------------
