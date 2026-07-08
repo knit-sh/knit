@@ -50,21 +50,24 @@ _knit_launch_backend() {
 # ------------------------------------------------------------------------------
 # @fn _knit_launch_cmdline()
 #
-# Dispatch to the configured backend's command-line builder, which prints the
-# launcher argument vector (the launcher executable and its placement flags),
-# NUL-delimited, for the resolved placement options. Callers read it into an
-# array with `mapfile -d ''`. The "none" backend has no launcher, so it prints
-# nothing (an empty argv).
+# Dispatch to the configured backend's command-line builder, which fills a
+# caller-provided array (passed by name) with the launcher argument vector (the
+# launcher executable and its placement flags) for the resolved placement
+# options. The "none" backend has no launcher, so it leaves the array empty.
 #
-# @param backend  Launcher backend name ("none", "openmpi", "mpich", ...).
-# @param arr_name Name of the resolved placement-options associative array
-#                 (keys: procs, procs-per-node, hostnames, launcher-args).
+# @param backend   Launcher backend name ("none", "openmpi", "mpich", ...).
+# @param opts_name Name of the resolved placement-options associative array
+#                  (keys: procs, procs-per-node, hostnames, launcher-args).
+# @param argv_name Name of the array to fill with the launcher argument vector.
 # ------------------------------------------------------------------------------
 _knit_launch_cmdline() {
     local backend="$1"
-    local arr_name="$2"
+    local opts_name="$2"
+    local argv_name="$3"
     case "${backend}" in
-        none) _knit_launch_none_cmdline "${arr_name}" ;;
+        none) _knit_launch_none_cmdline "${opts_name}" "${argv_name}" ;;
+        openmpi) _knit_launch_openmpi_cmdline "${opts_name}" "${argv_name}" ;;
+        mpich) _knit_launch_mpich_cmdline "${opts_name}" "${argv_name}" ;;
         *) knit_fatal "Launcher backend not implemented: ${backend}" ;;
     esac
 }
@@ -90,6 +93,8 @@ _knit_launch_exec() {
     [[ "$1" == "--" ]] && shift
     case "${backend}" in
         none) _knit_launch_none_exec "${arr_name}" -- "$@" ;;
+        openmpi) _knit_launch_openmpi_exec "${arr_name}" -- "$@" ;;
+        mpich) _knit_launch_mpich_exec "${arr_name}" -- "$@" ;;
         *) knit_fatal "Launcher backend not implemented: ${backend}" ;;
     esac
 }

@@ -1,0 +1,153 @@
+#!/usr/bin/env bats
+
+setup() {
+    source knit.sh
+}
+
+# ---------- openmpi: cmdline ----------
+
+@test "openmpi cmdline translates a full placement" {
+    declare -A opts=([procs]=8 [procs-per-node]=4 [hostnames]="h0,h1")
+    declare -a argv
+    _knit_launch_openmpi_cmdline opts argv
+    [ "${#argv[@]}" -eq 7 ]
+    [ "${argv[0]}" = "mpirun" ]
+    [ "${argv[1]}" = "-n" ]
+    [ "${argv[2]}" = "8" ]
+    [ "${argv[3]}" = "--npernode" ]
+    [ "${argv[4]}" = "4" ]
+    [ "${argv[5]}" = "--host" ]
+    [ "${argv[6]}" = "h0,h1" ]
+}
+
+@test "openmpi cmdline emits only the flags whose options are set" {
+    declare -A opts=([procs]=4)
+    declare -a argv
+    _knit_launch_openmpi_cmdline opts argv
+    [ "${#argv[@]}" -eq 3 ]
+    [ "${argv[0]}" = "mpirun" ]
+    [ "${argv[1]}" = "-n" ]
+    [ "${argv[2]}" = "4" ]
+}
+
+@test "openmpi cmdline with no options is just the executable" {
+    declare -A opts
+    declare -a argv
+    _knit_launch_openmpi_cmdline opts argv
+    [ "${#argv[@]}" -eq 1 ]
+    [ "${argv[0]}" = "mpirun" ]
+}
+
+@test "openmpi cmdline passes a hostnames subset through --host" {
+    declare -A opts=([hostnames]="h3,h7")
+    declare -a argv
+    _knit_launch_openmpi_cmdline opts argv
+    [ "${#argv[@]}" -eq 3 ]
+    [ "${argv[0]}" = "mpirun" ]
+    [ "${argv[1]}" = "--host" ]
+    [ "${argv[2]}" = "h3,h7" ]
+}
+
+@test "openmpi cmdline appends launcher-args verbatim" {
+    declare -A opts=([procs]=2 [launcher-args]="--bind-to core --map-by node")
+    declare -a argv
+    _knit_launch_openmpi_cmdline opts argv
+    [ "${#argv[@]}" -eq 7 ]
+    [ "${argv[3]}" = "--bind-to" ]
+    [ "${argv[4]}" = "core" ]
+    [ "${argv[5]}" = "--map-by" ]
+    [ "${argv[6]}" = "node" ]
+}
+
+# ---------- mpich: cmdline ----------
+
+@test "mpich cmdline translates a full placement" {
+    declare -A opts=([procs]=8 [procs-per-node]=4 [hostnames]="h0,h1")
+    declare -a argv
+    _knit_launch_mpich_cmdline opts argv
+    [ "${#argv[@]}" -eq 7 ]
+    [ "${argv[0]}" = "mpiexec" ]
+    [ "${argv[1]}" = "-n" ]
+    [ "${argv[2]}" = "8" ]
+    [ "${argv[3]}" = "-ppn" ]
+    [ "${argv[4]}" = "4" ]
+    [ "${argv[5]}" = "-hosts" ]
+    [ "${argv[6]}" = "h0,h1" ]
+}
+
+@test "mpich cmdline emits only the flags whose options are set" {
+    declare -A opts=([procs]=4)
+    declare -a argv
+    _knit_launch_mpich_cmdline opts argv
+    [ "${#argv[@]}" -eq 3 ]
+    [ "${argv[0]}" = "mpiexec" ]
+    [ "${argv[1]}" = "-n" ]
+    [ "${argv[2]}" = "4" ]
+}
+
+@test "mpich cmdline with no options is just the executable" {
+    declare -A opts
+    declare -a argv
+    _knit_launch_mpich_cmdline opts argv
+    [ "${#argv[@]}" -eq 1 ]
+    [ "${argv[0]}" = "mpiexec" ]
+}
+
+@test "mpich cmdline appends launcher-args verbatim" {
+    declare -A opts=([procs]=2 [launcher-args]="-genv FOO bar")
+    declare -a argv
+    _knit_launch_mpich_cmdline opts argv
+    [ "${#argv[@]}" -eq 6 ]
+    [ "${argv[3]}" = "-genv" ]
+    [ "${argv[4]}" = "FOO" ]
+    [ "${argv[5]}" = "bar" ]
+}
+
+# ---------- dispatcher routing ----------
+
+@test "_knit_launch_cmdline routes to the openmpi backend" {
+    declare -A opts=([procs]=2)
+    declare -a argv
+    _knit_launch_cmdline openmpi opts argv
+    [ "${argv[0]}" = "mpirun" ]
+}
+
+@test "_knit_launch_cmdline routes to the mpich backend" {
+    declare -A opts=([procs]=2)
+    declare -a argv
+    _knit_launch_cmdline mpich opts argv
+    [ "${argv[0]}" = "mpiexec" ]
+}
+
+# ---------- exec: prepends the launcher argv to the worker ----------
+
+@test "openmpi exec runs the launcher argv followed by the worker command" {
+    declare -A opts
+    _knit_launch_openmpi_cmdline() { local -n _o="$2"; _o=(echo LAUNCHED); }
+    run _knit_launch_openmpi_exec opts -- worker arg1
+    [ "$status" -eq 0 ]
+    [ "$output" = "LAUNCHED worker arg1" ]
+}
+
+@test "mpich exec runs the launcher argv followed by the worker command" {
+    declare -A opts
+    _knit_launch_mpich_cmdline() { local -n _o="$2"; _o=(echo LAUNCHED); }
+    run _knit_launch_mpich_exec opts -- worker arg1
+    [ "$status" -eq 0 ]
+    [ "$output" = "LAUNCHED worker arg1" ]
+}
+
+@test "openmpi exec tolerates a missing -- separator" {
+    declare -A opts
+    _knit_launch_openmpi_cmdline() { local -n _o="$2"; _o=(echo LAUNCHED); }
+    run _knit_launch_openmpi_exec opts worker
+    [ "$status" -eq 0 ]
+    [ "$output" = "LAUNCHED worker" ]
+}
+
+@test "openmpi exec returns the launched command's exit status" {
+    declare -A opts
+    _knit_launch_openmpi_cmdline() { local -n _o="$2"; _o=(env); }
+    run _knit_launch_openmpi_exec opts -- bash -c 'exit 5'
+    [ "$status" -eq 5 ]
+}

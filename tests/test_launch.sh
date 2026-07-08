@@ -64,16 +64,17 @@ teardown() {
 
 # ---------- none backend: cmdline ----------
 
-@test "none cmdline prints an empty argv" {
+@test "none cmdline produces an empty argv" {
     declare -A opts
-    run _knit_launch_cmdline none opts
-    [ "$status" -eq 0 ]
-    [ "$output" = "" ]
+    declare -a argv=(sentinel)
+    _knit_launch_cmdline none opts argv
+    [ "${#argv[@]}" -eq 0 ]
 }
 
 @test "none cmdline rejects a multi-rank placement" {
     declare -A opts=([procs]=4)
-    run _knit_launch_cmdline none opts
+    declare -a argv
+    run _knit_launch_cmdline none opts argv
     [ "$status" -ne 0 ]
     [[ "$output" == *"single process"* ]]
 }

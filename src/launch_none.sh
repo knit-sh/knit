@@ -52,15 +52,18 @@ _knit_launch_none_validate() {
 # ------------------------------------------------------------------------------
 # @fn _knit_launch_none_cmdline()
 #
-# Print the launcher argument vector for the none backend. There is no launcher,
-# so the argv is empty and this prints nothing. The placement is validated first
-# so an over-specified request is still rejected on this path.
+# Build the launcher argument vector for the none backend into a caller-provided
+# array, passed by name. There is no launcher, so the array is left empty. The
+# placement is validated first so an over-specified request is still rejected on
+# this path.
 #
-# @param arr_name Name of the resolved placement-options associative array.
+# @param opts_name Name of the resolved placement-options associative array.
+# @param argv_name Name of the array to fill with the launcher argument vector.
 # ------------------------------------------------------------------------------
 _knit_launch_none_cmdline() {
     _knit_launch_none_validate "$1"
-    :
+    local -n _launch_argv="$2"
+    _launch_argv=()
 }
 
 # ------------------------------------------------------------------------------
