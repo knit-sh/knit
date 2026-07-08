@@ -320,7 +320,7 @@ _knit_job_after_cb() {
 knit_with_setup() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]] \
     || [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" != submit:* ]]; then
-        knit_fatal "knit_with_setup must be called between knit_register_job and knit_done."
+        knit_fatal "knit_with_setup is valid only for jobs; it must be called between knit_register_job and knit_done."
     fi
     local setup_type="$1"
     if ! _knit_name_is_valid "${setup_type}"; then

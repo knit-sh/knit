@@ -293,8 +293,10 @@ knit_with_extra "The app name and its arguments (after --)."
 # Each rank normalizes the launcher-native MPI environment into KNIT_MPI_*
 # (via _knit_run_normalize_mpi_env) before forwarding to the app, and every rank
 # but rank 0 sets _KNIT_RECORDING_SUPPRESSED so a run's outputs and per-app row
-# are recorded exactly once. Re-sourcing the ambient setup environment (M8) is
-# added in a later milestone.
+# are recorded exactly once.
+#
+# Apps have no setup of their own: they inherit the surrounding job's setup
+# environment.
 # ------------------------------------------------------------------------------
 _knit_run_worker() {
     # The dispatcher exports KNIT_RUN_ID (the run UUID) into the launcher's
