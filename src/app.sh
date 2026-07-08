@@ -106,6 +106,20 @@ _knit_run() {
     # Reference back to the parent job (the run has no meaning without it).
     knit_output "job" "$(basename "${KNIT_JOB_PREFIX}")"
 
+    # Persist the runs row now, before launching, so even a failed launch leaves a
+    # trace. The row first records the placement options as requested; then the
+    # placement columns are overwritten with the resolved values (a bare
+    # `knit run -- app` requests nothing, but the row must record what actually
+    # ran). The automatic post-invocation recording is idempotent and will not
+    # duplicate this row.
+    _knit_record_row_now "$@"
+    if _knit_is_bootstrapped; then
+        _knit_db_update_row "${_KNIT_RUNS_TABLE}" "${uuid}" \
+            "procs=${launch_opts["procs"]}" \
+            "procs-per-node=${launch_opts["procs-per-node"]}" \
+            "hostnames=${launch_opts["hostnames"]}"
+    fi
+
     # Resolve the launcher backend (per-run --launcher override -> metadata
     # __launcher__ -> live detection, with the no-launcher case mapping to none),
     # then launch the per-rank worker under it and return its status. The worker
@@ -114,8 +128,17 @@ _knit_run() {
     local launcher_override backend
     launcher_override=$(knit_get_parameter "launcher" "$@") || launcher_override=""
     backend="$(_knit_launch_backend "${launcher_override}")"
-    _knit_launch_exec "${backend}" launch_opts -- \
-        "${KNIT_SCRIPT_PATH}" _run -- "${app_name}" "${app_args[@]}"
+
+    # Launch in a subshell so KNIT_RUN_ID is scoped to the launcher and the ranks
+    # it spawns: the launcher forwards it to every rank, where rank 0 uses it as
+    # the id of its per-app row (so that row joins the runs row on the run UUID).
+    # Exporting it in a subshell keeps it out of the surrounding job body, where a
+    # later recorded command would otherwise inherit the run UUID as its row id.
+    (
+        export KNIT_RUN_ID="${uuid}"
+        _knit_launch_exec "${backend}" launch_opts -- \
+            "${KNIT_SCRIPT_PATH}" _run -- "${app_name}" "${app_args[@]}"
+    )
 }
 knit_done
 
@@ -274,14 +297,12 @@ knit_with_extra "The app name and its arguments (after --)."
 # added in a later milestone.
 # ------------------------------------------------------------------------------
 _knit_run_worker() {
-    # TODO (M5/M7): fail here if this worker was reached by a direct invocation
-    # (`knit _run <app>` or `knit run <app>` with no `--`) rather than through the
-    # `run` dispatcher launching `... _run -- <app>`. The dispatcher should export
-    # a per-invocation marker (e.g. KNIT_RUN_ID, forwarded to every rank by the
-    # launcher) that the proper path always carries; its absence means a bypass of
-    # the launcher/placement and must be rejected. That same marker also carries
-    # the run uuid to rank 0 for the per-app row (see the M7 note in job.sh's
-    # recording path).
+    # The dispatcher exports KNIT_RUN_ID (the run UUID) into the launcher's
+    # environment; the launcher forwards it to every rank, where rank 0 uses it as
+    # the id of its per-app row (see _knit_record_invocation's id precedence) so
+    # that row joins the runs-table row. Rejecting a direct invocation that
+    # bypasses the dispatcher (KNIT_RUN_ID absent) is deferred to a later hardening
+    # pass; the app before-callback already guards KNIT_JOB_PREFIX.
     local args=("$@")
     local extra_index
     extra_index=$(knit_extra_index "${args[@]}")

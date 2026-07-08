@@ -455,6 +455,21 @@ __test_register_cmd() {
         = "22222222-2222-7222-8222-222222222222" ]
 }
 
+@test "recording prefers KNIT_RUN_ID over KNIT_JOB_PREFIX" {
+    knit_register _t_ri_fn "ricmd" "Ri."
+    knit_with_table "ris"
+    _t_ri_fn() { :; }
+    knit_done
+
+    # Rank 0 of a run: both are set (KNIT_JOB_PREFIX inherited from the job,
+    # KNIT_RUN_ID forwarded by the launcher); the per-app row uses the run UUID.
+    KNIT_JOB_PREFIX="/some/where/jobs/22222222-2222-7222-8222-222222222222" \
+        KNIT_RUN_ID="33333333-3333-7333-8333-333333333333" \
+        _knit_invoke_command "ricmd"
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM ris;")" \
+        = "33333333-3333-7333-8333-333333333333" ]
+}
+
 # ---------- _knit_db_update_row ----------
 
 @test "_knit_db_update_row updates a column by id" {

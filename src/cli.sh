@@ -1847,8 +1847,9 @@ _knit_record_row_now() {
 # Record the just-completed invocation of a command as one row in its table,
 # when the command declared one with knit_with_table and the experiment is
 # bootstrapped. The row id is, in order of precedence: an explicit id set via
-# _knit_set_row_id; the job UUID from KNIT_JOB_PREFIX (the execution side of a
-# job); otherwise a fresh uuid.
+# _knit_set_row_id; the run UUID from KNIT_RUN_ID (rank 0's per-app row of a
+# `knit run`, so it shares the runs-table row's id); the job UUID from
+# KNIT_JOB_PREFIX (the execution side of a job); otherwise a fresh uuid.
 #
 # @param cmd Mangled command name.
 # @param ... The expanded invocation arguments.
@@ -1876,6 +1877,10 @@ _knit_record_invocation() {
     local rowid_var="_KNIT_CMD_${cmd}_row_id"
     if [[ -n "${!rowid_var:-}" ]]; then
         id="${!rowid_var}"
+    elif [[ -n "${KNIT_RUN_ID:-}" ]]; then
+        # Rank 0 of a `knit run`: the launcher forwarded the run UUID the
+        # dispatcher exported, so the per-app row shares the runs-table row's id.
+        id="${KNIT_RUN_ID}"
     elif [[ -n "${KNIT_JOB_PREFIX:-}" ]]; then
         id="$(basename "${KNIT_JOB_PREFIX}")"
     else
