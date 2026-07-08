@@ -68,6 +68,8 @@ _knit_launch_cmdline() {
         none) _knit_launch_none_cmdline "${opts_name}" "${argv_name}" ;;
         openmpi) _knit_launch_openmpi_cmdline "${opts_name}" "${argv_name}" ;;
         mpich) _knit_launch_mpich_cmdline "${opts_name}" "${argv_name}" ;;
+        slurm) _knit_launch_slurm_cmdline "${opts_name}" "${argv_name}" ;;
+        pbs) _knit_launch_pbs_cmdline "${opts_name}" "${argv_name}" ;;
         *) knit_fatal "Launcher backend not implemented: ${backend}" ;;
     esac
 }
@@ -95,6 +97,8 @@ _knit_launch_exec() {
         none) _knit_launch_none_exec "${arr_name}" -- "$@" ;;
         openmpi) _knit_launch_openmpi_exec "${arr_name}" -- "$@" ;;
         mpich) _knit_launch_mpich_exec "${arr_name}" -- "$@" ;;
+        slurm) _knit_launch_slurm_exec "${arr_name}" -- "$@" ;;
+        pbs) _knit_launch_pbs_exec "${arr_name}" -- "$@" ;;
         *) knit_fatal "Launcher backend not implemented: ${backend}" ;;
     esac
 }

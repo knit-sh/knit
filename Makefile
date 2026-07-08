@@ -25,6 +25,8 @@ KNIT_SOURCE = src/global.sh   \
               src/launch_none.sh \
               src/launch_openmpi.sh \
               src/launch_mpich.sh \
+              src/launch_slurm.sh \
+              src/launch_pbs.sh \
               src/setup.sh    \
               src/job.sh      \
               src/job_cli.sh  \
