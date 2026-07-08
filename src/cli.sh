@@ -18,6 +18,15 @@ declare -gA _KNIT_PARAMETER_SETS
 declare -ga _KNIT_EXECUTING_COMMAND=()
 
 # ------------------------------------------------------------------------------
+# When non-empty, output recording is suppressed: knit_output discards its value
+# (with a warning) and _knit_record_invocation records no row. This is a generic
+# recording concept (the CLI layer stays unaware of MPI); the `knit run` per-rank
+# worker sets it on every rank but rank 0, so a run's outputs and per-app row are
+# recorded exactly once even though every rank re-enters the app command.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_RECORDING_SUPPRESSED=""
+
+# ------------------------------------------------------------------------------
 # @fn knit_empty()
 #
 # Empty function to register commands with no behaviors.
@@ -1763,6 +1772,12 @@ knit_get_parameter() {
 knit_output() {
     local name="$1"
     local value="$2"
+    # Suppressed on non-root ranks of a run: discard the output but warn, so users
+    # learn to guard knit_output with a rank-0 check (only rank 0 records a run).
+    if [[ -n "${_KNIT_RECORDING_SUPPRESSED}" ]]; then
+        knit_warning "Recording is suppressed on this rank; output \"${name}\" is discarded. Guard knit_output with a rank-0 check (e.g. [[ \"\${KNIT_MPI_RANK}\" == 0 ]])."
+        return 0
+    fi
     if [[ ${#_KNIT_EXECUTING_COMMAND[@]} -eq 0 ]]; then
         knit_fatal "knit_output should be called from within a registered command function."
     fi
@@ -1839,6 +1854,9 @@ _knit_record_row_now() {
 # @param ... The expanded invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_record_invocation() {
+    # Suppressed on non-root ranks of a run: record no row, so a run's per-app row
+    # is written exactly once (by rank 0) even though every rank re-enters the app.
+    [[ -n "${_KNIT_RECORDING_SUPPRESSED}" ]] && return 0
     local cmd="$1"
     shift
     local table_var="_KNIT_CMD_${cmd}_table"

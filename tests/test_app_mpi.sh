@@ -14,6 +14,7 @@ setup() {
 
 teardown() {
     unset KNIT_JOB_PREFIX
+    _KNIT_RECORDING_SUPPRESSED=""
 }
 
 # ---------- none backend (no launcher variables) ----------
@@ -123,6 +124,36 @@ teardown() {
     export OMPI_COMM_WORLD_LOCAL_RANK=2
     _knit_run_worker -- myapp
     [ "$(cat "${BATS_TEST_TMPDIR}/out")" = "6/2/12" ]
+}
+
+# ---------- rank-0 recording gating ----------
+
+@test "worker suppresses recording on non-root ranks (output ignored)" {
+    _app_fn() { knit_output "result" "42"; }
+    knit_register_app "myapp" "_app_fn" "A test app."
+    knit_with_output "result:integer" "0" "The result."
+    knit_done
+    export KNIT_JOB_PREFIX="${BATS_TEST_TMPDIR}/job"
+    export OMPI_COMM_WORLD_RANK=1
+    export OMPI_COMM_WORLD_SIZE=4
+    _knit_run_worker -- myapp
+    # Non-root rank: knit_output is a no-op, so nothing was recorded.
+    [ -z "${_KNIT_CMD_run__1__myapp_output_value[result]:-}" ]
+    [ -n "${_KNIT_RECORDING_SUPPRESSED}" ]
+}
+
+@test "worker records on rank 0 (output kept)" {
+    _app_fn() { knit_output "result" "42"; }
+    knit_register_app "myapp" "_app_fn" "A test app."
+    knit_with_output "result:integer" "0" "The result."
+    knit_done
+    export KNIT_JOB_PREFIX="${BATS_TEST_TMPDIR}/job"
+    export OMPI_COMM_WORLD_RANK=0
+    export OMPI_COMM_WORLD_SIZE=4
+    _knit_run_worker -- myapp
+    # Rank 0: recording is not suppressed, so the output is kept.
+    [ "${_KNIT_CMD_run__1__myapp_output_value[result]}" = "42" ]
+    [ -z "${_KNIT_RECORDING_SUPPRESSED}" ]
 }
 
 # ---------- direct-invocation guard ----------

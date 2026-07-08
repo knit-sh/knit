@@ -391,6 +391,36 @@ __test_register_cmd() {
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ntcmd';")" -eq 0 ]
 }
 
+@test "recording is skipped when _KNIT_RECORDING_SUPPRESSED is set" {
+    knit_register _t_sup_fn "supcmd" "Sup."
+    knit_with_optional "label:string" "def" "A label."
+    knit_with_table "sups"
+    _t_sup_fn() { :; }
+    knit_done
+
+    # Non-root ranks of a run set this flag so only rank 0 records the per-app
+    # row; here it must prevent any row from being written.
+    _KNIT_RECORDING_SUPPRESSED="1"
+    _knit_invoke_command "supcmd" "--label" "hello"
+
+    # The table is still ensured lazily on invocation, but it stays empty.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM sups;")" -eq 0 ]
+}
+
+@test "recording proceeds when _KNIT_RECORDING_SUPPRESSED is empty (regression)" {
+    knit_register _t_uns_fn "unscmd" "Uns."
+    knit_with_optional "label:string" "def" "A label."
+    knit_with_table "unss"
+    _t_uns_fn() { :; }
+    knit_done
+
+    _KNIT_RECORDING_SUPPRESSED=""
+    _knit_invoke_command "unscmd" "--label" "hello"
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM unss;")" -eq 1 ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM unss;")" = "hello" ]
+}
+
 @test "recording escapes single quotes in values" {
     knit_register _t_esc_fn "esccmd" "Esc."
     knit_with_optional "label:string" "" "A label."

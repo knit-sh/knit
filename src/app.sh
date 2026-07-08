@@ -268,9 +268,10 @@ knit_with_extra "The app name and its arguments (after --)."
 # to the `run` dispatcher — there is no recursion).
 #
 # Each rank normalizes the launcher-native MPI environment into KNIT_MPI_*
-# (via _knit_run_normalize_mpi_env) before forwarding to the app. Rank-0
-# recording gating (M6) and re-sourcing the ambient setup environment (M8) are
-# added in later milestones.
+# (via _knit_run_normalize_mpi_env) before forwarding to the app, and every rank
+# but rank 0 sets _KNIT_RECORDING_SUPPRESSED so a run's outputs and per-app row
+# are recorded exactly once. Re-sourcing the ambient setup environment (M8) is
+# added in a later milestone.
 # ------------------------------------------------------------------------------
 _knit_run_worker() {
     # TODO (M5/M7): fail here if this worker was reached by a direct invocation
@@ -296,6 +297,13 @@ _knit_run_worker() {
     # Normalize this rank's launcher-native MPI environment into KNIT_MPI_* so the
     # app body reads a single, launcher-agnostic set of variables.
     _knit_run_normalize_mpi_env
+
+    # Every rank re-enters run:<app>, but only rank 0 records outputs and the
+    # per-app row. Suppress recording on all other ranks via the generic CLI flag
+    # (knit_output no-ops and _knit_record_invocation writes nothing when set).
+    if [[ "${KNIT_MPI_RANK}" != "0" ]]; then
+        _KNIT_RECORDING_SUPPRESSED="1"
+    fi
 
     _knit_invoke_command "run" "${app_name}" "${app_args[@]}"
 }
