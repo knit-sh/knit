@@ -232,6 +232,28 @@ _knit_run_resolve_placement() {
     _place["hostnames"]="${joined}"
 }
 
+# ------------------------------------------------------------------------------
+# @fn _knit_run_normalize_mpi_env()
+#
+# Normalize the launcher-native MPI environment into the launcher-agnostic
+# KNIT_MPI_* variables the app body reads, and export them so every subprocess of
+# the rank inherits them:
+#
+#   KNIT_MPI_RANK        rank in MPI_COMM_WORLD
+#   KNIT_MPI_SIZE        size of MPI_COMM_WORLD
+#   KNIT_MPI_LOCAL_RANK  node-local rank
+#
+# Each is taken from the first launcher that set it, by precedence
+# (OpenMPI -> MPICH/PMI -> Slurm srun -> PALS), falling back to a single
+# rank-0 / size-1 process when none are present (the `none` backend). Called once
+# per rank by the worker, before forwarding to the app body.
+# ------------------------------------------------------------------------------
+_knit_run_normalize_mpi_env() {
+    export KNIT_MPI_RANK="${OMPI_COMM_WORLD_RANK:-${PMI_RANK:-${SLURM_PROCID:-${PALS_RANKID:-0}}}}"
+    export KNIT_MPI_SIZE="${OMPI_COMM_WORLD_SIZE:-${PMI_SIZE:-${SLURM_NTASKS:-1}}}"
+    export KNIT_MPI_LOCAL_RANK="${OMPI_COMM_WORLD_LOCAL_RANK:-${PMI_LOCAL_RANK:-${SLURM_LOCALID:-${PALS_LOCAL_RANKID:-0}}}}"
+}
+
 knit_register _knit_run_worker "_run" "Per-rank worker for \`knit run\` (internal)."
 knit_hidden
 knit_with_extra "The app name and its arguments (after --)."
@@ -245,9 +267,10 @@ knit_with_extra "The app name and its arguments (after --)."
 # as `run:<app>` (both tokens are non-"--", so this routes to the app, never back
 # to the `run` dispatcher — there is no recursion).
 #
-# MPI environment normalization (KNIT_MPI_*), rank-0 recording gating, and
-# re-sourcing the ambient setup environment are added in later milestones; this
-# skeleton only forwards to the app.
+# Each rank normalizes the launcher-native MPI environment into KNIT_MPI_*
+# (via _knit_run_normalize_mpi_env) before forwarding to the app. Rank-0
+# recording gating (M6) and re-sourcing the ambient setup environment (M8) are
+# added in later milestones.
 # ------------------------------------------------------------------------------
 _knit_run_worker() {
     # TODO (M5/M7): fail here if this worker was reached by a direct invocation
@@ -269,6 +292,10 @@ _knit_run_worker() {
 
     local app_name="${extra[0]}"
     local app_args=("${extra[@]:1}")
+
+    # Normalize this rank's launcher-native MPI environment into KNIT_MPI_* so the
+    # app body reads a single, launcher-agnostic set of variables.
+    _knit_run_normalize_mpi_env
 
     _knit_invoke_command "run" "${app_name}" "${app_args[@]}"
 }
