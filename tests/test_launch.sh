@@ -33,6 +33,13 @@ teardown() {
     [ "$output" = "mpich" ]
 }
 
+@test "_knit_launch_backend passes an autodetected pals through unchanged" {
+    _knit_metadata_load()   { printf '\n'; }
+    _knit_detect_launcher() { printf 'pals\n'; }
+    run _knit_launch_backend
+    [ "$output" = "pals" ]
+}
+
 @test "_knit_launch_backend maps detection's <unknown> to none" {
     _knit_metadata_load()   { printf '\n'; }
     _knit_detect_launcher() { printf '<unknown>\n'; }

@@ -16,6 +16,7 @@
 #   - mpich   — mpiexec/Hydra (MPICH)                 [M2]
 #   - slurm   — srun (scheduler-integrated)           [M3]
 #   - pbs     — the PBS mpiexec wrapper               [M3]
+#   - pals    — mpiexec (HPE Cray PALS)               [M12]
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
@@ -70,6 +71,7 @@ _knit_launch_cmdline() {
         mpich) _knit_launch_mpich_cmdline "${opts_name}" "${argv_name}" ;;
         slurm) _knit_launch_slurm_cmdline "${opts_name}" "${argv_name}" ;;
         pbs) _knit_launch_pbs_cmdline "${opts_name}" "${argv_name}" ;;
+        pals) _knit_launch_pals_cmdline "${opts_name}" "${argv_name}" ;;
         *) knit_fatal "Launcher backend not implemented: ${backend}" ;;
     esac
 }
@@ -99,6 +101,7 @@ _knit_launch_exec() {
         mpich) _knit_launch_mpich_exec "${arr_name}" -- "$@" ;;
         slurm) _knit_launch_slurm_exec "${arr_name}" -- "$@" ;;
         pbs) _knit_launch_pbs_exec "${arr_name}" -- "$@" ;;
+        pals) _knit_launch_pals_exec "${arr_name}" -- "$@" ;;
         *) knit_fatal "Launcher backend not implemented: ${backend}" ;;
     esac
 }

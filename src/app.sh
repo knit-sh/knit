@@ -26,7 +26,7 @@ knit_with_optional "procs-per-node:integer" "" "Ranks per node."
 knit_with_optional "hostnames:string" "" \
     "Comma-separated subset of the job's allocated hosts to place on."
 knit_with_optional "launcher:string" "" \
-    "Override the launcher backend (none, openmpi, mpich, slurm, pbs)."
+    "Override the launcher backend (none, openmpi, mpich, slurm, pbs, pals)."
 knit_with_optional "launcher-args:string" "" \
     "Extra arguments passed verbatim to the launcher."
 knit_with_dispatch "app" "User-provided app command to execute"

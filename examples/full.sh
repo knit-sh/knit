@@ -308,7 +308,7 @@
 # `run [OPTIONS] -- <app> [OPTIONS]`: --procs, --procs-per-node, --hostnames (a
 # comma-separated subset of the allocation, e.g. from
 # `knit_job_hostnames --separator , --select 0:2`), --launcher (force a backend:
-# none, openmpi, mpich, slurm, pbs), and --launcher-args (raw passthrough).
+# none, openmpi, mpich, slurm, pbs, pals), and --launcher-args (raw passthrough).
 #
 # Every run is recorded in the `runs` table (the app, the resolved procs and
 # hostnames, and the parent job's UUID), and rank 0's output in the app's own
