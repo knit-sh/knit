@@ -17,7 +17,22 @@ setup() {
     [ "${argv[3]}" = "--npernode" ]
     [ "${argv[4]}" = "4" ]
     [ "${argv[5]}" = "--host" ]
-    [ "${argv[6]}" = "h0,h1" ]
+    # Each host carries its slot count (= --procs-per-node) so the rank count
+    # fits; a bare "h0,h1" would advertise only one slot per host.
+    [ "${argv[6]}" = "h0:4,h1:4" ]
+}
+
+@test "openmpi cmdline derives host slots from procs when procs-per-node is unset" {
+    declare -A opts=([procs]=4 [hostnames]="h0,h1")
+    declare -a argv
+    _knit_launch_openmpi_cmdline opts argv
+    [ "${#argv[@]}" -eq 5 ]
+    [ "${argv[0]}" = "mpirun" ]
+    [ "${argv[1]}" = "-n" ]
+    [ "${argv[2]}" = "4" ]
+    [ "${argv[3]}" = "--host" ]
+    # ceil(4 / 2 hosts) = 2 slots per host.
+    [ "${argv[4]}" = "h0:2,h1:2" ]
 }
 
 @test "openmpi cmdline emits only the flags whose options are set" {
