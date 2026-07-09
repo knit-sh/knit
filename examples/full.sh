@@ -7,9 +7,10 @@
 # This is a complete, runnable knit experiment. It estimates the value of pi
 # with a Monte-Carlo method, and along the way it exercises every feature knit
 # currently implements: bootstrapping, machine profiles, metadata, typed
-# command parameters, setups (reproducible environments), and job submission
+# command parameters, setups (reproducible environments), job submission
 # to a batch scheduler (Slurm/PBS) — or to local background processes when no
-# scheduler is present.
+# scheduler is present — and MPI application launch across a job's allocation
+# with `knit run`.
 #
 # HOW TO USE THIS FILE
 # --------------------
@@ -41,25 +42,28 @@
 #   ./full.sh --help
 #
 # Prints the program description and the list of subcommands: estimate, submit,
-# setup, bootstrap, metadata, profile. Every command takes --help, e.g.
+# run, setup, bootstrap, metadata, profile, job, db. Every command takes --help,
+# e.g.
 #
 #   ./full.sh estimate --help
 #   ./full.sh submit --help
+#   ./full.sh run --help
 #
 # The per-command help lists each parameter, its type, whether it is
 # required/optional (with the default), and its description.
 #
-# Jobs and setups are invoked through `submit`/`setup` after a `--`, and you can
-# ask for their help by name, e.g.
+# Jobs, setups, and apps are invoked through `submit`/`setup`/`run` after a `--`,
+# and you can ask for their help by name, e.g.
 #
 #   ./full.sh submit montecarlo --help
 #   ./full.sh setup mcenv --help
+#   ./full.sh run mcrank --help
 #
 # The usage line reflects the real grammar
-# (`submit [OPTIONS] -- montecarlo [OPTIONS]`), and the help shows the job/setup's
-# own options, the enclosing `submit`/`setup` options (such as `--setup` /
-# `--path`), and — for a job declared with `knit_with_setup` — the setup type it
-# requires.
+# (`submit [OPTIONS] -- montecarlo [OPTIONS]`), and the help shows the
+# job/setup/app's own options, the enclosing `submit`/`setup`/`run` options (such
+# as `--setup` / `--path` / `--procs`), and — for a job declared with
+# `knit_with_setup` — the setup type it requires.
 #
 # -----------------------------------------------------------------------------
 # 2. Bootstrap the experiment
@@ -270,17 +274,58 @@
 #   ./full.sh job show stdout --id $uuid --follow
 #
 # -----------------------------------------------------------------------------
-# 10. Clean up
+# 10. Launch an MPI application inside a job (knit run)
+# -----------------------------------------------------------------------------
+#   ./full.sh submit --setup ./env --wait -- mcparallel --procs 1
+#
+# `mcparallel` is a job whose body calls `knit run` to launch the `mcrank` app.
+# `knit run` starts one process ("rank") per slot of the job's allocation, sets
+# KNIT_MPI_RANK / KNIT_MPI_SIZE / KNIT_MPI_LOCAL_RANK for each rank, and forwards
+# the job's environment (including the activated setup) to every rank. Each
+# mcrank rank estimates pi on its own slice of the samples and prints the host it
+# landed on; knit records the run once, from rank 0.
+#
+# `knit run` is always called from inside a job — the job supplies the node
+# allocation the launcher places ranks on. Here mcparallel forwards its --procs
+# option straight to `knit run`:
+#
+#   knit run --procs <N> -- mcrank
+#
+# --procs defaults to 1 so this runs anywhere, including a laptop with no MPI
+# launcher. Launching more than one rank needs a real MPI launcher: knit
+# auto-detects OpenMPI and MPICH; without one it uses the built-in "none"
+# launcher, which runs a single local rank and rejects --procs > 1. On a cluster,
+# submit with more nodes and a higher --procs to spread ranks across the
+# allocation:
+#
+#   ./full.sh submit --setup ./env --nodes 2 --wait -- mcparallel --procs 8
+#
+# The placement is controlled by `knit run`'s options — see their help:
+#
+#   ./full.sh run --help          # the run dispatcher and its placement options
+#   ./full.sh run mcrank --help   # the app's own options, plus the run options
+#
+# `run [OPTIONS] -- <app> [OPTIONS]`: --procs, --procs-per-node, --hostnames (a
+# comma-separated subset of the allocation, e.g. from
+# `knit_job_hostnames --separator , --select 0:2`), --launcher (force a backend:
+# none, openmpi, mpich, slurm, pbs), and --launcher-args (raw passthrough).
+#
+# Every run is recorded in the `runs` table (the app, the resolved procs and
+# hostnames, and the parent job's UUID), and rank 0's output in the app's own
+# table (`mcrank`):
+#
+#   ./full.sh db query --from runs \
+#       --select "id, app, job, procs, hostnames" --header --column
+#   ./full.sh db query --from mcrank \
+#       --select "id, samples, seed, pi" --header --column
+#
+# -----------------------------------------------------------------------------
+# 11. Clean up
 # -----------------------------------------------------------------------------
 #   rm -rf .knit env
 #
 # Removes knit's private tooling, the database, and the setup/job directories.
 #
-# =============================================================================
-# KNOWN LIMITATIONS (as of this writing)
-# =============================================================================
-#   - `knit run` (MPI placement across the allocation) is not implemented, so
-#     these jobs run a single process per submission.
 # =============================================================================
 
 
@@ -420,6 +465,79 @@ _montecarlo_job() {
     # knit_job_hostnames reports the nodes the scheduler allocated to this job
     # (deduplicated by default; also supports --json and --raw).
     printf 'ran on hosts: %s\n' "$(knit_job_hostnames --separator ', ')"
+}
+knit_done
+
+# -----------------------------------------------------------------------------
+# mcrank — an app: one MPI rank of a parallel Monte-Carlo pi estimate.
+#
+# Apps are launched by `knit run`, which starts one copy per rank and sets
+# KNIT_MPI_RANK / KNIT_MPI_SIZE / KNIT_MPI_LOCAL_RANK for each (a single, no-MPI
+# run gets rank 0 of size 1). This app reads those variables to take its own
+# 1/size slice of the samples, with a rank-offset seed so the slices are
+# independent yet reproducible, and prints its partial estimate and the host it
+# ran on. knit records outputs only from rank 0, so knit_output here stores rank
+# 0's partial.
+#
+# An app has no setup of its own: it inherits the environment of the surrounding
+# job. --samples/--seed therefore default to the MC_SAMPLES/MC_SEED exported by
+# the job's `mcenv` setup, exactly as the montecarlo job's do.
+#
+# A true global estimate would average the ranks' partials with an MPI reduction;
+# that is outside knit's scope (the launcher runs independent processes), so this
+# example simply reports each rank on its own.
+# -----------------------------------------------------------------------------
+knit_register_app "mcrank" _mcrank_app "One rank of a parallel Monte-Carlo pi estimate."
+knit_with_optional "samples:integer" "ENV[MC_SAMPLES]" "Total samples across all ranks (default: MC_SAMPLES)."
+knit_with_optional "seed:integer"    "ENV[MC_SEED]"    "Base PRNG seed (default: MC_SEED)."
+knit_with_output   "pi:real" "0"                       "Rank 0's partial pi estimate."
+_mcrank_app() {
+    local samples seed
+    samples=$(knit_get_parameter "samples" "$@")
+    seed=$(knit_get_parameter "seed" "$@")
+
+    # KNIT_MPI_* are set by knit for every rank (single, no-MPI run => 0/1/0).
+    local rank="${KNIT_MPI_RANK}" size="${KNIT_MPI_SIZE}"
+
+    # This rank's slice of the work: split the samples as evenly as possible,
+    # giving any remainder to rank 0. A rank-offset seed keeps the slices
+    # independent but reproducible.
+    local my_samples=$(( samples / size ))
+    (( rank == 0 )) && my_samples=$(( my_samples + samples % size ))
+    local my_seed=$(( seed + rank ))
+
+    local pi
+    pi=$(_pi_monte_carlo "${my_samples}" "${my_seed}" "decimal")
+
+    printf 'rank %s/%s on %s: pi ~= %s  (%s samples, seed %s)\n' \
+        "${rank}" "${size}" "$(hostname)" "${pi}" "${my_samples}" "${my_seed}"
+
+    # Only rank 0 records (knit suppresses recording on the other ranks); store
+    # its partial as the run's recorded estimate.
+    knit_output "pi" "${pi}"
+}
+knit_done
+
+# -----------------------------------------------------------------------------
+# mcparallel — a job: estimate pi in parallel by launching mcrank with knit run.
+#
+# `knit run` must be called from inside a job (the job supplies the node
+# allocation the launcher places ranks on). This body forwards its --procs option
+# to `knit run`; --procs defaults to 1 so the job runs anywhere, including a
+# laptop with no MPI launcher. On a real cluster, submit with more nodes and a
+# higher --procs to spread ranks across the allocation.
+# -----------------------------------------------------------------------------
+knit_register_job "mcparallel" _mcparallel_job "Estimate pi in parallel via knit run."
+knit_with_setup    "mcenv"                                  # requires an `mcenv` setup
+knit_with_optional "procs:integer" "1" "MPI ranks to launch (needs OpenMPI/MPICH for > 1)."
+_mcparallel_job() {
+    local procs
+    procs=$(knit_get_parameter "procs" "$@")
+
+    # Launch one mcrank per rank across the job's allocation. --samples/--seed are
+    # omitted, so each rank fills them from the setup environment it inherits
+    # (MC_SAMPLES / MC_SEED).
+    knit run --procs "${procs}" -- mcrank
 }
 knit_done
 
