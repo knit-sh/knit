@@ -53,6 +53,48 @@ teardown() {
     [ "$output" = "none" ]
 }
 
+# ---------- _knit_launch_bind_value: normalized binding vocabulary ----------
+
+@test "bind value maps the OpenMPI/Hydra family (openmpi/mpich/pbs)" {
+    [ "$(_knit_launch_bind_value openmpi none)" = "none" ]
+    [ "$(_knit_launch_bind_value openmpi core)" = "core" ]
+    [ "$(_knit_launch_bind_value mpich socket)" = "socket" ]
+    [ "$(_knit_launch_bind_value pbs numa)" = "numa" ]
+    # A hardware thread is spelled hwthread across this family.
+    [ "$(_knit_launch_bind_value openmpi thread)" = "hwthread" ]
+    [ "$(_knit_launch_bind_value mpich thread)" = "hwthread" ]
+}
+
+@test "bind value maps the Slurm spellings" {
+    [ "$(_knit_launch_bind_value slurm none)" = "none" ]
+    [ "$(_knit_launch_bind_value slurm core)" = "cores" ]
+    [ "$(_knit_launch_bind_value slurm socket)" = "sockets" ]
+    [ "$(_knit_launch_bind_value slurm numa)" = "ldoms" ]
+    [ "$(_knit_launch_bind_value slurm thread)" = "threads" ]
+}
+
+@test "bind value maps the PALS spellings" {
+    [ "$(_knit_launch_bind_value pals none)" = "none" ]
+    [ "$(_knit_launch_bind_value pals core)" = "core" ]
+    [ "$(_knit_launch_bind_value pals socket)" = "socket" ]
+    [ "$(_knit_launch_bind_value pals numa)" = "numa" ]
+    [ "$(_knit_launch_bind_value pals thread)" = "thread" ]
+}
+
+@test "bind value passes an unknown value through verbatim with a warning" {
+    run _knit_launch_bind_value slurm map_ldom:0
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Unknown --bind value"* ]]
+    [[ "$output" == *"map_ldom:0"* ]]
+}
+
+@test "bind value of an unknown value is exactly the value on stdout" {
+    # The warning goes to stderr, so only the verbatim value reaches stdout.
+    local out
+    out=$(_knit_launch_bind_value openmpi weird 2>/dev/null)
+    [ "${out}" = "weird" ]
+}
+
 # ---------- dispatcher: unknown backend ----------
 
 @test "_knit_launch_cmdline fatals on an unknown backend" {

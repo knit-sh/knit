@@ -307,8 +307,11 @@
 #
 # `run [OPTIONS] -- <app> [OPTIONS]`: --procs, --procs-per-node, --hostnames (a
 # comma-separated subset of the allocation, e.g. from
-# `knit_job_hostnames --separator , --select 0:2`), --launcher (force a backend:
-# none, openmpi, mpich, slurm, pbs, pals), and --launcher-args (raw passthrough).
+# `knit_job_hostnames --separator , --select 0:2`), the per-rank resource knobs
+# --cpus-per-proc, --bind (none/core/socket/numa/thread), --gpus-per-proc and
+# --gpu-bind (each translated per launcher, best-effort — a backend with no native
+# flag warns and skips), --launcher (force a backend: none, openmpi, mpich, slurm,
+# pbs, pals), and --launcher-args (raw passthrough for anything not normalized).
 #
 # Every run is recorded in the `runs` table (the app, the resolved procs and
 # hostnames, and the parent job's UUID), and rank 0's output in the app's own

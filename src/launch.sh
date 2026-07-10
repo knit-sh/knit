@@ -20,6 +20,65 @@
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
+# @fn _knit_launch_bind_value()
+#
+# Translate knit's normalized --bind vocabulary into the spelling a given backend
+# expects. knit defines a small set of portable binding units — none, core,
+# socket, numa, thread — and each backend family renders them differently:
+# Slurm's --cpu-bind uses the plural/locality-domain spellings (cores, sockets,
+# ldoms, threads); PALS's --cpu-bind uses the singular spellings (core, socket,
+# numa, thread); the OpenMPI/Hydra family (openmpi, mpich, pbs) matches PALS
+# except that a hardware thread is spelled hwthread. An unrecognized value is not
+# an error — it is passed through verbatim (with a warning) so a user can still
+# reach a launcher-specific binding this vocabulary does not cover. Prints the
+# translated value.
+#
+# @param backend Launcher backend name ("openmpi", "mpich", "slurm", ...).
+# @param value   The knit --bind value to translate.
+# ------------------------------------------------------------------------------
+_knit_launch_bind_value() {
+    local backend="$1"
+    local value="$2"
+    local out=""
+    case "${backend}" in
+        slurm)
+            case "${value}" in
+                none) out="none" ;;
+                core) out="cores" ;;
+                socket) out="sockets" ;;
+                numa) out="ldoms" ;;
+                thread) out="threads" ;;
+            esac
+            ;;
+        pals)
+            case "${value}" in
+                none) out="none" ;;
+                core) out="core" ;;
+                socket) out="socket" ;;
+                numa) out="numa" ;;
+                thread) out="thread" ;;
+            esac
+            ;;
+        *)
+            # openmpi, mpich, pbs — the OpenMPI/Hydra family, which share the same
+            # binding vocabulary except that a hardware thread is spelled hwthread.
+            case "${value}" in
+                none) out="none" ;;
+                core) out="core" ;;
+                socket) out="socket" ;;
+                numa) out="numa" ;;
+                thread) out="hwthread" ;;
+            esac
+            ;;
+    esac
+    if [[ -z "${out}" ]]; then
+        knit_warning "Unknown --bind value \"${value}\"; passing it through to the launcher verbatim."
+        out="${value}"
+    fi
+    printf '%s' "${out}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_launch_backend()
 #
 # Resolve which launcher backend to use, by precedence:

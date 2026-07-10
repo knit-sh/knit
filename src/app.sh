@@ -29,6 +29,17 @@ knit_with_optional "launcher:string" "" \
     "Override the launcher backend (none, openmpi, mpich, slurm, pbs, pals)."
 knit_with_optional "launcher-args:string" "" \
     "Extra arguments passed verbatim to the launcher."
+# Per-rank resource placement (all optional; translated per backend, best-effort;
+# a backend with no native flag warns and skips). --bind uses a normalized
+# vocabulary (none, core, socket, numa, thread); other values pass through.
+knit_with_optional "cpus-per-proc:integer" "" \
+    "CPUs (hardware threads) reserved per rank."
+knit_with_optional "bind:string" "" \
+    "CPU binding policy (none, core, socket, numa, thread; other values pass through)."
+knit_with_optional "gpus-per-proc:integer" "" \
+    "GPUs reserved per rank."
+knit_with_optional "gpu-bind:string" "" \
+    "GPU binding policy (launcher-specific value, passed through)."
 knit_with_dispatch "app" "User-provided app command to execute"
 knit_with_subcommand_title "Apps"
 # Record every run as a row in the "runs" table. The placement options above are
@@ -96,6 +107,23 @@ _knit_run() {
     launcher_args=$(knit_get_parameter "launcher-args" "$@") || launcher_args=""
     # shellcheck disable=SC2034 # array is read by name in _knit_launch_exec
     launch_opts["launcher-args"]="${launcher_args}"
+
+    # Per-rank resource placement, passed straight through to the launcher backend
+    # (each backend translates or warns+skips per its capabilities). These are
+    # orthogonal to the rank-count triple, so the resolver above ignores them.
+    local cpus_per_proc bind_policy gpus_per_proc gpu_bind
+    cpus_per_proc=$(knit_get_parameter "cpus-per-proc" "$@") || cpus_per_proc=""
+    bind_policy=$(knit_get_parameter "bind" "$@") || bind_policy=""
+    gpus_per_proc=$(knit_get_parameter "gpus-per-proc" "$@") || gpus_per_proc=""
+    gpu_bind=$(knit_get_parameter "gpu-bind" "$@") || gpu_bind=""
+    # shellcheck disable=SC2034 # array is read by name in _knit_launch_exec
+    launch_opts["cpus-per-proc"]="${cpus_per_proc}"
+    # shellcheck disable=SC2034 # array is read by name in _knit_launch_exec
+    launch_opts["bind"]="${bind_policy}"
+    # shellcheck disable=SC2034 # array is read by name in _knit_launch_exec
+    launch_opts["gpus-per-proc"]="${gpus_per_proc}"
+    # shellcheck disable=SC2034 # array is read by name in _knit_launch_exec
+    launch_opts["gpu-bind"]="${gpu_bind}"
 
     # Record this run in the runs table under a fresh uuid, the run's id. The app
     # runs in the job's directory, so there is no run directory to create.

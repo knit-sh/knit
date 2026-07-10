@@ -69,6 +69,31 @@ setup() {
     [ "${argv[4]}" = "cores" ]
 }
 
+@test "slurm cmdline translates cpus-per-proc, bind, and GPU placement" {
+    declare -A opts=([procs]=8 [cpus-per-proc]=4 [bind]=core \
+        [gpus-per-proc]=1 [gpu-bind]=closest)
+    declare -a argv
+    _knit_launch_slurm_cmdline opts argv
+    [ "${#argv[@]}" -eq 9 ]
+    [ "${argv[1]}" = "--ntasks" ]
+    [ "${argv[2]}" = "8" ]
+    [ "${argv[3]}" = "--cpus-per-task" ]
+    [ "${argv[4]}" = "4" ]
+    # bind is normalized: core -> cores for Slurm, on the --cpu-bind=VALUE form.
+    [ "${argv[5]}" = "--cpu-bind=cores" ]
+    [ "${argv[6]}" = "--gpus-per-task" ]
+    [ "${argv[7]}" = "1" ]
+    # --gpu-bind value is passed through verbatim (no normalization).
+    [ "${argv[8]}" = "--gpu-bind=closest" ]
+}
+
+@test "slurm cmdline maps numa bind to ldoms" {
+    declare -A opts=([bind]=numa)
+    declare -a argv
+    _knit_launch_slurm_cmdline opts argv
+    [ "${argv[1]}" = "--cpu-bind=ldoms" ]
+}
+
 # ---------- pbs: cmdline ----------
 
 @test "pbs cmdline translates a full placement" {
@@ -111,6 +136,18 @@ setup() {
     [ "${argv[3]}" = "-genv" ]
     [ "${argv[4]}" = "FOO" ]
     [ "${argv[5]}" = "bar" ]
+}
+
+@test "pbs cmdline translates bind and warns/skips cpus-per-proc and GPU" {
+    declare -A opts=([procs]=4 [cpus-per-proc]=2 [bind]=core [gpus-per-proc]=1)
+    declare -a argv
+    run _knit_launch_pbs_cmdline opts argv
+    [[ "$output" == *"--cpus-per-proc has no native Hydra flag"* ]]
+    [[ "$output" == *"--gpus-per-proc has no native Hydra flag"* ]]
+    _knit_launch_pbs_cmdline opts argv
+    [ "${#argv[@]}" -eq 5 ]
+    [ "${argv[3]}" = "-bind-to" ]
+    [ "${argv[4]}" = "core" ]
 }
 
 # ---------- dispatcher routing ----------

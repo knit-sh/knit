@@ -10,7 +10,12 @@
 #   --procs N          -> -n N
 #   --procs-per-node M -> -ppn M
 #   --hostnames h0,h1  -> -hosts h0,h1
+#   --bind V           -> -bind-to <V>   (V normalized by _knit_launch_bind_value)
 #   --launcher-args …  -> appended verbatim after the placement flags
+#
+# Hydra has no native flag for CPUs-per-rank (--cpus-per-proc) or GPU placement
+# (--gpus-per-proc / --gpu-bind), so those are warned about and skipped; reach
+# them through --launcher-args.
 #
 # Placement is resolved and validated upstream by the run dispatcher; this
 # backend only formats the resolved triple into an argument vector. Hydra
@@ -38,12 +43,24 @@ _knit_launch_mpich_cmdline() {
     local procs="${_launch_opts[procs]:-}"
     local ppn="${_launch_opts[procs-per-node]:-}"
     local hosts="${_launch_opts[hostnames]:-}"
+    local cpp="${_launch_opts[cpus-per-proc]:-}"
+    local bind="${_launch_opts[bind]:-}"
+    local gpp="${_launch_opts[gpus-per-proc]:-}"
+    local gbind="${_launch_opts[gpu-bind]:-}"
     local extra="${_launch_opts[launcher-args]:-}"
 
     _launch_argv=(mpiexec)
     [[ -n "${procs}" ]] && _launch_argv+=(-n "${procs}")
     [[ -n "${ppn}" ]] && _launch_argv+=(-ppn "${ppn}")
     [[ -n "${hosts}" ]] && _launch_argv+=(-hosts "${hosts}")
+    [[ -n "${cpp}" ]] && \
+        knit_warning "mpich: --cpus-per-proc has no native Hydra flag; ignoring (use --launcher-args)."
+    [[ -n "${bind}" ]] && \
+        _launch_argv+=(-bind-to "$(_knit_launch_bind_value mpich "${bind}")")
+    [[ -n "${gpp}" ]] && \
+        knit_warning "mpich: --gpus-per-proc has no native Hydra flag; ignoring (use --launcher-args)."
+    [[ -n "${gbind}" ]] && \
+        knit_warning "mpich: --gpu-bind has no native Hydra flag; ignoring (use --launcher-args)."
     if [[ -n "${extra}" ]]; then
         local -a extra_args
         read -r -a extra_args <<< "${extra}"

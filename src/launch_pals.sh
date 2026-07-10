@@ -13,17 +13,22 @@
 #   --procs N          -> -n N
 #   --procs-per-node M -> --ppn M
 #   --hostnames h0,h1  -> --hosts h0,h1
+#   --cpus-per-proc N  -> --depth N
+#   --bind V           -> --cpu-bind <V>   (V normalized by _knit_launch_bind_value)
 #   --launcher-args …  -> appended verbatim after the placement flags
 #
 # PALS uses the long spellings --ppn and --hosts (double dash), distinguishing it
-# from the Hydra-based mpich/pbs backends that use -ppn/-hosts. Placement is
-# resolved and validated upstream by the run dispatcher; this backend only formats
-# the resolved triple into an argument vector. PALS mpiexec forwards the
-# submitting environment to every rank by default, so the ranks inherit the
-# surrounding job's environment (KNIT_* variables and the setup env).
+# from the Hydra-based mpich/pbs backends that use -ppn/-hosts. To bind each rank
+# to the cores reserved by --depth, pass --bind (e.g. --bind core) or
+# --launcher-args "--cpu-bind depth"; knit does not auto-inject a --cpu-bind.
+# GPU placement (--gpus-per-proc / --gpu-bind) has no PALS mpiexec flag — GPU
+# affinity on PALS systems is set by a wrapper script — so it is warned about and
+# skipped; reach it through --launcher-args.
 #
-# Richer placement (per-rank core depth, CPU/GPU binding, mapping) is not
-# translated here yet; pass such flags through --launcher-args for now.
+# Placement is resolved and validated upstream by the run dispatcher; this backend
+# only formats the resolved triple into an argument vector. PALS mpiexec forwards
+# the submitting environment to every rank by default, so the ranks inherit the
+# surrounding job's environment (KNIT_* variables and the setup env).
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
@@ -46,12 +51,23 @@ _knit_launch_pals_cmdline() {
     local procs="${_launch_opts[procs]:-}"
     local ppn="${_launch_opts[procs-per-node]:-}"
     local hosts="${_launch_opts[hostnames]:-}"
+    local cpp="${_launch_opts[cpus-per-proc]:-}"
+    local bind="${_launch_opts[bind]:-}"
+    local gpp="${_launch_opts[gpus-per-proc]:-}"
+    local gbind="${_launch_opts[gpu-bind]:-}"
     local extra="${_launch_opts[launcher-args]:-}"
 
     _launch_argv=(mpiexec)
     [[ -n "${procs}" ]] && _launch_argv+=(-n "${procs}")
     [[ -n "${ppn}" ]] && _launch_argv+=(--ppn "${ppn}")
     [[ -n "${hosts}" ]] && _launch_argv+=(--hosts "${hosts}")
+    [[ -n "${cpp}" ]] && _launch_argv+=(--depth "${cpp}")
+    [[ -n "${bind}" ]] && \
+        _launch_argv+=(--cpu-bind "$(_knit_launch_bind_value pals "${bind}")")
+    [[ -n "${gpp}" ]] && \
+        knit_warning "pals: --gpus-per-proc has no mpiexec flag (GPU affinity is a wrapper on PALS systems); ignoring (use --launcher-args)."
+    [[ -n "${gbind}" ]] && \
+        knit_warning "pals: --gpu-bind has no mpiexec flag (GPU affinity is a wrapper on PALS systems); ignoring (use --launcher-args)."
     if [[ -n "${extra}" ]]; then
         local -a extra_args
         read -r -a extra_args <<< "${extra}"

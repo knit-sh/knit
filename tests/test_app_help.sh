@@ -45,6 +45,10 @@ teardown() {
     [[ "$result" == *"--hostnames"* ]]
     [[ "$result" == *"--launcher"* ]]
     [[ "$result" == *"--launcher-args"* ]]
+    [[ "$result" == *"--cpus-per-proc"* ]]
+    [[ "$result" == *"--bind"* ]]
+    [[ "$result" == *"--gpus-per-proc"* ]]
+    [[ "$result" == *"--gpu-bind"* ]]
 }
 
 @test "run <app> --help has no Requirements section (apps have no setup)" {

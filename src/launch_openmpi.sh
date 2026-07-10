@@ -9,7 +9,16 @@
 #   --procs N          -> -n N
 #   --procs-per-node M -> --npernode M
 #   --hostnames h0,h1  -> --host h0:S,h1:S   (S = per-host slot count)
+#   --cpus-per-proc N  -> --map-by slot:PE=N
+#   --bind V           -> --bind-to <V>      (V normalized by _knit_launch_bind_value)
 #   --launcher-args …  -> appended verbatim after the placement flags
+#
+# GPU placement (--gpus-per-proc / --gpu-bind) has no portable mpirun flag, so it
+# is warned about and skipped; reach GPU affinity through --launcher-args. Note
+# that --map-by slot:PE=N may conflict with --npernode (--procs-per-node), which
+# is itself a mapping directive; this translation is best-effort (there is no live
+# CI for it) and --launcher-args is the escape hatch if a site needs a different
+# mapping.
 #
 # The slot suffix on each --host entry is essential: mpirun's bare
 # "--host h0,h1" advertises only one slot per host (a documented Open MPI
@@ -88,6 +97,10 @@ _knit_launch_openmpi_cmdline() {
     local procs="${_launch_opts[procs]:-}"
     local ppn="${_launch_opts[procs-per-node]:-}"
     local hosts="${_launch_opts[hostnames]:-}"
+    local cpp="${_launch_opts[cpus-per-proc]:-}"
+    local bind="${_launch_opts[bind]:-}"
+    local gpp="${_launch_opts[gpus-per-proc]:-}"
+    local gbind="${_launch_opts[gpu-bind]:-}"
     local extra="${_launch_opts[launcher-args]:-}"
 
     _launch_argv=(mpirun)
@@ -97,6 +110,13 @@ _knit_launch_openmpi_cmdline() {
         _launch_argv+=(--host \
             "$(_knit_launch_openmpi_host_slots "${hosts}" "${ppn}" "${procs}")")
     fi
+    [[ -n "${cpp}" ]] && _launch_argv+=(--map-by "slot:PE=${cpp}")
+    [[ -n "${bind}" ]] && \
+        _launch_argv+=(--bind-to "$(_knit_launch_bind_value openmpi "${bind}")")
+    [[ -n "${gpp}" ]] && \
+        knit_warning "openmpi: --gpus-per-proc has no portable mpirun flag; ignoring (use --launcher-args)."
+    [[ -n "${gbind}" ]] && \
+        knit_warning "openmpi: --gpu-bind has no portable mpirun flag; ignoring (use --launcher-args)."
     if [[ -n "${extra}" ]]; then
         local -a extra_args
         read -r -a extra_args <<< "${extra}"

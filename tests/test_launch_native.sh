@@ -74,6 +74,38 @@ setup() {
     [ "${argv[6]}" = "node" ]
 }
 
+@test "openmpi cmdline translates cpus-per-proc and bind" {
+    declare -A opts=([procs]=8 [cpus-per-proc]=4 [bind]=core)
+    declare -a argv
+    _knit_launch_openmpi_cmdline opts argv
+    [ "${#argv[@]}" -eq 7 ]
+    [ "${argv[1]}" = "-n" ]
+    [ "${argv[2]}" = "8" ]
+    [ "${argv[3]}" = "--map-by" ]
+    [ "${argv[4]}" = "slot:PE=4" ]
+    [ "${argv[5]}" = "--bind-to" ]
+    [ "${argv[6]}" = "core" ]
+}
+
+@test "openmpi cmdline maps thread bind to hwthread" {
+    declare -A opts=([bind]=thread)
+    declare -a argv
+    _knit_launch_openmpi_cmdline opts argv
+    [ "${argv[1]}" = "--bind-to" ]
+    [ "${argv[2]}" = "hwthread" ]
+}
+
+@test "openmpi cmdline warns and skips GPU placement" {
+    declare -A opts=([procs]=2 [gpus-per-proc]=1 [gpu-bind]=closest)
+    declare -a argv
+    run _knit_launch_openmpi_cmdline opts argv
+    [[ "$output" == *"--gpus-per-proc has no portable mpirun flag"* ]]
+    [[ "$output" == *"--gpu-bind has no portable mpirun flag"* ]]
+    _knit_launch_openmpi_cmdline opts argv
+    [ "${#argv[@]}" -eq 3 ]
+    [ "${argv[2]}" = "2" ]
+}
+
 # ---------- mpich: cmdline ----------
 
 @test "mpich cmdline translates a full placement" {
@@ -116,6 +148,24 @@ setup() {
     [ "${argv[3]}" = "-genv" ]
     [ "${argv[4]}" = "FOO" ]
     [ "${argv[5]}" = "bar" ]
+}
+
+@test "mpich cmdline translates bind and warns/skips cpus-per-proc" {
+    declare -A opts=([procs]=4 [cpus-per-proc]=2 [bind]=socket)
+    declare -a argv
+    run _knit_launch_mpich_cmdline opts argv
+    [[ "$output" == *"--cpus-per-proc has no native Hydra flag"* ]]
+    _knit_launch_mpich_cmdline opts argv
+    [ "${#argv[@]}" -eq 5 ]
+    [ "${argv[3]}" = "-bind-to" ]
+    [ "${argv[4]}" = "socket" ]
+}
+
+@test "mpich cmdline warns and skips GPU placement" {
+    declare -A opts=([procs]=2 [gpus-per-proc]=1)
+    declare -a argv
+    run _knit_launch_mpich_cmdline opts argv
+    [[ "$output" == *"--gpus-per-proc has no native Hydra flag"* ]]
 }
 
 # ---------- pals: cmdline ----------
@@ -171,6 +221,29 @@ setup() {
     [ "${argv[4]}" = "8" ]
     [ "${argv[5]}" = "--cpu-bind" ]
     [ "${argv[6]}" = "depth" ]
+}
+
+@test "pals cmdline translates cpus-per-proc to --depth and bind to --cpu-bind" {
+    declare -A opts=([procs]=8 [cpus-per-proc]=4 [bind]=core)
+    declare -a argv
+    _knit_launch_pals_cmdline opts argv
+    [ "${#argv[@]}" -eq 7 ]
+    [ "${argv[1]}" = "-n" ]
+    [ "${argv[2]}" = "8" ]
+    [ "${argv[3]}" = "--depth" ]
+    [ "${argv[4]}" = "4" ]
+    [ "${argv[5]}" = "--cpu-bind" ]
+    [ "${argv[6]}" = "core" ]
+}
+
+@test "pals cmdline warns and skips GPU placement" {
+    declare -A opts=([procs]=2 [gpus-per-proc]=1 [gpu-bind]=closest)
+    declare -a argv
+    run _knit_launch_pals_cmdline opts argv
+    [[ "$output" == *"--gpus-per-proc has no mpiexec flag"* ]]
+    [[ "$output" == *"--gpu-bind has no mpiexec flag"* ]]
+    _knit_launch_pals_cmdline opts argv
+    [ "${#argv[@]}" -eq 3 ]
 }
 
 # ---------- dispatcher routing ----------

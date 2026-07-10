@@ -12,6 +12,10 @@
 #   --procs N          -> --ntasks N
 #   --procs-per-node M -> --ntasks-per-node M
 #   --hostnames h0,h1  -> --nodelist h0,h1 --nodes k   (k = number of hosts)
+#   --cpus-per-proc N  -> --cpus-per-task N
+#   --bind V           -> --cpu-bind=<V>   (V normalized by _knit_launch_bind_value)
+#   --gpus-per-proc N  -> --gpus-per-task N
+#   --gpu-bind V       -> --gpu-bind=V     (value passed through verbatim)
 #   --launcher-args …  -> appended verbatim after the placement flags
 #
 # Placement is resolved and validated upstream by the run dispatcher; this
@@ -42,6 +46,10 @@ _knit_launch_slurm_cmdline() {
     local procs="${_launch_opts[procs]:-}"
     local ppn="${_launch_opts[procs-per-node]:-}"
     local hosts="${_launch_opts[hostnames]:-}"
+    local cpp="${_launch_opts[cpus-per-proc]:-}"
+    local bind="${_launch_opts[bind]:-}"
+    local gpp="${_launch_opts[gpus-per-proc]:-}"
+    local gbind="${_launch_opts[gpu-bind]:-}"
     local extra="${_launch_opts[launcher-args]:-}"
 
     _launch_argv=(srun)
@@ -52,6 +60,11 @@ _knit_launch_slurm_cmdline() {
         IFS=',' read -r -a host_list <<< "${hosts}"
         _launch_argv+=(--nodelist "${hosts}" --nodes "${#host_list[@]}")
     fi
+    [[ -n "${cpp}" ]] && _launch_argv+=(--cpus-per-task "${cpp}")
+    [[ -n "${bind}" ]] && \
+        _launch_argv+=("--cpu-bind=$(_knit_launch_bind_value slurm "${bind}")")
+    [[ -n "${gpp}" ]] && _launch_argv+=(--gpus-per-task "${gpp}")
+    [[ -n "${gbind}" ]] && _launch_argv+=("--gpu-bind=${gbind}")
     if [[ -n "${extra}" ]]; then
         local -a extra_args
         read -r -a extra_args <<< "${extra}"
