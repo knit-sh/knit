@@ -227,10 +227,12 @@
 # state advances submitted -> running -> completed (or -> killed if cancelled).
 # The `hostnames` column records the nodes each job actually ran on (the
 # deduplicated list, comma-separated), filled in automatically when the job
-# starts — no experiment code required:
+# starts — no experiment code required. The `native_cmd` column records the exact
+# scheduler command knit issued to submit the job (e.g. `sbatch .../.job.sh`),
+# also logged at trace level just before it runs:
 #
 #   ./full.sh db query --from jobs \
-#       --select "id, job, state, hostnames" --header --column
+#       --select "id, job, state, hostnames, native_cmd" --header --column
 #
 # The job's own output (pi) is recorded in its own table, named after the job:
 #
@@ -314,11 +316,12 @@
 # pbs, pals), and --launcher-args (raw passthrough for anything not normalized).
 #
 # Every run is recorded in the `runs` table (the app, the resolved procs and
-# hostnames, and the parent job's UUID), and rank 0's output in the app's own
-# table (`mcrank`):
+# hostnames, the parent job's UUID, and `native_cmd` — the exact launcher command
+# knit issued, also logged at trace level before it runs), and rank 0's output in
+# the app's own table (`mcrank`):
 #
 #   ./full.sh db query --from runs \
-#       --select "id, app, job, procs, hostnames" --header --column
+#       --select "id, app, job, procs, hostnames, native_cmd" --header --column
 #   ./full.sh db query --from mcrank \
 #       --select "id, samples, seed, pi" --header --column
 #

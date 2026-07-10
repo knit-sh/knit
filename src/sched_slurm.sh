@@ -79,18 +79,37 @@ _knit_sched_slurm_parse_jobid() {
 # @param jobdir   Job directory (unused; redirection is set via directives).
 # ------------------------------------------------------------------------------
 _knit_sched_slurm_submit() {
-    local -n resolved="$1"
+    local arr_name="$1"
     local script="$2"
 
-    local -a cmd=(sbatch)
-    if [[ "${resolved[wait]}" == "true" ]]; then
-        cmd+=(--wait)
-    fi
-    cmd+=("${script}")
+    local -a cmd=()
+    _knit_sched_slurm_submit_cmdline "${arr_name}" "${script}" cmd
 
     local out
     out="$("${cmd[@]}")" || return 1
     _knit_sched_slurm_parse_jobid "${out}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_slurm_submit_cmdline()
+#
+# Build the sbatch submission command into a caller-provided array, passed by
+# name: "sbatch [--wait] <script>". The --wait flag is added when the resolved
+# "wait" option is "true" (see _knit_sched_slurm_submit for its effect).
+#
+# @param arr_name  Name of the resolved-options associative array.
+# @param script    Path to the batch script to submit.
+# @param argv_name Name of the array to fill with the submission argv.
+# ------------------------------------------------------------------------------
+_knit_sched_slurm_submit_cmdline() {
+    local -n resolved="$1"
+    local script="$2"
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n _submit_argv="$3"
+
+    _submit_argv=(sbatch)
+    [[ "${resolved[wait]}" == "true" ]] && _submit_argv+=(--wait)
+    _submit_argv+=("${script}")
 }
 
 # ------------------------------------------------------------------------------

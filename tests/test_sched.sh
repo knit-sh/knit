@@ -245,6 +245,26 @@ teardown() {
     ! grep -q "KNIT_SETUP_PREFIX" "${jobscript}"
 }
 
+@test "_knit_submit records the resolved scheduler command in native_cmd" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    # Pin the backend and stub the actual submission so no real scheduler (or
+    # background job) runs; native_cmd is recorded from the built command.
+    _knit_sched_backend() { printf 'slurm\n'; }
+    _knit_sched_submit() { printf '12345\n'; }
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    knit_pushd "${_KNIT_TEST_TMPDIR}"
+    _knit_submit -- myjob
+    knit_popd
+
+    run sqlite3 "${_KNIT_DATABASE}" "SELECT native_cmd FROM jobs;"
+    [[ "$output" == "sbatch "*"/.job.sh" ]]
+}
+
 # ---------- _knit_sched_resolve : precedence ----------
 
 @test "resolve uses the explicit argument over everything" {
@@ -447,6 +467,44 @@ teardown() {
 
 @test "_knit_sched_cancel fatals on an unknown backend" {
     run _knit_sched_cancel bogus 111
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not implemented"* ]]
+}
+
+# ---------- _knit_sched_submit_cmdline ----------
+
+@test "_knit_sched_submit_cmdline builds each backend's submission argv" {
+    declare -A opts=([wait]=false)
+    local -a argv
+
+    _knit_sched_submit_cmdline local opts /d/.job.sh argv
+    [ "${argv[*]}" = "bash /d/.job.sh" ]
+
+    _knit_sched_submit_cmdline none opts /d/.job.sh argv
+    [ "${argv[*]}" = "bash /d/.job.sh" ]
+
+    _knit_sched_submit_cmdline slurm opts /d/.job.sh argv
+    [ "${argv[*]}" = "sbatch /d/.job.sh" ]
+
+    _knit_sched_submit_cmdline pbs opts /d/.job.sh argv
+    [ "${argv[*]}" = "qsub /d/.job.sh" ]
+}
+
+@test "_knit_sched_submit_cmdline threads the wait flag to slurm and pbs" {
+    declare -A opts=([wait]=true)
+    local -a argv
+
+    _knit_sched_submit_cmdline slurm opts /d/.job.sh argv
+    [ "${argv[*]}" = "sbatch --wait /d/.job.sh" ]
+
+    _knit_sched_submit_cmdline pbs opts /d/.job.sh argv
+    [ "${argv[*]}" = "qsub -W block=true /d/.job.sh" ]
+}
+
+@test "_knit_sched_submit_cmdline fatals on an unknown backend" {
+    declare -A opts=([wait]=false)
+    local -a argv
+    run _knit_sched_submit_cmdline bogus opts /d/.job.sh argv
     [ "$status" -ne 0 ]
     [[ "$output" == *"not implemented"* ]]
 }

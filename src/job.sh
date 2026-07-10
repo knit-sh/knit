@@ -58,6 +58,8 @@ knit_with_output "job:string" "" "Name of the submitted job (the token after --)
 knit_with_output "state:string" "submitted" "Lifecycle state of the submitted job."
 knit_with_output "hostnames:string" "" \
     "Comma-separated deduplicated nodes the job ran on (recorded at start)."
+knit_with_output "native-cmd:string" "" \
+    "The resolved scheduler command that was issued to submit the job."
 
 # ------------------------------------------------------------------------------
 # @fn _knit_submit()
@@ -161,19 +163,12 @@ _knit_submit() {
     # writing a script or contacting the scheduler.
     _knit_sched_validate_caps opts
 
-    # Persist the jobs row now, before dispatching. This must precede a
-    # blocking --wait submission: the job then runs (on this host for the local
-    # backend, or on a compute node) and transitions this row's "state" while it
-    # executes, so the row has to exist first. The automatic post-invocation
-    # recording is idempotent and will not duplicate it.
-    _knit_record_row_now "$@"
-
     # Pick the scheduler backend: bootstrap metadata, else live detection, with
     # "none" mapping to the local (no-scheduler) backend.
     local backend
     backend="$(_knit_sched_backend)"
 
-    # Generate the batch script and submit it. The generated script exports
+    # Generate the batch script. The generated script exports
     # KNIT_JOB_PREFIX/KNIT_SETUP_PREFIX, cd's into the job directory, then calls
     # `path/to/exp.sh submit <job-name> [args...]` on the compute node.
     #
@@ -184,6 +179,24 @@ _knit_submit() {
     _knit_sched_write_jobscript "${script}" "${backend}" opts \
         "${setup_path}" "${jobdir}" "${job_name}" "${job_args[@]}"
 
+    # Build the scheduler submission command (e.g. "sbatch <script>") so it can be
+    # recorded in the jobs table and logged before it is issued.
+    # shellcheck disable=SC2034 # filled and read by name via the sched_* helpers
+    local -a submit_argv=()
+    _knit_sched_submit_cmdline "${backend}" opts "${script}" submit_argv
+    local native_cmd
+    native_cmd=$(_knit_str_render_cmd submit_argv)
+    knit_output "native-cmd" "${native_cmd}"
+
+    # Persist the jobs row now, before dispatching. This must precede a
+    # blocking --wait submission: the job then runs (on this host for the local
+    # backend, or on a compute node) and transitions this row's "state" while it
+    # executes, so the row has to exist first. The automatic post-invocation
+    # recording is idempotent and will not duplicate it.
+    _knit_record_row_now "$@"
+
+    # Log the resolved command before issuing it, then submit.
+    knit_trace "Submitting job \"${job_name}\": ${native_cmd}"
     local jobid
     jobid="$(_knit_sched_submit "${backend}" opts "${script}" "${jobdir}")"
 

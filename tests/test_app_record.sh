@@ -32,6 +32,10 @@ _stub_dispatch() {
     knit_job_hostnames() { printf '%s\n' "nodeA" "nodeB"; }
     _knit_metadata_load() { printf '%s' ""; }
     _knit_launch_backend() { printf '%s' "none"; }
+    # _knit_run builds the launcher argv (for the native_cmd column) and then
+    # launches; stub both so the (over-specified for `none`) placement these tests
+    # use to exercise recording is not rejected by the real backend.
+    _knit_launch_cmdline() { local -n _argv="$3"; _argv=(launcher); }
     _knit_launch_exec() { return 0; }
     _knit_uuidv7() { printf '%s' "aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"; }
 }
@@ -70,6 +74,18 @@ _stub_dispatch() {
     _knit_invoke_command run --procs 2 -- myapp
 
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")" = "1" ]
+}
+
+@test "dispatcher records the resolved launcher command in native_cmd" {
+    _stub_dispatch
+    export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
+
+    _knit_invoke_command run --procs 2 -- myapp --n 5
+
+    # native_cmd is the launcher argv (from the stubbed cmdline) followed by the
+    # per-rank worker re-entry (KNIT_SCRIPT_PATH _run -- <app> <args>).
+    run sqlite3 "${_KNIT_DATABASE}" "SELECT native_cmd FROM runs;"
+    [ "$output" = "launcher ./exp.sh _run -- myapp --n 5" ]
 }
 
 # ---------- per-app row: rank-0 recording keyed by the run UUID ----------

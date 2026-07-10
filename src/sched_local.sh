@@ -53,6 +53,26 @@ _knit_sched_local_submit() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sched_local_submit_cmdline()
+#
+# Build the local backend's submission command into a caller-provided array,
+# passed by name: "bash <script>". The local backend runs this in the background
+# via _knit_submit_local, which adds stdout/stderr redirection and an optional
+# walltime cap; those are knit-managed conveniences rather than part of the job
+# command, so the recorded/traced command is the bare "bash <script>".
+#
+# @param arr_name  Name of the resolved-options associative array (unused).
+# @param script    Path to the batch script to run.
+# @param argv_name Name of the array to fill with the submission argv.
+# ------------------------------------------------------------------------------
+_knit_sched_local_submit_cmdline() {
+    local script="$2"
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n _submit_argv="$3"
+    _submit_argv=(bash "${script}")
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_local_wait()
 #
 # Block until a locally-launched job process exits. The `job wait` command runs

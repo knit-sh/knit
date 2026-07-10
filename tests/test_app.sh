@@ -217,6 +217,9 @@ teardown() {
     knit_done
     export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/parent-job-uuid"
     _knit_launch_backend() { printf 'none\n'; }
+    # _knit_run builds the launcher argv (for the native_cmd column) before
+    # launching; stub it too so the over-specified `none` placement is not rejected.
+    _knit_launch_cmdline() { local -n _argv="$3"; _argv=(launcher); }
     _knit_launch_exec() { :; }
     _knit_invoke_command run --procs 2 -- myapp
     [ "${_KNIT_CMD_run_output_value[app]}" = "myapp" ]
