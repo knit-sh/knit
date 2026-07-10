@@ -364,6 +364,21 @@ _knit_db_setup_table() {
     local migrate_specs=()
     local param type_var type default default_var
 
+    # A wrapper declares no parameters or outputs: its table records only the id
+    # and the whole forwarded command line in a single "args" column.
+    if _knit_command_is_wrapper "${cmd}"; then
+        check_specs=("id:uuid" "args:string")
+        migrate_specs=("id:uuid=" "args:string=")
+        local wrapper_check_result=0
+        _knit_db_check_table "${table_name}" "${check_specs[@]}" || wrapper_check_result=$?
+        case "${wrapper_check_result}" in
+            0) knit_trace "Table \"${table_name}\" is already up-to-date." ;;
+            1) _knit_db_create_table "${table_name}" "${check_specs[@]}" ;;
+            2) _knit_db_migrate_table "${table_name}" "${migrate_specs[@]}" ;;
+        esac
+        return 0
+    fi
+
     # Always-present id column
     check_specs+=("id:uuid")
     migrate_specs+=("id:uuid=")
@@ -439,6 +454,21 @@ _knit_db_record_row() {
     local -a cols=() vals=()
     cols+=("$(_knit_db_sql_ident "id")")
     vals+=("'$(_knit_sql_escape "${id}")'")
+
+    # A wrapper records the whole forwarded command line in a single "args"
+    # column (it has no declared parameters or outputs).
+    if _knit_command_is_wrapper "${cmd}"; then
+        local rendered
+        rendered=$(_knit_str_render_cmd args)
+        cols+=("$(_knit_db_sql_ident "args")")
+        vals+=("'$(_knit_sql_escape "${rendered}")'")
+        local wcols_sql wvals_sql
+        wcols_sql=$(IFS=', '; printf '%s' "${cols[*]}")
+        wvals_sql=$(IFS=', '; printf '%s' "${vals[*]}")
+        _knit_sqlite3_write \
+            "INSERT INTO $(_knit_db_sql_ident "${table}") (${wcols_sql}) VALUES (${wvals_sql});"
+        return 0
+    fi
 
     # Parameters and flags: values come from the expanded invocation arguments.
     local group name value

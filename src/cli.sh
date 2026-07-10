@@ -150,6 +150,7 @@ _knit_param_check_declaration() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]] && [[ ! -v _KNIT_CURRENT_PARAMETER_SET ]]; then
         knit_fatal "knit_with_${suffix} should be used after a call to \"knit_register\" or \"knit_define_parameter_set\"."
     fi
+    _knit_wrapper_reject_declaration "knit_with_${suffix}"
 
     # Extract name and type from "name:type" format (flags are implicitly boolean)
     local param_name param_type
@@ -462,6 +463,7 @@ knit_register() {
     printf -v "_KNIT_CMD_${cmd}_extra"           '%s' ''
     printf -v "_KNIT_CMD_${cmd}_dispatch"        '%s' ''
     printf -v "_KNIT_CMD_${cmd}_is_hidden"       '%s' 'false'
+    printf -v "_KNIT_CMD_${cmd}_is_wrapper"      '%s' 'false'
     declare -ga "_KNIT_CMD_${cmd}_before_cb"
     declare -ga "_KNIT_CMD_${cmd}_after_cb"
     declare -ga "_KNIT_CMD_${cmd}_notes"
@@ -498,6 +500,75 @@ knit_done() {
     unset _KNIT_CURRENT_FUNCTION
     unset _KNIT_CURRENT_COMMAND
     unset _KNIT_CURRENT_COMMAND_DEMANGLED
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_command_is_wrapper()
+#
+# Test whether a command is a wrapper, i.e. it was registered with
+# knit_register_wrapper. A wrapper forwards its arguments verbatim to the
+# underlying command and declares no parameters or outputs.
+#
+# @param cmd Command (mangled name) to test.
+# @return 0 if the command is a wrapper, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_command_is_wrapper() {
+    local var="_KNIT_CMD_${1}_is_wrapper"
+    [[ "${!var:-}" == "true" ]]
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_register_wrapper()
+#
+# Register a wrapper command: a command that forwards all of its arguments
+# verbatim to an underlying command (e.g. "knit spack ..." forwarding to the
+# knit-installed spack). A wrapper differs from a regular command in that it:
+#
+#   1. cannot declare parameters or outputs (knit_with_required/optional/flag/
+#      output/dispatch/parameter_set are fatal);
+#   2. performs no argument validation, expansion, or --when checking;
+#   3. forwards "$@" verbatim to <fn>, including "--help" and "--";
+#   4. may declare a table with knit_with_table, in which case the whole
+#      forwarded command line is recorded in a single "args" column;
+#   5. may install before/after callbacks, which still run around <fn>.
+#
+# A call to this function must be followed by the definition of <fn>, an
+# optional knit_with_table, and a call to knit_done.
+#
+# @param name        Command name (used as the wrapper's invocation name).
+# @param fn          Name of the Bash function the wrapper forwards to.
+# @param description One-line description shown in "--help".
+#
+# Example:
+# ```
+# knit_register_wrapper "spack" "_knit_spack" "Wrapper for the spack command"
+# _knit_spack() { spack "$@"; }
+# knit_done
+# ```
+# ------------------------------------------------------------------------------
+knit_register_wrapper() {
+    local name="$1"
+    local fn="$2"
+    local description="$3"
+    knit_register "${fn}" "${name}" "${description}"
+    printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_is_wrapper" '%s' 'true'
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_wrapper_reject_declaration()
+#
+# Fatal if the command currently being registered is a wrapper. Called by the
+# declaration functions that a wrapper is not allowed to use (parameters,
+# outputs, dispatch, parameter sets). A parameter-set definition is never a
+# wrapper, so the check is skipped when no command is being registered.
+#
+# @param directive Name of the calling directive (for the error message).
+# ------------------------------------------------------------------------------
+_knit_wrapper_reject_declaration() {
+    if [[ -v _KNIT_CURRENT_COMMAND ]] \
+        && _knit_command_is_wrapper "${_KNIT_CURRENT_COMMAND}"; then
+        knit_fatal "$1 cannot be used with a wrapper command (registered with knit_register_wrapper)."
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -743,6 +814,7 @@ knit_with_parameter_set() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_parameter_set should be used after a call to \"knit_register\"."
     fi
+    _knit_wrapper_reject_declaration "knit_with_parameter_set"
     local set_name="$1"
     local normalized
     normalized=$(_knit_name_normalize "${set_name}")
@@ -838,6 +910,7 @@ knit_with_output() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_output should be used after a call to \"knit_register\"."
     fi
+    _knit_wrapper_reject_declaration "knit_with_output"
     local param_spec="$1"
     if [[ "${param_spec}" != *:* ]]; then
         knit_fatal "Output \"${param_spec}\" is missing a type annotation (expected \"name:type\")."
@@ -910,6 +983,7 @@ knit_with_dispatch() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_dispatch should be used after a call to \"knit_register\"."
     fi
+    _knit_wrapper_reject_declaration "knit_with_dispatch"
     local cmd="${_KNIT_CURRENT_COMMAND}"
     printf -v "_KNIT_CMD_${cmd}_dispatch" '%s' "$1"
     printf -v "_KNIT_CMD_${cmd}_extra"    '%s' "${2:-$1}"
@@ -1660,6 +1734,13 @@ _knit_invoke_command() {
         fi
         demangled_cmd+="$1"
         shift
+        # Stop consuming tokens once the accumulated command is a wrapper: a
+        # wrapper forwards everything after its name verbatim, so its arguments
+        # (which need not start with "--") must not be mistaken for further
+        # subcommand names.
+        if _knit_command_is_wrapper "$(_knit_command_mangle "${demangled_cmd}")"; then
+            break
+        fi
     done
     # create the mangled command name
     local cmd
@@ -1671,6 +1752,27 @@ _knit_invoke_command() {
     # get the name of the corresponding function
     local func_name_var="_KNIT_CMD_${cmd}_function"
     local func="${!func_name_var}"
+    # A wrapper forwards its arguments verbatim to the underlying function: no
+    # --help interception, no argument validation, expansion, or --when checks.
+    # Callbacks still run around it, and the invocation is recorded (as a single
+    # "args" column) when the wrapper declared a table.
+    if _knit_command_is_wrapper "${cmd}"; then
+        local table_var="_KNIT_CMD_${cmd}_table"
+        if [[ -n "${!table_var:-}" ]] && _knit_is_bootstrapped; then
+            _knit_db_setup_table "${cmd}" "${!table_var}"
+        fi
+        _knit_execute_before_commands "${cmd}" "$@"
+        declare -gA "_KNIT_CMD_${cmd}_output_value=()"
+        unset "_KNIT_CMD_${cmd}_row_id"
+        unset "_KNIT_CMD_${cmd}_recorded"
+        _KNIT_EXECUTING_COMMAND+=("${cmd}")
+        $func "$@"
+        local wrapper_status=$?
+        unset '_KNIT_EXECUTING_COMMAND[-1]'
+        _knit_execute_after_commands "${cmd}" "$@"
+        _knit_record_invocation "${cmd}" "$@"
+        return "${wrapper_status}"
+    fi
     # check if the first argument is --help
     if [ "$1" = "--help" ]; then
         _knit_print_command_usage "${cmd}"
