@@ -391,6 +391,36 @@ __test_register_cmd() {
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ntcmd';")" -eq 0 ]
 }
 
+@test "recording is skipped when _KNIT_RECORDING_SUPPRESSED is set" {
+    knit_register _t_sup_fn "supcmd" "Sup."
+    knit_with_optional "label:string" "def" "A label."
+    knit_with_table "sups"
+    _t_sup_fn() { :; }
+    knit_done
+
+    # Non-root ranks of a run set this flag so only rank 0 records the per-app
+    # row; here it must prevent any row from being written.
+    _KNIT_RECORDING_SUPPRESSED="1"
+    _knit_invoke_command "supcmd" "--label" "hello"
+
+    # The table is still ensured lazily on invocation, but it stays empty.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM sups;")" -eq 0 ]
+}
+
+@test "recording proceeds when _KNIT_RECORDING_SUPPRESSED is empty (regression)" {
+    knit_register _t_uns_fn "unscmd" "Uns."
+    knit_with_optional "label:string" "def" "A label."
+    knit_with_table "unss"
+    _t_uns_fn() { :; }
+    knit_done
+
+    _KNIT_RECORDING_SUPPRESSED=""
+    _knit_invoke_command "unscmd" "--label" "hello"
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM unss;")" -eq 1 ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM unss;")" = "hello" ]
+}
+
 @test "recording escapes single quotes in values" {
     knit_register _t_esc_fn "esccmd" "Esc."
     knit_with_optional "label:string" "" "A label."
@@ -423,6 +453,21 @@ __test_register_cmd() {
         _knit_invoke_command "jpcmd"
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM jps;")" \
         = "22222222-2222-7222-8222-222222222222" ]
+}
+
+@test "recording prefers KNIT_RUN_ID over KNIT_JOB_PREFIX" {
+    knit_register _t_ri_fn "ricmd" "Ri."
+    knit_with_table "ris"
+    _t_ri_fn() { :; }
+    knit_done
+
+    # Rank 0 of a run: both are set (KNIT_JOB_PREFIX inherited from the job,
+    # KNIT_RUN_ID forwarded by the launcher); the per-app row uses the run UUID.
+    KNIT_JOB_PREFIX="/some/where/jobs/22222222-2222-7222-8222-222222222222" \
+        KNIT_RUN_ID="33333333-3333-7333-8333-333333333333" \
+        _knit_invoke_command "ricmd"
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM ris;")" \
+        = "33333333-3333-7333-8333-333333333333" ]
 }
 
 # ---------- _knit_db_update_row ----------

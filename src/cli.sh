@@ -18,6 +18,15 @@ declare -gA _KNIT_PARAMETER_SETS
 declare -ga _KNIT_EXECUTING_COMMAND=()
 
 # ------------------------------------------------------------------------------
+# When non-empty, output recording is suppressed: knit_output discards its value
+# (with a warning) and _knit_record_invocation records no row. This is a generic
+# recording concept (the CLI layer stays unaware of MPI); the `knit run` per-rank
+# worker sets it on every rank but rank 0, so a run's outputs and per-app row are
+# recorded exactly once even though every rank re-enters the app command.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_RECORDING_SUPPRESSED=""
+
+# ------------------------------------------------------------------------------
 # @fn knit_empty()
 #
 # Empty function to register commands with no behaviors.
@@ -1763,6 +1772,12 @@ knit_get_parameter() {
 knit_output() {
     local name="$1"
     local value="$2"
+    # Suppressed on non-root ranks of a run: discard the output but warn, so users
+    # learn to guard knit_output with a rank-0 check (only rank 0 records a run).
+    if [[ -n "${_KNIT_RECORDING_SUPPRESSED}" ]]; then
+        knit_warning "Recording is suppressed on this rank; output \"${name}\" is discarded. Guard knit_output with a rank-0 check (e.g. [[ \"\${KNIT_MPI_RANK}\" == 0 ]])."
+        return 0
+    fi
     if [[ ${#_KNIT_EXECUTING_COMMAND[@]} -eq 0 ]]; then
         knit_fatal "knit_output should be called from within a registered command function."
     fi
@@ -1832,13 +1847,17 @@ _knit_record_row_now() {
 # Record the just-completed invocation of a command as one row in its table,
 # when the command declared one with knit_with_table and the experiment is
 # bootstrapped. The row id is, in order of precedence: an explicit id set via
-# _knit_set_row_id; the job UUID from KNIT_JOB_PREFIX (the execution side of a
-# job); otherwise a fresh uuid.
+# _knit_set_row_id; the run UUID from KNIT_RUN_ID (rank 0's per-app row of a
+# `knit run`, so it shares the runs-table row's id); the job UUID from
+# KNIT_JOB_PREFIX (the execution side of a job); otherwise a fresh uuid.
 #
 # @param cmd Mangled command name.
 # @param ... The expanded invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_record_invocation() {
+    # Suppressed on non-root ranks of a run: record no row, so a run's per-app row
+    # is written exactly once (by rank 0) even though every rank re-enters the app.
+    [[ -n "${_KNIT_RECORDING_SUPPRESSED}" ]] && return 0
     local cmd="$1"
     shift
     local table_var="_KNIT_CMD_${cmd}_table"
@@ -1858,6 +1877,10 @@ _knit_record_invocation() {
     local rowid_var="_KNIT_CMD_${cmd}_row_id"
     if [[ -n "${!rowid_var:-}" ]]; then
         id="${!rowid_var}"
+    elif [[ -n "${KNIT_RUN_ID:-}" ]]; then
+        # Rank 0 of a `knit run`: the launcher forwarded the run UUID the
+        # dispatcher exported, so the per-app row shares the runs-table row's id.
+        id="${KNIT_RUN_ID}"
     elif [[ -n "${KNIT_JOB_PREFIX:-}" ]]; then
         id="$(basename "${KNIT_JOB_PREFIX}")"
     else

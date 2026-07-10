@@ -33,11 +33,12 @@ tests/integration/
     ├── 01_bootstrap/                  # Verify bootstrap (sqlite build, DB creation)
     ├── 02_setup_basic/                # Verify setup lifecycle + .activate.sh
     ├── 03_submit_basic/               # Job submission (knit submit → scheduler)
-    ├── 04_submit_mpi/                 # [SKIP] MPI job (not yet implemented)
+    ├── 04_submit_mpi/                 # [SKIP] superseded by 09_run_app
     ├── 05_job_killed/                 # Kill detection (cancel → "killed" state)
     ├── 06_job_wait/                   # job wait blocks on the scheduler
     ├── 07_job_cancel/                 # job cancel → scheduler cancel + "killed"
-    └── 08_job_hostnames/              # knit_job_hostnames over a 2-node job
+    ├── 08_job_hostnames/              # knit_job_hostnames over a 2-node job
+    └── 09_run_app/                    # knit run: MPI app launch across a job
 ```
 
 ## Running the tests

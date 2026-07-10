@@ -242,6 +242,34 @@ _knit_sched_directives() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sched_submit_cmdline()
+#
+# Dispatch to the configured backend's submission-command builder, which fills a
+# caller-provided array (passed by name) with the argv the backend runs to submit
+# the batch script (e.g. "sbatch <script>", "qsub <script>", "bash <script>").
+# This is built separately from _knit_sched_submit so the resolved submission
+# command can be recorded in the jobs table and logged before it is issued.
+#
+# @param backend   Scheduler backend name ("local", "none", "slurm", "pbs").
+# @param arr_name  Name of the resolved-options associative array.
+# @param script    Path to the batch script to submit.
+# @param argv_name Name of the array to fill with the submission argv.
+# ------------------------------------------------------------------------------
+_knit_sched_submit_cmdline() {
+    local backend="$1"
+    local arr_name="$2"
+    local script="$3"
+    local argv_name="$4"
+    case "${backend}" in
+        local) _knit_sched_local_submit_cmdline "${arr_name}" "${script}" "${argv_name}" ;;
+        none)  _knit_sched_none_submit_cmdline "${arr_name}" "${script}" "${argv_name}" ;;
+        slurm) _knit_sched_slurm_submit_cmdline "${arr_name}" "${script}" "${argv_name}" ;;
+        pbs)   _knit_sched_pbs_submit_cmdline "${arr_name}" "${script}" "${argv_name}" ;;
+        *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_submit()
 #
 # Dispatch to the configured backend's submission function, which submits the

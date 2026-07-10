@@ -21,9 +21,17 @@ KNIT_SOURCE = src/global.sh   \
               src/sched_none.sh \
               src/sched_slurm.sh \
               src/sched_pbs.sh \
+              src/launch.sh   \
+              src/launch_none.sh \
+              src/launch_openmpi.sh \
+              src/launch_mpich.sh \
+              src/launch_slurm.sh \
+              src/launch_pbs.sh \
+              src/launch_pals.sh \
               src/setup.sh    \
               src/job.sh      \
               src/job_cli.sh  \
+              src/app.sh      \
               src/main.sh
 
 KNIT_OUTPUT = knit.sh

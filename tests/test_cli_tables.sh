@@ -35,12 +35,12 @@ teardown() {
 }
 
 @test "knit_with_table for a simple command defaults to command name" {
-    knit_register knit_empty "run" "Run something."
+    knit_register knit_empty "solo" "Do something."
     knit_with_table
     knit_done
     local result
     result=$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='run';")
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='solo';")
     [ "$result" -eq 1 ]
 }
 

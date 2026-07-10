@@ -44,6 +44,21 @@ _knit_sched_none_submit() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sched_none_submit_cmdline()
+#
+# Build the none backend's submission command, identically to the local backend
+# (the job runs as a background "bash <script>" on this host). Delegates to
+# _knit_sched_local_submit_cmdline.
+#
+# @param arr_name  Name of the resolved-options associative array.
+# @param script    Path to the batch script to run.
+# @param argv_name Name of the array to fill with the submission argv.
+# ------------------------------------------------------------------------------
+_knit_sched_none_submit_cmdline() {
+    _knit_sched_local_submit_cmdline "$@"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_none_wait()
 #
 # Block until a none-backend job process exits. Identical to the local backend

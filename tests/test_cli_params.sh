@@ -198,6 +198,40 @@ teardown() {
     [ "${_KNIT_CMD_ko_hyp_cmd_output_value[my_result]}" = "7" ]
 }
 
+@test "knit_output discards the value when _KNIT_RECORDING_SUPPRESSED is set" {
+    ko_sup_fn() { knit_output "result" "42"; }
+    knit_register ko_sup_fn "ko_sup_cmd" "Test."
+    knit_with_output "result:integer" "0" "The result."
+    knit_done
+    # Non-root ranks of a run set this flag; knit_output must discard the value so
+    # the app body can call it unconditionally.
+    _KNIT_RECORDING_SUPPRESSED="1"
+    _knit_invoke_command "ko_sup_cmd"
+    [ -z "${_KNIT_CMD_ko_sup_cmd_output_value[result]:-}" ]
+}
+
+@test "knit_output warns when _KNIT_RECORDING_SUPPRESSED is set" {
+    ko_supw_fn() { knit_output "result" "42"; }
+    knit_register ko_supw_fn "ko_supw_cmd" "Test."
+    knit_with_output "result:integer" "0" "The result."
+    knit_done
+    _KNIT_RECORDING_SUPPRESSED="1"
+    run _knit_invoke_command "ko_supw_cmd"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Recording is suppressed"* ]]
+    [[ "$output" == *"result"* ]]
+}
+
+@test "knit_output records normally when _KNIT_RECORDING_SUPPRESSED is empty (regression)" {
+    ko_uns_fn() { knit_output "result" "42"; }
+    knit_register ko_uns_fn "ko_uns_cmd" "Test."
+    knit_with_output "result:integer" "0" "The result."
+    knit_done
+    _KNIT_RECORDING_SUPPRESSED=""
+    _knit_invoke_command "ko_uns_cmd"
+    [ "${_KNIT_CMD_ko_uns_cmd_output_value[result]}" = "42" ]
+}
+
 @test "knit_output nested invocation preserves outer context" {
     ko_inner_fn() { knit_output "inner_out" "inner_val"; }
     knit_register ko_inner_fn "ko_inner_cmd" "Test."
