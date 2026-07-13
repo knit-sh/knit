@@ -25,6 +25,19 @@ _KNIT_SPACK_PACKAGES_ROOT="${_KNIT_PREFIX}/spack-packages"
 declare -g _KNIT_SPACK_REQUIRED
 _KNIT_SPACK_REQUIRED=""
 
+# ------------------------------------------------------------------------------
+# @var _KNIT_SPACK_ENV_SOURCED
+#
+# Guard so Spack's setup-env.sh is sourced at most once per process. The wrapper
+# runs in the caller's own shell (no subshell, no exec), so the first "knit
+# spack" invocation sources setup-env.sh and sets this flag; subsequent
+# invocations in the same script reuse the already-modified PATH and the spack
+# shell function instead of paying the (slow) sourcing cost again. Empty means
+# "not yet sourced".
+# ------------------------------------------------------------------------------
+declare -g _KNIT_SPACK_ENV_SOURCED
+_KNIT_SPACK_ENV_SOURCED=""
+
 export SPACK_DISABLE_LOCAL_CONFIG=true
 #export SPACK_USER_CACHE_PATH=/tmp/spack
 export SPACK_USER_CONFIG_PATH="${_KNIT_PREFIX}/.spack"
@@ -202,3 +215,51 @@ _knit_spack_install() {
         done
     )
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_spack_exec()
+#
+# Run the knit-private Spack, forwarding all arguments verbatim (this is the
+# body of the "knit spack" wrapper). Fatal-with-hint if Spack has not been
+# provisioned. Spack's setup-env.sh is sourced at most once per process (guarded
+# by _KNIT_SPACK_ENV_SOURCED) so that a script calling "knit spack" repeatedly
+# pays the sourcing cost only on the first call. Note: we deliberately do not
+# 'exec spack' — that would replace the caller's shell and prevent any later
+# "knit spack" from running; instead we call the (sourced) spack function and
+# return its exit status.
+#
+# @param ... Arguments forwarded verbatim to spack (including --help).
+# @return The exit status of spack.
+# ------------------------------------------------------------------------------
+_knit_spack_exec() {
+    if [[ ! -d "${_KNIT_SPACK_ROOT}" ]]; then
+        knit_fatal "Spack is not provisioned in %s. Run 'bootstrap --spack' (optionally with a ref) first." \
+            "${_KNIT_SPACK_ROOT}"
+    fi
+    if [[ -z "${_KNIT_SPACK_ENV_SOURCED}" ]]; then
+        # shellcheck disable=SC1091
+        source "${_KNIT_SPACK_ROOT}/share/spack/setup-env.sh"
+        _KNIT_SPACK_ENV_SOURCED="1"
+    fi
+    spack "$@"
+}
+
+# ------------------------------------------------------------------------------
+# Register the "knit spack" wrapper: forwards every argument verbatim to the
+# knit-private Spack. Declaring a table logs each invocation's full command line
+# (schema id, args) for provenance.
+# ------------------------------------------------------------------------------
+knit_register_wrapper "spack" "_knit_spack" \
+    "Run the knit-private Spack, forwarding all arguments verbatim."
+knit_with_table
+# ------------------------------------------------------------------------------
+# @fn _knit_spack()
+#
+# Body of the "knit spack" wrapper command.
+#
+# @param ... Arguments forwarded verbatim to spack.
+# ------------------------------------------------------------------------------
+_knit_spack() {
+    _knit_spack_exec "$@"
+}
+knit_done

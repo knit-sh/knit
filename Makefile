@@ -10,10 +10,10 @@ KNIT_SOURCE = src/global.sh   \
               src/frame.sh    \
               src/profile.sh  \
               src/boostrap.sh \
-              src/spack.sh    \
               src/sqlite.sh   \
               src/jq.sh       \
               src/db.sh       \
+              src/spack.sh    \
               src/metadata.sh \
               src/db_cli.sh   \
               src/sched.sh    \

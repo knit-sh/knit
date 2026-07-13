@@ -170,3 +170,55 @@ _stub_provisioning() {
     grep -q "__spack_packages_ref__=mypkgref" "${METALOG}"
     ! grep -q "SHOULD_NOT_BE_CALLED" "${METALOG}"
 }
+
+# ---------- knit spack wrapper (_knit_spack_exec) ----------
+
+# Create a fake provisioned Spack whose setup-env.sh bumps a source counter and
+# defines a 'spack' function that echoes its arguments, so tests can assert both
+# verbatim forwarding and once-per-process sourcing.
+_fake_spack_tree() {
+    mkdir -p "${_KNIT_SPACK_ROOT}/share/spack"
+    cat > "${_KNIT_SPACK_ROOT}/share/spack/setup-env.sh" <<'EOF'
+SPACK_SOURCE_COUNT=$((SPACK_SOURCE_COUNT + 1))
+spack() { printf 'spack:%s\n' "$*"; }
+EOF
+}
+
+@test "knit spack is registered as a wrapper with a table" {
+    _knit_command_is_wrapper "spack"
+    [ -n "${_KNIT_CMD_spack_table:-}" ]
+}
+
+@test "spack_exec is fatal with a hint when spack is not provisioned" {
+    # setup() points _KNIT_SPACK_ROOT at a directory that does not exist.
+    run _knit_spack_exec find
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not provisioned"* ]]
+    [[ "$output" == *"bootstrap --spack"* ]]
+}
+
+@test "spack_exec forwards its arguments verbatim to spack" {
+    _fake_spack_tree
+    run _knit_spack_exec install "hdf5@1.14" --fresh
+    [ "$status" -eq 0 ]
+    [ "$output" = "spack:install hdf5@1.14 --fresh" ]
+}
+
+@test "spack_exec forwards --help verbatim" {
+    _fake_spack_tree
+    run _knit_spack_exec --help
+    [ "$status" -eq 0 ]
+    [ "$output" = "spack:--help" ]
+}
+
+@test "spack_exec sources setup-env.sh only once per process" {
+    _fake_spack_tree
+    SPACK_SOURCE_COUNT=0
+    _KNIT_SPACK_ENV_SOURCED=""
+    # Call directly (not via 'run') so the guard flag and counter persist.
+    _knit_spack_exec find >/dev/null
+    _knit_spack_exec list >/dev/null
+    _knit_spack_exec info pkg >/dev/null
+    [ "${SPACK_SOURCE_COUNT}" -eq 1 ]
+    [ "${_KNIT_SPACK_ENV_SOURCED}" = "1" ]
+}
