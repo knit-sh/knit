@@ -1768,8 +1768,10 @@ _knit_invoke_command() {
         _KNIT_EXECUTING_COMMAND+=("${cmd}")
         $func "$@"
         local wrapper_status=$?
-        unset '_KNIT_EXECUTING_COMMAND[-1]'
+        # Keep the command on the stack through the after-callbacks (see the
+        # non-wrapper path below) so they too may call knit_output.
         _knit_execute_after_commands "${cmd}" "$@"
+        unset '_KNIT_EXECUTING_COMMAND[-1]'
         _knit_record_invocation "${cmd}" "$@"
         return "${wrapper_status}"
     fi
@@ -1805,9 +1807,12 @@ _knit_invoke_command() {
     _KNIT_EXECUTING_COMMAND+=("${cmd}")
     $func "${args[@]}"
     local func_status=$?
-    unset '_KNIT_EXECUTING_COMMAND[-1]'
-    # call the "after" callbacks
+    # call the "after" callbacks. The command stays on _KNIT_EXECUTING_COMMAND
+    # for their duration (popped only afterwards) so an after-callback may call
+    # knit_output, just like the command body can. The output map has already
+    # been reset (before the body), so after-callback outputs are recorded.
     _knit_execute_after_commands "${cmd}" "${args[@]}"
+    unset '_KNIT_EXECUTING_COMMAND[-1]'
     # Record this invocation as a database row if the command declared a table.
     _knit_record_invocation "${cmd}" "${args[@]}"
     return "${func_status}"

@@ -245,6 +245,26 @@ _knit_spack_exec() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_spack_env_install()
+#
+# Create and install a Spack environment from a manifest. The environment is
+# created as a directory ("anonymous") environment at <env-dir> from the given
+# spack.yaml, then its specs are installed. Both steps run through
+# _knit_spack_exec, so the knit-private Spack is used and setup-env.sh is sourced
+# at most once per process. The (long-running) install is framed.
+#
+# @param env_dir Directory in which to create the Spack environment.
+# @param yaml    Path to the spack.yaml manifest describing the environment.
+# ------------------------------------------------------------------------------
+_knit_spack_env_install() {
+    local env_dir="$1"
+    local yaml="$2"
+    _knit_spack_exec env create -d "${env_dir}" "${yaml}"
+    _knit_spack_framed_run "spack: install env" \
+        _knit_spack_exec -e "${env_dir}" install
+}
+
+# ------------------------------------------------------------------------------
 # Register the "knit spack" wrapper: forwards every argument verbatim to the
 # knit-private Spack. Declaring a table logs each invocation's full command line
 # (schema id, args) for provenance.

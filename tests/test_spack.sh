@@ -222,3 +222,15 @@ EOF
     [ "${SPACK_SOURCE_COUNT}" -eq 1 ]
     [ "${_KNIT_SPACK_ENV_SOURCED}" = "1" ]
 }
+
+# ---------- _knit_spack_env_install ----------
+
+@test "spack_env_install creates the env then installs its specs" {
+    _knit_spack_exec() { printf 'exec:%s\n' "$*"; }
+    # Frame stub: drop the title and run the wrapped command.
+    _knit_spack_framed_run() { shift; "$@"; }
+    run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"exec:env create -d /tmp/envdir /tmp/spack.yaml"* ]]
+    [[ "$output" == *"exec:-e /tmp/envdir install"* ]]
+}

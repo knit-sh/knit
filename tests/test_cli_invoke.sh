@@ -391,6 +391,48 @@ teardown() {
     [ "$body_pos" -lt "$after_pos" ]
 }
 
+@test "an after-callback can call knit_output and it lands in the recorded row" {
+    _ic_after_out() { knit_output "note" "from-after-cb"; }
+    knit_register fn_ic_ocb "ic_ocb" "Test."
+    knit_with_table
+    knit_with_output "note:string" "" "A note."
+    _knit_run_after _ic_after_out
+    fn_ic_ocb() { :; }
+    knit_done
+    _knit_invoke_command "ic_ocb"
+    local v
+    v=$(sqlite3 "${_KNIT_DATABASE}" "SELECT note FROM 'ic_ocb';")
+    [ "$v" = "from-after-cb" ]
+}
+
+@test "knit_output from an after-callback is type-checked" {
+    _ic_after_bad() { knit_output "num" "not-an-int"; }
+    knit_register fn_ic_ocb2 "ic_ocb2" "Test."
+    knit_with_table
+    knit_with_output "num:integer" "0" "A number."
+    _knit_run_after _ic_after_bad
+    fn_ic_ocb2() { :; }
+    knit_done
+    run _knit_invoke_command "ic_ocb2"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"expects type"* ]]
+}
+
+@test "knit_output from an after-callback on a suppressed rank is discarded with a warning" {
+    _ic_after_sup() { knit_output "note" "should-be-dropped"; }
+    knit_register fn_ic_ocb3 "ic_ocb3" "Test."
+    knit_with_table
+    knit_with_output "note:string" "" "A note."
+    _knit_run_after _ic_after_sup
+    fn_ic_ocb3() { :; }
+    knit_done
+    _KNIT_RECORDING_SUPPRESSED="1"
+    run _knit_invoke_command "ic_ocb3"
+    _KNIT_RECORDING_SUPPRESSED=""
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"discarded"* ]]
+}
+
 # ---------- knit_extra_index ----------
 
 @test "knit_extra_index returns array length when no -- is present" {

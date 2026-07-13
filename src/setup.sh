@@ -170,3 +170,202 @@ knit_register_setup() {
     _knit_run_before _knit_setup_before_cb
     _knit_run_after  _knit_setup_after_cb
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_setup_spack_env_before_cb()
+#
+# Before-callback installed by knit_with_spack_env. Runs as the setup's first
+# step (before-cbs execute in the setup's own shell, so the activated environment
+# persists into the setup body and into the after-callbacks). It materializes the
+# environment manifest to ${KNIT_SETUP_PREFIX}/spack.yaml, builds the Spack
+# environment at ${KNIT_SETUP_PREFIX}/spack-env, and activates it in the current
+# shell so the setup body builds against the installed packages.
+#
+# The manifest source is captured at registration time and carried in the
+# callback arguments (mode + source); trailing arguments are the setup's own
+# runtime arguments and are ignored.
+#
+# @param mode   "file" (source is an absolute path to copy) or "stdin" (source
+#               is the literal manifest content captured from a here-doc).
+# @param source Manifest path (mode=file) or manifest content (mode=stdin).
+# ------------------------------------------------------------------------------
+_knit_setup_spack_env_before_cb() {
+    local mode="$1"
+    local source="$2"
+    local yaml="${KNIT_SETUP_PREFIX}/spack.yaml"
+    local env_dir="${KNIT_SETUP_PREFIX}/spack-env"
+    if [[ "${mode}" == "file" ]]; then
+        cp "${source}" "${yaml}"
+    else
+        printf '%s\n' "${source}" > "${yaml}"
+    fi
+    _knit_spack_env_install "${env_dir}" "${yaml}"
+    # Activate in the setup's own shell so the body sees the packages. The sourced
+    # "spack" function (see _knit_spack_exec) performs the activation in-shell.
+    _knit_spack_exec env activate -d "${env_dir}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_setup_spack_env_after_cb()
+#
+# After-callback installed by knit_with_spack_env, registered *after* the generic
+# _knit_setup_after_cb so it runs last and its appended block is authoritative
+# when a job sources .activate.sh. It (1) appends an explicit re-activation block
+# to .activate.sh so a job re-activates the exact environment, and (2) records
+# the concrete manifest (spack.yaml) and lockfile (spack.lock) as provenance
+# outputs, gzip-compressed and base64-encoded.
+#
+# The provenance is emitted with knit_output: after-callbacks run while the
+# command is still on the executing-command stack (it is popped only afterwards),
+# so knit_output resolves and type-checks the outputs normally.
+#
+# Trailing arguments are the setup's runtime arguments and are ignored.
+# ------------------------------------------------------------------------------
+_knit_setup_spack_env_after_cb() {
+    local env_dir="${KNIT_SETUP_PREFIX}/spack-env"
+    local activate="${KNIT_SETUP_PREFIX}/.activate.sh"
+    {
+        printf '\n# Spack environment re-activation (added by knit_with_spack_env)\n'
+        printf 'source %q\n' "${_KNIT_SPACK_ROOT}/share/spack/setup-env.sh"
+        printf 'spack env activate -d %q\n' "${env_dir}"
+    } >> "${activate}"
+    if [[ -f "${env_dir}/spack.yaml" ]]; then
+        knit_output "__spack_yaml__" "$(gzip -c "${env_dir}/spack.yaml" | base64 -w0)"
+    fi
+    if [[ -f "${env_dir}/spack.lock" ]]; then
+        knit_output "__spack_lock__" "$(gzip -c "${env_dir}/spack.lock" | base64 -w0)"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_stdin_is_terminal()
+#
+# Return success if standard input is an interactive terminal. Factored out of
+# knit_with_spack_env so tests can stub it: a real terminal is unavailable under
+# bats, so the no-manifest guard cannot be exercised without this seam.
+# ------------------------------------------------------------------------------
+_knit_stdin_is_terminal() {
+    [[ -t 0 ]]
+}
+
+# shellcheck disable=SC2120 # public API: often called with no args (stdin form)
+# ------------------------------------------------------------------------------
+# @fn knit_with_spack_env()
+#
+# Declare that the setup currently being registered needs a Spack environment,
+# built as the setup's first step and inherited by jobs via re-activation. Must
+# be called between knit_register_setup and knit_done, at most once per setup
+# (also mutually exclusive with knit_with_spack_specs, which funnels through
+# here).
+#
+# The environment is described either by a file (non-empty argument, resolved to
+# an absolute path at registration) or, when no argument is given, by a here-doc
+# / stdin manifest consumed at registration time. In the no-argument form the
+# manifest must actually be redirected: if stdin is an interactive terminal (so
+# there is nothing to read) the directive fails fast instead of blocking on
+# input, and an empty stdin manifest is likewise rejected. The directive installs
+# the
+# build/activation callbacks, declares the __spack_yaml__ / __spack_lock__
+# provenance outputs (which become columns in the setup's table), advertises the
+# requirement in --help, and sets _KNIT_SPACK_REQUIRED so bootstrap
+# auto-provisions Spack.
+#
+# Example:
+# ```
+# knit_register_setup "libs" "libs_fn" "Build deps with Spack."
+# knit_with_spack_env "spack.yaml"          # path form
+# # --- or ---
+# knit_with_spack_env <<'EOF'               # here-doc form
+# spack:
+#   specs: [hdf5@1.14, fftw]
+#   view: true
+# EOF
+# libs_fn() { ... }
+# knit_done
+# ```
+#
+# @param file Optional path to a spack.yaml manifest. If omitted, the manifest
+#             is read from stdin.
+# ------------------------------------------------------------------------------
+knit_with_spack_env() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]] \
+    || [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" != setup:* ]]; then
+        knit_fatal "knit_with_spack_env is valid only for setups; it must be called between knit_register_setup and knit_done."
+    fi
+    _knit_wrapper_reject_declaration "knit_with_spack_env"
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local marker_var="_KNIT_CMD_${cmd}_spack_env"
+    if [[ -n "${!marker_var:-}" ]]; then
+        knit_fatal "A setup may declare at most one Spack environment (knit_with_spack_env / knit_with_spack_specs)."
+    fi
+    printf -v "${marker_var}" '%s' '1'
+
+    local mode source
+    if [[ -n "$1" ]]; then
+        mode="file"
+        source="$(realpath -m "$1" 2>/dev/null || printf '%s' "$1")"
+    else
+        # No path given: the manifest must arrive on stdin (here-doc, here-string,
+        # or pipe). If stdin is an interactive terminal there is nothing to read
+        # and "cat" would block forever, so fail fast with guidance rather than
+        # hang.
+        if _knit_stdin_is_terminal; then
+            knit_fatal "knit_with_spack_env: no manifest provided. Give a spack.yaml path, feed one on stdin (here-doc/here-string/pipe), or use knit_with_spack_specs."
+        fi
+        mode="stdin"
+        source="$(cat)"
+        if [[ -z "${source//[[:space:]]/}" ]]; then
+            knit_fatal "knit_with_spack_env: the manifest read from stdin is empty."
+        fi
+    fi
+
+    _knit_run_before _knit_setup_spack_env_before_cb "${mode}" "${source}"
+    _knit_run_after  _knit_setup_spack_env_after_cb
+
+    knit_with_output "__spack_yaml__:string" "" \
+        "gzip+base64 of the environment's concrete spack.yaml manifest."
+    knit_with_output "__spack_lock__:string" "" \
+        "gzip+base64 of the environment's spack.lock lockfile."
+
+    local -n _notes_ref="_KNIT_CMD_${cmd}_notes"
+    _notes_ref+=("Builds a Spack environment before the setup body runs.")
+    _KNIT_SPACK_REQUIRED="1"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_with_spack_specs()
+#
+# Lightweight sugar over knit_with_spack_env for the common "just install these
+# specs" case: it synthesizes a minimal spack.yaml (the given specs plus
+# "view: true") and feeds it to knit_with_spack_env, so provenance capture,
+# activation, and auto-provisioning all apply identically. Must be called between
+# knit_register_setup and knit_done, and is mutually exclusive with
+# knit_with_spack_env on one setup.
+#
+# Example:
+# ```
+# knit_register_setup "libs" "libs_fn" "Build deps."
+# knit_with_spack_specs "hdf5@1.14" "fftw" "boost"
+# libs_fn() { ... }
+# knit_done
+# ```
+#
+# @param ... One or more Spack specs.
+# ------------------------------------------------------------------------------
+knit_with_spack_specs() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]] \
+    || [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" != setup:* ]]; then
+        knit_fatal "knit_with_spack_specs is valid only for setups; it must be called between knit_register_setup and knit_done."
+    fi
+    if [[ $# -eq 0 ]]; then
+        knit_fatal "knit_with_spack_specs requires at least one spec."
+    fi
+    local yaml spec
+    yaml=$'spack:\n  specs:\n'
+    for spec in "$@"; do
+        yaml+="    - ${spec}"$'\n'
+    done
+    yaml+=$'  view: true\n'
+    # shellcheck disable=SC2119 # intentional stdin form: manifest fed via here-string
+    knit_with_spack_env <<< "${yaml}"
+}
