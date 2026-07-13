@@ -65,7 +65,10 @@ _knit_bootstrap_on_exit() {
 knit_define_enum "__scheduler__" "auto" "slurm" "pbs" "local" "none"
 knit_define_enum "__launcher__"  "auto" "openmpi" "mpich" "pals"
 knit_register _knit_bootstrap "bootstrap" "Bootstrap the Knit framework."
-knit_with_flag "spack" "Whether to download spack."
+knit_with_optional "spack:string" "" \
+    "Spack git ref (tag, branch, or commit) to provision. Empty uses the latest release. Provisioning also happens automatically when a setup declares a Spack environment."
+knit_with_optional "spack-packages:string" "" \
+    "spack-packages git ref (tag, branch, or commit) to provision. Empty uses the latest release."
 knit_with_optional "project:string" "" "Name of the project to use when submitting jobs."
 knit_with_optional "profile:string" "" \
     "Machine profile name (e.g. polaris). Prepopulates scheduler, launcher, and hardware defaults."
@@ -94,7 +97,8 @@ knit_with_flag "ignore-system-jq" \
 # ------------------------------------------------------------------------------
 _knit_bootstrap() {
     local project
-    local need_spack
+    local spack_ref
+    local spack_packages_ref
     local profile
     local scheduler
     local launcher
@@ -105,7 +109,8 @@ _knit_bootstrap() {
     local ignore_system_sqlite
     local ignore_system_jq
     project="$(knit_get_parameter "project" "$@")"
-    need_spack="$(knit_get_parameter "spack" "$@")"
+    spack_ref="$(knit_get_parameter "spack" "$@")"
+    spack_packages_ref="$(knit_get_parameter "spack-packages" "$@")"
     profile="$(knit_get_parameter "profile" "$@")"
     scheduler="$(knit_get_parameter "scheduler" "$@")"
     launcher="$(knit_get_parameter "launcher" "$@")"
@@ -129,16 +134,18 @@ _knit_bootstrap() {
     mkdir "${_KNIT_PREFIX}" > "${_KNIT_TRACE_FILE}" 2>&1
     trap _knit_bootstrap_on_exit EXIT
 
-    if [[ "${need_spack}" == "true" ]]; then
-        knit_trace "Bootstrapping spack..."
-        _knit_bootstrap_spack
-    fi
-
     knit_trace "Bootstrapping sqlite..."
     _knit_bootstrap_sqlite "${ignore_system_sqlite}"
 
     knit_trace "Bootstrapping jq..."
     _knit_bootstrap_jq "${ignore_system_jq}"
+
+    # Provision Spack after sqlite/jq: resolving the latest release needs jq, and
+    # recording provenance metadata needs the (sqlite-backed) metadata table.
+    if _knit_bootstrap_need_spack "${spack_ref}" "${spack_packages_ref}"; then
+        knit_trace "Bootstrapping spack..."
+        _knit_bootstrap_spack "${spack_ref}" "${spack_packages_ref}"
+    fi
 
     # Load profile defaults (jq is now available).
     local default_queue=""
