@@ -44,9 +44,9 @@ teardown() {
 
 # ---------- _knit_spack_latest_release ----------
 
-@test "latest release resolves the newest tag from the GitHub API" {
+@test "latest release resolves the tag from the GitHub releases/latest API" {
     command -v jq >/dev/null 2>&1 || skip "jq not available"
-    curl() { printf '%s' '[{"tag_name":"v1.2.0"},{"tag_name":"v1.1.0"}]'; }
+    curl() { printf '%s' '{"tag_name":"v1.2.0"}'; }
     _knit_jq() { jq "$@"; }
 
     run _knit_spack_latest_release spack
@@ -54,9 +54,9 @@ teardown() {
     [ "$output" = "v1.2.0" ]
 }
 
-@test "latest release is fatal when the API returns no releases" {
+@test "latest release is fatal when the API returns no release" {
     command -v jq >/dev/null 2>&1 || skip "jq not available"
-    curl() { printf '%s' '[]'; }
+    curl() { printf '%s' '{}'; }
     _knit_jq() { jq "$@"; }
 
     run _knit_spack_latest_release spack

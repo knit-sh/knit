@@ -75,9 +75,9 @@ _knit_spack_framed_run() {
 # ------------------------------------------------------------------------------
 _knit_spack_latest_release() {
     local repo="$1"
-    local url="https://api.github.com/repos/spack/${repo}/releases"
+    local url="https://api.github.com/repos/spack/${repo}/releases/latest"
     local tag
-    tag="$(curl -s "${url}" | _knit_jq -r '.[0].tag_name // empty')"
+    tag="$(curl -s "${url}" | _knit_jq -r '.tag_name // empty')"
     if [[ -z "${tag}" ]]; then
         knit_fatal "Could not resolve the latest ${repo} release from ${url}."
     fi
