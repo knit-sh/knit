@@ -48,20 +48,24 @@ jobs:
         run: |
           # Run kcov once per test file, not once over the whole suite. kcov's
           # bash coverage (PS4 method) accumulates ~45 MB of state per traced
-          # test inside a single process; a single invocation over all ~500
-          # tests grows to ~20 GB and OOM-kills the runner (the job is then
-          # cancelled after ~29 min). Running per file lets each kcov process
-          # exit and free its memory between files, bounding peak RSS to the
-          # largest single file. The per-file results are merged afterwards.
+          # test inside a single process; a single invocation over all ~950
+          # tests grows to ~20 GB and OOM-kills the runner. Running per file lets
+          # each kcov process exit and free its memory between files, bounding
+          # peak RSS to the largest single file (~40 tests -> ~1.8 GB).
+          #
+          # The per-file processes are independent, so run them in parallel with
+          # xargs -P. Parallelism is capped at nproc (4 on ubuntu-latest); with
+          # the per-file memory bound above, peak RSS stays well under the
+          # runner's 16 GB even in the worst case of nproc large files at once.
+          # xargs returns 123 if any invocation fails, so a failing test still
+          # fails this step. Results are merged afterwards.
           # kcov creates the leaf output dir but not its parent, so make it.
           mkdir -p coverage
-          for t in tests/test_*.sh; do
-            name=$(basename "$t" .sh)
-            echo "========================================================"
-            echo "Starting coverage run for ${name}"
-            echo "========================================================"
+          printf '%s\0' tests/test_*.sh | xargs -0 -P "$(nproc)" -n1 bash -c '
+            t="$1"; name=$(basename "$t" .sh)
+            echo "=== coverage: ${name} ==="
             kcov --include-path=src "coverage/${name}" bats "$t"
-          done
+          ' _
           kcov --merge coverage/merged coverage/test_*
 
       - name: Fix coverage paths
