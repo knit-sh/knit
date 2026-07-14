@@ -11,15 +11,6 @@
 declare -A _KNIT_JOBS
 
 # ------------------------------------------------------------------------------
-# @var _KNIT_JOB_SETUP
-#
-# Associative array mapping a job name to the setup type it requires (as declared
-# with knit_with_setup). A job with no entry requires no setup, in which case
-# `knit submit --setup` is optional for it.
-# ------------------------------------------------------------------------------
-declare -A _KNIT_JOB_SETUP
-
-# ------------------------------------------------------------------------------
 # Name of the table recording every job and its lifecycle state. The row id is
 # the job UUID; the "state" column moves submitted -> running -> completed, or
 # -> killed when the scheduler terminates a job before it finishes.
@@ -97,8 +88,11 @@ _knit_submit() {
 
     # Enforce the job's setup requirement (knit_with_setup). A job that declares
     # a setup type must be given a --setup built by that type; a job that
-    # declares none makes --setup optional.
-    local required_setup="${_KNIT_JOB_SETUP[${job_name}]:-}"
+    # declares none makes --setup optional. The requirement is stored in the
+    # generic per-command marker set by knit_with_setup.
+    local required_marker
+    required_marker="_KNIT_CMD_$(_knit_command_mangle "submit:${job_name}")_setup"
+    local required_setup="${!required_marker:-}"
     if [[ -n "${required_setup}" && -z "${setup_path}" ]]; then
         knit_fatal "Job \"${job_name}\" requires a --setup of type \"${required_setup}\"."
     fi
@@ -114,17 +108,9 @@ _knit_submit() {
     fi
 
     # When the job requires a setup type, check the setup directory was built by
-    # that type. `knit setup` records the type in a .setup.type marker.
+    # that type (shared with non-job commands via _knit_setup_check_type).
     if [[ -n "${required_setup}" ]]; then
-        local marker="${setup_path}/.setup.type"
-        if [[ ! -f "${marker}" ]]; then
-            knit_fatal "Setup at \"${setup_path}\" has no recorded type; job \"${job_name}\" requires a \"${required_setup}\" setup."
-        fi
-        local actual_setup=""
-        IFS= read -r actual_setup < "${marker}" || true
-        if [[ "${actual_setup}" != "${required_setup}" ]]; then
-            knit_fatal "Job \"${job_name}\" requires a \"${required_setup}\" setup, but \"${setup_path}\" was built by \"${actual_setup}\"."
-        fi
+        _knit_setup_check_type "${setup_path}" "${required_setup}"
     fi
 
     # Validate args for the job subcommand (knit_fatal on bad args)
@@ -308,45 +294,6 @@ _knit_job_before_cb() {
 # ------------------------------------------------------------------------------
 _knit_job_after_cb() {
     _knit_job_set_state "completed"
-}
-
-# ------------------------------------------------------------------------------
-# @fn knit_with_setup()
-#
-# Declare that the job currently being registered requires a setup of a given
-# type. Must be called between knit_register_job and knit_done. The type is the
-# name of a registered setup (as passed to knit_register_setup); `knit submit`
-# then rejects a --setup directory that was not built by that setup, and makes
-# --setup mandatory for the job. A job without any knit_with_setup declaration
-# requires no setup, so --setup is optional for it.
-#
-# Example:
-# ```
-# knit_register_job "montecarlo" _montecarlo_job "Estimate pi as a job."
-# knit_with_setup "mcenv"   # requires a setup built by the "mcenv" setup
-# _montecarlo_job() { ... }
-# knit_done
-# ```
-#
-# @param type Name of the required setup type.
-# ------------------------------------------------------------------------------
-knit_with_setup() {
-    if [[ ! -v _KNIT_CURRENT_COMMAND ]] \
-    || [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" != submit:* ]]; then
-        knit_fatal "knit_with_setup is valid only for jobs; it must be called between knit_register_job and knit_done."
-    fi
-    local setup_type="$1"
-    if ! _knit_name_is_valid "${setup_type}"; then
-        knit_fatal "Setup type \"${setup_type}\" is not a valid name."
-    fi
-    local job_name
-    job_name=$(_knit_command_get_last "${_KNIT_CURRENT_COMMAND_DEMANGLED}")
-    knit_trace "Job \"${job_name}\" requires a \"${setup_type}\" setup."
-    _KNIT_JOB_SETUP["${job_name}"]="${setup_type}"
-    # Advertise the requirement in the job's `--help` output (see the
-    # "Requirements" section rendered by _knit_print_command_usage).
-    local -n _notes_ref="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_notes"
-    _notes_ref+=("Requires a --setup built by the \"${setup_type}\" setup.")
 }
 
 # ------------------------------------------------------------------------------

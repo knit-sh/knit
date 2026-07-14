@@ -58,7 +58,7 @@ teardown() {
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_with_setup "mcenv"
     knit_done
-    [ "${_KNIT_JOB_SETUP[myjob]}" = "mcenv" ]
+    [ "${_KNIT_CMD_submit__1__myjob_setup}" = "mcenv" ]
 }
 
 @test "job --help shows the setup requirement and the parent --setup option" {
@@ -88,11 +88,11 @@ teardown() {
     [[ "$result" != *"Requirements"* ]]
 }
 
-@test "a job without knit_with_setup has no _KNIT_JOB_SETUP entry" {
+@test "a job without knit_with_setup has no setup marker" {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_done
-    [[ ! -v _KNIT_JOB_SETUP["myjob"] ]]
+    [[ ! -v _KNIT_CMD_submit__1__myjob_setup ]]
 }
 
 @test "knit_with_setup rejects an invalid setup type name" {
@@ -108,12 +108,16 @@ teardown() {
     [ "$status" -ne 0 ]
 }
 
-@test "knit_with_setup fails inside a non-job command registration" {
+@test "knit_with_setup succeeds inside a non-job command registration" {
+    # knit_with_setup is no longer job-only: a plain command may declare it and
+    # gains a --setup option plus the generic setup marker (see test_setup.sh for
+    # the full generic behavior).
     _test_fn() { :; }
     knit_register "_test_fn" "notajob" "A plain command."
-    run knit_with_setup "mcenv"
-    [ "$status" -ne 0 ]
+    knit_with_setup "mcenv"
     knit_done
+    [ "${_KNIT_CMD_notajob_setup}" = "mcenv" ]
+    _knit_set_find "_KNIT_CMD_notajob_optional" "setup"
 }
 
 @test "knit_register_job installs before callback" {

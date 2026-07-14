@@ -340,8 +340,10 @@ knit_with_extra "The app name and its arguments (after --)."
 # but rank 0 sets _KNIT_RECORDING_SUPPRESSED so a run's outputs and per-app row
 # are recorded exactly once.
 #
-# Apps have no setup of their own: they inherit the surrounding job's setup
-# environment.
+# By default an app has no setup of its own: it inherits the surrounding job's
+# setup environment (forwarded by the launcher). An app may still declare
+# knit_with_setup to explicitly depend on and re-source a setup (see
+# knit_register_app).
 # ------------------------------------------------------------------------------
 _knit_run_worker() {
     # The dispatcher exports KNIT_RUN_ID (the run UUID) into the launcher's
@@ -398,9 +400,9 @@ _knit_app_before_cb() {
 # Register an app, i.e. a subcommand of the "run" command that executes as an MPI
 # launch inside a job. Mirrors knit_register_job: it registers `run:<name>`, backs
 # it with a per-app table named after the app, records the name in _KNIT_APPS, and
-# installs a before-callback asserting the run context. Apps have no setup of
-# their own (an app inherits the ambient setup of the surrounding job), so there
-# is no knit_with_setup and no after-callback.
+# installs a before-callback asserting the run context. An app inherits the
+# ambient setup of the surrounding job by default, but may declare knit_with_setup
+# to explicitly depend on and re-source a setup. There is no after-callback.
 #
 # A call to this function must be followed by any knit_with_* declarations, the
 # definition of <fn>, and a call to knit_done.

@@ -64,8 +64,9 @@
 # The usage line reflects the real grammar
 # (`submit [OPTIONS] -- montecarlo [OPTIONS]`), and the help shows the
 # job/setup/app's own options, the enclosing `submit`/`setup`/`run` options (such
-# as `--setup` / `--path` / `--procs`), and — for a job declared with
-# `knit_with_setup` — the setup type it requires.
+# as `--setup` / `--path` / `--procs`), and — for any command declared with
+# `knit_with_setup` — the setup type it requires. (`knit_with_setup` works on any
+# command now, not just jobs; a non-job command gains its own `--setup` option.)
 #
 # -----------------------------------------------------------------------------
 # 2. Bootstrap the experiment

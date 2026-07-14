@@ -259,3 +259,135 @@ teardown() {
     run _knit_setup --path "${newdir}" -- mysetup
     [ ! -f "${newdir}/.setup.type" ]
 }
+
+# ---------- _knit_setup_check_type ----------
+
+@test "_knit_setup_check_type accepts a matching type" {
+    local d="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${d}"
+    printf 'mcenv\n' > "${d}/.setup.type"
+    run _knit_setup_check_type "${d}" "mcenv"
+    [ "$status" -eq 0 ]
+}
+
+@test "_knit_setup_check_type rejects a missing marker" {
+    local d="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${d}"
+    run _knit_setup_check_type "${d}" "mcenv"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"no recorded type"* ]]
+}
+
+@test "_knit_setup_check_type rejects a type mismatch" {
+    local d="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${d}"
+    printf 'otherenv\n' > "${d}/.setup.type"
+    run _knit_setup_check_type "${d}" "mcenv"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"mcenv"* ]]
+    [[ "$output" == *"otherenv"* ]]
+}
+
+# ---------- _knit_setup_dep_before_cb ----------
+
+@test "_knit_setup_dep_before_cb sources the --setup activate.sh" {
+    local d="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${d}"
+    printf 'mcenv\n' > "${d}/.setup.type"
+    printf 'export DEP_MARK=hello\n' > "${d}/.activate.sh"
+    unset KNIT_SETUP_PREFIX DEP_MARK
+    _knit_setup_dep_before_cb "mcenv" --setup "${d}"
+    [ "${DEP_MARK}" = "hello" ]
+    [ "${KNIT_SETUP_PREFIX}" = "$(realpath "${d}")" ]
+}
+
+@test "_knit_setup_dep_before_cb falls back to the ambient prefix" {
+    local d="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${d}"
+    printf 'mcenv\n' > "${d}/.setup.type"
+    printf 'export DEP_MARK=amb\n' > "${d}/.activate.sh"
+    export KNIT_SETUP_PREFIX="${d}"
+    unset DEP_MARK
+    _knit_setup_dep_before_cb "mcenv"
+    [ "${DEP_MARK}" = "amb" ]
+}
+
+@test "_knit_setup_dep_before_cb fatals when no --setup and no ambient prefix" {
+    unset KNIT_SETUP_PREFIX
+    run _knit_setup_dep_before_cb "mcenv"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"requires a --setup"* ]]
+}
+
+@test "_knit_setup_dep_before_cb does not clobber an existing KNIT_SETUP_PREFIX" {
+    local own="${_KNIT_TEST_TMPDIR}/own"
+    local dep="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${own}" "${dep}"
+    printf 'mcenv\n' > "${dep}/.setup.type"
+    printf 'export DEP_MARK=dep\n' > "${dep}/.activate.sh"
+    export KNIT_SETUP_PREFIX="${own}"
+    _knit_setup_dep_before_cb "mcenv" --setup "${dep}"
+    [ "${DEP_MARK}" = "dep" ]
+    [ "${KNIT_SETUP_PREFIX}" = "${own}" ]
+}
+
+@test "_knit_setup_dep_before_cb rejects a wrong-type --setup" {
+    local d="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${d}"
+    printf 'otherenv\n' > "${d}/.setup.type"
+    printf 'export DEP_MARK=x\n' > "${d}/.activate.sh"
+    unset KNIT_SETUP_PREFIX
+    run _knit_setup_dep_before_cb "mcenv" --setup "${d}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"mcenv"* ]]
+    [[ "$output" == *"otherenv"* ]]
+}
+
+# ---------- knit_with_setup (generic) ----------
+
+@test "knit_with_setup on a plain command adds a marker, --setup option, and callback" {
+    _test_fn() { :; }
+    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_with_setup "mcenv"
+    knit_done
+    [ "${_KNIT_CMD_plaincmd_setup}" = "mcenv" ]
+    _knit_set_find "_KNIT_CMD_plaincmd_optional" "setup"
+    local -n _cbs="_KNIT_CMD_plaincmd_before_cb"
+    [[ "${_cbs[*]}" == *"_knit_setup_dep_before_cb mcenv"* ]]
+}
+
+@test "knit_with_setup on a plain command adds a Requirements help note" {
+    _test_fn() { :; }
+    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_with_setup "mcenv"
+    knit_done
+    local -n _notes="_KNIT_CMD_plaincmd_notes"
+    [[ "${_notes[*]}" == *'Requires a --setup built by the "mcenv" setup.'* ]]
+}
+
+@test "knit_with_setup is rejected on a setup command" {
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    run knit_with_setup "mcenv"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"cannot be used on a setup"* ]]
+    knit_done
+}
+
+@test "knit_with_setup is rejected on a wrapper" {
+    _wrap_fn() { :; }
+    knit_register_wrapper "mywrap" "_wrap_fn" "A wrapper."
+    run knit_with_setup "mcenv"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"wrapper"* ]]
+    knit_done
+}
+
+@test "knit_with_setup may be called at most once per command" {
+    _test_fn() { :; }
+    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_with_setup "mcenv"
+    run knit_with_setup "other"
+    [ "$status" -ne 0 ]
+    knit_done
+}

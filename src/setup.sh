@@ -172,6 +172,146 @@ knit_register_setup() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_setup_check_type()
+#
+# Check that a setup directory was built by the required setup type. `knit setup`
+# records the type in a `.setup.type` marker file inside the setup directory.
+# Fatals if the marker is missing or its recorded type differs from the required
+# one; returns normally on a match. Shared by `knit submit` (jobs) and by the
+# generic setup-dependency before-callback used for every other command that
+# declares knit_with_setup.
+#
+# @param setup_path Path to the setup directory to check.
+# @param required   Setup type the directory must have been built by.
+# ------------------------------------------------------------------------------
+_knit_setup_check_type() {
+    local setup_path="$1"
+    local required="$2"
+    local marker="${setup_path}/.setup.type"
+    if [[ ! -f "${marker}" ]]; then
+        knit_fatal "Setup at \"${setup_path}\" has no recorded type; a \"${required}\" setup is required."
+    fi
+    local actual=""
+    IFS= read -r actual < "${marker}" || true
+    if [[ "${actual}" != "${required}" ]]; then
+        knit_fatal "A \"${required}\" setup is required, but \"${setup_path}\" was built by \"${actual}\"."
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_setup_dep_before_cb()
+#
+# Before-callback installed by knit_with_setup on a plain command or an app. It
+# resolves the setup directory the command depends on, checks its type, and
+# sources its .activate.sh so the command body runs in the setup's environment.
+# Jobs do not use this callback: their setup is resolved at submit time
+# (_knit_submit) and re-sourced on the compute node (_knit_job_before_cb). Setups
+# and wrappers cannot declare knit_with_setup at all (knit_with_setup rejects them).
+#
+# The setup directory comes from the command's --setup option; when that is
+# absent it falls back to an already-set KNIT_SETUP_PREFIX (e.g. an app running
+# inside a job inherits the job's setup).
+#
+# @param required Setup type the dependency must have been built by. Remaining
+#                 arguments are the command's own runtime arguments, scanned for
+#                 --setup.
+# ------------------------------------------------------------------------------
+_knit_setup_dep_before_cb() {
+    local required="$1"
+    shift
+    local setup_path
+    setup_path=$(knit_get_parameter "setup" "$@") || setup_path=""
+    if [[ -z "${setup_path}" ]]; then
+        setup_path="${KNIT_SETUP_PREFIX:-}"
+    fi
+    if [[ -z "${setup_path}" ]]; then
+        knit_fatal "This command requires a --setup of type \"${required}\"."
+    fi
+    if [[ ! -d "${setup_path}" ]]; then
+        knit_fatal "Setup path \"${setup_path}\" does not exist."
+    fi
+    setup_path="$(realpath "${setup_path}")"
+    _knit_setup_check_type "${setup_path}" "${required}"
+    # Do not clobber an already-set prefix (a job/app ambient prefix); only stand
+    # one up for a command that has none.
+    if [[ -z "${KNIT_SETUP_PREFIX:-}" ]]; then
+        export KNIT_SETUP_PREFIX="${setup_path}"
+    fi
+    # shellcheck disable=SC1091
+    source "${setup_path}/.activate.sh"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_with_setup()
+#
+# Declare that the command currently being registered requires a setup of a given
+# type (the name of a setup registered with knit_register_setup). Must be called
+# between a knit_register* call and knit_done, at most once per command.
+#
+# How the requirement is consumed depends on the kind of command:
+#   - Jobs (knit_register_job): `knit submit` makes --setup mandatory, rejects a
+#     --setup that was not built by the declared type, and the job re-sources the
+#     setup environment on the compute node.
+#   - Any other command: knit_with_setup adds a --setup option to the command,
+#     and a before-callback validates the given setup's type and sources its
+#     .activate.sh so the command body runs in the setup environment.
+#
+# Setups and wrappers may NOT declare knit_with_setup and are rejected:
+#   - a setup's KNIT_SETUP_PREFIX is its own output directory, so chaining setups
+#     would make that prefix ambiguous;
+#   - a wrapper forwards its arguments verbatim and cannot take a parsed --setup.
+#
+# Example:
+# ```
+# knit_register_job "montecarlo" _montecarlo_job "Estimate pi as a job."
+# knit_with_setup "mcenv"   # requires a setup built by the "mcenv" setup
+# _montecarlo_job() { ... }
+# knit_done
+# ```
+#
+# @param type Name of the required setup type.
+# ------------------------------------------------------------------------------
+knit_with_setup() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_setup must be called between a knit_register* call and knit_done."
+    fi
+    if [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" == setup:* ]]; then
+        knit_fatal "knit_with_setup cannot be used on a setup (setups cannot depend on other setups)."
+    fi
+    _knit_wrapper_reject_declaration "knit_with_setup"
+    local setup_type="$1"
+    if ! _knit_name_is_valid "${setup_type}"; then
+        knit_fatal "Setup type \"${setup_type}\" is not a valid name."
+    fi
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local marker_var="_KNIT_CMD_${cmd}_setup"
+    if [[ -n "${!marker_var:-}" ]]; then
+        knit_fatal "knit_with_setup may be called at most once per command."
+    fi
+    printf -v "${marker_var}" '%s' "${setup_type}"
+    knit_trace "Command \"${_KNIT_CURRENT_COMMAND_DEMANGLED}\" requires a \"${setup_type}\" setup."
+
+    # Advertise the requirement in the command's `--help` output (see the
+    # "Requirements" section rendered by _knit_print_command_usage).
+    # shellcheck disable=SC2178 # nameref to the command's notes array
+    local -n _notes_ref="_KNIT_CMD_${cmd}_notes"
+    _notes_ref+=("Requires a --setup built by the \"${setup_type}\" setup.")
+
+    # Jobs resolve and enforce the setup at submit time (see _knit_submit) and
+    # re-source it on the compute node (_knit_job_before_cb): no local --setup
+    # option or before-callback is added here.
+    if [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" == submit:* ]]; then
+        return 0
+    fi
+
+    # Plain commands and apps get a --setup option plus a before-callback that
+    # validates and activates it.
+    knit_with_optional "setup:path" "" \
+        "Path to a setup built by the \"${setup_type}\" setup."
+    _knit_run_before _knit_setup_dep_before_cb "${setup_type}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_setup_spack_env_before_cb()
 #
 # Before-callback installed by knit_with_spack_env. Runs as the setup's first
@@ -327,6 +467,7 @@ knit_with_spack_env() {
     knit_with_output "__spack_lock__:string" "" \
         "gzip+base64 of the environment's spack.lock lockfile."
 
+    # shellcheck disable=SC2178 # nameref to the command's notes array
     local -n _notes_ref="_KNIT_CMD_${cmd}_notes"
     _notes_ref+=("Builds a Spack environment before the setup body runs.")
     _KNIT_SPACK_REQUIRED="1"

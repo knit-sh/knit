@@ -87,13 +87,56 @@ _register_seeded_app() {
     [ "$status" -eq 0 ]
 }
 
-# ---------- knit_with_setup is rejected on an app registration ----------
+# ---------- knit_with_setup is allowed on an app registration ----------
 
-@test "knit_with_setup fatals when called on an app registration" {
+@test "knit_with_setup on an app installs a --setup option and a before-callback" {
     _setup_app_fn() { :; }
     knit_register_app "myapp" "_setup_app_fn" "A test app."
-    run knit_with_setup "mcenv"
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"valid only for jobs"* ]]
+    knit_with_setup "mcenv"
     knit_done
+    [ "${_KNIT_CMD_run__1__myapp_setup}" = "mcenv" ]
+    _knit_set_find "_KNIT_CMD_run__1__myapp_optional" "setup"
+    # The generic setup-dependency callback runs after the app's own
+    # KNIT_JOB_PREFIX guard.
+    local -n _cbs="_KNIT_CMD_run__1__myapp_before_cb"
+    [[ "${_cbs[*]}" == *"_knit_app_before_cb"* ]]
+    [[ "${_cbs[*]}" == *"_knit_setup_dep_before_cb"* ]]
+}
+
+@test "an app declaring knit_with_setup re-sources the given setup" {
+    printf 'mcenv\n' > "${KNIT_TEST_SETUP_DIR}/.setup.type"
+    printf 'export MC_SEED=7\n' > "${KNIT_TEST_SETUP_DIR}/.activate.sh"
+
+    _seed_app_fn() { :; }
+    knit_register_app "seeded" "_seed_app_fn" "An app that depends on a setup."
+    knit_with_setup "mcenv"
+    knit_done
+
+    export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
+    export KNIT_RUN_ID="aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"
+    unset KNIT_SETUP_PREFIX MC_SEED
+
+    _knit_run_worker -- seeded --setup "${KNIT_TEST_SETUP_DIR}"
+
+    # The before-callback sourced the setup's .activate.sh in this shell.
+    [ "${MC_SEED}" = "7" ]
+}
+
+@test "an app declaring knit_with_setup rejects a wrong-type setup" {
+    printf 'otherenv\n' > "${KNIT_TEST_SETUP_DIR}/.setup.type"
+    printf 'export MC_SEED=7\n' > "${KNIT_TEST_SETUP_DIR}/.activate.sh"
+
+    _seed_app_fn() { :; }
+    knit_register_app "seeded" "_seed_app_fn" "An app that depends on a setup."
+    knit_with_setup "mcenv"
+    knit_done
+
+    export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
+    export KNIT_RUN_ID="aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"
+    unset KNIT_SETUP_PREFIX MC_SEED
+
+    run _knit_run_worker -- seeded --setup "${KNIT_TEST_SETUP_DIR}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"mcenv"* ]]
+    [[ "$output" == *"otherenv"* ]]
 }
