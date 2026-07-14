@@ -7,18 +7,26 @@ INTEGRATION_DIR = /shared/knit/tests/integration
 # All test drivers, sorted so they run in order.
 EXPERIMENTS := $(sort $(wildcard experiments/*/test.sh))
 
-.PHONY: check-slurm check-pbs check-all build-images
+.PHONY: check-slurm check-pbs check-all build-images build-slurm build-pbs
 .PHONY: cluster-up-slurm cluster-down-slurm
 .PHONY: cluster-up-pbs cluster-down-pbs
 .PHONY: run-slurm run-pbs
 
 # ---------------------------------------------------------------------------
 # Image build (separated so CI can cache/pre-build before the test step)
+#
+# Per-cluster targets are the source of truth; build-images builds both. These
+# only ever build locally — no target pushes to a registry (see lib/provision-
+# image.sh and the publish workflow for the ghcr.io path).
 # ---------------------------------------------------------------------------
 
-build-images:
+build-slurm:
 	docker compose -f $(SLURM_COMPOSE) build
+
+build-pbs:
 	docker compose -f $(PBS_COMPOSE) build
+
+build-images: build-slurm build-pbs
 
 # ---------------------------------------------------------------------------
 # Full cycles
