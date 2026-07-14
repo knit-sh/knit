@@ -168,6 +168,14 @@ _knit_bootstrap_spack() {
     local spack_ref="${1:-}"
     local packages_ref="${2:-}"
 
+    # Spack provisioning is a pair of git clones; fail fast with a clear message
+    # if git is absent, rather than letting the clone fail deep inside
+    # _knit_spack_clone with a misleading "the remote may forbid" diagnostic.
+    if [[ -z "$(_knit_command_path git)" ]]; then
+        knit_fatal "git is required to provision Spack but was not found on" \
+            "PATH. Install git and re-run, or bootstrap without Spack."
+    fi
+
     if [[ -z "${spack_ref}" ]]; then
         knit_trace "Resolving latest spack release..."
         spack_ref="$(_knit_spack_latest_release spack)"

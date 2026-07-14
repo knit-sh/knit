@@ -49,6 +49,7 @@ RUN dnf -y update && \
         # Runtime / utility packages
         openssh-server \
         openssh-clients \
+        git \
         wget \
         tar \
         gzip \

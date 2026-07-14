@@ -194,6 +194,24 @@ teardown() {
     [ "${args}" = 'install hdf5@1.14 -- a\ b' ]
 }
 
+@test "a wrapper body that clobbers 'cmd' still records under the correct command" {
+    # Simulate a third-party script (e.g. Spack's setup-env.sh, which runs
+    # `for cmd in ...` without declaring it local) polluting the bare `cmd`
+    # variable while the wrapper body runs. Bash dynamic scoping must not let
+    # this corrupt _knit_invoke_command's post-body after-callbacks/recording.
+    wrap_fn() { cmd="/usr/bin/python3"; }
+    knit_register_wrapper "wrap" "wrap_fn" "A wrapper."
+    knit_with_table
+    knit_done
+    run _knit_invoke_command "wrap" find zlib
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"invalid variable name"* ]]
+    # The row lands in the wrapper's own table under the right command name.
+    local args
+    args=$(sqlite3 "${_KNIT_DATABASE}" "SELECT args FROM wrap;")
+    [ "${args}" = 'find zlib' ]
+}
+
 @test "a wrapper without a table records nothing" {
     wrap_fn() { :; }
     knit_register_wrapper "wrap" "wrap_fn" "A wrapper."

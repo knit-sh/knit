@@ -31,6 +31,7 @@ RUN dnf -y update && \
         hwloc-devel \
         numactl-devel \
         openssh-server openssh-clients \
+        git \
         wget \
         tar \
         bzip2 \

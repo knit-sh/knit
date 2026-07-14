@@ -38,7 +38,8 @@ tests/integration/
     ├── 06_job_wait/                   # job wait blocks on the scheduler
     ├── 07_job_cancel/                 # job cancel → scheduler cancel + "killed"
     ├── 08_job_hostnames/              # knit_job_hostnames over a 2-node job
-    └── 09_run_app/                    # knit run: MPI app launch across a job
+    ├── 09_run_app/                    # knit run: MPI app launch across a job
+    └── 10_spack_setup/                # Spack-backed setup (zlib) + job sees it
 ```
 
 ## Running the tests

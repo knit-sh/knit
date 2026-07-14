@@ -7,10 +7,11 @@
 # This is a complete, runnable knit experiment. It estimates the value of pi
 # with a Monte-Carlo method, and along the way it exercises every feature knit
 # currently implements: bootstrapping, machine profiles, metadata, typed
-# command parameters, setups (reproducible environments), job submission
-# to a batch scheduler (Slurm/PBS) — or to local background processes when no
-# scheduler is present — and MPI application launch across a job's allocation
-# with `knit run`.
+# command parameters, setups (reproducible environments, optionally backed by a
+# Spack environment), job submission to a batch scheduler (Slurm/PBS) — or to
+# local background processes when no scheduler is present — MPI application
+# launch across a job's allocation with `knit run`, and the Spack package
+# manager (`knit spack`, plus Spack-backed setups).
 #
 # HOW TO USE THIS FILE
 # --------------------
@@ -42,7 +43,8 @@
 #   ./full.sh --help
 #
 # Prints the program description and the list of subcommands: estimate, submit,
-# run, setup, bootstrap, metadata, profile, job, db. Every command takes --help,
+# run, setup, bootstrap, metadata, profile, job, db, spack. Every command takes
+# --help,
 # e.g.
 #
 #   ./full.sh estimate --help
@@ -73,9 +75,11 @@
 # This creates ./.knit, makes sqlite and jq available (symlinking the system
 # binaries when present, otherwise building sqlite from source and downloading
 # jq — a minute or two the first time), creates the ./.knit/knit.db database,
-# and records some metadata. knit auto-detects the batch scheduler; on a machine
-# without one it falls back to local execution and warns you. You can be
-# explicit:
+# and records some metadata. Because this experiment declares a Spack-backed
+# setup (`mclib`, step 11), bootstrap also provisions a knit-private Spack — a
+# clone plus build that adds a few minutes the first time; it needs git. knit
+# auto-detects the batch scheduler; on a machine without one it falls back to
+# local execution and warns you. You can be explicit:
 #
 #   ./full.sh bootstrap --project pi-demo --scheduler local
 #   ./full.sh bootstrap --project pi-demo --scheduler slurm --account MYALLOC
@@ -89,6 +93,12 @@
 # To force the from-source/download path even when a system sqlite3/jq exists:
 #
 #   ./full.sh bootstrap --project pi-demo --ignore-system-sqlite --ignore-system-jq
+#
+# Spack is provisioned automatically here (the experiment needs it). To pin a
+# specific Spack version instead of the latest release, pass it to --spack (see
+# step 11):
+#
+#   ./full.sh bootstrap --project pi-demo --spack v0.22.0
 #
 # If your machine has a built-in profile (see step 3), pass it to prepopulate
 # the scheduler, launcher, queue, walltime cap and per-node core count:
@@ -326,9 +336,51 @@
 #       --select "id, samples, seed, pi" --header --column
 #
 # -----------------------------------------------------------------------------
-# 11. Clean up
+# 11. Reproducible environments with Spack
 # -----------------------------------------------------------------------------
-#   rm -rf .knit env
+# When an experiment needs specific libraries, knit can manage a private Spack
+# for you, build the exact packages it needs, and record them for reproduction.
+# This file registers a Spack-backed setup called `mclib`, so `bootstrap` (step
+# 2) already provisioned a knit-private Spack under ./.knit — a clone plus build
+# that takes a few minutes the first time.
+#
+# You can pin the Spack version at bootstrap with --spack (bare = latest
+# release); pass a tag/branch/commit to pin a specific one (and likewise for the
+# package repo), e.g. `--spack v0.22.0 --spack-packages v0.22.0`. The resolved
+# refs and commits are stored as metadata for provenance.
+#
+# `knit spack` forwards straight to the private Spack. It is a thin wrapper, so
+# every spack subcommand and flag works unchanged (including --help), and each
+# call is recorded in the DB:
+#
+#   ./full.sh spack find
+#   ./full.sh spack info zlib
+#   ./full.sh spack --help
+#
+# Better still, a setup can DECLARE the environment it needs and let knit build
+# it. Build the `mclib` setup:
+#
+#   ./full.sh setup --path ./libenv -- mclib
+#
+# `mclib` is declared with `knit_with_spack_specs "zlib"`: knit writes a minimal
+# spack.yaml, builds and installs that environment as the setup's FIRST step,
+# then activates it so the rest of the setup body sees the packages. The concrete
+# spack.yaml and spack.lock are captured into the setup's DB row as provenance:
+#
+#   ./full.sh db query --from "setup:mclib" \
+#       --select "id, __spack_yaml__, __spack_lock__" --header --column
+#
+# The activation is baked into libenv/.activate.sh (a `spack env activate` block),
+# so any job that requires this setup (declared with `knit_with_setup "mclib"`)
+# re-hydrates the Spack environment automatically — exactly like the
+# montecarlo/mcenv flow in steps 7–8, but with Spack-provided packages on the
+# path. For a manifest you maintain by hand, pass a file (or feed one on stdin)
+# to `knit_with_spack_env` instead of using the `knit_with_spack_specs` sugar.
+#
+# -----------------------------------------------------------------------------
+# 12. Clean up
+# -----------------------------------------------------------------------------
+#   rm -rf .knit env libenv
 #
 # Removes knit's private tooling, the database, and the setup/job directories.
 #
@@ -544,6 +596,28 @@ _mcparallel_job() {
     # omitted, so each rank fills them from the setup environment it inherits
     # (MC_SAMPLES / MC_SEED).
     knit run --procs "${procs}" -- mcrank
+}
+knit_done
+
+# -----------------------------------------------------------------------------
+# mclib — a Spack-backed setup (see guided-tour section 11).
+#
+# knit_with_spack_specs declares a minimal Spack environment (here just "zlib", a
+# tiny, quick-to-build package). knit builds and activates it as the setup's
+# first step, and captures the concrete spack.yaml / spack.lock as DB provenance.
+# Any job that requires this setup inherits the activated environment.
+#
+# Because this experiment declares a Spack environment, `bootstrap` provisions
+# the knit-private Spack automatically (a clone + build), even without --spack.
+# -----------------------------------------------------------------------------
+knit_register_setup "mclib" _mclib_setup "Build a Spack environment (zlib)."
+knit_with_spack_specs "zlib"
+_mclib_setup() {
+    # The Spack environment is already built and activated here, so packages
+    # from the specs are on PATH / LD_LIBRARY_PATH. Anything exported is
+    # captured into .activate.sh (next to the Spack re-activation block) and
+    # inherited by dependent jobs.
+    export MC_LIB="zlib"
 }
 knit_done
 

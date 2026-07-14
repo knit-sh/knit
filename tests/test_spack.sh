@@ -171,6 +171,16 @@ _stub_provisioning() {
     ! grep -q "SHOULD_NOT_BE_CALLED" "${METALOG}"
 }
 
+@test "bootstrap_spack is fatal with a clear message when git is missing" {
+    _stub_provisioning
+    # git absent: _knit_command_path resolves nothing for it.
+    _knit_command_path() { [[ "$1" == "git" ]] && return 0 || command -v "$1"; }
+    run _knit_bootstrap_spack "" ""
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"git is required to provision Spack"* ]]
+    [[ "$output" != *"remote may forbid"* ]]
+}
+
 # ---------- knit spack wrapper (_knit_spack_exec) ----------
 
 # Create a fake provisioned Spack whose setup-env.sh bumps a source counter and

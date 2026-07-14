@@ -1765,14 +1765,21 @@ _knit_invoke_command() {
         declare -gA "_KNIT_CMD_${cmd}_output_value=()"
         unset "_KNIT_CMD_${cmd}_row_id"
         unset "_KNIT_CMD_${cmd}_recorded"
+        # A wrapper forwards to an external tool that may source third-party
+        # shell scripts which assign to common variable names without declaring
+        # them local (e.g. Spack's setup-env.sh runs `for cmd in ...`). Under
+        # bash dynamic scoping such a write would clobber our local "cmd" for the
+        # post-body steps below, corrupting the recorded command. Snapshot the
+        # command under a namespaced name the external body will not touch.
+        local _knit_wrapper_cmd="${cmd}"
         _KNIT_EXECUTING_COMMAND+=("${cmd}")
         $func "$@"
         local wrapper_status=$?
         # Keep the command on the stack through the after-callbacks (see the
         # non-wrapper path below) so they too may call knit_output.
-        _knit_execute_after_commands "${cmd}" "$@"
+        _knit_execute_after_commands "${_knit_wrapper_cmd}" "$@"
         unset '_KNIT_EXECUTING_COMMAND[-1]'
-        _knit_record_invocation "${cmd}" "$@"
+        _knit_record_invocation "${_knit_wrapper_cmd}" "$@"
         return "${wrapper_status}"
     fi
     # check if the first argument is --help
