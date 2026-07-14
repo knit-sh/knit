@@ -6,9 +6,14 @@ on:
   pull_request:
     branches:
     - main
+  schedule:
+    # Weekly rebuild+republish to pick up rockylinux:9 base-image updates/CVEs
+    # (off-peak minute per repo conventions).
+    - cron: '37 5 * * 1'
+  workflow_dispatch:
 
 jobs:
-  tests:
+  unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,8 +26,52 @@ jobs:
       - name: Build knit.sh
         run: make
 
-      - name: Build Docker images
-        run: make build-images
+      - name: Run unit tests
+        run: make check-unit
 
-      - name: Run tests
-        run: make check
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cluster: [slurm, pbs]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build knit.sh
+        # knit.sh is bind-mounted into the containers at runtime, not baked into
+        # the image, so it must exist on the host before the cluster comes up.
+        run: make
+
+      - name: Log in to ghcr.io
+        # Needed to push (main) and for the authenticated pull path; public images
+        # pull without it, and a pull miss falls back to a local build.
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Provision cluster image (pull or build)
+        # Pulls the prebuilt image at its content tag and retags it to the name the
+        # compose file expects; falls back to a local build on any miss. On the
+        # weekly/manual runs, force a rebuild so fresh base layers are picked up.
+        env:
+          KNIT_IMAGE_FORCE_BUILD: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '0' }}
+        run: bash tests/integration/lib/provision-image.sh ${{ matrix.cluster }}
+
+      - name: Run integration tests
+        run: make -C tests/integration check-${{ matrix.cluster }}
+
+      - name: Publish cluster image
+        # Only after the suite passes, and only on main non-PR events (push to
+        # main, schedule, manual dispatch), where the token can write packages.
+        # publish-image.sh itself no-ops unless the image was built this run.
+        # success() is explicit so a failed integration run never publishes.
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+        env:
+          KNIT_IMAGE_PUBLISH: '1'
+        run: bash tests/integration/lib/publish-image.sh ${{ matrix.cluster }}
