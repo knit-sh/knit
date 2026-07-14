@@ -10,6 +10,17 @@ on:
 jobs:
   coverage:
     runs-on: ubuntu-latest
+    strategy:
+      # Shard the test suite across independent runners. Wall-clock is the
+      # slowest shard, so more shards means a shorter run (at the cost of one
+      # kcov setup per shard). SHARD_COUNT must equal the length of the matrix
+      # AND codecov.notify.after_n_builds in the repo-root codecov.yml, so
+      # Codecov waits for every shard's upload before finalizing the status.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      SHARD_COUNT: 4
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,26 +57,29 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          # Run kcov once per test file, not once over the whole suite. kcov's
-          # bash coverage (PS4 method) accumulates ~45 MB of state per traced
-          # test inside a single process; a single invocation over all ~950
-          # tests grows to ~20 GB and OOM-kills the runner. Running per file lets
-          # each kcov process exit and free its memory between files, bounding
-          # peak RSS to the largest single file (~40 tests -> ~1.8 GB).
+          # This job is one shard of the coverage matrix; run only this shard's
+          # test files (balanced across shards by test count).
           #
-          # The per-file processes are independent, so run them in parallel with
-          # xargs -P. Parallelism is capped at nproc (4 on ubuntu-latest); with
-          # the per-file memory bound above, peak RSS stays well under the
-          # runner's 16 GB even in the worst case of nproc large files at once.
-          # xargs returns 123 if any invocation fails, so a failing test still
-          # fails this step. Results are merged afterwards.
+          # Within the shard, run kcov once per test file rather than once over
+          # the whole subset. kcov's bash coverage (PS4 method) accumulates
+          # ~45 MB of state per traced test inside a single process, so a single
+          # invocation over many tests grows unbounded and OOM-kills the runner.
+          # Per-file invocation lets each kcov process free its memory between
+          # files, bounding peak RSS to the largest single file (~40 tests ->
+          # ~1.8 GB). The independent per-file processes run in parallel with
+          # xargs -P (capped at nproc); with the per-file bound above, peak RSS
+          # stays well under the runner's 16 GB. xargs returns 123 if any
+          # invocation fails, so a failing test still fails this step. The
+          # per-file results are merged, then this shard's merged report is
+          # uploaded to Codecov, which combines all shards for the commit.
           # kcov creates the leaf output dir but not its parent, so make it.
           mkdir -p coverage
-          printf '%s\0' tests/test_*.sh | xargs -0 -P "$(nproc)" -n1 bash -c '
-            t="$1"; name=$(basename "$t" .sh)
-            echo "=== coverage: ${name} ==="
-            kcov --include-path=src "coverage/${name}" bats "$t"
-          ' _
+          maint/coverage-shard.sh "${{ matrix.shard }}" "${SHARD_COUNT}" \
+            | xargs -d '\n' -P "$(nproc)" -n1 bash -c '
+                t="$1"; name=$(basename "$t" .sh)
+                echo "=== coverage: ${name} ==="
+                kcov --include-path=src "coverage/${name}" bats "$t"
+              ' _
           kcov --merge coverage/merged coverage/test_*
 
       - name: Fix coverage paths
@@ -83,4 +97,7 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/merged/kcov-merged/cobertura.xml
+          # Distinct name per shard so Codecov treats these as separate uploads
+          # for the same commit and merges them (line covered in any shard counts).
+          name: shard-${{ matrix.shard }}
           fail_ci_if_error: true
