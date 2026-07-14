@@ -98,83 +98,98 @@ _knit_spack_latest_release() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_spack_clone()
+# @fn _knit_spack_resolve_commit()
 #
-# Shallow-clone a git repository at a specific ref. A tag or branch is cloned
-# directly with --branch; a commit SHA (which --branch cannot take) falls back
-# to init + shallow fetch + checkout of that commit.
+# Resolve a ref (tag, branch, or commit SHA) to its exact commit SHA via the
+# GitHub API. Resolving upstream gives a single download path (the archive URL
+# takes a SHA) and the exact commit for provenance, without needing git.
 #
-# @param url Repository URL.
-# @param dest Destination directory.
-# @param ref Tag, branch, or commit SHA to check out.
+# @param repo Repository name under the spack org ("spack" or "spack-packages").
+# @param ref Tag, branch, or commit SHA to resolve.
+# @return Prints the commit SHA; fatal if it cannot be resolved.
 # ------------------------------------------------------------------------------
-_knit_spack_clone() {
-    local url="$1"
+_knit_spack_resolve_commit() {
+    local repo="$1"
+    local ref="$2"
+    local url="https://api.github.com/repos/spack/${repo}/commits/${ref}"
+    local sha
+    sha="$(curl -s "${url}" | _knit_jq -r '.sha // empty')"
+    if [[ -z "${sha}" ]]; then
+        knit_fatal "Could not resolve ${ref} to a commit in spack/${repo}" \
+            "from ${url}."
+    fi
+    printf '%s' "${sha}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_spack_download()
+#
+# Download a Spack repository at a specific commit as a tarball and extract it
+# into the destination directory. Uses curl and tar (as the sqlite/jq
+# provisioning does) so knit has no git dependency. GitHub serves any commit at
+# archive/<sha>.tar.gz, whose single top-level "<repo>-<sha>/" directory is
+# stripped so files land directly in the destination.
+#
+# @param repo Repository name under the spack org ("spack" or "spack-packages").
+# @param dest Destination directory.
+# @param sha Commit SHA to download.
+# ------------------------------------------------------------------------------
+_knit_spack_download() {
+    local repo="$1"
     local dest="$2"
-    local ref="$3"
+    local sha="$3"
+    local url="https://github.com/spack/${repo}/archive/${sha}.tar.gz"
+    local tarball="${_KNIT_PREFIX}/${repo}-${sha}.tar.gz"
     _knit_ensure_trace_file
-    knit_trace "Cloning ${url} at ${ref}..."
-    if _knit_spack_framed_run "spack: clone ${ref}" \
-            git clone --depth 1 --branch "${ref}" "${url}" "${dest}"; then
-        return 0
+    knit_trace "Downloading spack/${repo} at ${sha}..."
+    if ! _knit_spack_framed_run "spack: download ${repo}" \
+            curl -L -o "${tarball}" "${url}"; then
+        knit_fatal "Could not download spack/${repo} at ${sha} from ${url}." \
+            "See ${_KNIT_TRACE_FILE} for more information."
     fi
-    # --branch only accepts tags/branches; fall back to fetching a commit SHA.
-    knit_trace "Ref ${ref} is not a tag/branch; shallow-fetching it as a commit..."
-    rm -rf "${dest}" > "${_KNIT_TRACE_FILE}" 2>&1
-    git init "${dest}" > "${_KNIT_TRACE_FILE}" 2>&1
-    git -C "${dest}" remote add origin "${url}" > "${_KNIT_TRACE_FILE}" 2>&1
-    if ! _knit_spack_framed_run "spack: fetch ${ref}" \
-            git -C "${dest}" fetch --depth 1 origin "${ref}"; then
-        knit_fatal "Could not fetch ${ref} from ${url}. The remote may forbid" \
-            "fetching arbitrary commits; use a tag or branch instead."
+    knit_trace "Extracting spack/${repo}..."
+    mkdir -p "${dest}"
+    if ! _knit_spack_framed_run "spack: extract ${repo}" \
+            tar -xzf "${tarball}" -C "${dest}" --strip-components=1; then
+        knit_fatal "Could not extract spack/${repo} from ${tarball}." \
+            "See ${_KNIT_TRACE_FILE} for more information."
     fi
-    git -C "${dest}" checkout FETCH_HEAD > "${_KNIT_TRACE_FILE}" 2>&1
+    rm -f "${tarball}"
 }
 
 # ------------------------------------------------------------------------------
 # @fn _knit_spack_write_repos_yaml()
 #
 # Write <spack-root>/etc/spack/repos.yaml pointing the builtin package repo at
-# the pre-cloned spack-packages destination, pinned to a specific commit so
-# concretization is reproducible and needs no network on first use.
-#
-# @param commit Resolved spack-packages commit SHA to pin.
+# the already-extracted spack-packages tree by local filesystem path. The
+# local-path form needs no git: a git-backed "destination" would make Spack
+# treat the tree as a clone (which the tarball extraction is not) and reach for
+# git at runtime. Reproducibility comes from the pinned commit downloaded into
+# that tree, recorded in provenance metadata.
 # ------------------------------------------------------------------------------
 _knit_spack_write_repos_yaml() {
-    local commit="$1"
     local dir="${_KNIT_SPACK_ROOT}/etc/spack"
     mkdir -p "${dir}"
     cat > "${dir}/repos.yaml" <<EOF
 repos:
-  builtin:
-    git: https://github.com/spack/spack-packages.git
-    destination: ${_KNIT_SPACK_PACKAGES_ROOT}
-    commit: ${commit}
+  builtin: ${_KNIT_SPACK_PACKAGES_ROOT}/repos/spack_repo/builtin
 EOF
 }
 
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_spack()
 #
-# Provision a knit-private Spack: resolve refs (latest release when empty),
-# shallow-clone Spack and spack-packages, write a pinned repos.yaml, and record
-# provenance metadata (requested refs and resolved commits).
+# Provision a knit-private Spack: resolve refs (latest release when empty) to
+# exact commits, download and extract Spack and spack-packages with curl+tar,
+# write a local-path repos.yaml, and record provenance metadata (requested refs
+# and resolved commits). No git dependency.
 #
-# @param spack_ref Spack git ref (tag/branch/commit); empty uses the latest
-#        release.
-# @param packages_ref spack-packages git ref; empty uses the latest release.
+# @param spack_ref Spack ref (tag/branch/commit); empty uses the latest release.
+# @param packages_ref spack-packages ref; empty uses the latest release.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_spack() {
     local spack_ref="${1:-}"
     local packages_ref="${2:-}"
-
-    # Spack provisioning is a pair of git clones; fail fast with a clear message
-    # if git is absent, rather than letting the clone fail deep inside
-    # _knit_spack_clone with a misleading "the remote may forbid" diagnostic.
-    if [[ -z "$(_knit_command_path git)" ]]; then
-        knit_fatal "git is required to provision Spack but was not found on" \
-            "PATH. Install git and re-run, or bootstrap without Spack."
-    fi
 
     if [[ -z "${spack_ref}" ]]; then
         knit_trace "Resolving latest spack release..."
@@ -185,18 +200,18 @@ _knit_bootstrap_spack() {
         packages_ref="$(_knit_spack_latest_release spack-packages)"
     fi
 
-    _knit_spack_clone "https://github.com/spack/spack.git" \
-        "${_KNIT_SPACK_ROOT}" "${spack_ref}"
-    _knit_spack_clone "https://github.com/spack/spack-packages.git" \
-        "${_KNIT_SPACK_PACKAGES_ROOT}" "${packages_ref}"
-
-    # Resolve the checked-out refs to exact commits: a tag/branch is turned into
-    # a SHA so the provisioning stays reproducible even after the ref moves.
+    # Resolve refs to exact commits upstream: a tag/branch becomes a SHA so the
+    # provisioning stays reproducible even after the ref moves, and the archive
+    # URL (which takes a SHA) has a single code path for every ref kind.
     local spack_commit packages_commit
-    spack_commit="$(git -C "${_KNIT_SPACK_ROOT}" rev-parse HEAD)"
-    packages_commit="$(git -C "${_KNIT_SPACK_PACKAGES_ROOT}" rev-parse HEAD)"
+    spack_commit="$(_knit_spack_resolve_commit spack "${spack_ref}")"
+    packages_commit="$(_knit_spack_resolve_commit spack-packages "${packages_ref}")"
 
-    _knit_spack_write_repos_yaml "${packages_commit}"
+    _knit_spack_download spack "${_KNIT_SPACK_ROOT}" "${spack_commit}"
+    _knit_spack_download spack-packages "${_KNIT_SPACK_PACKAGES_ROOT}" \
+        "${packages_commit}"
+
+    _knit_spack_write_repos_yaml
 
     knit_trace "Storing spack provenance metadata..."
     knit metadata store --key "__spack_ref__"            --value "${spack_ref}"

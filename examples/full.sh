@@ -21,7 +21,7 @@
 # unchanged on your laptop (local backend) and on an HPC login node (Slurm/PBS)
 # — that portability is the whole point of knit.
 #
-# Prerequisites: bash, git, make, and curl/wget. Bootstrap prefers a system
+# Prerequisites: bash, make, and curl/wget. Bootstrap prefers a system
 # sqlite3/jq when present (it symlinks them into ./.knit); only when they are
 # missing does it build sqlite from source and download jq, which additionally
 # needs a C compiler. Pass --ignore-system-sqlite / --ignore-system-jq to force
@@ -77,7 +77,8 @@
 # jq — a minute or two the first time), creates the ./.knit/knit.db database,
 # and records some metadata. Because this experiment declares a Spack-backed
 # setup (`mclib`, step 11), bootstrap also provisions a knit-private Spack — a
-# clone plus build that adds a few minutes the first time; it needs git. knit
+# tarball download (via curl+tar, no git needed) that adds a few minutes the
+# first time. knit
 # auto-detects the batch scheduler; on a machine without one it falls back to
 # local execution and warns you. You can be explicit:
 #
@@ -341,8 +342,8 @@
 # When an experiment needs specific libraries, knit can manage a private Spack
 # for you, build the exact packages it needs, and record them for reproduction.
 # This file registers a Spack-backed setup called `mclib`, so `bootstrap` (step
-# 2) already provisioned a knit-private Spack under ./.knit — a clone plus build
-# that takes a few minutes the first time.
+# 2) already provisioned a knit-private Spack under ./.knit — a tarball download
+# (curl+tar, no git needed) that takes a few minutes the first time.
 #
 # You can pin the Spack version at bootstrap with --spack (bare = latest
 # release); pass a tag/branch/commit to pin a specific one (and likewise for the
@@ -608,7 +609,8 @@ knit_done
 # Any job that requires this setup inherits the activated environment.
 #
 # Because this experiment declares a Spack environment, `bootstrap` provisions
-# the knit-private Spack automatically (a clone + build), even without --spack.
+# the knit-private Spack automatically (downloaded via curl+tar, no git needed),
+# even without --spack.
 # -----------------------------------------------------------------------------
 knit_register_setup "mclib" _mclib_setup "Build a Spack environment (zlib)."
 knit_with_spack_specs "zlib"

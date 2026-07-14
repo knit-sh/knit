@@ -64,66 +64,82 @@ teardown() {
     [[ "$output" == *"Could not resolve"* ]]
 }
 
-# ---------- _knit_spack_clone ----------
+# ---------- _knit_spack_resolve_commit ----------
 
-@test "clone uses a shallow --branch clone for a tag or branch" {
-    local captured=""
-    _knit_spack_framed_run() { shift; captured="$*"; return 0; }
+@test "resolve_commit returns the sha from the GitHub commits API" {
+    command -v jq >/dev/null 2>&1 || skip "jq not available"
+    curl() { printf '%s' '{"sha":"deadbeef"}'; }
+    _knit_jq() { jq "$@"; }
 
-    _knit_spack_clone "https://example/repo.git" "${_KNIT_SPACK_ROOT}" "v1.0"
-
-    [ "${captured}" = "git clone --depth 1 --branch v1.0 https://example/repo.git ${_KNIT_SPACK_ROOT}" ]
+    run _knit_spack_resolve_commit spack "v1.0"
+    [ "$status" -eq 0 ]
+    [ "$output" = "deadbeef" ]
 }
 
-@test "clone falls back to init+fetch+checkout for a commit SHA" {
-    local last_title=""
+@test "resolve_commit is fatal when the API returns no sha" {
+    command -v jq >/dev/null 2>&1 || skip "jq not available"
+    curl() { printf '%s' '{}'; }
+    _knit_jq() { jq "$@"; }
+
+    run _knit_spack_resolve_commit spack "nope"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Could not resolve"* ]]
+}
+
+# ---------- _knit_spack_download ----------
+
+@test "download curls the archive tarball then extracts it stripping one level" {
+    local -a titles=() cmds=()
     _knit_spack_framed_run() {
-        last_title="$1"
+        titles+=("$1")
         shift
-        # Simulate --branch rejecting a commit SHA, then a successful fetch.
-        [[ "$1 $2" == "git clone" ]] && return 1
+        cmds+=("$*")
         return 0
     }
-    git() { :; }   # init / remote add / checkout no-ops
 
-    _knit_spack_clone "https://example/repo.git" "${_KNIT_SPACK_ROOT}" "abc123"
+    _knit_spack_download spack "${_KNIT_SPACK_ROOT}" "abc123"
 
-    [ "${last_title}" = "spack: fetch abc123" ]
+    # First call downloads the archive/<sha>.tar.gz with curl.
+    [[ "${cmds[0]}" == "curl -L -o "*"https://github.com/spack/spack/archive/abc123.tar.gz" ]]
+    # Second call extracts into the destination, stripping the top-level dir.
+    [[ "${cmds[1]}" == tar\ -xzf\ *" -C ${_KNIT_SPACK_ROOT} --strip-components=1" ]]
+    # The destination is created before extraction.
+    [ -d "${_KNIT_SPACK_ROOT}" ]
 }
 
-@test "clone is fatal when a commit SHA cannot be fetched" {
-    _knit_spack_framed_run() { return 1; }   # both clone and fetch fail
-    git() { :; }
+@test "download is fatal when the curl download fails" {
+    _knit_spack_framed_run() { return 1; }
 
-    run _knit_spack_clone "https://example/repo.git" "${_KNIT_SPACK_ROOT}" "abc123"
+    run _knit_spack_download spack "${_KNIT_SPACK_ROOT}" "abc123"
 
     [ "$status" -ne 0 ]
-    [[ "$output" == *"Could not fetch"* ]]
+    [[ "$output" == *"Could not download"* ]]
 }
 
 # ---------- _knit_spack_write_repos_yaml ----------
 
-@test "repos.yaml pins the spack-packages destination and commit" {
-    _knit_spack_write_repos_yaml "deadbeef"
+@test "repos.yaml points the builtin repo at the local spack-packages path" {
+    _knit_spack_write_repos_yaml
 
     local f="${_KNIT_SPACK_ROOT}/etc/spack/repos.yaml"
     [ -f "${f}" ]
-    grep -q "git: https://github.com/spack/spack-packages.git" "${f}"
-    grep -q "destination: ${_KNIT_SPACK_PACKAGES_ROOT}" "${f}"
-    grep -q "commit: deadbeef" "${f}"
+    grep -q "builtin: ${_KNIT_SPACK_PACKAGES_ROOT}/repos/spack_repo/builtin" "${f}"
+    # The local-path form uses no git so runtime never reaches for it.
+    ! grep -q "git:" "${f}"
+    ! grep -q "commit:" "${f}"
 }
 
 # ---------- _knit_bootstrap_spack (provenance + latest resolution) ----------
 
-# Stub out cloning/repos.yaml and capture the metadata that gets stored.
+# Stub out downloading/repos.yaml and capture the metadata that gets stored.
 _stub_provisioning() {
-    _knit_spack_clone() { :; }
+    _knit_spack_download() { :; }
     _knit_spack_write_repos_yaml() { :; }
-    # git -C <dir> rev-parse HEAD  ->  a per-repo fake commit.
-    git() {
-        case "$2" in
-            *spack-packages) printf 'pkgsha' ;;
-            *)               printf 'spacksha' ;;
+    # _knit_spack_resolve_commit <repo> <ref>  ->  a per-repo fake commit.
+    _knit_spack_resolve_commit() {
+        case "$1" in
+            spack-packages) printf 'pkgsha' ;;
+            *)              printf 'spacksha' ;;
         esac
     }
     METALOG="${__TEST_TMPDIR}/meta"
@@ -169,16 +185,6 @@ _stub_provisioning() {
     grep -q "__spack_ref__=myref" "${METALOG}"
     grep -q "__spack_packages_ref__=mypkgref" "${METALOG}"
     ! grep -q "SHOULD_NOT_BE_CALLED" "${METALOG}"
-}
-
-@test "bootstrap_spack is fatal with a clear message when git is missing" {
-    _stub_provisioning
-    # git absent: _knit_command_path resolves nothing for it.
-    _knit_command_path() { [[ "$1" == "git" ]] && return 0 || command -v "$1"; }
-    run _knit_bootstrap_spack "" ""
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"git is required to provision Spack"* ]]
-    [[ "$output" != *"remote may forbid"* ]]
 }
 
 # ---------- knit spack wrapper (_knit_spack_exec) ----------
