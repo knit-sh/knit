@@ -2002,7 +2002,10 @@ _knit_record_invocation() {
     fi
 
     printf -v "${recorded_var}" '%s' "1"
-    _knit_db_record_row "${cmd}" "${table}" "${id}" "$@"
+    # Provenance edge context (parent id/name, edge type, timestamps) is not yet
+    # threaded through here — that lands in a later milestone. Pass an empty edge
+    # type so only the data row is recorded, exactly as before provenance existed.
+    _knit_db_record_invocation "${cmd}" "${table}" "${id}" "" "" "" "" "" "$@"
 }
 
 # ------------------------------------------------------------------------------

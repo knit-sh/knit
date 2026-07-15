@@ -344,7 +344,7 @@ __test_register_cmd() {
     [ "$result" -eq 0 ]
 }
 
-# ---------- _knit_db_record_row ----------
+# ---------- _knit_db_record_invocation ----------
 
 @test "invoking a table command records a row with params, flags and outputs" {
     knit_register _t_rec_fn "reccmd" "Rec."
@@ -468,6 +468,58 @@ __test_register_cmd() {
         _knit_invoke_command "ricmd"
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM ris;")" \
         = "33333333-3333-7333-8333-333333333333" ]
+}
+
+# ---------- _knit_db_record_invocation provenance edge ----------
+
+@test "record row with empty edge type writes only the data row" {
+    knit_register _t_noedge_fn "noedgecmd" "NoEdge."
+    knit_with_table "noedge_t"
+    _t_noedge_fn() { :; }
+    knit_done
+    _knit_prov_create_table
+    declare -gA _KNIT_CMD_noedgecmd_output_value=()
+
+    _knit_db_record_invocation "noedgecmd" "noedge_t" "cid" "" "" "" "" ""
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM noedge_t;")" -eq 1 ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM __provenance__;")" -eq 0 ]
+}
+
+@test "record row writes the data row and a call edge in one transaction" {
+    knit_register _t_edge_fn "edgecmd" "Edge."
+    knit_with_optional "label:string" "def" "A label."
+    knit_with_table "edges_t"
+    _t_edge_fn() { :; }
+    knit_done
+    _knit_prov_create_table
+    declare -gA _KNIT_CMD_edgecmd_output_value=()
+
+    _knit_db_record_invocation "edgecmd" "edges_t" "child-1" \
+        "parent-1" "top" "call" "100.5" "101.5" "--label" "hi"
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM edges_t;")" -eq 1 ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM edges_t;")" = "child-1" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM edges_t;")" = "hi" ]
+
+    local edge
+    edge=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT parent_id,parent_name,child_id,child_name,edge_type,start_time,end_time FROM __provenance__;")
+    [ "$edge" = "parent-1|top|child-1|edgecmd|call|100.5|101.5" ]
+}
+
+@test "record row rolls back the data row when the edge insert fails" {
+    knit_register _t_atom_fn "atomcmd" "Atom."
+    knit_with_table "atoms_t"
+    _t_atom_fn() { :; }
+    knit_done
+    declare -gA _KNIT_CMD_atomcmd_output_value=()
+    # __provenance__ is intentionally NOT created, so the edge insert fails and
+    # the whole transaction (row + edge) must roll back.
+
+    run _knit_db_record_invocation "atomcmd" "atoms_t" "child-x" "p" "top" "call" "1" "2"
+    [ "$status" -ne 0 ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM atoms_t;")" -eq 0 ]
 }
 
 # ---------- _knit_db_update_row ----------

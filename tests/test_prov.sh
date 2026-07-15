@@ -1,0 +1,105 @@
+#!/usr/bin/env bats
+
+setup() {
+    source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
+    knit_test_require_sqlite
+    knit_test_db_setup
+}
+
+teardown() {
+    knit_test_db_teardown
+}
+
+# ---------- _knit_prov_create_table ----------
+
+@test "create table makes the __provenance__ table" {
+    _knit_prov_create_table
+    local n
+    n=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='__provenance__';")
+    [ "$n" -eq 1 ]
+}
+
+@test "create table defines the schema columns in order" {
+    _knit_prov_create_table
+    local names
+    names=$(sqlite3 "${_KNIT_DATABASE}" \
+        "PRAGMA table_info('__provenance__');" | cut -d'|' -f2 | tr '\n' ',')
+    [ "$names" = "parent_id,parent_name,child_id,child_name,edge_type,start_time,end_time," ]
+}
+
+@test "create table gives the timestamp columns REAL affinity" {
+    _knit_prov_create_table
+    local start_type end_type
+    start_type=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT type FROM pragma_table_info('__provenance__') WHERE name='start_time';")
+    end_type=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT type FROM pragma_table_info('__provenance__') WHERE name='end_time';")
+    [ "$start_type" = "REAL" ]
+    [ "$end_type" = "REAL" ]
+}
+
+@test "create table is idempotent" {
+    _knit_prov_create_table
+    _knit_prov_create_table
+    local n
+    n=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='__provenance__';")
+    [ "$n" -eq 1 ]
+}
+
+# ---------- _knit_prov_record_edge ----------
+
+@test "record edge inserts a call edge with all fields" {
+    _knit_prov_create_table
+    _knit_prov_record_edge "pid" "submit:mc" "cid" "run" "call" "10.5" "12.25"
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM __provenance__;")" -eq 1 ]
+    local row
+    row=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT parent_id,parent_name,child_id,child_name,edge_type,start_time,end_time FROM __provenance__;")
+    [ "$row" = "pid|submit:mc|cid|run|call|10.5|12.25" ]
+}
+
+@test "record edge stores empty timestamps as NULL (uses edge)" {
+    _knit_prov_create_table
+    _knit_prov_record_edge "sid" "setup:libs" "cid" "submit:mc" "uses" "" ""
+
+    local nulls
+    nulls=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM __provenance__ WHERE start_time IS NULL AND end_time IS NULL;")
+    [ "$nulls" -eq 1 ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT edge_type FROM __provenance__;")" = "uses" ]
+}
+
+@test "record edge records an empty parent for a root invocation" {
+    _knit_prov_create_table
+    _knit_prov_record_edge "" "" "cid" "top" "call" "1" "2"
+
+    local roots
+    roots=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM __provenance__ WHERE parent_id='' AND parent_name='';")
+    [ "$roots" -eq 1 ]
+}
+
+@test "record edge escapes single quotes in fields" {
+    _knit_prov_create_table
+    _knit_prov_record_edge "pid" "a'b" "cid" "c'd" "call" "1" "2"
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT parent_name FROM __provenance__;")" = "a'b" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT child_name FROM __provenance__;")" = "c'd" ]
+}
+
+# ---------- _knit_prov_edge_sql ----------
+
+@test "edge insert sql renders empty timestamps as bare NULL" {
+    local sql
+    sql=$(_knit_prov_edge_sql "p" "pn" "c" "cn" "uses" "" "")
+    [[ "$sql" == *"'uses', NULL, NULL);" ]]
+}
+
+@test "edge insert sql quotes non-empty timestamps" {
+    local sql
+    sql=$(_knit_prov_edge_sql "p" "pn" "c" "cn" "call" "3.5" "4.5")
+    [[ "$sql" == *"'call', '3.5', '4.5');" ]]
+}

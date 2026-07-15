@@ -78,6 +78,7 @@ _knit_bootstrap_sqlite() {
 
     knit_trace "Creating database and tables..."
     _knit_create_metadata_table
+    _knit_prov_create_table
 }
 
 # ------------------------------------------------------------------------------

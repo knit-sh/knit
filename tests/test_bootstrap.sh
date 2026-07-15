@@ -61,9 +61,10 @@ _setup_sqlite_decision() {
     printf '#!/bin/sh\n' > "${__fake_sqlite}"
     chmod +x "${__fake_sqlite}"
     __sqlite_build_marker="${__TEST_TMPDIR}/sqlite-built"
-    # Stub the from-source build and the metadata table creation.
+    # Stub the from-source build and the framework table creation.
     eval '_knit_build_sqlite() { : > "'"${__sqlite_build_marker}"'"; }'
     eval '_knit_create_metadata_table() { :; }'
+    eval '_knit_prov_create_table() { :; }'
 }
 
 @test "bootstrap sqlite symlinks the system binary when present and no flag" {

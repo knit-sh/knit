@@ -428,80 +428,115 @@ _knit_db_setup_table() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_db_record_row()
+# @fn _knit_db_record_invocation()
 #
-# Insert one row into a command's table, recording an invocation. The row is
-# built from the command's declared schema: the "id" column (a caller-supplied
-# uuid — the canonical job identifier), then the value of every required
-# parameter, optional parameter, and flag (read from the expanded invocation
-# arguments), then every output (read from the in-memory
+# Insert one row into a command's table, recording an invocation, and — when a
+# provenance edge is requested — the matching edge into the __provenance__ table,
+# both in a single transaction. The row is built from the command's declared
+# schema: the "id" column (a caller-supplied uuid), then the value of every
+# required parameter, optional parameter, and flag (read from the expanded
+# invocation arguments), then every output (read from the in-memory
 # _KNIT_CMD_<cmd>_output_value store populated by knit_output, falling back to
 # the output's declared default). Column names are the normalized (underscored)
 # knit names, matching the schema created by _knit_db_setup_table.
 #
-# @param cmd   Mangled command name (as used in _KNIT_CMD_* variables).
-# @param table Table to insert into.
-# @param id    Value for the "id" column (the job uuid).
-# @param ...   The expanded invocation arguments (params/flags to read from).
+# The provenance edge, when requested, has the recorded row as its child
+# (child_id = id, child_name = the demangled command name). An empty edge_type
+# means "record no edge" — the row is inserted on its own, unchanged from before
+# provenance existed. A non-empty edge_type (e.g. "call") writes both the row and
+# the edge atomically, so a partial state cannot be observed.
+#
+# @param cmd         Mangled command name (as used in _KNIT_CMD_* variables).
+# @param table       Table to insert into.
+# @param id          Value for the "id" column (the child's uuid).
+# @param parent_id   Provenance edge parent id (empty for a root); see prov.sh.
+# @param parent_name Provenance edge parent name (empty for a root).
+# @param edge_type   Edge type (e.g. "call"), or empty to record no edge.
+# @param start_time  Edge start_time (epoch seconds, empty -> NULL).
+# @param end_time    Edge end_time (epoch seconds, empty -> NULL).
+# @param ...         The expanded invocation arguments (params/flags to read).
 # ------------------------------------------------------------------------------
-_knit_db_record_row() {
+_knit_db_record_invocation() {
     local cmd="$1"
     local table="$2"
     local id="$3"
-    shift 3
+    local parent_id="$4"
+    local parent_name="$5"
+    local edge_type="$6"
+    local start_time="$7"
+    local end_time="$8"
+    shift 8
     local -a args=("$@")
 
     local -a cols=() vals=()
     cols+=("$(_knit_db_sql_ident "id")")
     vals+=("'$(_knit_sql_escape "${id}")'")
 
-    # A wrapper records the whole forwarded command line in a single "args"
-    # column (it has no declared parameters or outputs).
     if _knit_command_is_wrapper "${cmd}"; then
+        # A wrapper records the whole forwarded command line in a single "args"
+        # column (it has no declared parameters or outputs).
         local rendered
         rendered=$(_knit_str_render_cmd args)
         cols+=("$(_knit_db_sql_ident "args")")
         vals+=("'$(_knit_sql_escape "${rendered}")'")
-        local wcols_sql wvals_sql
-        wcols_sql=$(IFS=', '; printf '%s' "${cols[*]}")
-        wvals_sql=$(IFS=', '; printf '%s' "${vals[*]}")
-        _knit_sqlite3_write \
-            "INSERT INTO $(_knit_db_sql_ident "${table}") (${wcols_sql}) VALUES (${wvals_sql});"
+    else
+        # Parameters and flags: values come from the expanded invocation args.
+        local group name value
+        for group in required optional flags; do
+            while IFS= read -r name; do
+                [[ -z "${name}" ]] && continue
+                value="$(knit_get_parameter "${name}" "${args[@]}")" || value=""
+                cols+=("$(_knit_db_sql_ident "${name}")")
+                vals+=("'$(_knit_sql_escape "${value}")'")
+            done < <(_knit_set_iter "_KNIT_CMD_${cmd}_${group}" | sort)
+        done
+
+        # Outputs: values come from the in-memory store, else the declared
+        # default.
+        # shellcheck disable=SC2178 # nameref to the command's output-value array
+        local -n outvals="_KNIT_CMD_${cmd}_output_value"
+        local default_var
+        while IFS= read -r name; do
+            [[ -z "${name}" ]] && continue
+            if [[ -v outvals["${name}"] ]]; then
+                value="${outvals["${name}"]}"
+            else
+                default_var=$(_knit_output_default_var "${cmd}" "${name}")
+                value="${!default_var}"
+            fi
+            cols+=("$(_knit_db_sql_ident "${name}")")
+            vals+=("'$(_knit_sql_escape "${value}")'")
+        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
+    fi
+
+    local cols_sql vals_sql row_sql
+    cols_sql=$(IFS=', '; printf '%s' "${cols[*]}")
+    vals_sql=$(IFS=', '; printf '%s' "${vals[*]}")
+    row_sql="INSERT INTO $(_knit_db_sql_ident "${table}") (${cols_sql}) VALUES (${vals_sql});"
+
+    # No edge requested: insert the row on its own (pre-provenance behavior).
+    if [[ -z "${edge_type}" ]]; then
+        _knit_sqlite3_write "${row_sql}"
         return 0
     fi
 
-    # Parameters and flags: values come from the expanded invocation arguments.
-    local group name value
-    for group in required optional flags; do
-        while IFS= read -r name; do
-            [[ -z "${name}" ]] && continue
-            value="$(knit_get_parameter "${name}" "${args[@]}")" || value=""
-            cols+=("$(_knit_db_sql_ident "${name}")")
-            vals+=("'$(_knit_sql_escape "${value}")'")
-        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_${group}" | sort)
-    done
-
-    # Outputs: values come from the in-memory store, else the declared default.
-    # shellcheck disable=SC2178 # nameref to the command's output-value array
-    local -n outvals="_KNIT_CMD_${cmd}_output_value"
-    local default_var
-    while IFS= read -r name; do
-        [[ -z "${name}" ]] && continue
-        if [[ -v outvals["${name}"] ]]; then
-            value="${outvals["${name}"]}"
-        else
-            default_var=$(_knit_output_default_var "${cmd}" "${name}")
-            value="${!default_var}"
-        fi
-        cols+=("$(_knit_db_sql_ident "${name}")")
-        vals+=("'$(_knit_sql_escape "${value}")'")
-    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
-
-    local cols_sql vals_sql
-    cols_sql=$(IFS=', '; printf '%s' "${cols[*]}")
-    vals_sql=$(IFS=', '; printf '%s' "${vals[*]}")
-    _knit_sqlite3_write \
-        "INSERT INTO $(_knit_db_sql_ident "${table}") (${cols_sql}) VALUES (${vals_sql});"
+    # Edge requested: write the row and its provenance edge atomically, so a
+    # reader never sees a row without its edge (or vice versa).
+    local child_name edge_sql
+    child_name=$(_knit_command_demangle "${cmd}")
+    edge_sql=$(_knit_prov_edge_sql \
+        "${parent_id}" "${parent_name}" "${id}" "${child_name}" \
+        "${edge_type}" "${start_time}" "${end_time}")
+    # ".bail on" makes the sqlite3 CLI stop at the first failing statement and
+    # roll the open transaction back; without it (the default) a failed edge
+    # insert would leave the row committed, defeating atomicity.
+    _knit_sqlite3_write <<EOF
+.bail on
+BEGIN;
+${row_sql}
+${edge_sql}
+COMMIT;
+EOF
 }
 
 # ------------------------------------------------------------------------------
