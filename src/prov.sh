@@ -13,6 +13,27 @@ declare -g _KNIT_PROV_TABLE
 _KNIT_PROV_TABLE="__provenance__"
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_PROV_TABLE_ENSURED
+#
+# Set to "1" once the provenance table has been ensured in this process (see
+# _knit_prov_ensure_table), so the idempotent CREATE runs at most once per run.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_PROV_TABLE_ENSURED
+_KNIT_PROV_TABLE_ENSURED=""
+
+# ------------------------------------------------------------------------------
+# @fn _knit_prov_now()
+#
+# Print the current time as a REAL number of seconds since the Unix epoch, at the
+# best precision available. Used for a call edge's start_time (captured when the
+# frame is pushed) and end_time (captured at record time), so a duration is a
+# plain subtraction.
+# ------------------------------------------------------------------------------
+_knit_prov_now() {
+    date +%s.%N
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_prov_create_table()
 #
 # Create the provenance edge table if it does not already exist. Each row is one
@@ -33,6 +54,23 @@ CREATE TABLE IF NOT EXISTS $(_knit_db_sql_ident "${_KNIT_PROV_TABLE}") (
     end_time     REAL
 );
 EOF
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_prov_ensure_table()
+#
+# Ensure the provenance edge table exists before an edge is written, creating it
+# lazily on first use. A freshly bootstrapped experiment already has the table
+# (created at bootstrap), but a database bootstrapped before this feature shipped
+# does not; ensuring it here lets a new invocation record edges (and keeps its
+# data-row-plus-edge transaction from rolling back) rather than failing. The
+# create is idempotent and runs at most once per process, guarded by
+# _KNIT_PROV_TABLE_ENSURED.
+# ------------------------------------------------------------------------------
+_knit_prov_ensure_table() {
+    [[ -n "${_KNIT_PROV_TABLE_ENSURED}" ]] && return 0
+    _knit_prov_create_table
+    _KNIT_PROV_TABLE_ENSURED="1"
 }
 
 # ------------------------------------------------------------------------------

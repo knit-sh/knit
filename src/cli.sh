@@ -28,6 +28,15 @@ declare -ga _KNIT_EXECUTING_COMMAND=()
 declare -ga _KNIT_EXECUTING_ROW_ID=()
 
 # ------------------------------------------------------------------------------
+# Stack of start timestamps, parallel to _KNIT_EXECUTING_COMMAND: entry i holds
+# the epoch seconds captured when frame i was pushed (before its body ran).
+# _knit_record_invocation reads the top entry as the call edge's start_time and
+# pairs it with an end_time captured at record time (after the body and
+# after-callbacks), so an invocation's duration is a plain subtraction.
+# ------------------------------------------------------------------------------
+declare -ga _KNIT_EXECUTING_START_TIME=()
+
+# ------------------------------------------------------------------------------
 # When non-empty, output recording is suppressed: knit_output discards its value
 # (with a warning) and _knit_record_invocation records no row. This is a generic
 # recording concept (the CLI layer stays unaware of MPI); the `knit run` per-rank
@@ -1784,6 +1793,7 @@ _knit_invoke_command() {
         local _knit_wrapper_cmd="${cmd}"
         _KNIT_EXECUTING_COMMAND+=("${cmd}")
         _KNIT_EXECUTING_ROW_ID+=("$(_knit_resolve_row_id "${cmd}")")
+        _KNIT_EXECUTING_START_TIME+=("$(_knit_prov_now)")
         $func "$@"
         local wrapper_status=$?
         # Keep the command on the stack through the after-callbacks (see the
@@ -1795,6 +1805,7 @@ _knit_invoke_command() {
         _knit_record_invocation "${_knit_wrapper_cmd}" "$@"
         unset '_KNIT_EXECUTING_COMMAND[-1]'
         unset '_KNIT_EXECUTING_ROW_ID[-1]'
+        unset '_KNIT_EXECUTING_START_TIME[-1]'
         return "${wrapper_status}"
     fi
     # check if the first argument is --help
@@ -1828,6 +1839,7 @@ _knit_invoke_command() {
     # call the function
     _KNIT_EXECUTING_COMMAND+=("${cmd}")
     _KNIT_EXECUTING_ROW_ID+=("$(_knit_resolve_row_id "${cmd}")")
+    _KNIT_EXECUTING_START_TIME+=("$(_knit_prov_now)")
     $func "${args[@]}"
     local func_status=$?
     # call the "after" callbacks. The command stays on _KNIT_EXECUTING_COMMAND
@@ -1841,6 +1853,7 @@ _knit_invoke_command() {
     _knit_record_invocation "${cmd}" "${args[@]}"
     unset '_KNIT_EXECUTING_COMMAND[-1]'
     unset '_KNIT_EXECUTING_ROW_ID[-1]'
+    unset '_KNIT_EXECUTING_START_TIME[-1]'
     return "${func_status}"
 }
 
@@ -2003,28 +2016,130 @@ _knit_record_row_now() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_provenance_enabled()
+#
+# Decide whether an invocation of a command participates in the provenance graph:
+# a participating command records a "call" edge and acts as an in-process parent
+# frame for the commands it invokes; a non-participating one is transparent (no
+# edge, and skipped when a child resolves its parent — see
+# _knit_resolve_parent_context).
+#
+# The M3 policy is default-by-visibility: hidden commands (a "_"-prefixed name,
+# e.g. the "_run" worker, or "__"-private framework commands) are transparent so
+# internal plumbing never shows up in the graph; every other (visible) command
+# participates. The explicit knit_with_provenance / knit_without_provenance marks
+# and their lexical inheritance land in a later milestone.
+#
+# Returns 0 (success) when the command participates, 1 otherwise.
+#
+# @param cmd Mangled command name.
+# ------------------------------------------------------------------------------
+_knit_provenance_enabled() {
+    local cmd="$1"
+    local hidden_var="_KNIT_CMD_${cmd}_is_hidden"
+    [[ "${!hidden_var:-false}" != "true" ]]
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_resolve_parent_context()
+#
+# Resolve the parent of the currently-recording invocation for its "call" edge,
+# writing the parent's row id and demangled command name into the two named
+# output variables. The precedence (innermost wins) is:
+#
+#   1. In-process parent frame — the nearest participating frame below the top of
+#      _KNIT_EXECUTING_COMMAND (transparent frames, per _knit_provenance_enabled,
+#      are skipped). Covers in-process nesting and setup dispatch (boundaries
+#      B1/B4). Its id comes from the parallel _KNIT_EXECUTING_ROW_ID stack.
+#   2. Exported env — KNIT_PARENT_ID / KNIT_PARENT_COMMAND, set by a caller across
+#      a process boundary (a job's batch script, a run's launcher subshell;
+#      boundaries B2/B3, wired in later milestones) and read by the first command
+#      in the re-entered process, which has no in-process parent.
+#   3. Root — neither available: both outputs are empty.
+#
+# The current frame is the top of the stacks (it is recorded before being
+# popped), so the in-process search starts one below the top.
+#
+# @param out_id   Name of the variable to receive the parent row id.
+# @param out_name Name of the variable to receive the parent command name.
+# ------------------------------------------------------------------------------
+_knit_resolve_parent_context() {
+    local -n _knit_rpc_out_id="$1"
+    local -n _knit_rpc_out_name="$2"
+    _knit_rpc_out_id=""
+    _knit_rpc_out_name=""
+
+    # 1. Nearest participating in-process parent frame (below the current top).
+    local i
+    for (( i = ${#_KNIT_EXECUTING_COMMAND[@]} - 2; i >= 0; i-- )); do
+        local pcmd="${_KNIT_EXECUTING_COMMAND[i]}"
+        if _knit_provenance_enabled "${pcmd}"; then
+            _knit_rpc_out_id="${_KNIT_EXECUTING_ROW_ID[i]}"
+            _knit_rpc_out_name="$(_knit_command_demangle "${pcmd}")"
+            return 0
+        fi
+    done
+
+    # 2. Context exported across a process boundary.
+    if [[ -n "${KNIT_PARENT_ID:-}" || -n "${KNIT_PARENT_COMMAND:-}" ]]; then
+        _knit_rpc_out_id="${KNIT_PARENT_ID:-}"
+        _knit_rpc_out_name="${KNIT_PARENT_COMMAND:-}"
+        return 0
+    fi
+
+    # 3. Root invocation: parent stays empty.
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_record_invocation()
 #
-# Record the just-completed invocation of a command as one row in its table,
-# when the command declared one with knit_with_table and the experiment is
-# bootstrapped. The row id is the id resolved when this frame was pushed (see
+# Record the just-completed invocation of a command: its data row (when the
+# command declared a table with knit_with_table) and, when the command
+# participates in the provenance graph (see _knit_provenance_enabled), a "call"
+# edge to its parent. Both are written only when the experiment is bootstrapped.
+#
+# The row id is the id resolved when this frame was pushed (see
 # _knit_resolve_row_id) and read back from the top of _KNIT_EXECUTING_ROW_ID, so
 # it matches the id a nested child already saw as its parent. Recording therefore
 # runs while the frame is still on the stacks (before it is popped).
+#
+# The four cases:
+#   - transparent (hidden) command with no table: nothing to record;
+#   - transparent command with a table: the data row only (excluded from the
+#     graph — provenance participation and data-row recording are orthogonal);
+#   - participating command with a table: the data row and the "call" edge in one
+#     transaction (_knit_db_record_invocation);
+#   - participating command with no table: the "call" edge on its own
+#     (_knit_prov_record_edge), whose child id joins to no data row (dangling).
+#
+# The edge's start_time was captured when the frame was pushed (top of
+# _KNIT_EXECUTING_START_TIME); its end_time is captured here, after the body and
+# after-callbacks.
 #
 # @param cmd Mangled command name.
 # @param ... The expanded invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_record_invocation() {
-    # Suppressed on non-root ranks of a run: record no row, so a run's per-app row
-    # is written exactly once (by rank 0) even though every rank re-enters the app.
+    # Suppressed on non-root ranks of a run: record no row and no edge, so a run's
+    # per-app row is written exactly once (by rank 0) even though every rank
+    # re-enters the app.
     [[ -n "${_KNIT_RECORDING_SUPPRESSED}" ]] && return 0
     local cmd="$1"
     shift
+    _knit_is_bootstrapped || return 0
+
     local table_var="_KNIT_CMD_${cmd}_table"
     local table="${!table_var:-}"
-    [[ -z "${table}" ]] && return 0
-    _knit_is_bootstrapped || return 0
+
+    # A hidden command is transparent to the provenance graph (no edge); it may
+    # still record a data row if it declared a table (orthogonal). A hidden,
+    # table-less command has nothing to record at all.
+    local prov_enabled="false"
+    _knit_provenance_enabled "${cmd}" && prov_enabled="true"
+    if [[ -z "${table}" && "${prov_enabled}" != "true" ]]; then
+        return 0
+    fi
 
     # Record each invocation once. A command may record its row early via
     # _knit_record_row_now (knit submit records the submission before a blocking
@@ -2046,10 +2161,36 @@ _knit_record_invocation() {
     fi
 
     printf -v "${recorded_var}" '%s' "1"
-    # Provenance edge context (parent id/name, edge type, timestamps) is not yet
-    # threaded through here — that lands in a later milestone. Pass an empty edge
-    # type so only the data row is recorded, exactly as before provenance existed.
-    _knit_db_record_invocation "${cmd}" "${table}" "${id}" "" "" "" "" "" "$@"
+
+    # Transparent command: record only the data row (no edge), exactly as before
+    # provenance existed.
+    if [[ "${prov_enabled}" != "true" ]]; then
+        _knit_db_record_invocation "${cmd}" "${table}" "${id}" "" "" "" "" "" "$@"
+        return 0
+    fi
+
+    # Participating command: resolve the parent context and the call edge's
+    # timestamps, then write the edge (with the data row, if any).
+    _knit_prov_ensure_table
+    local parent_id parent_name
+    _knit_resolve_parent_context parent_id parent_name
+    local start_time=""
+    if [[ ${#_KNIT_EXECUTING_START_TIME[@]} -gt 0 ]]; then
+        start_time="${_KNIT_EXECUTING_START_TIME[-1]}"
+    fi
+    local end_time
+    end_time="$(_knit_prov_now)"
+
+    if [[ -n "${table}" ]]; then
+        _knit_db_record_invocation "${cmd}" "${table}" "${id}" \
+            "${parent_id}" "${parent_name}" "call" "${start_time}" "${end_time}" "$@"
+    else
+        # No data row: record the edge on its own; its child id joins to nothing.
+        local child_name
+        child_name="$(_knit_command_demangle "${cmd}")"
+        _knit_prov_record_edge "${parent_id}" "${parent_name}" "${id}" \
+            "${child_name}" "call" "${start_time}" "${end_time}"
+    fi
 }
 
 # ------------------------------------------------------------------------------

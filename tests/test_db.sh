@@ -380,15 +380,21 @@ __test_register_cmd() {
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT result FROM defs;")" = "noresult" ]
 }
 
-@test "invoking a command without a table records nothing" {
+@test "invoking a visible command without a table records an edge but no data row" {
+    _knit_prov_create_table
     knit_register _t_nt_fn "ntcmd" "No table."
     _t_nt_fn() { :; }
     knit_done
 
     run _knit_invoke_command "ntcmd"
     [ "$status" -eq 0 ]
+    # No data table is created for a table-less command...
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ntcmd';")" -eq 0 ]
+    # ...but a visible command still appears in the provenance graph: it records a
+    # (root) call edge whose child id joins to no data row (dangling).
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT child_name,edge_type FROM __provenance__;")" = "ntcmd|call" ]
 }
 
 @test "recording is skipped when _KNIT_RECORDING_SUPPRESSED is set" {
