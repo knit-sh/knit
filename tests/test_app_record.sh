@@ -51,8 +51,8 @@ _stub_dispatch() {
     # The row id is the run UUID; app is the launched app; the placement columns
     # hold the RESOLVED values (procs 4 over 2 hosts => 2 per node).
     run sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT id, app, procs, procs_per_node, hostnames, job FROM runs;"
-    [ "$output" = "aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa|myapp|4|2|nodeA,nodeB|job-uuid" ]
+        "SELECT id, app, procs, procs_per_node, hostnames FROM runs;"
+    [ "$output" = "aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa|myapp|4|2|nodeA,nodeB" ]
 }
 
 @test "dispatcher overwrites empty as-requested placement with resolved values" {
@@ -88,18 +88,21 @@ _stub_dispatch() {
     [ "$output" = "launcher ./exp.sh _run -- myapp --n 5" ]
 }
 
-# ---------- per-app row: rank-0 recording keyed by the run UUID ----------
+# ---------- per-app row: rank-0 recording under a fresh distinct id ----------
 
-@test "rank 0 records the per-app row under the run UUID" {
+@test "rank 0 records the per-app row under a fresh distinct id" {
     export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
     export KNIT_RUN_ID="aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"
+    _knit_uuidv7() { printf '%s' "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb"; }
 
     # Rank 0 re-enters the app command directly (as the worker does); the per-app
-    # row's id is the run UUID, not the job UUID, so it joins the runs row.
+    # row now mints its own id rather than reusing the run UUID (the provenance
+    # edge links them).
     _knit_invoke_command run myapp --n 7
 
     run sqlite3 "${_KNIT_DATABASE}" "SELECT id, n FROM myapp;"
-    [ "$output" = "aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa|7" ]
+    [ "$output" = "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb|7" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM myapp;")" != "${KNIT_RUN_ID}" ]
 }
 
 @test "non-root ranks record no per-app row" {
@@ -113,20 +116,30 @@ _stub_dispatch() {
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM myapp;")" = "0" ]
 }
 
-@test "the runs row and the per-app row share the run UUID" {
-    _stub_dispatch
+@test "the runs row and the per-app row have distinct ids" {
     export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
+    # Use the real (random) uuid generator so each minted id genuinely differs:
+    # the dispatcher's runs row and rank 0's per-app row now mint their own ids
+    # (the provenance edge, added in a later milestone, is what links them rather
+    # than a shared id). A deterministic stub cannot be used here because
+    # _knit_uuidv7 is invoked via command substitution (a subshell), so any
+    # counter it increments would not persist between calls.
+    knit_job_hostnames() { printf '%s\n' "nodeA" "nodeB"; }
+    _knit_metadata_load() { printf '%s' ""; }
+    _knit_launch_backend() { printf '%s' "none"; }
+    _knit_launch_cmdline() { local -n _argv="$3"; _argv=(launcher); }
+    _knit_launch_exec() { return 0; }
 
-    # Dispatcher writes the runs row under the (stubbed) run UUID...
+    # Dispatcher writes the runs row under its own id...
     _knit_invoke_command run --procs 2 -- myapp
-    # ...and rank 0 (KNIT_RUN_ID forwarded by the launcher) writes the per-app row
-    # under the same UUID.
+    # ...and rank 0 writes the per-app row under a different id.
     export KNIT_RUN_ID="aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"
     _knit_invoke_command run myapp --n 3
 
     local runs_id app_id
     runs_id="$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM runs;")"
     app_id="$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM myapp;")"
-    [ "${runs_id}" = "${app_id}" ]
-    [ "${runs_id}" = "aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa" ]
+    knit_type_check "uuid" "${runs_id}"
+    knit_type_check "uuid" "${app_id}"
+    [ "${runs_id}" != "${app_id}" ]
 }

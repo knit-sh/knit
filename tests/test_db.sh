@@ -443,31 +443,38 @@ __test_register_cmd() {
         = "11111111-1111-7111-8111-111111111111" ]
 }
 
-@test "recording uses the job UUID from KNIT_JOB_PREFIX when set" {
+@test "recording mints a fresh id, ignoring KNIT_JOB_PREFIX" {
     knit_register _t_jp_fn "jpcmd" "Jp."
     knit_with_table "jps"
     _t_jp_fn() { :; }
     knit_done
 
+    # The job body no longer reuses its submission's UUID: every invocation mints
+    # its own distinct id (the provenance edge links it back to the submission).
     KNIT_JOB_PREFIX="/some/where/jobs/22222222-2222-7222-8222-222222222222" \
         _knit_invoke_command "jpcmd"
-    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM jps;")" \
-        = "22222222-2222-7222-8222-222222222222" ]
+    local id
+    id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM jps;")
+    knit_type_check "uuid" "${id}"
+    [ "${id}" != "22222222-2222-7222-8222-222222222222" ]
 }
 
-@test "recording prefers KNIT_RUN_ID over KNIT_JOB_PREFIX" {
+@test "recording mints a fresh id, ignoring KNIT_RUN_ID" {
     knit_register _t_ri_fn "ricmd" "Ri."
     knit_with_table "ris"
     _t_ri_fn() { :; }
     knit_done
 
-    # Rank 0 of a run: both are set (KNIT_JOB_PREFIX inherited from the job,
-    # KNIT_RUN_ID forwarded by the launcher); the per-app row uses the run UUID.
+    # Neither the run UUID nor the job UUID is used as the row id any more; both
+    # id-sharing tiers were removed in favour of distinct ids plus edges.
     KNIT_JOB_PREFIX="/some/where/jobs/22222222-2222-7222-8222-222222222222" \
         KNIT_RUN_ID="33333333-3333-7333-8333-333333333333" \
         _knit_invoke_command "ricmd"
-    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM ris;")" \
-        = "33333333-3333-7333-8333-333333333333" ]
+    local id
+    id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM ris;")
+    knit_type_check "uuid" "${id}"
+    [ "${id}" != "33333333-3333-7333-8333-333333333333" ]
+    [ "${id}" != "22222222-2222-7222-8222-222222222222" ]
 }
 
 # ---------- _knit_db_record_invocation provenance edge ----------

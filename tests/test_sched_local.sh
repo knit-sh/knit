@@ -162,9 +162,11 @@ teardown() {
     _knit_db_setup_table "submit" "jobs"
 
     # _knit_submit is normally run via _knit_invoke_command; calling it directly
-    # here, simulate the executing-command context so its knit_output /
-    # _knit_set_row_id calls resolve to the "submit" command.
+    # here, simulate the executing-command context (both parallel stacks, as the
+    # invoker pushes them together) so its knit_output / _knit_set_row_id calls
+    # resolve to the "submit" command.
     _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
 
     local out
     out="$(_knit_submit --setup "${setup}" --nodes 2 -- myjob)"

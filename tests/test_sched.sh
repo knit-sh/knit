@@ -69,6 +69,7 @@ teardown() {
     # directly, provide the executing-command context that its knit_output /
     # _knit_set_row_id calls require.
     _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     _knit_submit --setup "${setup_dir}" -- myjob
 
     [ -d "${setup_dir}/jobs" ]
@@ -92,6 +93,7 @@ teardown() {
     # directly, provide the executing-command context that its knit_output /
     # _knit_set_row_id calls require.
     _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     _knit_submit --setup "${setup_dir}" -- myjob
 
     local name
@@ -109,6 +111,7 @@ teardown() {
     _knit_db_setup_table "submit" "jobs"
 
     _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     knit_pushd "${_KNIT_TEST_TMPDIR}"
     mkdir -p relsetup
     _knit_submit --setup ./relsetup -- myjob
@@ -136,6 +139,7 @@ teardown() {
     mkdir -p "${setup_dir}"
 
     _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     _knit_submit --setup "${setup_dir}" -- myjob
 
     local jobscript
@@ -156,6 +160,7 @@ teardown() {
     _knit_db_setup_table "submit" "jobs"
 
     _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     knit_pushd "${_KNIT_TEST_TMPDIR}"
     _knit_submit -- myjob
     knit_popd
@@ -179,6 +184,7 @@ teardown() {
     _knit_db_setup_table "submit" "jobs"
 
     _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     run _knit_submit --setup "${setup_dir}" -- myjob
     [ "$status" -eq 0 ]
     [ -d "${setup_dir}/jobs" ]
@@ -194,6 +200,7 @@ teardown() {
     knit_done
 
     _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     run _knit_submit --setup "${setup_dir}" -- myjob
     [ "$status" -ne 0 ]
     [[ "$output" == *"mcenv"* ]]
@@ -209,6 +216,7 @@ teardown() {
     knit_done
 
     _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     run _knit_submit --setup "${setup_dir}" -- myjob
     [ "$status" -ne 0 ]
     [[ "$output" == *"no recorded type"* ]]
@@ -221,6 +229,7 @@ teardown() {
     knit_done
 
     _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     run _knit_submit -- myjob
     [ "$status" -ne 0 ]
     [[ "$output" == *"requires a --setup"* ]]
@@ -233,6 +242,7 @@ teardown() {
     _knit_db_setup_table "submit" "jobs"
 
     _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     knit_pushd "${_KNIT_TEST_TMPDIR}"
     _knit_submit -- myjob
     knit_popd
@@ -257,6 +267,7 @@ teardown() {
     _knit_sched_submit() { printf '12345\n'; }
 
     _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     knit_pushd "${_KNIT_TEST_TMPDIR}"
     _knit_submit -- myjob
     knit_popd

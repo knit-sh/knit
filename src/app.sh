@@ -46,8 +46,6 @@ knit_with_subcommand_title "Apps"
 # recorded as-requested columns; the "app" output records the launched app name.
 knit_with_table "${_KNIT_RUNS_TABLE}"
 knit_with_output "app:string" "" "Name of the app that was run (the token after --)."
-knit_with_output "job:string" "" \
-    "UUID of the parent job that issued this run (basename of KNIT_JOB_PREFIX)."
 knit_with_output "native-cmd:string" "" \
     "The resolved launcher command that was issued (launcher flags plus worker)."
 
@@ -133,8 +131,6 @@ _knit_run() {
     uuid=$(_knit_uuidv7)
     _knit_set_row_id "${uuid}"
     knit_output "app" "${app_name}"
-    # Reference back to the parent job (the run has no meaning without it).
-    knit_output "job" "$(basename "${KNIT_JOB_PREFIX}")"
 
     # Resolve the launcher backend (per-run --launcher override -> metadata
     # __launcher__ -> live detection, with the no-launcher case mapping to none).
@@ -175,10 +171,11 @@ _knit_run() {
     knit_trace "Running app \"${app_name}\": ${native_cmd}"
 
     # Launch in a subshell so KNIT_RUN_ID is scoped to the launcher and the ranks
-    # it spawns: the launcher forwards it to every rank, where rank 0 uses it as
-    # the id of its per-app row (so that row joins the runs row on the run UUID).
-    # Exporting it in a subshell keeps it out of the surrounding job body, where a
-    # later recorded command would otherwise inherit the run UUID as its row id.
+    # it spawns: the launcher forwards it to every rank. Every invocation now
+    # mints its own distinct row id, so KNIT_RUN_ID no longer serves as the
+    # per-app row id (a later milestone carries the run's id as the provenance
+    # parent context here); it is retained for env forwarding. Exporting it in a
+    # subshell keeps it out of the surrounding job body.
     (
         export KNIT_RUN_ID="${uuid}"
         _knit_launch_exec "${backend}" launch_opts -- \
@@ -347,11 +344,12 @@ knit_with_extra "The app name and its arguments (after --)."
 # ------------------------------------------------------------------------------
 _knit_run_worker() {
     # The dispatcher exports KNIT_RUN_ID (the run UUID) into the launcher's
-    # environment; the launcher forwards it to every rank, where rank 0 uses it as
-    # the id of its per-app row (see _knit_record_invocation's id precedence) so
-    # that row joins the runs-table row. Rejecting a direct invocation that
-    # bypasses the dispatcher (KNIT_RUN_ID absent) is deferred to a later hardening
-    # pass; the app before-callback already guards KNIT_JOB_PREFIX.
+    # environment; the launcher forwards it to every rank. Rank 0 records the
+    # per-app row under a fresh distinct id (a later milestone links it back to
+    # the runs-table row via a provenance edge rather than a shared id). Rejecting
+    # a direct invocation that bypasses the dispatcher (KNIT_RUN_ID absent) is
+    # deferred to a later hardening pass; the app before-callback guards
+    # KNIT_JOB_PREFIX.
     local args=("$@")
     local extra_index
     extra_index=$(knit_extra_index "${args[@]}")

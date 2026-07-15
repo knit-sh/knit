@@ -211,7 +211,7 @@ teardown() {
     [[ "$output" == *"_run -- myapp"* ]]
 }
 
-@test "run records the app name and the parent job uuid as outputs" {
+@test "run records the app name as an output" {
     _app_fn() { :; }
     knit_register_app "myapp" "_app_fn" "A test app."
     knit_done
@@ -223,5 +223,4 @@ teardown() {
     _knit_launch_exec() { :; }
     _knit_invoke_command run --procs 2 -- myapp
     [ "${_KNIT_CMD_run_output_value[app]}" = "myapp" ]
-    [ "${_KNIT_CMD_run_output_value[job]}" = "parent-job-uuid" ]
 }

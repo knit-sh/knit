@@ -18,6 +18,16 @@ declare -gA _KNIT_PARAMETER_SETS
 declare -ga _KNIT_EXECUTING_COMMAND=()
 
 # ------------------------------------------------------------------------------
+# Stack of resolved row ids, parallel to _KNIT_EXECUTING_COMMAND: entry i holds
+# the id that frame i's invocation will record. The id is resolved when the frame
+# is pushed (so a nested child can read its parent's id while the parent's body
+# still runs) and read back by _knit_record_invocation, so the id a child saw as
+# its parent is exactly the id the parent records. _knit_set_row_id updates the
+# top entry so an explicit id and the recorded id never diverge.
+# ------------------------------------------------------------------------------
+declare -ga _KNIT_EXECUTING_ROW_ID=()
+
+# ------------------------------------------------------------------------------
 # When non-empty, output recording is suppressed: knit_output discards its value
 # (with a warning) and _knit_record_invocation records no row. This is a generic
 # recording concept (the CLI layer stays unaware of MPI); the `knit run` per-rank
@@ -1773,13 +1783,18 @@ _knit_invoke_command() {
         # command under a namespaced name the external body will not touch.
         local _knit_wrapper_cmd="${cmd}"
         _KNIT_EXECUTING_COMMAND+=("${cmd}")
+        _KNIT_EXECUTING_ROW_ID+=("$(_knit_resolve_row_id "${cmd}")")
         $func "$@"
         local wrapper_status=$?
         # Keep the command on the stack through the after-callbacks (see the
         # non-wrapper path below) so they too may call knit_output.
         _knit_execute_after_commands "${_knit_wrapper_cmd}" "$@"
-        unset '_KNIT_EXECUTING_COMMAND[-1]'
+        # Record while this frame is still on the executing stacks, so recording
+        # reads the frame's resolved row id from _KNIT_EXECUTING_ROW_ID (and, in a
+        # later milestone, resolves its parent from the frame below). Then pop.
         _knit_record_invocation "${_knit_wrapper_cmd}" "$@"
+        unset '_KNIT_EXECUTING_COMMAND[-1]'
+        unset '_KNIT_EXECUTING_ROW_ID[-1]'
         return "${wrapper_status}"
     fi
     # check if the first argument is --help
@@ -1812,6 +1827,7 @@ _knit_invoke_command() {
     unset "_KNIT_CMD_${cmd}_recorded"
     # call the function
     _KNIT_EXECUTING_COMMAND+=("${cmd}")
+    _KNIT_EXECUTING_ROW_ID+=("$(_knit_resolve_row_id "${cmd}")")
     $func "${args[@]}"
     local func_status=$?
     # call the "after" callbacks. The command stays on _KNIT_EXECUTING_COMMAND
@@ -1819,9 +1835,12 @@ _knit_invoke_command() {
     # knit_output, just like the command body can. The output map has already
     # been reset (before the body), so after-callback outputs are recorded.
     _knit_execute_after_commands "${cmd}" "${args[@]}"
-    unset '_KNIT_EXECUTING_COMMAND[-1]'
-    # Record this invocation as a database row if the command declared a table.
+    # Record this invocation as a database row (if the command declared a table)
+    # while it is still on the executing stacks, so recording reads this frame's
+    # resolved row id from _KNIT_EXECUTING_ROW_ID (see the wrapper path). Then pop.
     _knit_record_invocation "${cmd}" "${args[@]}"
+    unset '_KNIT_EXECUTING_COMMAND[-1]'
+    unset '_KNIT_EXECUTING_ROW_ID[-1]'
     return "${func_status}"
 }
 
@@ -1933,6 +1952,34 @@ _knit_set_row_id() {
     fi
     local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
     printf -v "_KNIT_CMD_${cmd}_row_id" '%s' "${id}"
+    # Keep the executing-row-id stack in sync so the id a nested child resolves as
+    # its parent, and the id ultimately recorded, both reflect this override
+    # rather than the fresh id resolved when the frame was pushed.
+    _KNIT_EXECUTING_ROW_ID[-1]="${id}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_resolve_row_id()
+#
+# Resolve the row id for an invocation of a command, used when its frame is
+# pushed onto _KNIT_EXECUTING_ROW_ID. The precedence is: an explicit id already
+# set via _knit_set_row_id (_KNIT_CMD_<cmd>_row_id), otherwise a fresh uuidv7.
+#
+# Every invocation gets its own distinct id: the historical couplings that made a
+# job body reuse its submission's UUID (KNIT_JOB_PREFIX) and an app's rank-0 row
+# reuse its run's UUID (KNIT_RUN_ID) are gone — the provenance edge, not a shared
+# id, links a child back to its parent.
+#
+# @param cmd Mangled command name.
+# ------------------------------------------------------------------------------
+_knit_resolve_row_id() {
+    local cmd="$1"
+    local rowid_var="_KNIT_CMD_${cmd}_row_id"
+    if [[ -n "${!rowid_var:-}" ]]; then
+        printf '%s' "${!rowid_var}"
+    else
+        _knit_uuidv7
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -1960,10 +2007,10 @@ _knit_record_row_now() {
 #
 # Record the just-completed invocation of a command as one row in its table,
 # when the command declared one with knit_with_table and the experiment is
-# bootstrapped. The row id is, in order of precedence: an explicit id set via
-# _knit_set_row_id; the run UUID from KNIT_RUN_ID (rank 0's per-app row of a
-# `knit run`, so it shares the runs-table row's id); the job UUID from
-# KNIT_JOB_PREFIX (the execution side of a job); otherwise a fresh uuid.
+# bootstrapped. The row id is the id resolved when this frame was pushed (see
+# _knit_resolve_row_id) and read back from the top of _KNIT_EXECUTING_ROW_ID, so
+# it matches the id a nested child already saw as its parent. Recording therefore
+# runs while the frame is still on the stacks (before it is popped).
 #
 # @param cmd Mangled command name.
 # @param ... The expanded invocation arguments.
@@ -1987,17 +2034,14 @@ _knit_record_invocation() {
     local recorded_var="_KNIT_CMD_${cmd}_recorded"
     [[ -n "${!recorded_var:-}" ]] && return 0
 
+    # The id was resolved at push time and lives on the top of the row-id stack;
+    # read it back so the recorded id matches the one a nested child already saw.
     local id
-    local rowid_var="_KNIT_CMD_${cmd}_row_id"
-    if [[ -n "${!rowid_var:-}" ]]; then
-        id="${!rowid_var}"
-    elif [[ -n "${KNIT_RUN_ID:-}" ]]; then
-        # Rank 0 of a `knit run`: the launcher forwarded the run UUID the
-        # dispatcher exported, so the per-app row shares the runs-table row's id.
-        id="${KNIT_RUN_ID}"
-    elif [[ -n "${KNIT_JOB_PREFIX:-}" ]]; then
-        id="$(basename "${KNIT_JOB_PREFIX}")"
+    if [[ ${#_KNIT_EXECUTING_ROW_ID[@]} -gt 0 ]]; then
+        id="${_KNIT_EXECUTING_ROW_ID[-1]}"
     else
+        # Defensive: recording outside the normal push/pop should not happen, but
+        # never write a row without an id.
         id="$(_knit_uuidv7)"
     fi
 
