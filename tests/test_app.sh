@@ -211,6 +211,35 @@ teardown() {
     [[ "$output" == *"_run -- myapp"* ]]
 }
 
+@test "run exports the run's provenance context into the launch subshell" {
+    _app_fn() { :; }
+    knit_register_app "myapp" "_app_fn" "A test app."
+    knit_done
+    export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
+    _knit_uuidv7() { printf 'run-uuid-1\n'; }
+    _knit_launch_backend() { printf 'none\n'; }
+    _knit_launch_cmdline() { local -n _argv="$3"; _argv=(launcher); }
+    # The launcher runs inside the dispatcher's subshell; echo the source context
+    # it sees so we can assert the run's own id and command name were exported.
+    _knit_launch_exec() { printf 'SRCID=%s CMD=%s\n' "${KNIT_SOURCE_ID}" "${KNIT_SOURCE_COMMAND}"; }
+    run _knit_invoke_command run --procs 2 -- myapp
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"SRCID=run-uuid-1 CMD=run"* ]]
+}
+
+@test "run does not leak the run's provenance context into the caller" {
+    _app_fn() { :; }
+    knit_register_app "myapp" "_app_fn" "A test app."
+    knit_done
+    export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
+    _knit_launch_backend() { printf 'none\n'; }
+    _knit_launch_cmdline() { local -n _argv="$3"; _argv=(launcher); }
+    _knit_launch_exec() { :; }
+    _knit_invoke_command run --procs 2 -- myapp
+    [ ! -v KNIT_SOURCE_ID ]
+    [ ! -v KNIT_SOURCE_COMMAND ]
+}
+
 @test "run records the app name as an output" {
     _app_fn() { :; }
     knit_register_app "myapp" "_app_fn" "A test app."

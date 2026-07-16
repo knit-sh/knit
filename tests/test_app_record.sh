@@ -6,7 +6,7 @@ setup() {
     knit_test_db_setup
 
     # Start from a clean run/job environment so nothing leaks between tests.
-    unset KNIT_JOB_PREFIX KNIT_RUN_ID
+    unset KNIT_JOB_PREFIX KNIT_RUN_ID KNIT_SOURCE_ID KNIT_SOURCE_COMMAND
     unset KNIT_MPI_RANK KNIT_MPI_SIZE KNIT_MPI_LOCAL_RANK
     _KNIT_RECORDING_SUPPRESSED=""
     KNIT_SCRIPT_PATH="./exp.sh"
@@ -20,7 +20,7 @@ setup() {
 }
 
 teardown() {
-    unset KNIT_JOB_PREFIX KNIT_RUN_ID
+    unset KNIT_JOB_PREFIX KNIT_RUN_ID KNIT_SOURCE_ID KNIT_SOURCE_COMMAND
     _KNIT_RECORDING_SUPPRESSED=""
     knit_test_db_teardown
 }
@@ -116,12 +116,48 @@ _stub_dispatch() {
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM myapp;")" = "0" ]
 }
 
+# ---------- provenance edge: run -> run:<app> ----------
+
+@test "rank 0 records the run -> run:<app> call edge from the exported context" {
+    export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
+    # The dispatcher's launch subshell exports these; simulate rank 0 seeing them.
+    export KNIT_RUN_ID="aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"
+    export KNIT_SOURCE_ID="aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"
+    export KNIT_SOURCE_COMMAND="run"
+    _knit_uuidv7() { printf '%s' "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb"; }
+
+    _knit_invoke_command run myapp --n 7
+
+    # The edge's source is the run (from the env carriers); its target is the
+    # per-app row id, joining the myapp row to the run.
+    local target_id
+    target_id="$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM myapp;")"
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT source_id,source_name,target_id,target_name,edge_type FROM __provenance__;")" \
+        = "aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa|run|${target_id}|run:myapp|call" ]
+}
+
+@test "non-root ranks record no provenance edge" {
+    export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
+    export KNIT_RUN_ID="aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"
+    export KNIT_SOURCE_ID="aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"
+    export KNIT_SOURCE_COMMAND="run"
+    _KNIT_RECORDING_SUPPRESSED="1"
+
+    _knit_invoke_command run myapp --n 7
+
+    # A suppressed rank records nothing, so the edge table is never even created;
+    # ensure it exists before asserting it holds no edge.
+    _knit_prov_ensure_table
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM __provenance__;")" = "0" ]
+}
+
 @test "the runs row and the per-app row have distinct ids" {
     export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
     # Use the real (random) uuid generator so each minted id genuinely differs:
     # the dispatcher's runs row and rank 0's per-app row now mint their own ids
-    # (the provenance edge, added in a later milestone, is what links them rather
-    # than a shared id). A deterministic stub cannot be used here because
+    # (the provenance edge is what links them rather than a shared id). A
+    # deterministic stub cannot be used here because
     # _knit_uuidv7 is invoked via command substitution (a subshell), so any
     # counter it increments would not persist between calls.
     knit_job_hostnames() { printf '%s\n' "nodeA" "nodeB"; }

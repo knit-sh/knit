@@ -170,14 +170,18 @@ _knit_run() {
     # exported KNIT_* environment to every rank.
     knit_trace "Running app \"${app_name}\": ${native_cmd}"
 
-    # Launch in a subshell so KNIT_RUN_ID is scoped to the launcher and the ranks
-    # it spawns: the launcher forwards it to every rank. Every invocation now
-    # mints its own distinct row id, so KNIT_RUN_ID no longer serves as the
-    # per-app row id (a later milestone carries the run's id as the provenance
-    # parent context here); it is retained for env forwarding. Exporting it in a
-    # subshell keeps it out of the surrounding job body.
+    # Launch in a subshell so the exported context is scoped to the launcher and
+    # the ranks it spawns: the launcher forwards it to every rank. Every
+    # invocation now mints its own distinct row id, so KNIT_RUN_ID no longer
+    # serves as the per-app row id; it is retained for env forwarding and rank
+    # gating. KNIT_SOURCE_ID / KNIT_SOURCE_COMMAND carry this run as the source
+    # context so the rank-0 per-app body records a call edge run -> run:<app>
+    # (the app body has no in-process caller across the launcher, so it reads
+    # these carriers). Exporting in a subshell keeps them out of the job body.
     (
         export KNIT_RUN_ID="${uuid}"
+        export KNIT_SOURCE_ID="${uuid}"
+        export KNIT_SOURCE_COMMAND=run
         _knit_launch_exec "${backend}" launch_opts -- \
             "${KNIT_SCRIPT_PATH}" _run -- "${app_name}" "${app_args[@]}"
     )
@@ -343,13 +347,14 @@ knit_with_extra "The app name and its arguments (after --)."
 # knit_register_app).
 # ------------------------------------------------------------------------------
 _knit_run_worker() {
-    # The dispatcher exports KNIT_RUN_ID (the run UUID) into the launcher's
-    # environment; the launcher forwards it to every rank. Rank 0 records the
-    # per-app row under a fresh distinct id (a later milestone links it back to
-    # the runs-table row via a provenance edge rather than a shared id). Rejecting
-    # a direct invocation that bypasses the dispatcher (KNIT_RUN_ID absent) is
-    # deferred to a later hardening pass; the app before-callback guards
-    # KNIT_JOB_PREFIX.
+    # The dispatcher exports KNIT_RUN_ID (the run UUID) and the run's provenance
+    # context (KNIT_SOURCE_ID / KNIT_SOURCE_COMMAND) into the launcher's
+    # environment; the launcher forwards them to every rank. Rank 0 records the
+    # per-app row under a fresh distinct id and a provenance edge from the run
+    # (read from the exported context) links it back to the runs-table row.
+    # Rejecting a direct invocation that bypasses the dispatcher (KNIT_RUN_ID
+    # absent) is deferred to a later hardening pass; the app before-callback
+    # guards KNIT_JOB_PREFIX.
     local args=("$@")
     local extra_index
     extra_index=$(knit_extra_index "${args[@]}")
@@ -366,9 +371,13 @@ _knit_run_worker() {
     # app body reads a single, launcher-agnostic set of variables.
     _knit_run_normalize_mpi_env
 
-    # Every rank re-enters run:<app>, but only rank 0 records outputs and the
-    # per-app row. Suppress recording on all other ranks via the generic CLI flag
-    # (knit_output no-ops and _knit_record_invocation writes nothing when set).
+    # Every rank re-enters run:<app>, but only rank 0 records: its outputs, its
+    # per-app row, and the provenance call edge run -> run:<app> (the source
+    # context comes from the KNIT_SOURCE_* env the dispatcher exported). Suppress
+    # recording on all other ranks via the generic CLI flag (knit_output no-ops,
+    # and _knit_record_invocation writes neither row nor edge when set). We may
+    # later allow non-zero ranks to record per-rank rows/edges; for now a run is
+    # a single logical invocation recorded once.
     if [[ "${KNIT_MPI_RANK}" != "0" ]]; then
         _KNIT_RECORDING_SUPPRESSED="1"
     fi
