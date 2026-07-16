@@ -22,7 +22,9 @@ knit_with_subcommand_title "Setups"
 # subcommand inside it, and saves the resulting environment to
 # `$KNIT_SETUP_PREFIX/.activate.sh`. On success the setup name is also recorded
 # in `$KNIT_SETUP_PREFIX/.setup.type` so `knit submit` can validate a job's
-# knit_with_setup requirement. Removes the directory and fatals on failure.
+# knit_with_setup requirement, and the setup body's row id in
+# `$KNIT_SETUP_PREFIX/.setup.id` so a consumer can record a "uses" edge to it.
+# Removes the directory and fatals on failure.
 #
 # Usage:
 # ```
@@ -68,9 +70,13 @@ _knit_setup() {
     # Export KNIT_SETUP_PREFIX so setup functions and callbacks can read it
     export KNIT_SETUP_PREFIX="${PWD}"
 
-    # Invoke the setup subcommand and capture its return value
+    # Invoke the setup subcommand and capture its return value. Clear the
+    # last-recorded row id first so we only pick up an id the body itself
+    # recorded (it stays empty when the experiment is not bootstrapped).
     local ret=0
+    _KNIT_LAST_ROW_ID=""
     _knit_invoke_command "setup" "${setup_name}" "${setup_args[@]}" || ret=$?
+    local body_row_id="${_KNIT_LAST_ROW_ID}"
 
     knit_popd
 
@@ -83,6 +89,14 @@ _knit_setup() {
     # Record the setup type that built this directory so that `knit submit` can
     # check a job's knit_with_setup requirement against it.
     printf '%s\n' "${setup_name}" > "${path}/.setup.type"
+
+    # Record the setup body's row id so a later consumer can record a "uses" edge
+    # to this setup by id (robust) rather than by matching directory paths. Only
+    # written when the body recorded a row (i.e. the experiment is bootstrapped);
+    # a setup directory without this marker simply yields no "uses" edge.
+    if [[ -n "${body_row_id}" ]]; then
+        printf '%s\n' "${body_row_id}" > "${path}/.setup.id"
+    fi
 }
 knit_done
 
@@ -242,6 +256,72 @@ _knit_setup_dep_before_cb() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_setup_record_uses_edge()
+#
+# Record a "uses" provenance edge from the setup built at <setup_path> to a
+# consuming invocation. The edge's source is the setup (its row id read from the
+# setup directory's .setup.id marker, its name "setup:<type>" from .setup.type);
+# its target is the consumer. A "uses" edge has no duration, so both timestamps
+# are NULL. Shared by `knit submit` (jobs) and by the generic setup-dependency
+# after-callback (plain commands and apps).
+#
+# Best-effort and gated with the other provenance writes: it records nothing when
+# recording is disabled, on a suppressed rank, before bootstrap, when the target
+# does not participate in the graph, or when the setup directory has no .setup.id
+# (e.g. it was built before provenance shipped).
+#
+# @param setup_path  Path to the setup directory the consumer references.
+# @param target_cmd  Mangled command name of the consumer (the edge target).
+# @param target_id   Resolved row id of the consumer (the edge target).
+# ------------------------------------------------------------------------------
+_knit_setup_record_uses_edge() {
+    local setup_path="$1"
+    local target_cmd="$2"
+    local target_id="$3"
+    [[ "${KNIT_DISABLE_RECORDING:-}" == "true" ]] && return 0
+    [[ -n "${_KNIT_RECORDING_SUPPRESSED}" ]] && return 0
+    _knit_is_bootstrapped || return 0
+    _knit_provenance_enabled "${target_cmd}" || return 0
+    local id_file="${setup_path}/.setup.id"
+    [[ -f "${id_file}" ]] || return 0
+    local setup_id=""
+    IFS= read -r setup_id < "${id_file}" || setup_id=""
+    [[ -z "${setup_id}" ]] && return 0
+    local setup_type=""
+    IFS= read -r setup_type < "${setup_path}/.setup.type" 2>/dev/null || setup_type=""
+    _knit_prov_ensure_table
+    _knit_prov_record_edge "${setup_id}" "setup:${setup_type}" \
+        "${target_id}" "$(_knit_command_demangle "${target_cmd}")" "uses" "" ""
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_setup_dep_after_cb()
+#
+# After-callback installed by knit_with_setup on a plain command or an app,
+# alongside _knit_setup_dep_before_cb. It records a "uses" edge from the setup the
+# command depends on to the command itself. It runs as an after-callback (not the
+# before-callback that sources the environment) because the consumer's frame is on
+# the executing stacks only from push time onward, so the consumer's resolved row
+# id — the edge target — is available here but not in the before-callback.
+#
+# It resolves the same setup directory the before-callback used (the --setup
+# option, else the ambient KNIT_SETUP_PREFIX), so the two always agree. All
+# arguments are the command's own runtime arguments, scanned for --setup.
+# ------------------------------------------------------------------------------
+_knit_setup_dep_after_cb() {
+    local setup_path
+    setup_path=$(knit_get_parameter "setup" "$@") || setup_path=""
+    if [[ -z "${setup_path}" ]]; then
+        setup_path="${KNIT_SETUP_PREFIX:-}"
+    fi
+    [[ -z "${setup_path}" ]] && return 0
+    setup_path="$(realpath "${setup_path}" 2>/dev/null)" || return 0
+    [[ ${#_KNIT_EXECUTING_COMMAND[@]} -gt 0 ]] || return 0
+    _knit_setup_record_uses_edge "${setup_path}" \
+        "${_KNIT_EXECUTING_COMMAND[-1]}" "${_KNIT_EXECUTING_ROW_ID[-1]}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_with_setup()
 #
 # Declare that the command currently being registered requires a setup of a given
@@ -304,11 +384,15 @@ knit_with_setup() {
         return 0
     fi
 
-    # Plain commands and apps get a --setup option plus a before-callback that
-    # validates and activates it.
+    # Plain commands and apps get a --setup option, a before-callback that
+    # validates and activates it, and an after-callback that records the "uses"
+    # edge (the consumer's row id, the edge target, is resolved only from push
+    # time on, so the edge is emitted after the body rather than in the
+    # before-callback).
     knit_with_optional "setup:path" "" \
         "Path to a setup built by the \"${setup_type}\" setup."
     _knit_run_before _knit_setup_dep_before_cb "${setup_type}"
+    _knit_run_after  _knit_setup_dep_after_cb
 }
 
 # ------------------------------------------------------------------------------

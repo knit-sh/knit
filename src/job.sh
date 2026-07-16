@@ -137,6 +137,15 @@ _knit_submit() {
     knit_output "job" "${job_name}"
     knit_output "state" "submitted"
 
+    # Record a "uses" edge from the setup this job references (if any) to this
+    # submission, so the setup can be reached from the job by id. Emitted here on
+    # the login side, where the setup was resolved and validated; the job's row id
+    # is this submission's UUID. Best-effort and gated like other provenance
+    # writes (see _knit_setup_record_uses_edge).
+    if [[ -n "${setup_path}" ]]; then
+        _knit_setup_record_uses_edge "${setup_path}" "${subcmd}" "${uuid}"
+    fi
+
     # Resolve the submission options (explicit args -> metadata -> profile ->
     # hard-coded) into an associative array. Note: the name "opts" must differ
     # from the nameref names used inside the sched_* helpers to avoid bash

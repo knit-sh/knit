@@ -260,6 +260,19 @@ teardown() {
     [ ! -f "${newdir}/.setup.type" ]
 }
 
+@test "_knit_setup records the setup body's row id in .setup.id" {
+    local newdir="${_KNIT_TEST_TMPDIR}/newdir"
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_done
+    _knit_setup --path "${newdir}" -- mysetup
+    [ -f "${newdir}/.setup.id" ]
+    # The recorded marker matches the id of the row the setup body wrote to its
+    # own table, so a consumer can join to that row by id.
+    [ "$(cat "${newdir}/.setup.id")" \
+        = "$(sqlite3 "${_KNIT_DATABASE}" 'SELECT id FROM "setup:mysetup";')" ]
+}
+
 # ---------- _knit_setup_check_type ----------
 
 @test "_knit_setup_check_type accepts a matching type" {
@@ -390,4 +403,81 @@ teardown() {
     run knit_with_setup "other"
     [ "$status" -ne 0 ]
     knit_done
+}
+
+@test "knit_with_setup on a plain command installs the uses-edge after-callback" {
+    _test_fn() { :; }
+    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_with_setup "mcenv"
+    knit_done
+    local -n _acbs="_KNIT_CMD_plaincmd_after_cb"
+    [[ "${_acbs[*]}" == *"_knit_setup_dep_after_cb"* ]]
+}
+
+# ---------- uses edges ----------
+
+# Build a fake setup directory holding the markers a real `knit setup` writes.
+_seed_setup_dir() {
+    local dir="$1" type="$2" id="$3"
+    mkdir -p "${dir}"
+    printf '%s\n' "${type}" > "${dir}/.setup.type"
+    [[ -n "${id}" ]] && printf '%s\n' "${id}" > "${dir}/.setup.id"
+    printf ':\n' > "${dir}/.activate.sh"
+}
+
+@test "a consumer with knit_with_setup records a uses edge to the setup" {
+    local dep="${_KNIT_TEST_TMPDIR}/dep"
+    _seed_setup_dir "${dep}" "mcenv" "setup-uuid-1"
+    _test_fn() { :; }
+    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_with_table "plaincmd"
+    knit_with_setup "mcenv"
+    knit_done
+    unset KNIT_SETUP_PREFIX
+    _knit_invoke_command plaincmd --setup "${dep}"
+    # The uses edge's source is the setup (id from .setup.id, name setup:<type>),
+    # its target is the consumer's recorded row, and it has no duration.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT source_id,source_name,target_name,edge_type,start_time,end_time FROM ${_KNIT_PROV_TABLE} WHERE edge_type='uses';")" \
+        = "setup-uuid-1|setup:mcenv|plaincmd|uses||" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT target_id FROM ${_KNIT_PROV_TABLE} WHERE edge_type='uses';")" \
+        = "$(sqlite3 "${_KNIT_DATABASE}" 'SELECT id FROM plaincmd;')" ]
+}
+
+@test "a consumer records no uses edge when the setup has no .setup.id" {
+    local dep="${_KNIT_TEST_TMPDIR}/dep"
+    _seed_setup_dir "${dep}" "mcenv" ""
+    _test_fn() { :; }
+    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_with_table "plaincmd"
+    knit_with_setup "mcenv"
+    knit_done
+    unset KNIT_SETUP_PREFIX
+    _knit_invoke_command plaincmd --setup "${dep}"
+    _knit_prov_ensure_table
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE} WHERE edge_type='uses';")" = "0" ]
+}
+
+@test "_knit_setup_record_uses_edge writes source, target, and NULL timestamps" {
+    local dep="${_KNIT_TEST_TMPDIR}/dep"
+    _seed_setup_dir "${dep}" "mcenv" "setup-uuid-9"
+    _test_fn() { :; }
+    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_done
+    _knit_setup_record_uses_edge "${dep}" "plaincmd" "target-uuid-9"
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT source_id,source_name,target_id,target_name,edge_type,start_time,end_time FROM ${_KNIT_PROV_TABLE};")" \
+        = "setup-uuid-9|setup:mcenv|target-uuid-9|plaincmd|uses||" ]
+}
+
+@test "_knit_setup_record_uses_edge records nothing for a without-provenance target" {
+    local dep="${_KNIT_TEST_TMPDIR}/dep"
+    _seed_setup_dir "${dep}" "mcenv" "setup-uuid-9"
+    _test_fn() { :; }
+    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_without_provenance
+    knit_done
+    _knit_setup_record_uses_edge "${dep}" "plaincmd" "target-uuid-9"
+    _knit_prov_ensure_table
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE};")" = "0" ]
 }
