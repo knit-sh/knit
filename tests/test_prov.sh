@@ -25,7 +25,7 @@ teardown() {
     local names
     names=$(sqlite3 "${_KNIT_DATABASE}" \
         "PRAGMA table_info('__provenance__');" | cut -d'|' -f2 | tr '\n' ',')
-    [ "$names" = "parent_id,parent_name,child_id,child_name,edge_type,start_time,end_time," ]
+    [ "$names" = "source_id,source_name,target_id,target_name,edge_type,start_time,end_time," ]
 }
 
 @test "create table gives the timestamp columns REAL affinity" {
@@ -57,7 +57,7 @@ teardown() {
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM __provenance__;")" -eq 1 ]
     local row
     row=$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT parent_id,parent_name,child_id,child_name,edge_type,start_time,end_time FROM __provenance__;")
+        "SELECT source_id,source_name,target_id,target_name,edge_type,start_time,end_time FROM __provenance__;")
     [ "$row" = "pid|submit:mc|cid|run|call|10.5|12.25" ]
 }
 
@@ -78,7 +78,7 @@ teardown() {
 
     local roots
     roots=$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT COUNT(*) FROM __provenance__ WHERE parent_id='' AND parent_name='';")
+        "SELECT COUNT(*) FROM __provenance__ WHERE source_id='' AND source_name='';")
     [ "$roots" -eq 1 ]
 }
 
@@ -86,8 +86,8 @@ teardown() {
     _knit_prov_create_table
     _knit_prov_record_edge "pid" "a'b" "cid" "c'd" "call" "1" "2"
 
-    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT parent_name FROM __provenance__;")" = "a'b" ]
-    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT child_name FROM __provenance__;")" = "c'd" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT source_name FROM __provenance__;")" = "a'b" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT target_name FROM __provenance__;")" = "c'd" ]
 }
 
 # ---------- _knit_prov_edge_sql ----------

@@ -9,7 +9,7 @@ setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
     knit_test_require_sqlite
     knit_test_db_setup
-    unset KNIT_JOB_PREFIX KNIT_RUN_ID KNIT_PARENT_ID KNIT_PARENT_COMMAND
+    unset KNIT_JOB_PREFIX KNIT_RUN_ID KNIT_SOURCE_ID KNIT_SOURCE_COMMAND
     _KNIT_RECORDING_SUPPRESSED=""
     # Create the edge table up front so tests that record no edge (a "without"
     # command, KNIT_DISABLE_RECORDING) can still query __provenance__.
@@ -54,12 +54,12 @@ teardown() {
 
     _knit_invoke_command "pparent"
 
-    local parent_id child_id
-    parent_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM pparents;")
-    child_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM pchildren;")
-    [ -n "${parent_id}" ]
-    [ -n "${child_id}" ]
-    [ "${parent_id}" != "${child_id}" ]
+    local source_id target_id
+    source_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM pparents;")
+    target_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM pchildren;")
+    [ -n "${source_id}" ]
+    [ -n "${target_id}" ]
+    [ "${source_id}" != "${target_id}" ]
 }
 
 # ---------- row-id timing (design §5.2) ----------
@@ -67,7 +67,7 @@ teardown() {
 @test "a nested child sees its parent's explicit _knit_set_row_id as the parent frame id" {
     knit_register _p_probe_fn "probecmd" "Probe."
     # The parent frame's resolved id is the entry just below this frame's own.
-    _p_probe_fn() { __probed_parent_id="${_KNIT_EXECUTING_ROW_ID[-2]}"; }
+    _p_probe_fn() { __probed_source_id="${_KNIT_EXECUTING_ROW_ID[-2]}"; }
     knit_done
 
     knit_register _p_top_fn "topcmd" "Top."
@@ -82,7 +82,7 @@ teardown() {
 
     # The child observed exactly the id the parent set, and the parent recorded
     # that same id: the explicit override and the recorded id never diverge.
-    [ "${__probed_parent_id}" = "cafe0000-0000-7000-8000-000000000000" ]
+    [ "${__probed_source_id}" = "cafe0000-0000-7000-8000-000000000000" ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM tops;")" \
         = "cafe0000-0000-7000-8000-000000000000" ]
 }
@@ -103,8 +103,8 @@ teardown() {
     # empty parent columns and links to its own recorded row as the child.
     local edge
     edge=$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT parent_id,parent_name,child_id,child_name,edge_type FROM __provenance__;")
-    # Empty parent_id and parent_name render as two leading separators.
+        "SELECT source_id,source_name,target_id,target_name,edge_type FROM __provenance__;")
+    # Empty source_id and source_name render as two leading separators.
     [ "${edge}" = "||${id}|rootcmd|call" ]
 }
 
@@ -121,18 +121,18 @@ teardown() {
 
     _knit_invoke_command "ceparent"
 
-    local parent_id child_id
-    parent_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM ceparents;")
-    child_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM cechildren;")
+    local source_id target_id
+    source_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM ceparents;")
+    target_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM cechildren;")
 
     # The child's edge names the parent frame (id + demangled name); the parent
     # itself has a root edge (empty parent columns).
     local child_edge
     child_edge=$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT parent_id,parent_name,child_name FROM __provenance__ WHERE child_id='${child_id}';")
-    [ "${child_edge}" = "${parent_id}|ceparent|cechild" ]
+        "SELECT source_id,source_name,target_name FROM __provenance__ WHERE target_id='${target_id}';")
+    [ "${child_edge}" = "${source_id}|ceparent|cechild" ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT parent_id FROM __provenance__ WHERE child_id='${parent_id}';")" = "" ]
+        "SELECT source_id FROM __provenance__ WHERE target_id='${source_id}';")" = "" ]
 }
 
 @test "a hidden intermediate command is transparent (A -> hidden M -> B collapses to A -> B)" {
@@ -161,11 +161,11 @@ teardown() {
 
     # B's parent is A (the hidden middle is transparent)...
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT parent_id,parent_name FROM __provenance__ WHERE child_id='${b_id}';")" \
+        "SELECT source_id,source_name FROM __provenance__ WHERE target_id='${b_id}';")" \
         = "${a_id}|acmd" ]
     # ...and the hidden command appears nowhere in the graph.
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT COUNT(*) FROM __provenance__ WHERE parent_name='_mid' OR child_name='_mid';")" \
+        "SELECT COUNT(*) FROM __provenance__ WHERE source_name='_mid' OR target_name='_mid';")" \
         = "0" ]
 }
 
@@ -197,12 +197,12 @@ teardown() {
 
     # A freshly re-entered process (empty stack) reads the context its caller
     # exported across the boundary.
-    KNIT_PARENT_ID="dad00000-0000-7000-8000-000000000000" \
-        KNIT_PARENT_COMMAND="submit:mc" \
+    KNIT_SOURCE_ID="dad00000-0000-7000-8000-000000000000" \
+        KNIT_SOURCE_COMMAND="submit:mc" \
         _knit_invoke_command "envcmd"
 
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT parent_id,parent_name FROM __provenance__;")" \
+        "SELECT source_id,source_name FROM __provenance__;")" \
         = "dad00000-0000-7000-8000-000000000000|submit:mc" ]
 }
 
@@ -219,16 +219,16 @@ teardown() {
 
     # Even with an exported context present, the nearer in-process parent wins for
     # the child's edge (innermost wins).
-    KNIT_PARENT_ID="dad00000-0000-7000-8000-000000000000" \
-        KNIT_PARENT_COMMAND="submit:mc" \
+    KNIT_SOURCE_ID="dad00000-0000-7000-8000-000000000000" \
+        KNIT_SOURCE_COMMAND="submit:mc" \
         _knit_invoke_command "ovparent"
 
-    local parent_id child_id
-    parent_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM ovparents;")
-    child_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM ovchildren;")
+    local source_id target_id
+    source_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM ovparents;")
+    target_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM ovchildren;")
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT parent_id,parent_name FROM __provenance__ WHERE child_id='${child_id}';")" \
-        = "${parent_id}|ovparent" ]
+        "SELECT source_id,source_name FROM __provenance__ WHERE target_id='${target_id}';")" \
+        = "${source_id}|ovparent" ]
 }
 
 # ---------- recording policy: with/without marks (M4, design §5.5) ----------
@@ -246,7 +246,7 @@ teardown() {
     [ -n "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM wos;")" ]
     # ...but the command produces no provenance edge.
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT COUNT(*) FROM __provenance__ WHERE child_name='wocmd';")" = "0" ]
+        "SELECT COUNT(*) FROM __provenance__ WHERE target_name='wocmd';")" = "0" ]
 }
 
 @test "knit_with_provenance on a hidden command records an edge" {
@@ -261,7 +261,7 @@ teardown() {
     # A hidden command is transparent by default, but the explicit "with" mark
     # forces it into the graph (as a root here — no participating parent).
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT parent_id,parent_name,child_name,edge_type FROM __provenance__;")" \
+        "SELECT source_id,source_name,target_name,edge_type FROM __provenance__;")" \
         = "||_whcmd|call" ]
 }
 
@@ -290,11 +290,11 @@ teardown() {
     gc_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM gchildren;")
 
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT parent_id,parent_name FROM __provenance__ WHERE child_id='${gc_id}';")" \
+        "SELECT source_id,source_name FROM __provenance__ WHERE target_id='${gc_id}';")" \
         = "${top_id}|gtop" ]
     # The "without" middle appears nowhere in the graph.
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT COUNT(*) FROM __provenance__ WHERE parent_name='midw' OR child_name='midw';")" \
+        "SELECT COUNT(*) FROM __provenance__ WHERE source_name='midw' OR target_name='midw';")" \
         = "0" ]
 }
 
@@ -317,7 +317,7 @@ teardown() {
     # no edge (its data row is still written).
     [ -n "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM grpleaves;")" ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT COUNT(*) FROM __provenance__ WHERE child_name='grp:leaf';")" = "0" ]
+        "SELECT COUNT(*) FROM __provenance__ WHERE target_name='grp:leaf';")" = "0" ]
 }
 
 @test "an unmarked nested command inherits a with mark from its lexical parent" {
@@ -336,7 +336,7 @@ teardown() {
     # wgrp:_leaf is hidden and would be transparent by default, but the inherited
     # "with" from wgrp overrides visibility, so it records an edge.
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT child_name,edge_type FROM __provenance__;")" = "wgrp:_leaf|call" ]
+        "SELECT target_name,edge_type FROM __provenance__;")" = "wgrp:_leaf|call" ]
 }
 
 @test "an explicit mark on a nested command overrides the inherited one" {
@@ -354,7 +354,7 @@ teardown() {
 
     # ogrp is "without", but ogrp:leaf's own "with" wins.
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT child_name,edge_type FROM __provenance__;")" = "ogrp:leaf|call" ]
+        "SELECT target_name,edge_type FROM __provenance__;")" = "ogrp:leaf|call" ]
 }
 
 @test "the nearest marked lexical ancestor wins over a farther one" {
@@ -377,7 +377,7 @@ teardown() {
     # top is "with" and top:mid is "without"; the unmarked leaf inherits from the
     # nearer top:mid, so it records no edge.
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT COUNT(*) FROM __provenance__ WHERE child_name='top:mid:leaf';")" = "0" ]
+        "SELECT COUNT(*) FROM __provenance__ WHERE target_name='top:mid:leaf';")" = "0" ]
 }
 
 # ---------- global kill switch (M4, design §7 D7) ----------

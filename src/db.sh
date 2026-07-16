@@ -440,17 +440,17 @@ _knit_db_setup_table() {
 # the output's declared default). Column names are the normalized (underscored)
 # knit names, matching the schema created by _knit_db_setup_table.
 #
-# The provenance edge, when requested, has the recorded row as its child
-# (child_id = id, child_name = the demangled command name). An empty edge_type
+# The provenance edge, when requested, has the recorded row as its target
+# (target_id = id, target_name = the demangled command name). An empty edge_type
 # means "record no edge" — the row is inserted on its own, unchanged from before
 # provenance existed. A non-empty edge_type (e.g. "call") writes both the row and
 # the edge atomically, so a partial state cannot be observed.
 #
 # @param cmd         Mangled command name (as used in _KNIT_CMD_* variables).
 # @param table       Table to insert into.
-# @param id          Value for the "id" column (the child's uuid).
-# @param parent_id   Provenance edge parent id (empty for a root); see prov.sh.
-# @param parent_name Provenance edge parent name (empty for a root).
+# @param id          Value for the "id" column (the target's uuid).
+# @param source_id   Provenance edge source id (empty for a root); see prov.sh.
+# @param source_name Provenance edge source name (empty for a root).
 # @param edge_type   Edge type (e.g. "call"), or empty to record no edge.
 # @param start_time  Edge start_time (epoch seconds, empty -> NULL).
 # @param end_time    Edge end_time (epoch seconds, empty -> NULL).
@@ -460,8 +460,8 @@ _knit_db_record_invocation() {
     local cmd="$1"
     local table="$2"
     local id="$3"
-    local parent_id="$4"
-    local parent_name="$5"
+    local source_id="$4"
+    local source_name="$5"
     local edge_type="$6"
     local start_time="$7"
     local end_time="$8"
@@ -522,10 +522,10 @@ _knit_db_record_invocation() {
 
     # Edge requested: write the row and its provenance edge atomically, so a
     # reader never sees a row without its edge (or vice versa).
-    local child_name edge_sql
-    child_name=$(_knit_command_demangle "${cmd}")
+    local target_name edge_sql
+    target_name=$(_knit_command_demangle "${cmd}")
     edge_sql=$(_knit_prov_edge_sql \
-        "${parent_id}" "${parent_name}" "${id}" "${child_name}" \
+        "${source_id}" "${source_name}" "${id}" "${target_name}" \
         "${edge_type}" "${start_time}" "${end_time}")
     # ".bail on" makes the sqlite3 CLI stop at the first failing statement and
     # roll the open transaction back; without it (the default) a failed edge

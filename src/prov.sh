@@ -37,18 +37,21 @@ _knit_prov_now() {
 # @fn _knit_prov_create_table()
 #
 # Create the provenance edge table if it does not already exist. Each row is one
-# relationship between two invocations: a "call" edge (parent invoked child) or a
-# "uses" edge (child references a setup built by an earlier invocation). Node
-# identity is the pair (id, name); the timestamps are REAL epoch seconds and are
-# NULL for "uses" edges. Called at bootstrap alongside the metadata table.
+# directed relationship between two invocations, "source --edge_type--> target":
+# a "call" edge (source invoked target) or a "uses" edge (target references a
+# setup, which is the source, built by an earlier invocation). The source is
+# always the antecedent (the caller, the setup) and the target the dependent (the
+# callee, the consumer). Node identity is the pair (id, name); the timestamps are
+# REAL epoch seconds and are NULL for "uses" edges. Called at bootstrap alongside
+# the metadata table.
 # ------------------------------------------------------------------------------
 _knit_prov_create_table() {
     _knit_sqlite3_write <<EOF
 CREATE TABLE IF NOT EXISTS $(_knit_db_sql_ident "${_KNIT_PROV_TABLE}") (
-    parent_id    TEXT,
-    parent_name  TEXT,
-    child_id     TEXT,
-    child_name   TEXT,
+    source_id    TEXT,
+    source_name  TEXT,
+    target_id    TEXT,
+    target_name  TEXT,
     edge_type    TEXT,
     start_time   REAL,
     end_time     REAL
@@ -100,31 +103,31 @@ _knit_prov_timestamp_literal() {
 # (see _knit_prov_record_edge) or inside a transaction next to a data-row insert
 # (see _knit_db_record_invocation). Timestamps are rendered as NULL when empty.
 #
-# @param parent_id   UUID of the parent (caller for "call"; setup for "uses");
+# @param source_id   UUID of the source (caller for "call"; setup for "uses");
 #                    empty for a root invocation.
-# @param parent_name Demangled command name of the parent (empty for a root).
-# @param child_id    UUID of the child (callee for "call"; consumer for "uses").
-# @param child_name  Demangled command name of the child.
-# @param edge_type   "call" (parent invoked child) or "uses" (child references a
-#                    setup).
+# @param source_name Demangled command name of the source (empty for a root).
+# @param target_id   UUID of the target (callee for "call"; consumer for "uses").
+# @param target_name Demangled command name of the target.
+# @param edge_type   "call" (source invoked target) or "uses" (target references
+#                    a setup, which is the source).
 # @param start_time  Epoch seconds when the call started (empty -> NULL).
 # @param end_time    Epoch seconds when the call returned (empty -> NULL).
 # ------------------------------------------------------------------------------
 _knit_prov_edge_sql() {
-    local parent_id="$1"
-    local parent_name="$2"
-    local child_id="$3"
-    local child_name="$4"
+    local source_id="$1"
+    local source_name="$2"
+    local target_id="$3"
+    local target_name="$4"
     local edge_type="$5"
     local start_time="$6"
     local end_time="$7"
 
-    printf 'INSERT INTO %s (parent_id, parent_name, child_id, child_name, edge_type, start_time, end_time) VALUES (%s, %s, %s, %s, %s, %s, %s);' \
+    printf 'INSERT INTO %s (source_id, source_name, target_id, target_name, edge_type, start_time, end_time) VALUES (%s, %s, %s, %s, %s, %s, %s);' \
         "$(_knit_db_sql_ident "${_KNIT_PROV_TABLE}")" \
-        "'$(_knit_sql_escape "${parent_id}")'" \
-        "'$(_knit_sql_escape "${parent_name}")'" \
-        "'$(_knit_sql_escape "${child_id}")'" \
-        "'$(_knit_sql_escape "${child_name}")'" \
+        "'$(_knit_sql_escape "${source_id}")'" \
+        "'$(_knit_sql_escape "${source_name}")'" \
+        "'$(_knit_sql_escape "${target_id}")'" \
+        "'$(_knit_sql_escape "${target_name}")'" \
         "'$(_knit_sql_escape "${edge_type}")'" \
         "$(_knit_prov_timestamp_literal "${start_time}")" \
         "$(_knit_prov_timestamp_literal "${end_time}")"
@@ -134,14 +137,14 @@ _knit_prov_edge_sql() {
 # @fn _knit_prov_record_edge()
 #
 # Insert a single provenance edge into the edge table, serialized through the
-# advisory-locked writer. Used on its own for a child that records no data row
-# (a table-less command) and for "uses" edges; a child that also records a data
+# advisory-locked writer. Used on its own for a target that records no data row
+# (a table-less command) and for "uses" edges; a target that also records a data
 # row writes both in one transaction via _knit_db_record_invocation instead.
 #
-# @param parent_id   See _knit_prov_edge_sql.
-# @param parent_name See _knit_prov_edge_sql.
-# @param child_id    See _knit_prov_edge_sql.
-# @param child_name  See _knit_prov_edge_sql.
+# @param source_id   See _knit_prov_edge_sql.
+# @param source_name See _knit_prov_edge_sql.
+# @param target_id   See _knit_prov_edge_sql.
+# @param target_name See _knit_prov_edge_sql.
 # @param edge_type   See _knit_prov_edge_sql.
 # @param start_time  See _knit_prov_edge_sql.
 # @param end_time    See _knit_prov_edge_sql.

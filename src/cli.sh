@@ -20,10 +20,10 @@ declare -ga _KNIT_EXECUTING_COMMAND=()
 # ------------------------------------------------------------------------------
 # Stack of resolved row ids, parallel to _KNIT_EXECUTING_COMMAND: entry i holds
 # the id that frame i's invocation will record. The id is resolved when the frame
-# is pushed (so a nested child can read its parent's id while the parent's body
-# still runs) and read back by _knit_record_invocation, so the id a child saw as
-# its parent is exactly the id the parent records. _knit_set_row_id updates the
-# top entry so an explicit id and the recorded id never diverge.
+# is pushed (so a nested callee can read its caller's id while the caller's body
+# still runs) and read back by _knit_record_invocation, so the id a callee saw as
+# its edge source is exactly the id the caller records. _knit_set_row_id updates
+# the top entry so an explicit id and the recorded id never diverge.
 # ------------------------------------------------------------------------------
 declare -ga _KNIT_EXECUTING_ROW_ID=()
 
@@ -2057,10 +2057,10 @@ _knit_record_row_now() {
 # @fn _knit_provenance_enabled()
 #
 # Decide whether an invocation of a command participates in the provenance graph:
-# a participating command records a "call" edge and acts as an in-process parent
+# a participating command records a "call" edge and acts as an in-process source
 # frame for the commands it invokes; a non-participating one is transparent (no
-# edge, and skipped when a child resolves its parent — see
-# _knit_resolve_parent_context).
+# edge, and skipped when a callee resolves its edge source — see
+# _knit_resolve_source_context).
 #
 # The effective setting is resolved in this order (innermost/most-specific wins):
 #
@@ -2098,53 +2098,54 @@ _knit_provenance_enabled() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_resolve_parent_context()
+# @fn _knit_resolve_source_context()
 #
-# Resolve the parent of the currently-recording invocation for its "call" edge,
-# writing the parent's row id and demangled command name into the two named
-# output variables. The precedence (innermost wins) is:
+# Resolve the source of the currently-recording invocation's "call" edge (the
+# caller), writing the source's row id and demangled command name into the two
+# named output variables. The recording invocation is the edge's target. The
+# precedence (innermost wins) is:
 #
-#   1. In-process parent frame — the nearest participating frame below the top of
+#   1. In-process caller frame — the nearest participating frame below the top of
 #      _KNIT_EXECUTING_COMMAND (transparent frames, per _knit_provenance_enabled,
 #      are skipped). Covers in-process nesting and setup dispatch (boundaries
 #      B1/B4). Its id comes from the parallel _KNIT_EXECUTING_ROW_ID stack.
-#   2. Exported env — KNIT_PARENT_ID / KNIT_PARENT_COMMAND, set by a caller across
+#   2. Exported env — KNIT_SOURCE_ID / KNIT_SOURCE_COMMAND, set by a caller across
 #      a process boundary (a job's batch script, a run's launcher subshell;
 #      boundaries B2/B3, wired in later milestones) and read by the first command
-#      in the re-entered process, which has no in-process parent.
+#      in the re-entered process, which has no in-process caller.
 #   3. Root — neither available: both outputs are empty.
 #
 # The current frame is the top of the stacks (it is recorded before being
 # popped), so the in-process search starts one below the top.
 #
-# @param out_id   Name of the variable to receive the parent row id.
-# @param out_name Name of the variable to receive the parent command name.
+# @param out_id   Name of the variable to receive the source row id.
+# @param out_name Name of the variable to receive the source command name.
 # ------------------------------------------------------------------------------
-_knit_resolve_parent_context() {
-    local -n _knit_rpc_out_id="$1"
-    local -n _knit_rpc_out_name="$2"
-    _knit_rpc_out_id=""
-    _knit_rpc_out_name=""
+_knit_resolve_source_context() {
+    local -n _knit_rsc_out_id="$1"
+    local -n _knit_rsc_out_name="$2"
+    _knit_rsc_out_id=""
+    _knit_rsc_out_name=""
 
-    # 1. Nearest participating in-process parent frame (below the current top).
+    # 1. Nearest participating in-process caller frame (below the current top).
     local i
     for (( i = ${#_KNIT_EXECUTING_COMMAND[@]} - 2; i >= 0; i-- )); do
         local pcmd="${_KNIT_EXECUTING_COMMAND[i]}"
         if _knit_provenance_enabled "${pcmd}"; then
-            _knit_rpc_out_id="${_KNIT_EXECUTING_ROW_ID[i]}"
-            _knit_rpc_out_name="$(_knit_command_demangle "${pcmd}")"
+            _knit_rsc_out_id="${_KNIT_EXECUTING_ROW_ID[i]}"
+            _knit_rsc_out_name="$(_knit_command_demangle "${pcmd}")"
             return 0
         fi
     done
 
     # 2. Context exported across a process boundary.
-    if [[ -n "${KNIT_PARENT_ID:-}" || -n "${KNIT_PARENT_COMMAND:-}" ]]; then
-        _knit_rpc_out_id="${KNIT_PARENT_ID:-}"
-        _knit_rpc_out_name="${KNIT_PARENT_COMMAND:-}"
+    if [[ -n "${KNIT_SOURCE_ID:-}" || -n "${KNIT_SOURCE_COMMAND:-}" ]]; then
+        _knit_rsc_out_id="${KNIT_SOURCE_ID:-}"
+        _knit_rsc_out_name="${KNIT_SOURCE_COMMAND:-}"
         return 0
     fi
 
-    # 3. Root invocation: parent stays empty.
+    # 3. Root invocation: source stays empty.
     return 0
 }
 
@@ -2154,12 +2155,13 @@ _knit_resolve_parent_context() {
 # Record the just-completed invocation of a command: its data row (when the
 # command declared a table with knit_with_table) and, when the command
 # participates in the provenance graph (see _knit_provenance_enabled), a "call"
-# edge to its parent. Both are written only when the experiment is bootstrapped.
+# edge from its source (the caller). Both are written only when the experiment is
+# bootstrapped.
 #
 # The row id is the id resolved when this frame was pushed (see
 # _knit_resolve_row_id) and read back from the top of _KNIT_EXECUTING_ROW_ID, so
-# it matches the id a nested child already saw as its parent. Recording therefore
-# runs while the frame is still on the stacks (before it is popped).
+# it matches the id a nested callee already saw as its source. Recording
+# therefore runs while the frame is still on the stacks (before it is popped).
 #
 # The four cases:
 #   - transparent (hidden) command with no table: nothing to record;
@@ -2168,7 +2170,7 @@ _knit_resolve_parent_context() {
 #   - participating command with a table: the data row and the "call" edge in one
 #     transaction (_knit_db_record_invocation);
 #   - participating command with no table: the "call" edge on its own
-#     (_knit_prov_record_edge), whose child id joins to no data row (dangling).
+#     (_knit_prov_record_edge), whose target id joins to no data row (dangling).
 #
 # The edge's start_time was captured when the frame was pushed (top of
 # _KNIT_EXECUTING_START_TIME); its end_time is captured here, after the body and
@@ -2231,11 +2233,11 @@ _knit_record_invocation() {
         return 0
     fi
 
-    # Participating command: resolve the parent context and the call edge's
-    # timestamps, then write the edge (with the data row, if any).
+    # Participating command: resolve the edge source (the caller) and the call
+    # edge's timestamps, then write the edge (with the data row, if any).
     _knit_prov_ensure_table
-    local parent_id parent_name
-    _knit_resolve_parent_context parent_id parent_name
+    local source_id source_name
+    _knit_resolve_source_context source_id source_name
     local start_time=""
     if [[ ${#_KNIT_EXECUTING_START_TIME[@]} -gt 0 ]]; then
         start_time="${_KNIT_EXECUTING_START_TIME[-1]}"
@@ -2245,13 +2247,13 @@ _knit_record_invocation() {
 
     if [[ -n "${table}" ]]; then
         _knit_db_record_invocation "${cmd}" "${table}" "${id}" \
-            "${parent_id}" "${parent_name}" "call" "${start_time}" "${end_time}" "$@"
+            "${source_id}" "${source_name}" "call" "${start_time}" "${end_time}" "$@"
     else
-        # No data row: record the edge on its own; its child id joins to nothing.
-        local child_name
-        child_name="$(_knit_command_demangle "${cmd}")"
-        _knit_prov_record_edge "${parent_id}" "${parent_name}" "${id}" \
-            "${child_name}" "call" "${start_time}" "${end_time}"
+        # No data row: record the edge on its own; its target id joins to nothing.
+        local target_name
+        target_name="$(_knit_command_demangle "${cmd}")"
+        _knit_prov_record_edge "${source_id}" "${source_name}" "${id}" \
+            "${target_name}" "call" "${start_time}" "${end_time}"
     fi
 }
 

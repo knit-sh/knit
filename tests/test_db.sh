@@ -394,7 +394,7 @@ __test_register_cmd() {
     # ...but a visible command still appears in the provenance graph: it records a
     # (root) call edge whose child id joins to no data row (dangling).
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT child_name,edge_type FROM __provenance__;")" = "ntcmd|call" ]
+        "SELECT target_name,edge_type FROM __provenance__;")" = "ntcmd|call" ]
 }
 
 @test "recording is skipped when _KNIT_RECORDING_SUPPRESSED is set" {
@@ -517,7 +517,7 @@ __test_register_cmd() {
 
     local edge
     edge=$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT parent_id,parent_name,child_id,child_name,edge_type,start_time,end_time FROM __provenance__;")
+        "SELECT source_id,source_name,target_id,target_name,edge_type,start_time,end_time FROM __provenance__;")
     [ "$edge" = "parent-1|top|child-1|edgecmd|call|100.5|101.5" ]
 }
 
