@@ -400,6 +400,11 @@ _knit_sched_hostfile() {
 #                    a setup-less job, in which case KNIT_SETUP_PREFIX is not
 #                    exported).
 # @param jobdir      Job directory (exported as KNIT_JOB_PREFIX; the cd target).
+# @param source_id   Submitting invocation's row id (exported as KNIT_SOURCE_ID
+#                    so the compute-side job body records a call edge back to the
+#                    submitter; empty to omit the export).
+# @param source_command Submitting invocation's command name (exported as
+#                    KNIT_SOURCE_COMMAND; emitted only when source_id is set).
 # @param job_name    Registered job name to run.
 # @param ...         Arguments to pass to the job.
 # ------------------------------------------------------------------------------
@@ -409,14 +414,24 @@ _knit_sched_write_jobscript() {
     local arr_name="$3"
     local setup_path="$4"
     local jobdir="$5"
-    local job_name="$6"
-    shift 6
+    local source_id="$6"
+    local source_command="$7"
+    local job_name="$8"
+    shift 8
     local -a job_args=("$@")
 
     {
         printf '#!/bin/bash\n'
         _knit_sched_directives "${backend}" "${arr_name}" "${jobdir}"
         printf 'export KNIT_JOB_PREFIX=%q\n' "${jobdir}"
+        # Carry the submitter's provenance context across the scheduler boundary.
+        # The compute-side job body has no in-process caller, so it reads these
+        # exports to record a `call` edge submit -> submit:<name>. They survive
+        # the exec below because they are exported.
+        if [[ -n "${source_id}" ]]; then
+            printf 'export KNIT_SOURCE_ID=%q\n' "${source_id}"
+            printf 'export KNIT_SOURCE_COMMAND=%q\n' "${source_command}"
+        fi
         # Setup-less jobs (no knit_with_setup) carry no setup directory.
         if [[ -n "${setup_path}" ]]; then
             printf 'export KNIT_SETUP_PREFIX=%q\n' "${setup_path}"

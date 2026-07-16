@@ -162,8 +162,12 @@ _knit_submit() {
     # `knit submit <job-name> [args]` is an actual invocation of the job's
     # registered function.
     local script="${jobdir}/.job.sh"
+    # The submission's resolved row id is the job UUID (== jobs.id), and the
+    # command name is the literal `submit`: the compute-side job body reads these
+    # as its source context to record the call edge back to this submission.
     _knit_sched_write_jobscript "${script}" "${backend}" opts \
-        "${setup_path}" "${jobdir}" "${job_name}" "${job_args[@]}"
+        "${setup_path}" "${jobdir}" "${uuid}" "submit" \
+        "${job_name}" "${job_args[@]}"
 
     # Build the scheduler submission command (e.g. "sbatch <script>") so it can be
     # recorded in the jobs table and logged before it is issued.

@@ -45,14 +45,30 @@ teardown() {
     local script="${jobdir}/.job.sh"
 
     _knit_sched_write_jobscript "${script}" local o \
-        "/setups/s1" "${jobdir}" myjob arg1 arg2
+        "/setups/s1" "${jobdir}" job-uuid-1 submit myjob arg1 arg2
 
     [ "$(head -n1 "${script}")" = "#!/bin/bash" ]
     grep -Fxq "export KNIT_JOB_PREFIX=${jobdir}" "${script}"
+    grep -Fxq "export KNIT_SOURCE_ID=job-uuid-1" "${script}"
+    grep -Fxq "export KNIT_SOURCE_COMMAND=submit" "${script}"
     grep -Fxq "export KNIT_SETUP_PREFIX=/setups/s1" "${script}"
     grep -Fxq "export _KNIT_PREFIX=${_KNIT_PREFIX}" "${script}"
     grep -Fxq "cd ${jobdir}" "${script}"
     grep -Fxq "exec /fake/exp.sh submit myjob arg1 arg2" "${script}"
+}
+
+@test "write_jobscript omits source exports when source id is empty" {
+    KNIT_SCRIPT_PATH="/fake/exp.sh"
+    local jobdir="${_KNIT_TEST_TMPDIR}/jd_nosrc"
+    mkdir -p "${jobdir}"
+    declare -A o
+    local script="${jobdir}/.job.sh"
+
+    _knit_sched_write_jobscript "${script}" local o \
+        "/setups/s1" "${jobdir}" "" "" myjob
+
+    ! grep -q '^export KNIT_SOURCE_ID=' "${script}"
+    ! grep -q '^export KNIT_SOURCE_COMMAND=' "${script}"
 }
 
 @test "write_jobscript %q-quotes arguments containing spaces" {
@@ -63,7 +79,7 @@ teardown() {
     local script="${jobdir}/.job.sh"
 
     _knit_sched_write_jobscript "${script}" local o \
-        "/setups/s1" "${jobdir}" myjob "hello world"
+        "/setups/s1" "${jobdir}" job-uuid-2 submit myjob "hello world"
 
     grep -Fxq 'exec /fake/exp.sh submit myjob hello\ world' "${script}"
 }
@@ -76,7 +92,7 @@ teardown() {
     local script="${jobdir}/.job.sh"
 
     _knit_sched_write_jobscript "${script}" local o \
-        "/setups/s1" "${jobdir}" myjob
+        "/setups/s1" "${jobdir}" job-uuid-3 submit myjob
 
     ! grep -q '^#SBATCH' "${script}"
     ! grep -q '^#PBS' "${script}"
