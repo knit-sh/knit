@@ -418,7 +418,7 @@ _knit_output_type() {
 # ------------------------------------------------------------------------------
 _knit_command_get_parents() {
     local cmd="$*"
-    if [[ "$cmd" =~ ^(.*)([[:space:]]|:|__1__)[^[:space:]:__1__]*$ ]]; then
+    if [[ "$cmd" =~ ^(.*)([[:space:]]|:|__1__)[^[:space:]:]*$ ]]; then
         printf "%s" "${BASH_REMATCH[1]}"
     fi
 }
@@ -432,7 +432,7 @@ _knit_command_get_parents() {
 # ------------------------------------------------------------------------------
 _knit_command_get_last() {
     local cmd="$*"
-    if [[ "$cmd" =~ (.*)([[:space:]]|:|__1__)([^[:space:]:__1__]+)$ ]]; then
+    if [[ "$cmd" =~ (.*)([[:space:]]|:|__1__)([^[:space:]:]+)$ ]]; then
         printf "%s" "${BASH_REMATCH[3]}"
     else
         printf "%s" "${cmd}"
@@ -483,6 +483,7 @@ knit_register() {
     printf -v "_KNIT_CMD_${cmd}_dispatch"        '%s' ''
     printf -v "_KNIT_CMD_${cmd}_is_hidden"       '%s' 'false'
     printf -v "_KNIT_CMD_${cmd}_is_wrapper"      '%s' 'false'
+    printf -v "_KNIT_CMD_${cmd}_provenance"      '%s' ''
     declare -ga "_KNIT_CMD_${cmd}_before_cb"
     declare -ga "_KNIT_CMD_${cmd}_after_cb"
     declare -ga "_KNIT_CMD_${cmd}_notes"
@@ -637,6 +638,43 @@ knit_hidden() {
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local cmd_hidden_name="_KNIT_CMD_${cmd}_is_hidden"
     printf -v "${cmd_hidden_name}" '%s' 'true'
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_with_provenance()
+#
+# Mark the command being registered as participating in the provenance graph: an
+# invocation of it records a "call" edge and acts as an in-process parent frame
+# for the commands it invokes. This is an explicit override of the default
+# (which is by visibility — see _knit_provenance_enabled), so it forces a hidden
+# command into the graph. The mark also propagates to unmarked lexical
+# descendants (e.g. "a" marked "with" makes an unmarked "a:b" participate).
+# ------------------------------------------------------------------------------
+knit_with_provenance() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_provenance should be used after a call to \"knit_register\"."
+    fi
+    knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as recording provenance."
+    printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_provenance" '%s' 'with'
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_without_provenance()
+#
+# Mark the command being registered as excluded from the provenance graph: an
+# invocation of it records no "call" edge and is transparent when a command it
+# invokes resolves its parent (the child links to the nearest participating
+# ancestor instead). This is an explicit override of the default, so it silences
+# a visible command. The mark also propagates to unmarked lexical descendants
+# (e.g. "a" marked "without" silences an unmarked "a:b"). Data-row recording
+# (knit_with_table) is orthogonal and still happens.
+# ------------------------------------------------------------------------------
+knit_without_provenance() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_without_provenance should be used after a call to \"knit_register\"."
+    fi
+    knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as not recording provenance."
+    printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_provenance" '%s' 'without'
 }
 
 # ------------------------------------------------------------------------------
@@ -2024,11 +2062,19 @@ _knit_record_row_now() {
 # edge, and skipped when a child resolves its parent — see
 # _knit_resolve_parent_context).
 #
-# The M3 policy is default-by-visibility: hidden commands (a "_"-prefixed name,
-# e.g. the "_run" worker, or "__"-private framework commands) are transparent so
-# internal plumbing never shows up in the graph; every other (visible) command
-# participates. The explicit knit_with_provenance / knit_without_provenance marks
-# and their lexical inheritance land in a later milestone.
+# The effective setting is resolved in this order (innermost/most-specific wins):
+#
+#   1. the command's own explicit mark (knit_with_provenance -> "with",
+#      knit_without_provenance -> "without"), if any;
+#   2. otherwise the nearest marked lexical ancestor's mark, walking the
+#      colon-nested command name up via _knit_command_get_parents (e.g.
+#      "a:b:c" -> "a:b" -> "a"), so one mark on a parent governs a whole subtree;
+#   3. otherwise the default by visibility: hidden commands (marked via
+#      knit_hidden, e.g. the "_run" worker) are transparent so internal plumbing
+#      never shows up in the graph; every other (visible) command participates.
+#
+# Inheritance is over the lexical command hierarchy (the names), not the runtime
+# call stack. Data-row recording (knit_with_table) is orthogonal to this.
 #
 # Returns 0 (success) when the command participates, 1 otherwise.
 #
@@ -2036,6 +2082,17 @@ _knit_record_row_now() {
 # ------------------------------------------------------------------------------
 _knit_provenance_enabled() {
     local cmd="$1"
+    # 1./2. Own explicit mark, then the nearest marked lexical ancestor.
+    local c="${cmd}"
+    while [[ -n "${c}" ]]; do
+        local mark_var="_KNIT_CMD_${c}_provenance"
+        case "${!mark_var:-}" in
+            with)    return 0 ;;
+            without) return 1 ;;
+        esac
+        c="$(_knit_command_get_parents "${c}")"
+    done
+    # 3. Default by visibility.
     local hidden_var="_KNIT_CMD_${cmd}_is_hidden"
     [[ "${!hidden_var:-false}" != "true" ]]
 }
@@ -2121,6 +2178,11 @@ _knit_resolve_parent_context() {
 # @param ... The expanded invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_record_invocation() {
+    # Global kill switch: KNIT_DISABLE_RECORDING=true disables all recording (data
+    # rows and provenance edges), so a command or chain can be exercised without
+    # leaving rows to clean up afterwards. Placed here so it also covers the eager
+    # _knit_record_row_now path (knit submit's early recording).
+    [[ "${KNIT_DISABLE_RECORDING:-}" == "true" ]] && return 0
     # Suppressed on non-root ranks of a run: record no row and no edge, so a run's
     # per-app row is written exactly once (by rank 0) even though every rank
     # re-enters the app.

@@ -139,6 +139,26 @@ teardown() {
     [ -z "$result" ]
 }
 
+@test "_knit_command_get_parents handles a last segment containing an underscore" {
+    local result
+    result=$(_knit_command_get_parents "submit__1__my_job")
+    [ "$result" = "submit" ]
+    result=$(_knit_command_get_parents "submit:my_job")
+    [ "$result" = "submit" ]
+}
+
+@test "_knit_command_get_parents handles a last segment starting with an underscore" {
+    local result
+    result=$(_knit_command_get_parents "wgrp__1___leaf")
+    [ "$result" = "wgrp" ]
+}
+
+@test "_knit_command_get_parents handles a last segment containing a 1" {
+    local result
+    result=$(_knit_command_get_parents "run__1__app1")
+    [ "$result" = "run" ]
+}
+
 # ---------- _knit_command_get_last ----------
 
 @test "_knit_command_get_last returns last part for colon-separated command" {
@@ -157,6 +177,14 @@ teardown() {
     local result
     result=$(_knit_command_get_last "aaa")
     [ "$result" = "aaa" ]
+}
+
+@test "_knit_command_get_last handles a last segment containing an underscore" {
+    local result
+    result=$(_knit_command_get_last "submit__1__my_job")
+    [ "$result" = "my_job" ]
+    result=$(_knit_command_get_last "submit:my_job")
+    [ "$result" = "my_job" ]
 }
 
 # ---------- _knit_param_description_var / _knit_param_default_var / _knit_param_type_var ----------

@@ -11,6 +11,9 @@ setup() {
     knit_test_db_setup
     unset KNIT_JOB_PREFIX KNIT_RUN_ID KNIT_PARENT_ID KNIT_PARENT_COMMAND
     _KNIT_RECORDING_SUPPRESSED=""
+    # Create the edge table up front so tests that record no edge (a "without"
+    # command, KNIT_DISABLE_RECORDING) can still query __provenance__.
+    _knit_prov_create_table
 }
 
 teardown() {
@@ -226,4 +229,179 @@ teardown() {
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT parent_id,parent_name FROM __provenance__ WHERE child_id='${child_id}';")" \
         = "${parent_id}|ovparent" ]
+}
+
+# ---------- recording policy: with/without marks (M4, design §5.5) ----------
+
+@test "knit_without_provenance on a visible command records no edge but keeps its data row" {
+    knit_register _p_wo_fn "wocmd" "Without."
+    knit_with_table "wos"
+    knit_without_provenance
+    _p_wo_fn() { :; }
+    knit_done
+
+    _knit_invoke_command "wocmd"
+
+    # The data row is still recorded (orthogonal to provenance)...
+    [ -n "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM wos;")" ]
+    # ...but the command produces no provenance edge.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM __provenance__ WHERE child_name='wocmd';")" = "0" ]
+}
+
+@test "knit_with_provenance on a hidden command records an edge" {
+    knit_register _p_wh_fn "_whcmd" "With, hidden."
+    knit_hidden
+    knit_with_provenance
+    _p_wh_fn() { :; }
+    knit_done
+
+    _knit_invoke_command "_whcmd"
+
+    # A hidden command is transparent by default, but the explicit "with" mark
+    # forces it into the graph (as a root here — no participating parent).
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT parent_id,parent_name,child_name,edge_type FROM __provenance__;")" \
+        = "||_whcmd|call" ]
+}
+
+@test "a without command is transparent: its child links to the grandparent" {
+    knit_register _p_gc_fn "gchild" "Grandchild."
+    knit_with_table "gchildren"
+    _p_gc_fn() { :; }
+    knit_done
+
+    # A "without" middle command records no edge and is skipped when its callee
+    # resolves a parent, so the grandchild's edge points at the top command.
+    knit_register _p_mw_fn "midw" "Middle without."
+    knit_without_provenance
+    _p_mw_fn() { _knit_invoke_command "gchild"; }
+    knit_done
+
+    knit_register _p_gt_fn "gtop" "Top."
+    knit_with_table "gtops"
+    _p_gt_fn() { _knit_invoke_command "midw"; }
+    knit_done
+
+    _knit_invoke_command "gtop"
+
+    local top_id gc_id
+    top_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM gtops;")
+    gc_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM gchildren;")
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT parent_id,parent_name FROM __provenance__ WHERE child_id='${gc_id}';")" \
+        = "${top_id}|gtop" ]
+    # The "without" middle appears nowhere in the graph.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM __provenance__ WHERE parent_name='midw' OR child_name='midw';")" \
+        = "0" ]
+}
+
+# ---------- recording policy: lexical inheritance (M4, design §5.5) ----------
+
+@test "an unmarked nested command inherits a without mark from its lexical parent" {
+    knit_register _p_par_fn "grp" "Group."
+    knit_without_provenance
+    _p_par_fn() { :; }
+    knit_done
+
+    knit_register _p_sub_fn "grp:leaf" "Leaf."
+    knit_with_table "grpleaves"
+    _p_sub_fn() { :; }
+    knit_done
+
+    _knit_invoke_command "grp:leaf"
+
+    # grp:leaf is unmarked, but its lexical parent grp is "without", so it records
+    # no edge (its data row is still written).
+    [ -n "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM grpleaves;")" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM __provenance__ WHERE child_name='grp:leaf';")" = "0" ]
+}
+
+@test "an unmarked nested command inherits a with mark from its lexical parent" {
+    knit_register _p_wpar_fn "wgrp" "Group."
+    knit_with_provenance
+    _p_wpar_fn() { :; }
+    knit_done
+
+    knit_register _p_wsub_fn "wgrp:_leaf" "Hidden leaf."
+    knit_hidden
+    _p_wsub_fn() { :; }
+    knit_done
+
+    _knit_invoke_command "wgrp:_leaf"
+
+    # wgrp:_leaf is hidden and would be transparent by default, but the inherited
+    # "with" from wgrp overrides visibility, so it records an edge.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT child_name,edge_type FROM __provenance__;")" = "wgrp:_leaf|call" ]
+}
+
+@test "an explicit mark on a nested command overrides the inherited one" {
+    knit_register _p_opar_fn "ogrp" "Group."
+    knit_without_provenance
+    _p_opar_fn() { :; }
+    knit_done
+
+    knit_register _p_osub_fn "ogrp:leaf" "Leaf with own mark."
+    knit_with_provenance
+    _p_osub_fn() { :; }
+    knit_done
+
+    _knit_invoke_command "ogrp:leaf"
+
+    # ogrp is "without", but ogrp:leaf's own "with" wins.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT child_name,edge_type FROM __provenance__;")" = "ogrp:leaf|call" ]
+}
+
+@test "the nearest marked lexical ancestor wins over a farther one" {
+    knit_register _p_np_fn "top" "Top."
+    knit_with_provenance
+    _p_np_fn() { :; }
+    knit_done
+
+    knit_register _p_nm_fn "top:mid" "Mid."
+    knit_without_provenance
+    _p_nm_fn() { :; }
+    knit_done
+
+    knit_register _p_nl_fn "top:mid:leaf" "Leaf."
+    _p_nl_fn() { :; }
+    knit_done
+
+    _knit_invoke_command "top:mid:leaf"
+
+    # top is "with" and top:mid is "without"; the unmarked leaf inherits from the
+    # nearer top:mid, so it records no edge.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM __provenance__ WHERE child_name='top:mid:leaf';")" = "0" ]
+}
+
+# ---------- global kill switch (M4, design §7 D7) ----------
+
+@test "KNIT_DISABLE_RECORDING suppresses both the data row and the edge" {
+    knit_register _p_kill_fn "killcmd" "Kill."
+    knit_with_table "kills"
+    _p_kill_fn() { :; }
+    knit_done
+
+    KNIT_DISABLE_RECORDING=true _knit_invoke_command "killcmd"
+
+    # Neither the data row nor the provenance edge is written.
+    [ -z "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM kills;")" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM __provenance__;")" = "0" ]
+}
+
+@test "KNIT_DISABLE_RECORDING also suppresses the eager _knit_record_row_now path" {
+    knit_register _p_eager_fn "eagercmd" "Eager."
+    knit_with_table "eagers"
+    _p_eager_fn() { _knit_record_row_now "$@"; }
+    knit_done
+
+    KNIT_DISABLE_RECORDING=true _knit_invoke_command "eagercmd"
+
+    [ -z "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM eagers;")" ]
 }
