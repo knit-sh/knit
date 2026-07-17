@@ -24,9 +24,13 @@ _register_fixture() {
     knit_done
 }
 
-# Skip a test that needs a YAML parser when PyYAML is not installed.
-_need_pyyaml() {
-    python3 -c 'import yaml' 2>/dev/null || skip "PyYAML not available"
+# Fail (do not skip) a test that needs a YAML parser when yq is not installed:
+# CI is expected to provide yq, so a missing parser is an error, not a skip.
+_require_yq() {
+    if ! command -v yq >/dev/null 2>&1; then
+        printf 'yq is required for the describe YAML tests but is not installed\n' >&2
+        return 1
+    fi
 }
 
 # ---------- _knit_describe_yaml_needs_quote ----------
@@ -85,33 +89,32 @@ _need_pyyaml() {
 }
 
 @test "a block scalar round-trips through a YAML parser" {
-    _need_pyyaml
+    _require_yq
     local rendered
     rendered=$({ printf 'k: '; \
         _knit_describe_yaml_scalar $'multi\nline\nvalue' '  '; printf '\n'; })
-    [ "$(printf '%s' "${rendered}" \
-        | python3 -c 'import yaml,sys; print(repr(yaml.safe_load(sys.stdin)["k"]))')" \
-        = "'multi\nline\nvalue'" ]
+    [ "$(printf '%s' "${rendered}" | yq -c '.k')" \
+        = '"multi\nline\nvalue"' ]
 }
 
 # ---------- document structure ----------
 
 @test "describe --format yaml produces well-formed YAML" {
-    _need_pyyaml
+    _require_yq
     run knit describe --format yaml
     [ "$status" -eq 0 ]
-    printf '%s' "${output}" | python3 -c 'import yaml,sys; yaml.safe_load(sys.stdin)'
+    printf '%s' "${output}" | yq '.' >/dev/null
 }
 
 @test "yaml serializes the same model as the json formatter" {
-    _need_pyyaml
+    _require_yq
     local y j
-    y=$(_knit_describe_yaml)
-    j=$(_knit_describe_json)
-    python3 - "${y}" "${j}" <<'PY'
-import sys, yaml, json
-assert yaml.safe_load(sys.argv[1]) == json.loads(sys.argv[2])
-PY
+    # yq transcodes YAML to canonical JSON; jq's JSON is normalized the same way
+    # by piping it through yq too (JSON is valid YAML). Sorted, compact output on
+    # both sides makes the comparison order-insensitive.
+    y=$(_knit_describe_yaml | yq -S -c '.')
+    j=$(_knit_describe_json | yq -S -c '.')
+    [ "${y}" = "${j}" ]
 }
 
 @test "the top-level document carries version, experiment and format_version" {
@@ -163,12 +166,10 @@ PY
 # ---------- filters are inherited from the model layer ----------
 
 @test "--exclude-builtins drops framework commands from the yaml" {
-    _need_pyyaml
+    _require_yq
     run knit describe --format yaml --exclude-builtins
     [ "$status" -eq 0 ]
-    [ "$(printf '%s' "${output}" | python3 -c \
-        'import yaml,sys; print([c["name"] for c in yaml.safe_load(sys.stdin)["commands"]])')" \
-        = "['greet']" ]
+    [ "$(printf '%s' "${output}" | yq -c '[.commands[].name]')" = '["greet"]' ]
 }
 
 @test "--no-input-params omits the parameters mapping from the yaml" {
