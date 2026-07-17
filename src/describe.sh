@@ -3,6 +3,27 @@
 ## @file describe.sh
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_DESCRIBE_FILTERS
+#
+# Boolean filter state for the current "describe" invocation, populated by
+# _knit_describe from the parsed flags and consulted by the model/traversal
+# layer so every formatter inherits the same filtering. Keys: "exclude_builtins",
+# "no_input_params", "no_output_params", "include_hidden", and "recursive"; each
+# value is "true" or "false". A missing key defaults to "false", so the default
+# (no filtering) also applies when the traversal is exercised directly.
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_DESCRIBE_FILTERS
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_DESCRIBE_ONLY
+#
+# Set of mangled command names selected by "--only" for the current "describe"
+# invocation. Empty means no selection was given, in which case every (visible)
+# command is described.
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_DESCRIBE_ONLY
+
+# ------------------------------------------------------------------------------
 # @fn _knit_describe_json_escape()
 #
 # Escape a string so it can be embedded inside a JSON string literal, without any
@@ -150,6 +171,74 @@ _knit_describe_command_kind() {
         setup)  printf 'setup' ;;
         *)      printf 'command' ;;
     esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_filter_on()
+#
+# Return success if the named boolean filter is enabled for the current
+# invocation. Unknown or unset keys are treated as disabled.
+#
+# @param name Filter key (see _KNIT_DESCRIBE_FILTERS).
+# ------------------------------------------------------------------------------
+_knit_describe_filter_on() {
+    [[ "${_KNIT_DESCRIBE_FILTERS[$1]:-false}" == "true" ]]
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_visible()
+#
+# Return success if a command passes the hidden/builtin filters, independent of
+# any "--only" selection: hidden commands are dropped unless "--include-hidden"
+# is set, and builtin commands are dropped when "--exclude-builtins" is set.
+#
+# @param cmd Mangled command name.
+# ------------------------------------------------------------------------------
+_knit_describe_visible() {
+    local cmd="$1"
+    if ! _knit_describe_filter_on include_hidden; then
+        local hidden_var="_KNIT_CMD_${cmd}_is_hidden"
+        [[ "${!hidden_var}" == "true" ]] && return 1
+    fi
+    if _knit_describe_filter_on exclude_builtins; then
+        _knit_command_is_builtin "${cmd}" && return 1
+    fi
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_should_emit()
+#
+# Decide whether a command appears in the filtered command tree. A command is
+# emitted when it is visible (passes the hidden/builtin filters) and either:
+#   - no "--only" selection is active (every visible command is selected), or
+#   - it is itself selected by "--only", or
+#   - an ancestor is selected and "--recursive" is set, or
+#   - it has a descendant that is itself emitted (so it is kept as a container
+#     that preserves the path down to a selected command).
+#
+# @param cmd          Mangled command name.
+# @param sel_ancestor "true" if an ancestor of the command is in the "--only"
+#                     selection, "false" otherwise.
+# ------------------------------------------------------------------------------
+_knit_describe_should_emit() {
+    local cmd="$1"
+    local sel_ancestor="$2"
+    _knit_describe_visible "${cmd}" || return 1
+    # No selection: every visible command is described.
+    (( ${#_KNIT_DESCRIBE_ONLY[@]} == 0 )) && return 0
+    _knit_set_find _KNIT_DESCRIBE_ONLY "${cmd}" && return 0
+    if [[ "${sel_ancestor}" == "true" ]] && _knit_describe_filter_on recursive; then
+        return 0
+    fi
+    # Not selected: keep the command only as a container for a selected
+    # descendant. The command is not in the selection here, so the ancestor flag
+    # passed down is unchanged.
+    local c
+    while IFS= read -r c; do
+        _knit_describe_should_emit "${c}" "${sel_ancestor}" && return 0
+    done < <(_knit_describe_children "${cmd}")
+    return 1
 }
 
 # ------------------------------------------------------------------------------
@@ -314,15 +403,19 @@ _knit_describe_json_outputs() {
 # @fn _knit_describe_json_command()
 #
 # Render a single command (and, recursively, its subcommands) as a JSON object.
-# The object is an array element, so its leading indent is included. Hidden
-# subcommands are excluded (matching "--help").
+# The object is an array element, so its leading indent is included. Subcommands
+# are pruned by the active filters (hidden/builtin/"--only"), matching the
+# top-level command list.
 #
-# @param cmd    Mangled command name.
-# @param indent Indentation of the object's opening brace.
+# @param cmd          Mangled command name.
+# @param indent       Indentation of the object's opening brace.
+# @param sel_ancestor "true" if an ancestor of the command is in the "--only"
+#                     selection.
 # ------------------------------------------------------------------------------
 _knit_describe_json_command() {
     local cmd="$1"
     local indent="$2"
+    local sel_ancestor="$3"
     local inner="${indent}  "
     local demangled
     demangled=$(_knit_command_demangle "${cmd}")
@@ -354,11 +447,12 @@ _knit_describe_json_command() {
     local table_json='null'
     [[ -n "${!table_var:-}" ]] && table_json="$(_knit_describe_json_str "${!table_var}")"
 
+    local child_sel_ancestor="${sel_ancestor}"
+    _knit_set_find _KNIT_DESCRIBE_ONLY "${cmd}" && child_sel_ancestor="true"
     local subs=() c
     while IFS= read -r c; do
-        local child_hidden_var="_KNIT_CMD_${c}_is_hidden"
-        [[ "${!child_hidden_var}" == "true" ]] && continue
-        subs+=("$(_knit_describe_json_command "${c}" "${inner}  ")")
+        _knit_describe_should_emit "${c}" "${child_sel_ancestor}" || continue
+        subs+=("$(_knit_describe_json_command "${c}" "${inner}  " "${child_sel_ancestor}")")
     done < <(_knit_describe_children "${cmd}")
 
     local entries=()
@@ -371,8 +465,12 @@ _knit_describe_json_command() {
     entries+=("$(printf '%s"dispatcher": %s' "${inner}" "${dispatch_json}")")
     entries+=("$(printf '%s"provenance": %s' "${inner}" "$(_knit_describe_json_str "${prov}")")")
     entries+=("$(printf '%s"table": %s' "${inner}" "${table_json}")")
-    entries+=("$(printf '%s"parameters": ' "${inner}"; _knit_describe_json_params "${cmd}" "${inner}")")
-    entries+=("$(printf '%s"outputs": ' "${inner}"; _knit_describe_json_outputs "${cmd}" "${inner}")")
+    if ! _knit_describe_filter_on no_input_params; then
+        entries+=("$(printf '%s"parameters": ' "${inner}"; _knit_describe_json_params "${cmd}" "${inner}")")
+    fi
+    if ! _knit_describe_filter_on no_output_params; then
+        entries+=("$(printf '%s"outputs": ' "${inner}"; _knit_describe_json_outputs "${cmd}" "${inner}")")
+    fi
     entries+=("$(printf '%s"subcommands": ' "${inner}"; _knit_describe_emit_array "${inner}" "${subs[@]}")")
 
     printf '%s' "${indent}"
@@ -411,9 +509,8 @@ _knit_describe_json_enums() {
 _knit_describe_json() {
     local roots=() c
     while IFS= read -r c; do
-        local hidden_var="_KNIT_CMD_${c}_is_hidden"
-        [[ "${!hidden_var}" == "true" ]] && continue
-        roots+=("$(_knit_describe_json_command "${c}" "    ")")
+        _knit_describe_should_emit "${c}" "false" || continue
+        roots+=("$(_knit_describe_json_command "${c}" "    " "false")")
     done < <(_knit_describe_children "")
 
     local entries=()
@@ -427,16 +524,49 @@ _knit_describe_json() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_describe_read_filters()
+#
+# Populate the module-level filter state (_KNIT_DESCRIBE_FILTERS and
+# _KNIT_DESCRIBE_ONLY) from the current invocation's arguments, so the
+# model/traversal layer applies the requested filtering. Called by _knit_describe
+# before any formatter runs.
+#
+# @param ... Command arguments (expanded by the CLI framework).
+# ------------------------------------------------------------------------------
+_knit_describe_read_filters() {
+    _KNIT_DESCRIBE_FILTERS=()
+    _KNIT_DESCRIBE_ONLY=()
+    local flag
+    for flag in exclude_builtins no_input_params no_output_params \
+                include_hidden recursive; do
+        _KNIT_DESCRIBE_FILTERS["${flag}"]=$( \
+            knit_get_parameter "${flag//_/-}" "$@" || printf 'false')
+    done
+    local only
+    only=$(knit_get_parameter only "$@") || only=""
+    if [[ -n "${only}" ]]; then
+        local -a selected=()
+        IFS=',' read -r -a selected <<< "${only}"
+        local name
+        for name in "${selected[@]}"; do
+            [[ -z "${name}" ]] && continue
+            _knit_set_add _KNIT_DESCRIBE_ONLY "$(_knit_command_mangle "${name}")"
+        done
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_describe()
 #
-# Body of the "describe" command: read the requested --format and emit the
-# description in that format. Only "json" is implemented so far.
+# Body of the "describe" command: read the requested filters and --format, then
+# emit the description in that format. Only "json" is implemented so far.
 #
 # @param ... Command arguments (expanded by the CLI framework).
 # ------------------------------------------------------------------------------
 _knit_describe() {
     local format
     format=$(knit_get_parameter format "$@") || format="default"
+    _knit_describe_read_filters "$@"
     case "${format}" in
         json)
             _knit_describe_json
@@ -456,4 +586,16 @@ _knit_is_builtin
 knit_without_provenance
 knit_with_optional "format:describe_format" "default" \
     "Output format: default, json, yaml, markdown, or html."
+knit_with_flag "exclude-builtins" \
+    "Omit framework builtin commands; show only user-declared commands."
+knit_with_flag "no-input-params" \
+    "Omit each command's input parameters."
+knit_with_flag "no-output-params" \
+    "Omit each command's outputs."
+knit_with_optional "only:string" "" \
+    "Comma-separated commands/subcommands to describe (colon form, e.g. \"a,b:c\")."
+knit_with_flag "recursive" \
+    "With --only, also include the selected commands' subcommands."
+knit_with_flag "include-hidden" \
+    "Include hidden and framework-private commands (excluded by default)."
 knit_done
