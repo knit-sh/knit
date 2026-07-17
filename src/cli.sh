@@ -1558,7 +1558,6 @@ _knit_print_options_block() {
         fi
         printf "  %-${max_opt_length}s  [%s] %s\n" "${opt2} <value>" "${annotation}" "${description}"
     done < <(_knit_set_iter "${optional_args_varname}")
-    max_opt_length=$((max_opt_length - 8))
     while read -r opt; do
         description=$(_knit_param_description "${cmd}" "${opt}")
         opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
@@ -1567,7 +1566,7 @@ _knit_print_options_block() {
         if [[ -v "${when_raw_var}" ]]; then
             annotation="flag, when: ${!when_raw_var}"
         fi
-        printf "  %-${max_opt_length}s  %s\n" "${opt2}" "        [${annotation}] ${description}"
+        printf "  %-${max_opt_length}s  [%s] %s\n" "${opt2}" "${annotation}" "${description}"
     done < <(_knit_set_iter "${flags_args_varname}")
 }
 
