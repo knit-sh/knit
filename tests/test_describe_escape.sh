@@ -57,3 +57,43 @@ setup() {
         | python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin))')
     [ "${back}" = "${raw}" ]
 }
+
+# ---------- _knit_describe_json_minify ----------
+
+@test "minify removes whitespace outside strings" {
+    result=$(_knit_describe_json_minify '{ "a" : 1 , "b" : [ 2 , 3 ] }')
+    [ "${result}" = '{"a":1,"b":[2,3]}' ]
+}
+
+@test "minify removes newlines" {
+    result=$(_knit_describe_json_minify $'{\n  "a": 1\n}')
+    [ "${result}" = '{"a":1}' ]
+}
+
+@test "minify preserves spaces inside string values" {
+    result=$(_knit_describe_json_minify '{ "k": "a b  c" }')
+    [ "${result}" = '{"k":"a b  c"}' ]
+}
+
+@test "minify keeps an escaped quote inside a string" {
+    result=$(_knit_describe_json_minify '{ "k": "a\"b c" }')
+    [ "${result}" = '{"k":"a\"b c"}' ]
+}
+
+@test "minify keeps an escaped backslash inside a string" {
+    result=$(_knit_describe_json_minify '{ "k": "a\\b c" }')
+    [ "${result}" = '{"k":"a\\b c"}' ]
+}
+
+@test "minify output round-trips through a JSON parser" {
+    local pretty='{
+  "msg": "has: colon, comma and  spaces",
+  "n": 1,
+  "ok": true
+}'
+    local compact
+    compact=$(_knit_describe_json_minify "${pretty}")
+    printf '%s' "${compact}" | python3 -c 'import json,sys; json.load(sys.stdin)'
+    [ "$(printf '%s' "${compact}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["msg"])')" \
+        = "has: colon, comma and  spaces" ]
+}

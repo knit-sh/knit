@@ -117,6 +117,28 @@ _json() {
     [ "$(_json "[c['name'] for c in d['commands'] if c['name'] in ('_run','__main__')]")" = "[]" ]
 }
 
+@test "describe --format json-compact produces well-formed JSON" {
+    run knit describe --format json-compact
+    [ "$status" -eq 0 ]
+    printf '%s' "${output}" | python3 -c 'import json,sys; json.load(sys.stdin)'
+}
+
+@test "json-compact output is a single line" {
+    run knit describe --format json-compact
+    [ "$status" -eq 0 ]
+    [ "$(printf '%s\n' "${output}" | wc -l)" -eq 1 ]
+}
+
+@test "json-compact carries the same content as json" {
+    local pretty compact
+    pretty=$(knit describe --format json)
+    compact=$(knit describe --format json-compact)
+    python3 - "${pretty}" "${compact}" <<'PY'
+import json, sys
+assert json.loads(sys.argv[1]) == json.loads(sys.argv[2])
+PY
+}
+
 @test "an unimplemented format is a fatal error" {
     run _knit_describe --format yaml
     [ "$status" -ne 0 ]

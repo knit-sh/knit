@@ -524,6 +524,54 @@ _knit_describe_json() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_describe_json_minify()
+#
+# Strip insignificant whitespace (indentation, newlines, and the spaces the
+# pretty printer inserts after ":" and ",") from a JSON document, producing a
+# single compact line. The scan is string-aware: whitespace is removed only
+# outside of string literals, so spaces inside values are preserved and escape
+# sequences (\", \\, \uXXXX, …) are copied verbatim. Pure bash, so it keeps the
+# no-jq, works-before-bootstrap guarantee of the rest of "describe".
+#
+# @param json JSON document to compact.
+# ------------------------------------------------------------------------------
+_knit_describe_json_minify() {
+    local s="$1"
+    local out='' seg chunk c
+    while [[ -n "${s}" ]]; do
+        # Outside a string: consume up to the next quote, dropping whitespace.
+        seg="${s%%\"*}"
+        out+="${seg//[$' \t\n']/}"
+        if [[ "${seg}" == "${s}" ]]; then
+            break
+        fi
+        s="${s#"${seg}"}"
+        # Copy the string literal verbatim, honoring backslash escapes.
+        out+='"'
+        s="${s:1}"
+        while [[ -n "${s}" ]]; do
+            chunk="${s%%[\"\\]*}"
+            out+="${chunk}"
+            if [[ "${chunk}" == "${s}" ]]; then
+                s=''
+                break
+            fi
+            s="${s#"${chunk}"}"
+            c="${s:0:1}"
+            if [[ "${c}" == $'\\' ]]; then
+                out+="${s:0:2}"
+                s="${s:2}"
+            else
+                out+='"'
+                s="${s:1}"
+                break
+            fi
+        done
+    done
+    printf '%s' "${out}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_describe_read_filters()
 #
 # Populate the module-level filter state (_KNIT_DESCRIBE_FILTERS and
@@ -559,7 +607,8 @@ _knit_describe_read_filters() {
 # @fn _knit_describe()
 #
 # Body of the "describe" command: read the requested filters and --format, then
-# emit the description in that format. Only "json" is implemented so far.
+# emit the description in that format. Only "json" and "json-compact" are
+# implemented so far.
 #
 # @param ... Command arguments (expanded by the CLI framework).
 # ------------------------------------------------------------------------------
@@ -571,13 +620,17 @@ _knit_describe() {
         json)
             _knit_describe_json
             ;;
+        json-compact)
+            printf '%s\n' "$(_knit_describe_json_minify "$(_knit_describe_json)")"
+            ;;
         *)
-            knit_fatal "The '${format}' format is not yet implemented (only 'json' is available)."
+            knit_fatal "The '${format}' format is not yet implemented (only 'json' and 'json-compact' are available)."
             ;;
     esac
 }
 
-knit_define_enum "describe_format" "default" "json" "yaml" "markdown" "html"
+knit_define_enum "describe_format" \
+    "default" "json" "json-compact" "yaml" "markdown" "html"
 _knit_is_builtin
 
 knit_register _knit_describe "describe" \
@@ -585,7 +638,7 @@ knit_register _knit_describe "describe" \
 _knit_is_builtin
 knit_without_provenance
 knit_with_optional "format:describe_format" "default" \
-    "Output format: default, json, yaml, markdown, or html."
+    "Output format: default, json, json-compact, yaml, markdown, or html."
 knit_with_flag "exclude-builtins" \
     "Omit framework builtin commands; show only user-declared commands."
 knit_with_flag "no-input-params" \
