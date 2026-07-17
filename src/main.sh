@@ -5,7 +5,7 @@
 # ------------------------------------------------------------------------------
 # Version of the Knit framework.
 # ------------------------------------------------------------------------------
-declare -xr KNIT_VERSION=0.1.0
+declare -gxr KNIT_VERSION=0.1.0
 
 knit_register knit_empty "__main__" \
     "/!\\ Please use knit_set_program_description to provide a description here /!\\"

@@ -33,6 +33,7 @@ KNIT_SOURCE = src/global.sh   \
               src/job.sh      \
               src/job_cli.sh  \
               src/app.sh      \
+              src/describe.sh \
               src/main.sh
 
 KNIT_OUTPUT = knit.sh
