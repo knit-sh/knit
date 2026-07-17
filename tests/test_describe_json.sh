@@ -140,6 +140,6 @@ PY
 }
 
 @test "an unimplemented format is a fatal error" {
-    run _knit_describe --format yaml
+    run _knit_describe --format markdown
     [ "$status" -ne 0 ]
 }

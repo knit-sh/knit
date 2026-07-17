@@ -572,6 +572,375 @@ _knit_describe_json_minify() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_describe_yaml_needs_quote()
+#
+# Return success when a single-line string value must be double-quoted to survive
+# a YAML round-trip as a string: leaving it as a plain scalar would either coerce
+# it to another type (number, boolean, null) or be syntactically unsafe.
+# Double-quoting an already-safe value is harmless, so the predicate errs toward
+# quoting. Multi-line values are handled separately as block scalars.
+#
+# @param value String value to test.
+# ------------------------------------------------------------------------------
+_knit_describe_yaml_needs_quote() {
+    local v="$1"
+    # Empty, or leading/trailing whitespace, or an embedded tab.
+    [[ -z "${v}" ]] && return 0
+    [[ "${v}" == [[:space:]]* || "${v}" == *[[:space:]] ]] && return 0
+    [[ "${v}" == *$'\t'* ]] && return 0
+    # Numeric- or version-looking (a leading digit, or a sign/dot then a digit).
+    [[ "${v}" == [0-9]* || "${v}" == [-+.][0-9]* ]] && return 0
+    # YAML boolean / null tokens (case-insensitive), as resolved by common parsers.
+    case "${v,,}" in
+        true|false|yes|no|on|off|null|'~') return 0 ;;
+    esac
+    # A leading indicator character is unsafe in plain style.
+    local indicators='-?:,[]{}#&*!|>%@'
+    indicators+='`'
+    indicators+="'"
+    indicators+='"'
+    [[ "${indicators}" == *"${v:0:1}"* ]] && return 0
+    # A "colon+space", a trailing colon, or a "space+hash" breaks a plain scalar.
+    [[ "${v}" == *": "* || "${v}" == *: || "${v}" == *" #"* ]] && return 0
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_yaml_scalar()
+#
+# Render a string value as a YAML scalar to follow "key: ". A multi-line value
+# becomes a literal block scalar ("|-") whose lines are indented by cont_indent;
+# a single-line value that would be coerced or is unsafe as a plain scalar is
+# double-quoted (reusing the JSON escaper, whose escapes YAML's double-quoted
+# style shares); anything else is emitted verbatim.
+#
+# @param value       String value to render.
+# @param cont_indent Indentation prepended to each line of a block scalar.
+# ------------------------------------------------------------------------------
+_knit_describe_yaml_scalar() {
+    local value="$1"
+    local cont_indent="$2"
+    if [[ "${value}" == *$'\n'* ]]; then
+        local out='|-' line
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            out+=$'\n'"${cont_indent}${line}"
+        done <<< "${value}"
+        printf '%s' "${out}"
+        return
+    fi
+    if _knit_describe_yaml_needs_quote "${value}"; then
+        printf '"%s"' "$(_knit_describe_json_escape "${value}")"
+    else
+        printf '%s' "${value}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_yaml_flow_seq()
+#
+# Print a YAML flow sequence ("[a, b, c]") of scalar values, each double-quoted
+# when it would be unsafe or coerced as a plain flow scalar (the plain-scalar
+# rules plus the flow indicators , [ ] { }). An empty list yields "[]".
+#
+# @param ...values Scalar values.
+# ------------------------------------------------------------------------------
+_knit_describe_yaml_flow_seq() {
+    local out='[' first=1 v
+    for v in "$@"; do
+        (( first )) || out+=', '
+        first=0
+        if _knit_describe_yaml_needs_quote "${v}" \
+            || [[ "${v}" == *,* || "${v}" == *"["* || "${v}" == *"]"* \
+               || "${v}" == *"{"* || "${v}" == *"}"* ]]; then
+            out+="\"$(_knit_describe_json_escape "${v}")\""
+        else
+            out+="${v}"
+        fi
+    done
+    out+=']'
+    printf '%s' "${out}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_yaml_param()
+#
+# Render one input parameter as a YAML block-sequence element (the first key
+# carries the "- " indicator at item_indent). Mirrors the JSON parameter object:
+# an enum type inlines its allowed values, "optional" carries a raw default, flags
+# are boolean with no default, and a "--when" constraint is included when present.
+#
+# @param cmd         Mangled command name.
+# @param group       Parameter group ("required", "optional", or "flags").
+# @param param       Normalized parameter name.
+# @param item_indent Indentation of the "- " sequence indicator.
+# ------------------------------------------------------------------------------
+_knit_describe_yaml_param() {
+    local cmd="$1" group="$2" param="$3" item_indent="$4"
+    local key="${item_indent}  "
+    local cont="${key}  "
+    local dname type desc
+    dname=$(_knit_str_underscores_to_hyphens "${param}")
+    desc=$(_knit_param_description "${cmd}" "${param}")
+    if [[ "${group}" == "flags" ]]; then
+        type="boolean"
+    else
+        type=$(_knit_param_type "${cmd}" "${param}")
+    fi
+    printf '%s- name: %s\n' "${item_indent}" \
+        "$(_knit_describe_yaml_scalar "${dname}" "${cont}")"
+    printf '%stype: %s\n' "${key}" \
+        "$(_knit_describe_yaml_scalar "${type}" "${cont}")"
+    if [[ "${group}" != "flags" ]]; then
+        local resolved
+        if resolved=$(_knit_type_resolve_alias "${type}") \
+            && [[ -v _KNIT_ENUMS["${resolved}"] ]]; then
+            local vals=() v
+            while IFS= read -r v; do vals+=("${v}"); done \
+                < <(knit_enum_values "${resolved}" | sort)
+            printf '%senum: %s\n' "${key}" \
+                "$(_knit_describe_yaml_flow_seq "${vals[@]}")"
+        fi
+    fi
+    if [[ "${group}" == "optional" ]]; then
+        local dflt
+        dflt=$(_knit_param_default "${cmd}" "${param}")
+        printf '%sdefault: %s\n' "${key}" \
+            "$(_knit_describe_yaml_scalar "${dflt}" "${cont}")"
+    fi
+    printf '%sdescription: %s\n' "${key}" \
+        "$(_knit_describe_yaml_scalar "${desc}" "${cont}")"
+    local when_raw_var="_KNIT_CMD_${cmd}_2_${param}_when_raw"
+    if [[ -v "${when_raw_var}" ]]; then
+        printf '%swhen: %s\n' "${key}" \
+            "$(_knit_describe_yaml_scalar "${!when_raw_var}" "${cont}")"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_yaml_params()
+#
+# Render a command's "parameters:" mapping body: the required/optional/flags
+# sequences (each "[]" when empty) and the "extra" scalar (or null), with the
+# group keys at keys_indent. The "parameters:" key line itself is printed by the
+# caller.
+#
+# @param cmd         Mangled command name.
+# @param keys_indent Indentation of the required/optional/flags keys.
+# ------------------------------------------------------------------------------
+_knit_describe_yaml_params() {
+    local cmd="$1" keys_indent="$2"
+    local item="${keys_indent}  "
+    local grp p
+    local -a names
+    for grp in required optional flags; do
+        names=()
+        while IFS= read -r p; do names+=("${p}"); done \
+            < <(_knit_set_iter "_KNIT_CMD_${cmd}_${grp}" | sort)
+        if (( ${#names[@]} == 0 )); then
+            printf '%s%s: []\n' "${keys_indent}" "${grp}"
+        else
+            printf '%s%s:\n' "${keys_indent}" "${grp}"
+            for p in "${names[@]}"; do
+                _knit_describe_yaml_param "${cmd}" "${grp}" "${p}" "${item}"
+            done
+        fi
+    done
+    local extra_var="_KNIT_CMD_${cmd}_extra"
+    if [[ -n "${!extra_var}" ]]; then
+        printf '%sextra: %s\n' "${keys_indent}" \
+            "$(_knit_describe_yaml_scalar "${!extra_var}" "${keys_indent}  ")"
+    else
+        printf '%sextra: null\n' "${keys_indent}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_yaml_output()
+#
+# Render one output as a YAML block-sequence element (the first key carries the
+# "- " indicator at item_indent).
+#
+# @param cmd         Mangled command name.
+# @param output      Normalized output name.
+# @param item_indent Indentation of the "- " sequence indicator.
+# ------------------------------------------------------------------------------
+_knit_describe_yaml_output() {
+    local cmd="$1" output="$2" item_indent="$3"
+    local key="${item_indent}  "
+    local cont="${key}  "
+    local dname type dflt desc
+    dname=$(_knit_str_underscores_to_hyphens "${output}")
+    type=$(_knit_output_type "${cmd}" "${output}")
+    dflt=$(_knit_output_default "${cmd}" "${output}")
+    desc=$(_knit_output_description "${cmd}" "${output}")
+    printf '%s- name: %s\n' "${item_indent}" \
+        "$(_knit_describe_yaml_scalar "${dname}" "${cont}")"
+    printf '%stype: %s\n' "${key}" \
+        "$(_knit_describe_yaml_scalar "${type}" "${cont}")"
+    printf '%sdefault: %s\n' "${key}" \
+        "$(_knit_describe_yaml_scalar "${dflt}" "${cont}")"
+    printf '%sdescription: %s\n' "${key}" \
+        "$(_knit_describe_yaml_scalar "${desc}" "${cont}")"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_yaml_command()
+#
+# Render a single command (and, recursively, its subcommands) as a YAML
+# block-sequence element (the first key carries the "- " indicator at
+# item_indent). Subcommands are pruned by the active filters
+# (hidden/builtin/"--only"), matching the top-level command list.
+#
+# @param cmd          Mangled command name.
+# @param item_indent  Indentation of the "- " sequence indicator.
+# @param sel_ancestor "true" if an ancestor of the command is in the "--only"
+#                     selection.
+# ------------------------------------------------------------------------------
+_knit_describe_yaml_command() {
+    local cmd="$1" item_indent="$2" sel_ancestor="$3"
+    local key="${item_indent}  "
+    local cont="${key}  "
+    local demangled
+    demangled=$(_knit_command_demangle "${cmd}")
+    local -a segs
+    IFS=':' read -r -a segs <<< "${demangled}"
+    local name="${segs[-1]}"
+
+    local desc_var="_KNIT_CMD_${cmd}_description"
+    local kind
+    kind=$(_knit_describe_command_kind "${cmd}")
+    local builtin=false hidden=false
+    _knit_command_is_builtin "${cmd}" && builtin=true
+    local hidden_var="_KNIT_CMD_${cmd}_is_hidden"
+    [[ "${!hidden_var}" == "true" ]] && hidden=true
+    local dispatch_var="_KNIT_CMD_${cmd}_dispatch"
+    local prov_var="_KNIT_CMD_${cmd}_provenance"
+    local prov="${!prov_var}"
+    [[ -z "${prov}" ]] && prov='default'
+    local table_var="_KNIT_CMD_${cmd}_table"
+
+    printf '%s- name: %s\n' "${item_indent}" \
+        "$(_knit_describe_yaml_scalar "${name}" "${cont}")"
+    printf '%spath: %s\n' "${key}" "$(_knit_describe_yaml_flow_seq "${segs[@]}")"
+    printf '%sdescription: %s\n' "${key}" \
+        "$(_knit_describe_yaml_scalar "${!desc_var}" "${cont}")"
+    printf '%skind: %s\n' "${key}" \
+        "$(_knit_describe_yaml_scalar "${kind}" "${cont}")"
+    printf '%sbuiltin: %s\n' "${key}" "${builtin}"
+    printf '%shidden: %s\n' "${key}" "${hidden}"
+    if [[ -n "${!dispatch_var}" ]]; then
+        printf '%sdispatcher: %s\n' "${key}" \
+            "$(_knit_describe_yaml_scalar "${!dispatch_var}" "${cont}")"
+    else
+        printf '%sdispatcher: null\n' "${key}"
+    fi
+    printf '%sprovenance: %s\n' "${key}" \
+        "$(_knit_describe_yaml_scalar "${prov}" "${cont}")"
+    if [[ -n "${!table_var:-}" ]]; then
+        printf '%stable: %s\n' "${key}" \
+            "$(_knit_describe_yaml_scalar "${!table_var}" "${cont}")"
+    else
+        printf '%stable: null\n' "${key}"
+    fi
+    if ! _knit_describe_filter_on no_input_params; then
+        printf '%sparameters:\n' "${key}"
+        _knit_describe_yaml_params "${cmd}" "${cont}"
+    fi
+    if ! _knit_describe_filter_on no_output_params; then
+        local -a onames=()
+        local o
+        while IFS= read -r o; do onames+=("${o}"); done \
+            < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
+        if (( ${#onames[@]} == 0 )); then
+            printf '%soutputs: []\n' "${key}"
+        else
+            printf '%soutputs:\n' "${key}"
+            for o in "${onames[@]}"; do
+                _knit_describe_yaml_output "${cmd}" "${o}" "${cont}"
+            done
+        fi
+    fi
+
+    local child_sel_ancestor="${sel_ancestor}"
+    _knit_set_find _KNIT_DESCRIBE_ONLY "${cmd}" && child_sel_ancestor="true"
+    local -a subs=()
+    local c
+    while IFS= read -r c; do
+        _knit_describe_should_emit "${c}" "${child_sel_ancestor}" || continue
+        subs+=("${c}")
+    done < <(_knit_describe_children "${cmd}")
+    if (( ${#subs[@]} == 0 )); then
+        printf '%ssubcommands: []\n' "${key}"
+    else
+        printf '%ssubcommands:\n' "${key}"
+        for c in "${subs[@]}"; do
+            _knit_describe_yaml_command "${c}" "${cont}" "${child_sel_ancestor}"
+        done
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_yaml_enums()
+#
+# Render the top-level "enums:" mapping: every user-defined (non-builtin) enum
+# mapped to its values as a flow sequence. Yields "enums: {}" when there are none.
+# ------------------------------------------------------------------------------
+_knit_describe_yaml_enums() {
+    local -a names=()
+    local name
+    while IFS= read -r name; do
+        _knit_set_find _KNIT_BUILTIN_ENUMS "${name}" && continue
+        names+=("${name}")
+    done < <(_knit_set_iter _KNIT_ENUMS | sort)
+    if (( ${#names[@]} == 0 )); then
+        printf 'enums: {}\n'
+        return
+    fi
+    printf 'enums:\n'
+    local v
+    local -a vals
+    for name in "${names[@]}"; do
+        vals=()
+        while IFS= read -r v; do vals+=("${v}"); done \
+            < <(knit_enum_values "${name}" | sort)
+        printf '  %s: %s\n' \
+            "$(_knit_describe_yaml_scalar "${name}" '    ')" \
+            "$(_knit_describe_yaml_flow_seq "${vals[@]}")"
+    done
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_yaml()
+#
+# Emit the complete description of the experiment as a YAML document, serializing
+# the identical model as _knit_describe_json (same keys, nesting, and field
+# semantics): knit version, experiment (script) name, format version, the filtered
+# command tree, and the map of user-defined enums.
+# ------------------------------------------------------------------------------
+_knit_describe_yaml() {
+    printf 'knit_version: %s\n' \
+        "$(_knit_describe_yaml_scalar "${KNIT_VERSION}" '  ')"
+    printf 'experiment: %s\n' \
+        "$(_knit_describe_yaml_scalar "${KNIT_SCRIPT_NAME}" '  ')"
+    printf 'format_version: 1\n'
+    local -a roots=()
+    local c
+    while IFS= read -r c; do
+        _knit_describe_should_emit "${c}" "false" || continue
+        roots+=("${c}")
+    done < <(_knit_describe_children "")
+    if (( ${#roots[@]} == 0 )); then
+        printf 'commands: []\n'
+    else
+        printf 'commands:\n'
+        for c in "${roots[@]}"; do
+            _knit_describe_yaml_command "${c}" '  ' "false"
+        done
+    fi
+    _knit_describe_yaml_enums
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_describe_read_filters()
 #
 # Populate the module-level filter state (_KNIT_DESCRIBE_FILTERS and
@@ -607,7 +976,7 @@ _knit_describe_read_filters() {
 # @fn _knit_describe()
 #
 # Body of the "describe" command: read the requested filters and --format, then
-# emit the description in that format. Only "json" and "json-compact" are
+# emit the description in that format. Only "json", "json-compact" and "yaml" are
 # implemented so far.
 #
 # @param ... Command arguments (expanded by the CLI framework).
@@ -623,8 +992,11 @@ _knit_describe() {
         json-compact)
             printf '%s\n' "$(_knit_describe_json_minify "$(_knit_describe_json)")"
             ;;
+        yaml)
+            _knit_describe_yaml
+            ;;
         *)
-            knit_fatal "The '${format}' format is not yet implemented (only 'json' and 'json-compact' are available)."
+            knit_fatal "The '${format}' format is not yet implemented (only 'json', 'json-compact' and 'yaml' are available)."
             ;;
     esac
 }
