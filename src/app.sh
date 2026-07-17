@@ -11,10 +11,11 @@
 declare -A _KNIT_APPS
 
 # ------------------------------------------------------------------------------
-# Name of the table recording every run: the app launched, the parent job, the
-# requested placement, and the launcher. The row id is the run UUID, shared with
-# the rank-0 per-app row so the two tables join; the "job" column references the
-# parent job's UUID so runs can be traced back to the job that issued them.
+# Name of the table recording every run: the app launched, the requested
+# placement, and the launcher. The row id is the run's own UUID. The parent job
+# and the rank-0 per-app row are linked through the provenance graph — the
+# "submit:<job> -> run" and "run -> run:<app>" call edges — not through a stored
+# column or a shared id (each mints its own distinct UUID).
 # ------------------------------------------------------------------------------
 _KNIT_RUNS_TABLE="runs"
 

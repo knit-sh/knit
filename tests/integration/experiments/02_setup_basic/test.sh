@@ -71,4 +71,29 @@ check_sqlite ".knit/knit.db" \
     "1" \
     "DB has a table for setup:basic"
 
+# --------------------------------------------------------------------------
+# Assertions: provenance edges
+#
+# The top-level `knit setup` dispatcher is table-less, but it is still a
+# visible command, so it records a root edge (empty source columns) — coverage
+# a table-presence-based design could not provide. The setup body then records
+# a "setup -> setup:basic" call edge whose target joins the setup:basic table.
+# --------------------------------------------------------------------------
+check_sqlite ".knit/knit.db" \
+    "SELECT COUNT(*) FROM __provenance__ WHERE source_id='' AND source_name='' AND target_name='setup' AND edge_type='call';" \
+    "1" \
+    "top-level setup dispatcher records a root edge (empty source)"
+
+check_sqlite ".knit/knit.db" \
+    "SELECT source_name FROM __provenance__ WHERE target_name='setup:basic' AND edge_type='call';" \
+    "setup" \
+    "setup body records a 'setup -> setup:basic' call edge"
+
+# The body edge's target id is the setup body's row id, which joins the
+# setup:basic table (one row).
+check_sqlite ".knit/knit.db" \
+    "SELECT COUNT(*) FROM __provenance__ e JOIN [setup:basic] s ON s.id=e.target_id WHERE e.target_name='setup:basic' AND e.edge_type='call';" \
+    "1" \
+    "setup body edge target joins the setup:basic data row"
+
 assert_summary

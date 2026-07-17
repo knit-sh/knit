@@ -96,4 +96,19 @@ check_grep "spack_env: .*/spack-env" "${jobdir}/.stdout" \
 check_grep "zlib: found" "${jobdir}/.stdout" \
     "job sees the Spack-provided zlib"
 
+# --------------------------------------------------------------------------
+# Assertions: provenance "uses" edge (a job referencing a setup it did not
+# create). The setup was built by a separate `knit setup` invocation; the job
+# consumes it via --setup. That data dependency is recorded as a "uses" edge:
+#   source = the setup body (its row id, read back from .setup.id; name
+#            setup:zlibenv), target = this submission (jobs.id; name
+#            submit:zcheck), with NULL timestamps (a reference, not a call).
+# --------------------------------------------------------------------------
+setup_id=$(cat "${WORKDIR}/zenv/.setup.id")
+check_file "${WORKDIR}/zenv/.setup.id" "setup recorded its row id in .setup.id"
+check_sqlite ".knit/knit.db" \
+    "SELECT source_id, source_name, target_id, target_name, start_time, end_time FROM __provenance__ WHERE edge_type='uses';" \
+    "${setup_id}|setup:zlibenv|${uuid}|submit:zcheck||" \
+    "uses edge links the setup (source_id == .setup.id) to the job, NULL times"
+
 assert_summary

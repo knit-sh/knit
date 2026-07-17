@@ -118,4 +118,33 @@ check_grep "job says: hello-from-setup" "${jobdir}/.stdout" \
 check_grep "hostname: ${NODE_PREFIX}" "${jobdir}/.stdout" \
     "job ran on a compute node"
 
+# --------------------------------------------------------------------------
+# Assertions: provenance edge across the scheduler (B2)
+#
+# The job body runs on a compute node with no in-process caller; it reads the
+# source context the batch script exported (KNIT_SOURCE_ID / KNIT_SOURCE_COMMAND)
+# and records a "submit -> submit:hello" call edge. The source id is the
+# submitting jobs.id (the job UUID); the target is the compute-side body's own
+# fresh row id, which joins the "hello" data table and is distinct from the
+# submission id.
+# --------------------------------------------------------------------------
+check_sqlite ".knit/knit.db" \
+    "SELECT source_id, source_name FROM __provenance__ WHERE target_name='submit:hello' AND edge_type='call';" \
+    "${uuid}|submit" \
+    "compute-side job body edge has source (jobs.id, 'submit')"
+
+# The body edge's target is a fresh id joining the "hello" table, not the
+# submission UUID (distinct ids, linked only by the edge).
+body_id=$(${__ASSERT_SQLITE3} .knit/knit.db \
+    "SELECT target_id FROM __provenance__ WHERE target_name='submit:hello' AND edge_type='call';")
+check_sqlite ".knit/knit.db" \
+    "SELECT COUNT(*) FROM hello WHERE id='${body_id}';" \
+    "1" \
+    "job body edge target joins the hello data row"
+if [[ "${body_id}" == "${uuid}" ]]; then
+    fail "job body id must be distinct from the submission UUID"
+else
+    __assert_pass "job body id is distinct from the submission UUID"
+fi
+
 assert_summary

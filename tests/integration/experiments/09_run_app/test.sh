@@ -127,6 +127,39 @@ check_ranks_layout() {
         "${label}: setup marker forwarded to every rank (incl. remote nodes)"
 }
 
+# --------------------------------------------------------------------------
+# Resolve the runs-table UUID for a submitted job through the provenance graph.
+#
+# The "runs.job" column was removed: a run is linked to the job that issued it
+# only through provenance "call" edges. Two hops from the submission UUID:
+#   1. "submit -> submit:<job>": the compute-side job body's edge, whose target
+#      is the body's fresh row id (source_id is the submission UUID = jobs.id).
+#   2. "submit:<job> -> run": the body's `knit run`, whose target is the runs.id.
+# Prints the runs-table UUID, or nothing (empty) if either hop is missing.
+# --------------------------------------------------------------------------
+run_uuid_for_job() {
+    local job_uuid="$1" job_name="$2" body_id run_id
+    body_id=$(${__ASSERT_SQLITE3} .knit/knit.db \
+        "SELECT target_id FROM __provenance__
+         WHERE source_id='${job_uuid}' AND target_name='submit:${job_name}'
+           AND edge_type='call';")
+    [[ -n "${body_id}" ]] || return 0
+    run_id=$(${__ASSERT_SQLITE3} .knit/knit.db \
+        "SELECT target_id FROM __provenance__
+         WHERE source_id='${body_id}' AND target_name='run' AND edge_type='call';")
+    printf '%s' "${run_id}"
+}
+
+# Resolve the per-app row id (in the "ranks" table) for a run through the
+# "run -> run:<app>" call edge. Prints the app row id, or nothing if absent.
+app_uuid_for_run() {
+    local run_uuid="$1" app_name="$2"
+    ${__ASSERT_SQLITE3} .knit/knit.db \
+        "SELECT target_id FROM __provenance__
+         WHERE source_id='${run_uuid}' AND target_name='run:${app_name}'
+           AND edge_type='call';"
+}
+
 # The scheduler-integrated launcher to exercise alongside the auto-detected
 # MPI-native one (srun under Slurm, the PBS mpiexec wrapper under PBS).
 if command -v sbatch >/dev/null 2>&1; then
@@ -154,16 +187,18 @@ check_ranks_layout "${launch_dir}/.stdout" 4 2 "launch (native)"
 # Recompute the rank host set for the recording cross-check below.
 mapfile -t launch_hosts < <(rank_field "${launch_dir}/.stdout" HOST | sort -u)
 
-# ---- Recording: one runs row with the resolved placement + parent job ----
-run_uuid=$(${__ASSERT_SQLITE3} .knit/knit.db \
-    "SELECT id FROM runs WHERE job='${launch_uuid}';")
-[[ -n "${run_uuid}" ]] || fail "no runs row recorded for the launch job"
-__assert_pass "runs row recorded for the launch job"
+# ---- Recording: the run is reachable from the job via provenance edges ----
+# The job body records a "submit -> submit:launch" call edge (target = the body's
+# fresh id), and its `knit run` records a "submit:launch -> run" edge (target =
+# the runs.id). Resolve the runs UUID by walking those edges from the submission.
+run_uuid=$(run_uuid_for_job "${launch_uuid}" "launch")
+[[ -n "${run_uuid}" ]] || fail "no 'submit:launch -> run' edge for the launch job"
+__assert_pass "run reachable from the launch job via provenance edges"
 
 check_sqlite ".knit/knit.db" \
     "SELECT app, procs, procs_per_node FROM runs WHERE id='${run_uuid}';" \
     "ranks|4|2" \
-    "runs row records app + resolved procs/procs-per-node"
+    "runs row (found via edge) records app + resolved procs/procs-per-node"
 
 # hostnames is the resolved two-node list, comma-joined (order = allocation).
 # The recorded names come from the backend host source (PBS's $PBS_NODEFILE
@@ -179,15 +214,26 @@ expected_hosts=$(printf '%s\n' "${launch_hosts[@]}" | sed 's/\..*//' | sort -u \
 check_eq "${run_hosts_sorted}" "${expected_hosts}" \
     "runs row records the resolved two-node hostname list"
 
-# ---- Recording: rank 0's per-app row exists exactly once, and joins ------
+# ---- Recording: the run -> run:app call edge, distinct ids, joins ---------
+# The app row mints its own fresh id (distinct from the runs.id), linked to the
+# run only by the "run -> run:ranks" call edge. Rank-0 gating means exactly one
+# such edge per run (only rank 0 records; other ranks are suppressed).
 check_sqlite ".knit/knit.db" \
-    "SELECT COUNT(*) FROM ranks WHERE id='${run_uuid}';" \
+    "SELECT COUNT(*) FROM __provenance__ WHERE source_id='${run_uuid}' AND target_name='run:ranks' AND edge_type='call';" \
     "1" \
-    "exactly one per-app row recorded (rank-0 gating)"
+    "exactly one 'run -> run:ranks' edge recorded (rank-0 gating)"
+
+app_uuid=$(app_uuid_for_run "${run_uuid}" "ranks")
+[[ -n "${app_uuid}" ]] || fail "no 'run -> run:ranks' edge for the launch run"
+if [[ "${app_uuid}" == "${run_uuid}" ]]; then
+    fail "the per-app row id must be distinct from the runs id"
+else
+    __assert_pass "run and per-app row have distinct ids (linked by the edge)"
+fi
 check_sqlite ".knit/knit.db" \
-    "SELECT k.size FROM runs r JOIN ranks k ON r.id=k.id WHERE r.id='${run_uuid}';" \
+    "SELECT size FROM ranks WHERE id='${app_uuid}';" \
     "4" \
-    "per-app row joins the runs row and records the world size"
+    "per-app row (found via edge) joins and records the world size"
 
 # ==========================================================================
 # Job 2: "launch --launcher <integrated>" — same placement through the
@@ -230,13 +276,77 @@ case "${subset_hosts[0]}" in
 esac
 
 # The runs row for the subset run records that single host (normalise the
-# recorded name to its short form, as above, before comparing).
-subset_run_uuid=$(${__ASSERT_SQLITE3} .knit/knit.db \
-    "SELECT id FROM runs WHERE job='${subset_uuid}';")
+# recorded name to its short form, as above, before comparing). Find the run via
+# the provenance edges, since runs are no longer linked by a stored job column.
+subset_run_uuid=$(run_uuid_for_job "${subset_uuid}" "subset")
+[[ -n "${subset_run_uuid}" ]] || fail "no 'submit:subset -> run' edge for the subset job"
 subset_db_host=$(${__ASSERT_SQLITE3} .knit/knit.db \
     "SELECT hostnames FROM runs WHERE id='${subset_run_uuid}';")
 check_eq "$(printf '%s' "${subset_db_host}" | sed 's/\..*//')" \
     "${subset_hosts[0]}" \
     "subset runs row records the single requested host"
+
+# ==========================================================================
+# Provenance: edge shapes and full-graph connectedness
+#
+# The launch job's chain is submit -> submit:launch -> run -> run:ranks (call
+# edges), plus a "uses" edge from the shared setup to the submission. Assert the
+# edge shapes crisply, then walk the whole (non-bootstrap) graph from one
+# submission and confirm it is a single connected component — the call edges
+# form the invocation tree and the uses edges cross to the referenced setup
+# (which, being shared, ties all three jobs into one component).
+# ==========================================================================
+
+# The "submit:launch -> run" call edge: source is the launch job body's id, and
+# it joins the "launch" data table (the job body's own row).
+launch_body_id=$(${__ASSERT_SQLITE3} .knit/knit.db \
+    "SELECT target_id FROM __provenance__ WHERE source_id='${launch_uuid}' AND target_name='submit:launch' AND edge_type='call';")
+check_sqlite ".knit/knit.db" \
+    "SELECT COUNT(*) FROM __provenance__ WHERE source_id='${launch_body_id}' AND source_name='submit:launch' AND target_id='${run_uuid}' AND target_name='run' AND edge_type='call';" \
+    "1" \
+    "provenance has the 'submit:launch -> run' call edge (distinct ids)"
+
+# The "run -> run:ranks" call edge joins the runs row to the per-app row.
+check_sqlite ".knit/knit.db" \
+    "SELECT COUNT(*) FROM __provenance__ WHERE source_id='${run_uuid}' AND source_name='run' AND target_id='${app_uuid}' AND target_name='run:ranks' AND edge_type='call';" \
+    "1" \
+    "provenance has the 'run -> run:ranks' call edge (distinct ids)"
+
+# The shared setup's "uses" edge: source is the setup body's id (read back from
+# .setup.id), target is the submission (jobs.id), with NULL timestamps.
+setup_id=$(cat "${WORKDIR}/env/.setup.id")
+check_sqlite ".knit/knit.db" \
+    "SELECT source_name, target_name, start_time, end_time FROM __provenance__ WHERE edge_type='uses' AND source_id='${setup_id}' AND target_id='${launch_uuid}';" \
+    "setup:env|submit:launch||" \
+    "provenance has the 'setup:env -> submit:launch' uses edge (source_id == .setup.id, NULL times)"
+
+# Full-graph connectedness: every non-bootstrap node reachable from one
+# submission. Treat edges as undirected (a call/uses edge connects its two
+# endpoints), seed at the launch submission, and count reachable node ids;
+# compare to the total distinct non-bootstrap, non-root node ids. Equal ==> the
+# submission's component covers the whole experiment graph (bootstrap forms its
+# own separate subtree and is excluded by name).
+reachable=$(${__ASSERT_SQLITE3} .knit/knit.db "
+WITH e(a,b) AS (
+  SELECT source_id,target_id FROM __provenance__
+    WHERE source_name!='bootstrap' AND target_name!='bootstrap' AND source_id!='' AND target_id!=''
+  UNION ALL
+  SELECT target_id,source_id FROM __provenance__
+    WHERE source_name!='bootstrap' AND target_name!='bootstrap' AND source_id!='' AND target_id!=''
+),
+reach(id) AS (
+  SELECT '${launch_uuid}'
+  UNION
+  SELECT e.b FROM e JOIN reach r ON e.a=r.id
+)
+SELECT COUNT(*) FROM reach;")
+total_nodes=$(${__ASSERT_SQLITE3} .knit/knit.db "
+SELECT COUNT(*) FROM (
+  SELECT source_id AS id FROM __provenance__ WHERE source_name!='bootstrap' AND target_name!='bootstrap' AND source_id!=''
+  UNION
+  SELECT target_id FROM __provenance__ WHERE source_name!='bootstrap' AND target_name!='bootstrap' AND target_id!=''
+);")
+check_eq "${reachable}" "${total_nodes}" \
+    "the provenance graph is a single connected component (${reachable}/${total_nodes} nodes reachable from a submission)"
 
 assert_summary
