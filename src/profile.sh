@@ -112,6 +112,7 @@ _knit_load_profile() {
 # Registration of the profile command group.
 # ------------------------------------------------------------------------------
 knit_register knit_empty profile "List and inspect built-in machine profiles."
+_knit_is_builtin
 knit_done
 
 # ------------------------------------------------------------------------------
@@ -125,6 +126,7 @@ _knit_profile_list() {
 
 knit_register _knit_profile_list "profile:list" \
     "List all built-in machine profiles."
+_knit_is_builtin
 knit_done
 
 # ------------------------------------------------------------------------------
@@ -149,5 +151,6 @@ _knit_profile_show() {
 
 knit_register _knit_profile_show "profile:show" \
     "Show details of a machine profile."
+_knit_is_builtin
 knit_with_required "profile:string" "Name of the profile to display."
 knit_done

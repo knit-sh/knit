@@ -492,6 +492,7 @@ knit_register() {
     printf -v "_KNIT_CMD_${cmd}_dispatch"        '%s' ''
     printf -v "_KNIT_CMD_${cmd}_is_hidden"       '%s' 'false'
     printf -v "_KNIT_CMD_${cmd}_is_wrapper"      '%s' 'false'
+    printf -v "_KNIT_CMD_${cmd}_is_builtin"      '%s' 'false'
     printf -v "_KNIT_CMD_${cmd}_provenance"      '%s' ''
     declare -ga "_KNIT_CMD_${cmd}_before_cb"
     declare -ga "_KNIT_CMD_${cmd}_after_cb"
@@ -647,6 +648,46 @@ knit_hidden() {
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local cmd_hidden_name="_KNIT_CMD_${cmd}_is_hidden"
     printf -v "${cmd_hidden_name}" '%s' 'true'
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_is_builtin()
+#
+# Mark the item currently being defined as a framework builtin. This is called by
+# knit's own source files immediately after a registration or enum definition, so
+# that "describe" (and --exclude-builtins) can tell knit's own commands/enums
+# apart from user-declared ones. It has two behaviors:
+#
+#   - Inside a command registration (_KNIT_CURRENT_COMMAND set, i.e. between
+#     knit_register/knit_register_wrapper/... and knit_done), it marks the current
+#     command by setting _KNIT_CMD_<cmd>_is_builtin=true.
+#   - Otherwise it marks the most recently defined enum (_KNIT_LAST_ENUM) by
+#     adding it to the _KNIT_BUILTIN_ENUMS set.
+# ------------------------------------------------------------------------------
+_knit_is_builtin() {
+    if [[ -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as builtin."
+        printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_is_builtin" '%s' 'true'
+    elif [[ -n "${_KNIT_LAST_ENUM}" ]]; then
+        knit_trace "Marking enum ${_KNIT_LAST_ENUM} as builtin."
+        _knit_set_add _KNIT_BUILTIN_ENUMS "${_KNIT_LAST_ENUM}"
+    else
+        knit_fatal "_knit_is_builtin called with no command being registered and no enum defined."
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_command_is_builtin()
+#
+# Test whether a command is a framework builtin, i.e. it was marked with
+# _knit_is_builtin during its registration.
+#
+# @param cmd Command (mangled name) to test.
+# @return 0 if the command is a builtin, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_command_is_builtin() {
+    local var="_KNIT_CMD_${1}_is_builtin"
+    [[ "${!var:-}" == "true" ]]
 }
 
 # ------------------------------------------------------------------------------

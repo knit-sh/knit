@@ -38,6 +38,24 @@ _KNIT_BUILTIN_TYPES=(
 declare -gA _KNIT_ENUMS
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_BUILTIN_ENUMS
+#
+# Set of enum type names that have been marked as framework builtins (via
+# _knit_is_builtin). Used to distinguish knit's own enums from user-defined ones.
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_BUILTIN_ENUMS
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_LAST_ENUM
+#
+# Name of the most recently defined enum (set by knit_define_enum). Consulted by
+# _knit_is_builtin when called outside a command registration, so a builtin enum
+# can be marked immediately after its definition.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_LAST_ENUM
+_KNIT_LAST_ENUM=''
+
+# ------------------------------------------------------------------------------
 # @fn _knit_type_resolve_alias()
 #
 # Resolve a type name or alias to its canonical type name. If the name is
@@ -108,6 +126,7 @@ knit_define_enum() {
     local name="$1"
     shift
     _KNIT_ENUMS["${name}"]=1
+    _KNIT_LAST_ENUM="${name}"
     _knit_set_new "_KNIT_ENUM_${name}"
     _knit_set_add "_KNIT_ENUM_${name}" "$@"
 }

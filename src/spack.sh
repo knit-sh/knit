@@ -294,6 +294,7 @@ _knit_spack_env_install() {
 # ------------------------------------------------------------------------------
 knit_register_wrapper "spack" "_knit_spack" \
     "Run the knit-private Spack, forwarding all arguments verbatim."
+_knit_is_builtin
 knit_with_table
 # ------------------------------------------------------------------------------
 # @fn _knit_spack()

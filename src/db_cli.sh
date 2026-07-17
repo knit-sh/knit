@@ -6,12 +6,14 @@
 # Registration of the db command group.
 # ------------------------------------------------------------------------------
 knit_register knit_empty db "Inspect the experiment database."
+_knit_is_builtin
 knit_done
 
 # ------------------------------------------------------------------------------
 # Query a table in the experiment database.
 # ------------------------------------------------------------------------------
 knit_register _knit_db_query "db:query" "Run a read-only query against the experiment database."
+_knit_is_builtin
 knit_with_optional "select:string" "*" "Columns to select (SQL expression list)."
 knit_with_optional "from:string" "" "Table to select from (required unless --sql is given)."
 knit_with_optional "where:string" "" "Row filter, without the leading WHERE keyword."
@@ -74,6 +76,7 @@ knit_done
 # List the tables of the experiment database.
 # ------------------------------------------------------------------------------
 knit_register _knit_db_tables "db:tables" "List the tables in the experiment database."
+_knit_is_builtin
 # ------------------------------------------------------------------------------
 # @fn _knit_db_tables()
 #

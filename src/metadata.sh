@@ -6,12 +6,14 @@
 # Registration of the metadata command.
 # ------------------------------------------------------------------------------
 knit_register knit_empty metadata "Access metadata about the experiment."
+_knit_is_builtin
 knit_done
 
 # ------------------------------------------------------------------------------
 # Store a key/value pair in the metadata table of the experiment.
 # ------------------------------------------------------------------------------
 knit_register _knit_metadata_store "metadata:store" "Store a key/value pair of metadata."
+_knit_is_builtin
 knit_with_required "key:string" "Key."
 knit_with_required "value:string" "Value."
 knit_with_flag "force" "Overwrite the value if the key already exists."
@@ -43,6 +45,7 @@ knit_done
 # Load the value associated with a key from the metadata table.
 # ------------------------------------------------------------------------------
 knit_register _knit_metadata_load "metadata:load" "Load the value associated with a key in the metadata."
+_knit_is_builtin
 knit_with_required "key:string" "Key."
 # ------------------------------------------------------------------------------
 # @fn _knit_metadata_load()
@@ -64,6 +67,7 @@ knit_done
 # Show the content of the metadata table of the experiment.
 # ------------------------------------------------------------------------------
 knit_register _knit_metadata_show "metadata:show" "Show all the stored metadata."
+_knit_is_builtin
 # ------------------------------------------------------------------------------
 # @fn _knit_metadata_show()
 #

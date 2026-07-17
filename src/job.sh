@@ -18,6 +18,7 @@ declare -A _KNIT_JOBS
 _KNIT_JOBS_TABLE="jobs"
 
 knit_register _knit_submit "submit" "Submit a job."
+_knit_is_builtin
 knit_with_optional "setup:path" "" \
     "Path to the setup to use (required if the job declares a setup type)."
 # Identity. Empty defaults are the "not set" sentinel: _knit_sched_resolve fills

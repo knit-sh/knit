@@ -20,6 +20,7 @@ declare -A _KNIT_APPS
 _KNIT_RUNS_TABLE="runs"
 
 knit_register _knit_run "run" "Run an application (MPI launch) inside a job."
+_knit_is_builtin
 # Placement (all optional). Empty means "not set": _knit_run_resolve_placement
 # fills the missing values from the job's allocation and the per-node core count.
 knit_with_optional "procs:integer" "" "Total number of ranks (MPI processes)."
@@ -325,6 +326,7 @@ _knit_run_normalize_mpi_env() {
 }
 
 knit_register _knit_run_worker "_run" "Per-rank worker for \`knit run\` (internal)."
+_knit_is_builtin
 knit_hidden
 knit_with_extra "The app name and its arguments (after --)."
 # ------------------------------------------------------------------------------

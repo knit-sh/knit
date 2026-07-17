@@ -9,6 +9,7 @@ declare -xr KNIT_VERSION=0.1.0
 
 knit_register knit_empty "__main__" \
     "/!\\ Please use knit_set_program_description to provide a description here /!\\"
+_knit_is_builtin
 knit_hidden
 knit_done
 

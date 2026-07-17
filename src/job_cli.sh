@@ -10,12 +10,14 @@
 # Registration of the job command group.
 # ------------------------------------------------------------------------------
 knit_register knit_empty job "Inspect submitted jobs."
+_knit_is_builtin
 knit_done
 
 # ------------------------------------------------------------------------------
 # Print the current lifecycle state of a job.
 # ------------------------------------------------------------------------------
 knit_register _knit_job_status "job:status" "Print the current lifecycle state of a job."
+_knit_is_builtin
 knit_with_required "id:string" "Job UUID."
 # ------------------------------------------------------------------------------
 # @fn _knit_job_status()
@@ -71,6 +73,7 @@ _knit_job_in_clause() {
 # List submitted jobs, optionally filtered by state, setup, or type.
 # ------------------------------------------------------------------------------
 knit_register _knit_job_list "job:list" "List submitted jobs."
+_knit_is_builtin
 knit_with_optional "status:string" "" "Only list jobs in this lifecycle state."
 knit_with_optional "setup:string" "" \
     "Only list jobs whose setup is one of these (comma-separated) paths."
@@ -181,6 +184,7 @@ _knit_job_dir() {
 # Block until a job reaches a terminal lifecycle state.
 # ------------------------------------------------------------------------------
 knit_register _knit_job_wait "job:wait" "Wait for a job to reach a terminal state."
+_knit_is_builtin
 knit_with_required "id:string" "Job UUID."
 # ------------------------------------------------------------------------------
 # @fn _knit_job_wait()
@@ -254,6 +258,7 @@ knit_done
 # Cancel a running job through its scheduler backend.
 # ------------------------------------------------------------------------------
 knit_register _knit_job_cancel "job:cancel" "Cancel a running job."
+_knit_is_builtin
 knit_with_required "id:string" "Job UUID."
 # ------------------------------------------------------------------------------
 # @fn _knit_job_cancel()
@@ -314,6 +319,7 @@ knit_done
 # Remove a job's working directory and its lifecycle row.
 # ------------------------------------------------------------------------------
 knit_register _knit_job_rm "job:rm" "Remove a job's working directory and lifecycle row."
+_knit_is_builtin
 knit_with_required "id:string" "Job UUID."
 knit_with_flag "force" "Remove even if the job is still running."
 # ------------------------------------------------------------------------------
@@ -424,6 +430,7 @@ _knit_job_reconstruct_args_from_db_row() {
 # Re-run a job reusing the parameters recorded for a previous run.
 # ------------------------------------------------------------------------------
 knit_register _knit_job_resubmit "job:resubmit" "Re-run a job reusing its recorded parameters."
+_knit_is_builtin
 knit_with_required "id:string" "Job UUID."
 # ------------------------------------------------------------------------------
 # @fn _knit_job_resubmit()
@@ -495,6 +502,7 @@ knit_done
 # Show a job's submission options together with its job parameters.
 # ------------------------------------------------------------------------------
 knit_register _knit_job_show "job:show" "Show a job's submission options and job parameters."
+_knit_is_builtin
 knit_with_required "id:string" "Job UUID."
 knit_with_flag "json" "Emit the result as JSON."
 # ------------------------------------------------------------------------------
@@ -701,6 +709,7 @@ _knit_job_follow_file() {
 # Print a job's captured standard output.
 # ------------------------------------------------------------------------------
 knit_register _knit_job_show_stdout "job:show:stdout" "Print a job's captured standard output."
+_knit_is_builtin
 knit_with_required "id:string" "Job UUID."
 knit_with_flag "follow" "Follow the stream as it grows, like tail -f."
 # ------------------------------------------------------------------------------
@@ -731,6 +740,7 @@ knit_done
 # Print a job's captured standard error.
 # ------------------------------------------------------------------------------
 knit_register _knit_job_show_stderr "job:show:stderr" "Print a job's captured standard error."
+_knit_is_builtin
 knit_with_required "id:string" "Job UUID."
 knit_with_flag "follow" "Follow the stream as it grows, like tail -f."
 # ------------------------------------------------------------------------------
@@ -761,6 +771,7 @@ knit_done
 # Print a job's generated batch script.
 # ------------------------------------------------------------------------------
 knit_register _knit_job_show_script "job:show:script" "Print a job's generated batch script."
+_knit_is_builtin
 knit_with_required "id:string" "Job UUID."
 # ------------------------------------------------------------------------------
 # @fn _knit_job_show_script()

@@ -11,6 +11,7 @@
 declare -A _KNIT_SETUPS
 
 knit_register _knit_setup "setup" "Setup an environment"
+_knit_is_builtin
 knit_with_required "path:path" "Path to the setup"
 knit_with_dispatch "setup" "User-provided setup command to execute"
 knit_with_subcommand_title "Setups"
