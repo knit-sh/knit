@@ -941,6 +941,266 @@ _knit_describe_yaml() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_describe_stdout_is_terminal()
+#
+# Return success when standard output is a terminal. Factored into its own
+# function so tests can stub it to force color on or off deterministically.
+# ------------------------------------------------------------------------------
+_knit_describe_stdout_is_terminal() {
+    [[ -t 1 ]]
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_default_heading()
+#
+# Print a title or section header for the human-readable format. With color it
+# is rendered bold and underlined on its own line; without color it is followed
+# by an "---" hrule of matching width (the style "--help" uses).
+#
+# @param text      Header text.
+# @param use_color "true" to emit ANSI styling, "false" for an hrule.
+# @param indent    Leading indentation (defaults to none).
+# ------------------------------------------------------------------------------
+_knit_describe_default_heading() {
+    local text="$1"
+    local use_color="$2"
+    local indent="${3:-}"
+    if [[ "${use_color}" == "true" ]]; then
+        printf '%s%s%s%s\n' "${indent}" \
+            "${_KNIT_COLORS[bold]}${_KNIT_COLORS[underline]}" \
+            "${text}" "${_KNIT_COLORS[reset]}"
+    else
+        local hrule
+        printf -v hrule '%*s' "${#text}" ''
+        hrule="${hrule// /-}"
+        printf '%s%s\n%s%s\n' "${indent}" "${text}" "${indent}" "${hrule}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_enum_constraint()
+#
+# Print a "one of: a, b, c" constraint string for an enum-typed parameter, or
+# nothing when the parameter's type is not an enum. Values are sorted to match
+# the other formatters.
+#
+# @param cmd   Mangled command name.
+# @param param Normalized parameter name.
+# ------------------------------------------------------------------------------
+_knit_describe_enum_constraint() {
+    local cmd="$1"
+    local param="$2"
+    local type resolved
+    type=$(_knit_param_type "${cmd}" "${param}")
+    if resolved=$(_knit_type_resolve_alias "${type}") \
+        && [[ -v _KNIT_ENUMS["${resolved}"] ]]; then
+        local out='' v
+        while IFS= read -r v; do
+            [[ -n "${out}" ]] && out+=', '
+            out+="${v}"
+        done < <(knit_enum_values "${resolved}" | sort)
+        printf 'one of: %s' "${out}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_default_options()
+#
+# Print a command's "Options" section for the human-readable format, mirroring
+# the "--help" layout: a header, the "--help" entry, then required, optional
+# (with "default: '…'") and flag parameters, column-aligned, each annotated with
+# its enum constraint and "when:" clause when present.
+#
+# @param cmd       Mangled command name.
+# @param use_color "true" to emit ANSI styling in the header.
+# @param indent    Leading indentation for the section header (defaults to none);
+#                  entries are indented two further spaces.
+# ------------------------------------------------------------------------------
+_knit_describe_default_options() {
+    local cmd="$1"
+    local use_color="$2"
+    local indent="${3:-}"
+    local cind="${indent}  "
+    local req_var="_KNIT_CMD_${cmd}_required"
+    local opt_var="_KNIT_CMD_${cmd}_optional"
+    local flg_var="_KNIT_CMD_${cmd}_flags"
+
+    local max=4 opt opt2 len
+    while read -r opt; do
+        opt2="--$(_knit_str_underscores_to_hyphens "${opt}") <value>"
+        len=${#opt2}; (( len > max )) && max=${len}
+    done < <(_knit_set_iter "${req_var}" | sort)
+    while read -r opt; do
+        opt2="--$(_knit_str_underscores_to_hyphens "${opt}") <value>"
+        len=${#opt2}; (( len > max )) && max=${len}
+    done < <(_knit_set_iter "${opt_var}" | sort)
+    while read -r opt; do
+        opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
+        len=${#opt2}; (( len > max )) && max=${len}
+    done < <(_knit_set_iter "${flg_var}" | sort)
+
+    _knit_describe_default_heading "Options" "${use_color}" "${indent}"
+    printf '%s%-*s  %s\n' "${cind}" "${max}" "--help" \
+        "Print this help message and exit."
+
+    local desc dflt when_var ann cons
+    while read -r opt; do
+        desc=$(_knit_param_description "${cmd}" "${opt}")
+        opt2="--$(_knit_str_underscores_to_hyphens "${opt}") <value>"
+        when_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
+        ann="required"
+        cons=$(_knit_describe_enum_constraint "${cmd}" "${opt}")
+        [[ -n "${cons}" ]] && ann+=", ${cons}"
+        [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
+        printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
+    done < <(_knit_set_iter "${req_var}" | sort)
+    while read -r opt; do
+        desc=$(_knit_param_description "${cmd}" "${opt}")
+        dflt=$(_knit_param_default "${cmd}" "${opt}")
+        opt2="--$(_knit_str_underscores_to_hyphens "${opt}") <value>"
+        when_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
+        ann="default: '${dflt}'"
+        cons=$(_knit_describe_enum_constraint "${cmd}" "${opt}")
+        [[ -n "${cons}" ]] && ann+=", ${cons}"
+        [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
+        printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
+    done < <(_knit_set_iter "${opt_var}" | sort)
+    while read -r opt; do
+        desc=$(_knit_param_description "${cmd}" "${opt}")
+        opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
+        when_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
+        ann="flag"
+        [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
+        printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
+    done < <(_knit_set_iter "${flg_var}" | sort)
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_default_outputs()
+#
+# Print a command's "Outputs" section for the human-readable format (name, then
+# "[type, default: '…'] description"). Prints nothing when the command declares
+# no outputs.
+#
+# @param cmd       Mangled command name.
+# @param use_color "true" to emit ANSI styling in the header.
+# @param indent    Leading indentation for the section header (defaults to none);
+#                  entries are indented two further spaces.
+# ------------------------------------------------------------------------------
+_knit_describe_default_outputs() {
+    local cmd="$1"
+    local use_color="$2"
+    local indent="${3:-}"
+    local cind="${indent}  "
+    local outs_var="_KNIT_CMD_${cmd}_outputs"
+
+    local max=0 o o2 len
+    while read -r o; do
+        o2=$(_knit_str_underscores_to_hyphens "${o}")
+        len=${#o2}; (( len > max )) && max=${len}
+    done < <(_knit_set_iter "${outs_var}" | sort)
+
+    _knit_describe_default_heading "Outputs" "${use_color}" "${indent}"
+    local type dflt desc
+    while read -r o; do
+        o2=$(_knit_str_underscores_to_hyphens "${o}")
+        type=$(_knit_output_type "${cmd}" "${o}")
+        dflt=$(_knit_output_default "${cmd}" "${o}")
+        desc=$(_knit_output_description "${cmd}" "${o}")
+        printf '%s%-*s  [%s, default: '\''%s'\''] %s\n' \
+            "${cind}" "${max}" "${o2}" "${type}" "${dflt}" "${desc}"
+    done < <(_knit_set_iter "${outs_var}" | sort)
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_default_command()
+#
+# Print one command as a titled block for the human-readable format, then recurse
+# (flat, depth-first) into its emitted subcommands so each command is its own
+# block titled by its full space-separated name. The Options and Outputs sections
+# honor the "--no-input-params" / "--no-output-params" filters, and an "Extra"
+# section is printed when the command declares post-"--" arguments.
+#
+# @param cmd          Mangled command name.
+# @param use_color    "true" to emit ANSI styling.
+# @param sel_ancestor "true" if an ancestor of the command is in the "--only"
+#                     selection.
+# ------------------------------------------------------------------------------
+_knit_describe_default_command() {
+    local cmd="$1"
+    local use_color="$2"
+    local sel_ancestor="$3"
+    local display kind tag
+    display=$(_knit_command_with_space "${cmd}")
+    kind=$(_knit_describe_command_kind "${cmd}")
+    if _knit_command_is_builtin "${cmd}"; then tag="builtin"; else tag="user"; fi
+    local desc_var="_KNIT_CMD_${cmd}_description"
+
+    # Command titles stay at column 0 (the format is flat; depth is conveyed by
+    # the full name), but each command's sections are indented beneath it.
+    local sec="  "
+
+    _knit_describe_default_heading "${display}" "${use_color}"
+    printf '%s[%s, %s]  %s\n' "${sec}" "${kind}" "${tag}" "${!desc_var}"
+
+    if ! _knit_describe_filter_on no_input_params; then
+        printf '\n'
+        _knit_describe_default_options "${cmd}" "${use_color}" "${sec}"
+    fi
+
+    local has_out=0 o
+    while IFS= read -r o; do has_out=1; break; done \
+        < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs")
+    if ! _knit_describe_filter_on no_output_params && (( has_out )); then
+        printf '\n'
+        _knit_describe_default_outputs "${cmd}" "${use_color}" "${sec}"
+    fi
+
+    local extra_var="_KNIT_CMD_${cmd}_extra"
+    if [[ -n "${!extra_var}" ]]; then
+        printf '\n'
+        _knit_describe_default_heading "Extra" "${use_color}" "${sec}"
+        printf '%s  %s\n' "${sec}" "${!extra_var}"
+    fi
+
+    local child_sel_ancestor="${sel_ancestor}"
+    _knit_set_find _KNIT_DESCRIBE_ONLY "${cmd}" && child_sel_ancestor="true"
+    local c
+    while IFS= read -r c; do
+        _knit_describe_should_emit "${c}" "${child_sel_ancestor}" || continue
+        printf '\n'
+        _knit_describe_default_command "${c}" "${use_color}" "${child_sel_ancestor}"
+    done < <(_knit_describe_children "${cmd}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_default()
+#
+# Emit the human-readable description of the experiment: one titled block per
+# command, walked depth-first so a subcommand follows its parent. Color is
+# enabled only when stdout is a terminal and "--no-color" is not given.
+#
+# @param ... Command arguments (expanded by the CLI framework).
+# ------------------------------------------------------------------------------
+_knit_describe_default() {
+    local no_color use_color
+    no_color=$(knit_get_parameter no-color "$@") || no_color="false"
+    if [[ "${no_color}" != "true" ]] && _knit_describe_stdout_is_terminal; then
+        use_color="true"
+    else
+        use_color="false"
+    fi
+
+    local first=1 c
+    while IFS= read -r c; do
+        _knit_describe_should_emit "${c}" "false" || continue
+        (( first )) || printf '\n'
+        first=0
+        _knit_describe_default_command "${c}" "${use_color}" "false"
+    done < <(_knit_describe_children "")
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_describe_read_filters()
 #
 # Populate the module-level filter state (_KNIT_DESCRIBE_FILTERS and
@@ -976,8 +1236,8 @@ _knit_describe_read_filters() {
 # @fn _knit_describe()
 #
 # Body of the "describe" command: read the requested filters and --format, then
-# emit the description in that format. Only "json", "json-compact" and "yaml" are
-# implemented so far.
+# emit the description in that format. Only "default", "json", "json-compact" and
+# "yaml" are implemented so far.
 #
 # @param ... Command arguments (expanded by the CLI framework).
 # ------------------------------------------------------------------------------
@@ -986,6 +1246,9 @@ _knit_describe() {
     format=$(knit_get_parameter format "$@") || format="default"
     _knit_describe_read_filters "$@"
     case "${format}" in
+        default)
+            _knit_describe_default "$@"
+            ;;
         json)
             _knit_describe_json
             ;;
@@ -996,13 +1259,13 @@ _knit_describe() {
             _knit_describe_yaml
             ;;
         *)
-            knit_fatal "The '${format}' format is not yet implemented (only 'json', 'json-compact' and 'yaml' are available)."
+            knit_fatal "The '${format}' format is not yet implemented (only 'default', 'json', 'json-compact' and 'yaml' are available)."
             ;;
     esac
 }
 
 knit_define_enum "describe_format" \
-    "default" "json" "json-compact" "yaml" "markdown" "html"
+    "default" "json" "json-compact" "yaml" "markdown"
 _knit_is_builtin
 
 knit_register _knit_describe "describe" \
@@ -1010,7 +1273,10 @@ knit_register _knit_describe "describe" \
 _knit_is_builtin
 knit_without_provenance
 knit_with_optional "format:describe_format" "default" \
-    "Output format: default, json, json-compact, yaml, markdown, or html."
+    "Output format: default, json, json-compact, yaml, or markdown."
+knit_with_flag "no-color" \
+    "Disable ANSI color in the default format (auto-enabled only on a terminal)." \
+    --when '.format == "default"'
 knit_with_flag "exclude-builtins" \
     "Omit framework builtin commands; show only user-declared commands."
 knit_with_flag "no-input-params" \
