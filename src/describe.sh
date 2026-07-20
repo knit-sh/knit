@@ -242,6 +242,27 @@ _knit_describe_should_emit() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_describe_implementation()
+#
+# Print a command's implementation — its registered function body as produced by
+# "declare -f" — when "--include-implementation" is active and the command is a
+# user (non-builtin) command. Prints nothing otherwise: without the flag no body
+# is emitted, and a builtin's body is knit implementation detail that is never
+# dumped. Every formatter consults this so the rule is applied in one place.
+#
+# @param cmd Mangled command name.
+# ------------------------------------------------------------------------------
+_knit_describe_implementation() {
+    local cmd="$1"
+    _knit_describe_filter_on include_implementation || return
+    _knit_command_is_builtin "${cmd}" && return
+    local fn_var="_KNIT_CMD_${cmd}_function"
+    local fn="${!fn_var:-}"
+    [[ -z "${fn}" ]] && return
+    declare -f "${fn}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_describe_enum_values_json()
 #
 # Print the values of an enum as an inline JSON array of strings (sorted for a
@@ -470,6 +491,11 @@ _knit_describe_json_command() {
     fi
     if ! _knit_describe_filter_on no_output_params; then
         entries+=("$(printf '%s"outputs": ' "${inner}"; _knit_describe_json_outputs "${cmd}" "${inner}")")
+    fi
+    local impl
+    impl=$(_knit_describe_implementation "${cmd}")
+    if [[ -n "${impl}" ]]; then
+        entries+=("$(printf '%s"implementation": %s' "${inner}" "$(_knit_describe_json_str "${impl}")")")
     fi
     entries+=("$(printf '%s"subcommands": ' "${inner}"; _knit_describe_emit_array "${inner}" "${subs[@]}")")
 
@@ -860,6 +886,12 @@ _knit_describe_yaml_command() {
             done
         fi
     fi
+    local impl
+    impl=$(_knit_describe_implementation "${cmd}")
+    if [[ -n "${impl}" ]]; then
+        printf '%simplementation: %s\n' "${key}" \
+            "$(_knit_describe_yaml_scalar "${impl}" "${cont}")"
+    fi
 
     local child_sel_ancestor="${sel_ancestor}"
     _knit_set_find _KNIT_DESCRIBE_ONLY "${cmd}" && child_sel_ancestor="true"
@@ -1118,8 +1150,10 @@ _knit_describe_default_outputs() {
 # Print one command as a titled block for the human-readable format, then recurse
 # (flat, depth-first) into its emitted subcommands so each command is its own
 # block titled by its full space-separated name. The Options and Outputs sections
-# honor the "--no-input-params" / "--no-output-params" filters, and an "Extra"
-# section is printed when the command declares post-"--" arguments.
+# honor the "--no-input-params" / "--no-output-params" filters, an "Extra" section
+# is printed when the command declares post-"--" arguments, and an "Implementation"
+# section (the function body) is printed for a user command when
+# "--include-implementation" is set.
 #
 # @param cmd          Mangled command name.
 # @param use_color    "true" to emit ANSI styling.
@@ -1161,6 +1195,17 @@ _knit_describe_default_command() {
         printf '\n'
         _knit_describe_default_heading "Extra" "${use_color}" "${sec}"
         printf '%s  %s\n' "${sec}" "${!extra_var}"
+    fi
+
+    local impl
+    impl=$(_knit_describe_implementation "${cmd}")
+    if [[ -n "${impl}" ]]; then
+        printf '\n'
+        _knit_describe_default_heading "Implementation" "${use_color}" "${sec}"
+        local iline
+        while IFS= read -r iline || [[ -n "${iline}" ]]; do
+            printf '%s  %s\n' "${sec}" "${iline}"
+        done <<< "${impl}"
     fi
 
     local child_sel_ancestor="${sel_ancestor}"
@@ -1360,10 +1405,11 @@ _knit_describe_md_outputs() {
 # @fn _knit_describe_md_command()
 #
 # Render one command as a "### <full name>" Markdown section (an intro line with
-# its kind/builtin note and description, an italic "Extra" line when declared, and
-# the "#### Parameters" / "#### Outputs" sub-sections honoring the omit flags),
-# then recurse (flat, depth-first) into its emitted subcommands so each command is
-# its own "###" section regardless of depth.
+# its kind/builtin note and description, an italic "Extra" line when declared, the
+# "#### Parameters" / "#### Outputs" sub-sections honoring the omit flags, and a
+# fenced "#### Implementation" block for a user command when
+# "--include-implementation" is set), then recurse (flat, depth-first) into its
+# emitted subcommands so each command is its own "###" section regardless of depth.
 #
 # @param cmd          Mangled command name.
 # @param sel_ancestor "true" if an ancestor of the command is in the "--only"
@@ -1393,6 +1439,13 @@ _knit_describe_md_command() {
     if ! _knit_describe_filter_on no_output_params; then
         printf '\n'
         _knit_describe_md_outputs "${cmd}"
+    fi
+
+    local impl
+    impl=$(_knit_describe_implementation "${cmd}")
+    if [[ -n "${impl}" ]]; then
+        # shellcheck disable=SC2016 # backticks are literal Markdown fence delimiters
+        printf '\n#### Implementation\n\n```bash\n%s\n```\n' "${impl}"
     fi
 
     local child_sel_ancestor="${sel_ancestor}"
@@ -1446,7 +1499,7 @@ _knit_describe_read_filters() {
     _KNIT_DESCRIBE_ONLY=()
     local flag
     for flag in exclude_builtins no_input_params no_output_params \
-                include_hidden recursive; do
+                include_hidden recursive include_implementation; do
         _KNIT_DESCRIBE_FILTERS["${flag}"]=$( \
             knit_get_parameter "${flag//_/-}" "$@" || printf 'false')
     done
@@ -1523,4 +1576,6 @@ knit_with_flag "recursive" \
     "With --only, also include the selected commands' subcommands."
 knit_with_flag "include-hidden" \
     "Include hidden and framework-private commands (excluded by default)."
+knit_with_flag "include-implementation" \
+    "Include each user command's function body (builtin bodies are never shown)."
 knit_done
