@@ -1201,6 +1201,237 @@ _knit_describe_default() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_describe_md_cell()
+#
+# Escape a value so it is safe inside a Markdown table cell: pipes are backslash-
+# escaped (they otherwise start a new column) and newlines/carriage returns are
+# folded to spaces (a table row must stay on one line).
+#
+# @param value Value to escape.
+# ------------------------------------------------------------------------------
+_knit_describe_md_cell() {
+    local v="$1"
+    v="${v//$'\n'/ }"
+    v="${v//$'\r'/ }"
+    v="${v//|/\\|}"
+    printf '%s' "${v}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_md_code()
+#
+# Render a value as a Markdown inline-code span (escaped for a table cell). An
+# empty value yields nothing, so this doubles as the "Default" column renderer:
+# a declared value is shown as code and an empty-string default leaves a blank
+# cell.
+#
+# @param value Value to render.
+# ------------------------------------------------------------------------------
+_knit_describe_md_code() {
+    local v="$1"
+    [[ -z "${v}" ]] && return
+    # shellcheck disable=SC2016 # backticks are literal Markdown code-span delimiters
+    printf '`%s`' "$(_knit_describe_md_cell "${v}")"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_md_constraints()
+#
+# Build the "Constraints" column text for a parameter: the enum "one of: …" list
+# (when the type is an enum) and the "--when" clause (with the raw expression in
+# inline code), joined by "; ". Prints nothing when the parameter is
+# unconstrained.
+#
+# @param cmd   Mangled command name.
+# @param param Normalized parameter name.
+# ------------------------------------------------------------------------------
+_knit_describe_md_constraints() {
+    local cmd="$1"
+    local param="$2"
+    local out when_var
+    out=$(_knit_describe_enum_constraint "${cmd}" "${param}")
+    when_var="_KNIT_CMD_${cmd}_2_${param}_when_raw"
+    if [[ -v "${when_var}" ]]; then
+        [[ -n "${out}" ]] && out+='; '
+        out+="when: \`${!when_var}\`"
+    fi
+    printf '%s' "${out}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_md_params()
+#
+# Print a command's "#### Parameters" sub-section as a Markdown table (one row per
+# required, optional, and flag parameter, in that order; each group sorted), with
+# a "Kind" column marking the group. Prints "*None.*" when the command declares no
+# parameters. The universal "--help" flag is intentionally omitted.
+#
+# @param cmd Mangled command name.
+# ------------------------------------------------------------------------------
+_knit_describe_md_params() {
+    local cmd="$1"
+    printf '#### Parameters\n\n'
+    local -a rows=()
+    local p type desc dname cons dcell
+    while IFS= read -r p; do
+        dname=$(_knit_str_underscores_to_hyphens "${p}")
+        type=$(_knit_param_type "${cmd}" "${p}")
+        desc=$(_knit_param_description "${cmd}" "${p}")
+        cons=$(_knit_describe_md_constraints "${cmd}" "${p}")
+        [[ -z "${cons}" ]] && cons='—'
+        rows+=("$(printf '| %s | required | %s | — | %s | %s |' \
+            "$(_knit_describe_md_code "${dname}")" \
+            "$(_knit_describe_md_cell "${type}")" \
+            "$(_knit_describe_md_cell "${cons}")" \
+            "$(_knit_describe_md_cell "${desc}")")")
+    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_required" | sort)
+    while IFS= read -r p; do
+        dname=$(_knit_str_underscores_to_hyphens "${p}")
+        type=$(_knit_param_type "${cmd}" "${p}")
+        desc=$(_knit_param_description "${cmd}" "${p}")
+        cons=$(_knit_describe_md_constraints "${cmd}" "${p}")
+        [[ -z "${cons}" ]] && cons='—'
+        dcell=$(_knit_describe_md_code "$(_knit_param_default "${cmd}" "${p}")")
+        rows+=("$(printf '| %s | optional | %s | %s | %s | %s |' \
+            "$(_knit_describe_md_code "${dname}")" \
+            "$(_knit_describe_md_cell "${type}")" \
+            "${dcell}" \
+            "$(_knit_describe_md_cell "${cons}")" \
+            "$(_knit_describe_md_cell "${desc}")")")
+    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_optional" | sort)
+    while IFS= read -r p; do
+        dname=$(_knit_str_underscores_to_hyphens "${p}")
+        desc=$(_knit_param_description "${cmd}" "${p}")
+        cons=$(_knit_describe_md_constraints "${cmd}" "${p}")
+        [[ -z "${cons}" ]] && cons='—'
+        rows+=("$(printf '| %s | flag | boolean | — | %s | %s |' \
+            "$(_knit_describe_md_code "${dname}")" \
+            "$(_knit_describe_md_cell "${cons}")" \
+            "$(_knit_describe_md_cell "${desc}")")")
+    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_flags" | sort)
+
+    if (( ${#rows[@]} == 0 )); then
+        printf '*None.*\n'
+        return
+    fi
+    printf '| Name | Kind | Type | Default | Constraints | Description |\n'
+    printf '|------|------|------|---------|-------------|-------------|\n'
+    local r
+    for r in "${rows[@]}"; do printf '%s\n' "${r}"; done
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_md_outputs()
+#
+# Print a command's "#### Outputs" sub-section as a Markdown table (one row per
+# output, sorted). Prints "*None.*" when the command declares no outputs.
+#
+# @param cmd Mangled command name.
+# ------------------------------------------------------------------------------
+_knit_describe_md_outputs() {
+    local cmd="$1"
+    printf '#### Outputs\n\n'
+    local -a rows=()
+    local o dname type dflt desc dcell
+    while IFS= read -r o; do
+        dname=$(_knit_str_underscores_to_hyphens "${o}")
+        type=$(_knit_output_type "${cmd}" "${o}")
+        dflt=$(_knit_output_default "${cmd}" "${o}")
+        desc=$(_knit_output_description "${cmd}" "${o}")
+        dcell=$(_knit_describe_md_code "${dflt}")
+        rows+=("$(printf '| %s | %s | %s | %s |' \
+            "$(_knit_describe_md_code "${dname}")" \
+            "$(_knit_describe_md_cell "${type}")" \
+            "${dcell}" \
+            "$(_knit_describe_md_cell "${desc}")")")
+    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
+
+    if (( ${#rows[@]} == 0 )); then
+        printf '*None.*\n'
+        return
+    fi
+    printf '| Name | Type | Default | Description |\n'
+    printf '|------|------|---------|-------------|\n'
+    local r
+    for r in "${rows[@]}"; do printf '%s\n' "${r}"; done
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_md_command()
+#
+# Render one command as a "### <full name>" Markdown section (an intro line with
+# its kind/builtin note and description, an italic "Extra" line when declared, and
+# the "#### Parameters" / "#### Outputs" sub-sections honoring the omit flags),
+# then recurse (flat, depth-first) into its emitted subcommands so each command is
+# its own "###" section regardless of depth.
+#
+# @param cmd          Mangled command name.
+# @param sel_ancestor "true" if an ancestor of the command is in the "--only"
+#                     selection.
+# ------------------------------------------------------------------------------
+_knit_describe_md_command() {
+    local cmd="$1"
+    local sel_ancestor="$2"
+    local display kind tag
+    display=$(_knit_command_with_space "${cmd}")
+    kind=$(_knit_describe_command_kind "${cmd}")
+    if _knit_command_is_builtin "${cmd}"; then tag="builtin"; else tag="user"; fi
+    local desc_var="_KNIT_CMD_${cmd}_description"
+
+    printf '### %s\n\n' "${display}"
+    printf '*%s, %s* — %s\n' "${kind}" "${tag}" "${!desc_var}"
+
+    local extra_var="_KNIT_CMD_${cmd}_extra"
+    if [[ -n "${!extra_var}" ]]; then
+        printf '\n*Extra: %s*\n' "${!extra_var}"
+    fi
+
+    if ! _knit_describe_filter_on no_input_params; then
+        printf '\n'
+        _knit_describe_md_params "${cmd}"
+    fi
+    if ! _knit_describe_filter_on no_output_params; then
+        printf '\n'
+        _knit_describe_md_outputs "${cmd}"
+    fi
+
+    local child_sel_ancestor="${sel_ancestor}"
+    _knit_set_find _KNIT_DESCRIBE_ONLY "${cmd}" && child_sel_ancestor="true"
+    local c
+    while IFS= read -r c; do
+        _knit_describe_should_emit "${c}" "${child_sel_ancestor}" || continue
+        printf '\n'
+        _knit_describe_md_command "${c}" "${child_sel_ancestor}"
+    done < <(_knit_describe_children "${cmd}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_markdown()
+#
+# Emit the complete description of the experiment as a single Markdown document: a
+# "#" title (the program description, or the script name when unset), a "##
+# Commands" wrapper, and one flat "###" section per command (depth-first, so a
+# subcommand follows its parent). Depth does not consume heading levels, keeping
+# the scheme within Markdown's six-level limit. Enum values are inlined in each
+# parameter's Constraints column rather than a separate section.
+# ------------------------------------------------------------------------------
+_knit_describe_markdown() {
+    local title_var="_KNIT_CMD___main___description"
+    local title="${!title_var}"
+    if [[ -z "${title}" || "${title}" == *knit_set_program_description* ]]; then
+        title="${KNIT_SCRIPT_NAME}"
+    fi
+    printf '# %s\n\n' "${title}"
+    printf '## Commands\n'
+    local c
+    while IFS= read -r c; do
+        _knit_describe_should_emit "${c}" "false" || continue
+        printf '\n'
+        _knit_describe_md_command "${c}" "false"
+    done < <(_knit_describe_children "")
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_describe_read_filters()
 #
 # Populate the module-level filter state (_KNIT_DESCRIBE_FILTERS and
@@ -1236,8 +1467,8 @@ _knit_describe_read_filters() {
 # @fn _knit_describe()
 #
 # Body of the "describe" command: read the requested filters and --format, then
-# emit the description in that format. Only "default", "json", "json-compact" and
-# "yaml" are implemented so far.
+# emit the description in that format ("default", "json", "json-compact", "yaml",
+# or "markdown").
 #
 # @param ... Command arguments (expanded by the CLI framework).
 # ------------------------------------------------------------------------------
@@ -1258,8 +1489,11 @@ _knit_describe() {
         yaml)
             _knit_describe_yaml
             ;;
+        markdown)
+            _knit_describe_markdown
+            ;;
         *)
-            knit_fatal "The '${format}' format is not yet implemented (only 'default', 'json', 'json-compact' and 'yaml' are available)."
+            knit_fatal "Unknown describe format '${format}'."
             ;;
     esac
 }

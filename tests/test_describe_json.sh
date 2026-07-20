@@ -139,7 +139,7 @@ assert json.loads(sys.argv[1]) == json.loads(sys.argv[2])
 PY
 }
 
-@test "an unimplemented format is a fatal error" {
-    run _knit_describe --format markdown
+@test "an unknown format is a fatal error" {
+    run _knit_describe --format bogus
     [ "$status" -ne 0 ]
 }
