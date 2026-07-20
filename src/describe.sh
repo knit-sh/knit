@@ -1517,18 +1517,19 @@ _knit_describe_read_filters() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_describe()
+# @fn _knit_describe_emit()
 #
-# Body of the "describe" command: read the requested filters and --format, then
-# emit the description in that format ("default", "json", "json-compact", "yaml",
-# or "markdown").
+# Emit the description in the requested format to standard output. Split out from
+# _knit_describe so the caller can redirect the whole document to a file for
+# "--output" without duplicating the format dispatch.
 #
-# @param ... Command arguments (expanded by the CLI framework).
+# @param format Output format ("default", "json", "json-compact", "yaml", or
+#               "markdown").
+# @param ...    Command arguments (expanded by the CLI framework).
 # ------------------------------------------------------------------------------
-_knit_describe() {
-    local format
-    format=$(knit_get_parameter format "$@") || format="default"
-    _knit_describe_read_filters "$@"
+_knit_describe_emit() {
+    local format="$1"
+    shift
     case "${format}" in
         default)
             _knit_describe_default "$@"
@@ -1549,6 +1550,28 @@ _knit_describe() {
             knit_fatal "Unknown describe format '${format}'."
             ;;
     esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe()
+#
+# Body of the "describe" command: read the requested filters and --format, then
+# emit the description in that format. With "--output <file>" the document is
+# written to that file instead of standard output (which also disables the
+# default format's auto-color, since the destination is not a terminal).
+#
+# @param ... Command arguments (expanded by the CLI framework).
+# ------------------------------------------------------------------------------
+_knit_describe() {
+    local format output
+    format=$(knit_get_parameter format "$@") || format="default"
+    output=$(knit_get_parameter output "$@") || output=""
+    _knit_describe_read_filters "$@"
+    if [[ -n "${output}" ]]; then
+        _knit_describe_emit "${format}" "$@" > "${output}"
+    else
+        _knit_describe_emit "${format}" "$@"
+    fi
 }
 
 knit_define_enum "describe_format" \
@@ -1578,4 +1601,6 @@ knit_with_flag "include-hidden" \
     "Include hidden and framework-private commands (excluded by default)."
 knit_with_flag "include-implementation" \
     "Include each user command's function body (builtin bodies are never shown)."
+knit_with_optional "output:path" "" \
+    "Write the description to this file instead of standard output."
 knit_done

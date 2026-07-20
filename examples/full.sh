@@ -10,8 +10,9 @@
 # command parameters, setups (reproducible environments, optionally backed by a
 # Spack environment), job submission to a batch scheduler (Slurm/PBS) — or to
 # local background processes when no scheduler is present — MPI application
-# launch across a job's allocation with `knit run`, and the Spack package
-# manager (`knit spack`, plus Spack-backed setups).
+# launch across a job's allocation with `knit run`, the Spack package
+# manager (`knit spack`, plus Spack-backed setups), and a machine- and
+# human-readable description of the whole interface with `knit describe`.
 #
 # HOW TO USE THIS FILE
 # --------------------
@@ -380,7 +381,33 @@
 # to `knit_with_spack_env` instead of using the `knit_with_spack_specs` sugar.
 #
 # -----------------------------------------------------------------------------
-# 12. Clean up
+# 12. Describe the whole experiment
+# -----------------------------------------------------------------------------
+# `--help` documents one command at a time; `describe` dumps the entire
+# interface — every command (builtin or user-declared), its parameters, types,
+# defaults, constraints, and outputs — in one shot, in whichever format you ask
+# for:
+#
+#   ./full.sh describe                       # human-readable (colored on a TTY)
+#   ./full.sh describe --format json         # machine-readable JSON
+#   ./full.sh describe --format yaml         # the same model, YAML
+#   ./full.sh describe --format markdown     # a COMMANDS.md-style document
+#
+# It reads the registration tables only (no bootstrap or database needed), so it
+# works on a fresh checkout. Narrow, prune, and redirect it as you like:
+#
+#   ./full.sh describe --exclude-builtins    # only your own commands
+#   ./full.sh describe --only "submit,estimate" --recursive
+#   ./full.sh describe --no-output-params --no-input-params
+#   ./full.sh describe --include-implementation --only estimate
+#   ./full.sh describe --format markdown --exclude-builtins --output COMMANDS.md
+#
+# `--include-implementation` appends each user command's function body (builtin
+# bodies are never shown); `--output <file>` writes the description to a file
+# instead of stdout (and disables color for the default format).
+#
+# -----------------------------------------------------------------------------
+# 13. Clean up
 # -----------------------------------------------------------------------------
 #   rm -rf .knit env libenv
 #
