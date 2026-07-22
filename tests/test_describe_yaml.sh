@@ -75,24 +75,27 @@ _require_yq() {
 # ---------- _knit_describe_yaml_scalar ----------
 
 @test "a coerced scalar is double-quoted" {
-    [ "$(_knit_describe_yaml_scalar "1" "  ")" = '"1"' ]
-    [ "$(_knit_describe_yaml_scalar "" "  ")" = '""' ]
+    local r
+    _knit_describe_yaml_scalar r "1" "  "; [ "$r" = '"1"' ]
+    _knit_describe_yaml_scalar r "" "  "; [ "$r" = '""' ]
 }
 
 @test "a safe scalar is emitted verbatim" {
-    [ "$(_knit_describe_yaml_scalar "red" "  ")" = "red" ]
+    local r
+    _knit_describe_yaml_scalar r "red" "  "; [ "$r" = "red" ]
 }
 
 @test "a multi-line scalar becomes an indented block scalar" {
-    result=$(_knit_describe_yaml_scalar $'line1\nline2' "    ")
+    local result
+    _knit_describe_yaml_scalar result $'line1\nline2' "    "
     [ "${result}" = $'|-\n    line1\n    line2' ]
 }
 
 @test "a block scalar round-trips through a YAML parser" {
     _require_yq
-    local rendered
-    rendered=$({ printf 'k: '; \
-        _knit_describe_yaml_scalar $'multi\nline\nvalue' '  '; printf '\n'; })
+    local sc rendered
+    _knit_describe_yaml_scalar sc $'multi\nline\nvalue' '  '
+    rendered=$(printf 'k: %s\n' "${sc}")
     [ "$(printf '%s' "${rendered}" | yq -c '.k')" \
         = '"multi\nline\nvalue"' ]
 }

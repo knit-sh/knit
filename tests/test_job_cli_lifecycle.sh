@@ -60,7 +60,7 @@ _seed_job() {
     _KNIT_SCHED_POLL_INTERVAL="0.1"
     # Force the local backend and stub its wait to flip the state, standing in
     # for the scheduler unblocking + the compute-side terminal-state write.
-    _knit_sched_backend() { echo "local"; }
+    _knit_sched_backend() { local -n __r=$1; __r='local'; }
     _knit_sched_local_wait() {
         sqlite3 "${_KNIT_DATABASE}" \
             "UPDATE jobs SET state = 'completed' WHERE id = 'id1';"
@@ -78,7 +78,7 @@ _seed_job() {
     mkdir -p "${root}/jobs/id1"
     echo "999" > "${root}/jobs/id1/.job.id"
     _KNIT_SCHED_POLL_INTERVAL="0.1"
-    _knit_sched_backend() { echo "local"; }
+    _knit_sched_backend() { local -n __r=$1; __r='local'; }
     _knit_sched_local_wait() {
         sqlite3 "${_KNIT_DATABASE}" \
             "UPDATE jobs SET state = 'killed' WHERE id = 'id1';"
@@ -115,7 +115,7 @@ _seed_job() {
     echo "999" > "${root}/jobs/id1/.job.id"
     # Force the local backend and capture the id handed to its cancel primitive
     # instead of really killing a process.
-    _knit_sched_backend() { echo "local"; }
+    _knit_sched_backend() { local -n __r=$1; __r='local'; }
     _knit_sched_local_cancel() { echo "$1" > "${root}/cancelled"; }
     run _knit_job_cancel --id "id1"
     [ "$status" -eq 0 ]
@@ -165,7 +165,7 @@ _seed_job() {
     _KNIT_PREFIX="${root}/.knit"
     mkdir -p "${root}/jobs/id1"
     echo "999" > "${root}/jobs/id1/.job.id"
-    _knit_sched_backend() { echo "local"; }
+    _knit_sched_backend() { local -n __r=$1; __r='local'; }
     _knit_sched_local_cancel() { :; }
     run _knit_invoke_command "job__1__cancel" --id "id1"
     [ "$status" -eq 0 ]

@@ -40,7 +40,7 @@ teardown() {
 @test "none_hostfile prints the configured nodefile verbatim (blank lines dropped)" {
     local nf="${_KNIT_TEST_TMPDIR}/nodes"
     printf 'nodeA\nnodeA:4\n\nnodeB\n' > "${nf}"
-    _knit_metadata_load() { printf '%s\n' "${nf}"; }
+    _knit_metadata_get() { local -n __r=$1; __r="${nf}"; }
 
     run _knit_sched_none_hostfile
     [ "$status" -eq 0 ]
@@ -51,14 +51,14 @@ teardown() {
 }
 
 @test "none_hostfile falls back to the local hostname when no nodefile is configured" {
-    _knit_metadata_load() { printf '\n'; }
+    _knit_metadata_get() { local -n __r=$1; __r=''; }
     run _knit_sched_none_hostfile
     [ "$status" -eq 0 ]
     [[ "$output" == *"$(hostname)"* ]]
 }
 
 @test "none_hostfile falls back to the local hostname when the nodefile is unreadable" {
-    _knit_metadata_load() { printf '%s\n' "${_KNIT_TEST_TMPDIR}/does-not-exist"; }
+    _knit_metadata_get() { local -n __r=$1; __r="${_KNIT_TEST_TMPDIR}/does-not-exist"; }
     run _knit_sched_none_hostfile
     [ "$status" -eq 0 ]
     [[ "$output" == *"$(hostname)"* ]]

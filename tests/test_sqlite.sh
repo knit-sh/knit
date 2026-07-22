@@ -14,31 +14,31 @@ teardown() {
 
 @test "sql escape returns plain string unchanged" {
     local result
-    result=$(_knit_sql_escape "hello")
+    _knit_sql_escape result "hello"
     [ "$result" = "hello" ]
 }
 
 @test "sql escape doubles single quotes" {
     local result
-    result=$(_knit_sql_escape "it's")
+    _knit_sql_escape result "it's"
     [ "$result" = "it''s" ]
 }
 
 @test "sql escape handles multiple single quotes" {
     local result
-    result=$(_knit_sql_escape "it's a 'test'")
+    _knit_sql_escape result "it's a 'test'"
     [ "$result" = "it''s a ''test''" ]
 }
 
 @test "sql escape handles string with no special characters" {
     local result
-    result=$(_knit_sql_escape "hello world 123")
+    _knit_sql_escape result "hello world 123"
     [ "$result" = "hello world 123" ]
 }
 
 @test "sql escape handles empty string" {
     local result
-    result=$(_knit_sql_escape "")
+    _knit_sql_escape result ""
     [ -z "$result" ]
 }
 
@@ -46,19 +46,19 @@ teardown() {
 
 @test "sql quote identifier wraps a plain name in double quotes" {
     local result
-    result=$(_knit_sql_quote_identifier "runs")
+    _knit_sql_quote_identifier result "runs"
     [ "$result" = '"runs"' ]
 }
 
 @test "sql quote identifier quotes a name containing a colon" {
     local result
-    result=$(_knit_sql_quote_identifier "aaa:bbb")
+    _knit_sql_quote_identifier result "aaa:bbb"
     [ "$result" = '"aaa:bbb"' ]
 }
 
 @test "sql quote identifier doubles embedded double quotes" {
     local result
-    result=$(_knit_sql_quote_identifier 'a"b')
+    _knit_sql_quote_identifier result 'a"b'
     [ "$result" = '"a""b"' ]
 }
 

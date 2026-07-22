@@ -61,14 +61,14 @@ _knit_sched_local_submit() {
 # walltime cap; those are knit-managed conveniences rather than part of the job
 # command, so the recorded/traced command is the bare "bash <script>".
 #
+# @param argv_name Name of the array to fill with the submission argv.
 # @param arr_name  Name of the resolved-options associative array (unused).
 # @param script    Path to the batch script to run.
-# @param argv_name Name of the array to fill with the submission argv.
 # ------------------------------------------------------------------------------
 _knit_sched_local_submit_cmdline() {
-    local script="$2"
     # shellcheck disable=SC2178 # nameref to the caller's array
-    local -n _submit_argv="$3"
+    local -n _submit_argv="$1"
+    local script="$3"
     _submit_argv=(bash "${script}")
 }
 

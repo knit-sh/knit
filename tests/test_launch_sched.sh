@@ -9,7 +9,7 @@ setup() {
 @test "slurm cmdline translates a full placement" {
     declare -A opts=([procs]=8 [procs-per-node]=4 [hostnames]="h0,h1")
     declare -a argv
-    _knit_launch_slurm_cmdline opts argv
+    _knit_launch_slurm_cmdline argv opts
     [ "${#argv[@]}" -eq 9 ]
     [ "${argv[0]}" = "srun" ]
     [ "${argv[1]}" = "--ntasks" ]
@@ -25,7 +25,7 @@ setup() {
 @test "slurm cmdline emits only the flags whose options are set" {
     declare -A opts=([procs]=4)
     declare -a argv
-    _knit_launch_slurm_cmdline opts argv
+    _knit_launch_slurm_cmdline argv opts
     [ "${#argv[@]}" -eq 3 ]
     [ "${argv[0]}" = "srun" ]
     [ "${argv[1]}" = "--ntasks" ]
@@ -35,7 +35,7 @@ setup() {
 @test "slurm cmdline with no options is just the executable" {
     declare -A opts
     declare -a argv
-    _knit_launch_slurm_cmdline opts argv
+    _knit_launch_slurm_cmdline argv opts
     [ "${#argv[@]}" -eq 1 ]
     [ "${argv[0]}" = "srun" ]
 }
@@ -43,7 +43,7 @@ setup() {
 @test "slurm cmdline derives --nodes from a hostnames subset" {
     declare -A opts=([hostnames]="h3,h7")
     declare -a argv
-    _knit_launch_slurm_cmdline opts argv
+    _knit_launch_slurm_cmdline argv opts
     [ "${#argv[@]}" -eq 5 ]
     [ "${argv[0]}" = "srun" ]
     [ "${argv[1]}" = "--nodelist" ]
@@ -55,7 +55,7 @@ setup() {
 @test "slurm cmdline derives --nodes 1 from a single host" {
     declare -A opts=([hostnames]="h0")
     declare -a argv
-    _knit_launch_slurm_cmdline opts argv
+    _knit_launch_slurm_cmdline argv opts
     [ "${argv[3]}" = "--nodes" ]
     [ "${argv[4]}" = "1" ]
 }
@@ -63,7 +63,7 @@ setup() {
 @test "slurm cmdline appends launcher-args verbatim" {
     declare -A opts=([procs]=2 [launcher-args]="--cpu-bind cores")
     declare -a argv
-    _knit_launch_slurm_cmdline opts argv
+    _knit_launch_slurm_cmdline argv opts
     [ "${#argv[@]}" -eq 5 ]
     [ "${argv[3]}" = "--cpu-bind" ]
     [ "${argv[4]}" = "cores" ]
@@ -73,7 +73,7 @@ setup() {
     declare -A opts=([procs]=8 [cpus-per-proc]=4 [bind]=core \
         [gpus-per-proc]=1 [gpu-bind]=closest)
     declare -a argv
-    _knit_launch_slurm_cmdline opts argv
+    _knit_launch_slurm_cmdline argv opts
     [ "${#argv[@]}" -eq 9 ]
     [ "${argv[1]}" = "--ntasks" ]
     [ "${argv[2]}" = "8" ]
@@ -90,7 +90,7 @@ setup() {
 @test "slurm cmdline maps numa bind to ldoms" {
     declare -A opts=([bind]=numa)
     declare -a argv
-    _knit_launch_slurm_cmdline opts argv
+    _knit_launch_slurm_cmdline argv opts
     [ "${argv[1]}" = "--cpu-bind=ldoms" ]
 }
 
@@ -99,7 +99,7 @@ setup() {
 @test "pbs cmdline translates a full placement" {
     declare -A opts=([procs]=8 [procs-per-node]=4 [hostnames]="h0,h1")
     declare -a argv
-    _knit_launch_pbs_cmdline opts argv
+    _knit_launch_pbs_cmdline argv opts
     [ "${#argv[@]}" -eq 7 ]
     [ "${argv[0]}" = "mpiexec" ]
     [ "${argv[1]}" = "-n" ]
@@ -113,7 +113,7 @@ setup() {
 @test "pbs cmdline emits only the flags whose options are set" {
     declare -A opts=([procs]=4)
     declare -a argv
-    _knit_launch_pbs_cmdline opts argv
+    _knit_launch_pbs_cmdline argv opts
     [ "${#argv[@]}" -eq 3 ]
     [ "${argv[0]}" = "mpiexec" ]
     [ "${argv[1]}" = "-n" ]
@@ -123,7 +123,7 @@ setup() {
 @test "pbs cmdline with no options is just the executable" {
     declare -A opts
     declare -a argv
-    _knit_launch_pbs_cmdline opts argv
+    _knit_launch_pbs_cmdline argv opts
     [ "${#argv[@]}" -eq 1 ]
     [ "${argv[0]}" = "mpiexec" ]
 }
@@ -131,7 +131,7 @@ setup() {
 @test "pbs cmdline appends launcher-args verbatim" {
     declare -A opts=([procs]=2 [launcher-args]="-genv FOO bar")
     declare -a argv
-    _knit_launch_pbs_cmdline opts argv
+    _knit_launch_pbs_cmdline argv opts
     [ "${#argv[@]}" -eq 6 ]
     [ "${argv[3]}" = "-genv" ]
     [ "${argv[4]}" = "FOO" ]
@@ -141,10 +141,10 @@ setup() {
 @test "pbs cmdline translates bind and warns/skips cpus-per-proc and GPU" {
     declare -A opts=([procs]=4 [cpus-per-proc]=2 [bind]=core [gpus-per-proc]=1)
     declare -a argv
-    run _knit_launch_pbs_cmdline opts argv
+    run _knit_launch_pbs_cmdline argv opts
     [[ "$output" == *"--cpus-per-proc has no native Hydra flag"* ]]
     [[ "$output" == *"--gpus-per-proc has no native Hydra flag"* ]]
-    _knit_launch_pbs_cmdline opts argv
+    _knit_launch_pbs_cmdline argv opts
     [ "${#argv[@]}" -eq 5 ]
     [ "${argv[3]}" = "-bind-to" ]
     [ "${argv[4]}" = "core" ]
@@ -169,25 +169,26 @@ setup() {
 # ---------- backend selection: never auto-detected ----------
 
 @test "_knit_launch_backend selects slurm via an explicit override" {
-    _knit_metadata_load()   { printf 'openmpi\n'; }
+    _knit_metadata_get()    { local -n __r=$1; __r='openmpi'; }
     _knit_detect_launcher() { printf 'mpich\n'; }
-    run _knit_launch_backend slurm
-    [ "$status" -eq 0 ]
-    [ "$output" = "slurm" ]
+    local out
+    _knit_launch_backend out slurm
+    [ "$out" = "slurm" ]
 }
 
 @test "_knit_launch_backend selects pbs via metadata" {
-    _knit_metadata_load()   { printf 'pbs\n'; }
+    _knit_metadata_get()    { local -n __r=$1; __r='pbs'; }
     _knit_detect_launcher() { printf 'openmpi\n'; }
-    run _knit_launch_backend
-    [ "$output" = "pbs" ]
+    local out
+    _knit_launch_backend out
+    [ "$out" = "pbs" ]
 }
 
 # ---------- exec: prepends the launcher argv to the worker ----------
 
 @test "slurm exec runs the launcher argv followed by the worker command" {
     declare -A opts
-    _knit_launch_slurm_cmdline() { local -n _o="$2"; _o=(echo LAUNCHED); }
+    _knit_launch_slurm_cmdline() { local -n _o="$1"; _o=(echo LAUNCHED); }
     run _knit_launch_slurm_exec opts -- worker arg1
     [ "$status" -eq 0 ]
     [ "$output" = "LAUNCHED worker arg1" ]
@@ -195,7 +196,7 @@ setup() {
 
 @test "pbs exec runs the launcher argv followed by the worker command" {
     declare -A opts
-    _knit_launch_pbs_cmdline() { local -n _o="$2"; _o=(echo LAUNCHED); }
+    _knit_launch_pbs_cmdline() { local -n _o="$1"; _o=(echo LAUNCHED); }
     run _knit_launch_pbs_exec opts -- worker arg1
     [ "$status" -eq 0 ]
     [ "$output" = "LAUNCHED worker arg1" ]
@@ -203,7 +204,7 @@ setup() {
 
 @test "slurm exec tolerates a missing -- separator" {
     declare -A opts
-    _knit_launch_slurm_cmdline() { local -n _o="$2"; _o=(echo LAUNCHED); }
+    _knit_launch_slurm_cmdline() { local -n _o="$1"; _o=(echo LAUNCHED); }
     run _knit_launch_slurm_exec opts worker
     [ "$status" -eq 0 ]
     [ "$output" = "LAUNCHED worker" ]
@@ -211,7 +212,7 @@ setup() {
 
 @test "pbs exec returns the launched command's exit status" {
     declare -A opts
-    _knit_launch_pbs_cmdline() { local -n _o="$2"; _o=(env); }
+    _knit_launch_pbs_cmdline() { local -n _o="$1"; _o=(env); }
     run _knit_launch_pbs_exec opts -- bash -c 'exit 5'
     [ "$status" -eq 5 ]
 }

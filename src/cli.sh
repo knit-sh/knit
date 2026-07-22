@@ -115,7 +115,9 @@ _knit_command_with_space() {
 # @param name Name to normalize.
 # ------------------------------------------------------------------------------
 _knit_name_normalize() {
-    _knit_str_hyphens_to_underscores "$1"
+    local __ret
+    _knit_str_hyphens_to_underscores __ret "$1"
+    printf '%s\n' "${__ret}"
 }
 
 # ------------------------------------------------------------------------------
@@ -136,7 +138,9 @@ _knit_name_normalize() {
 _knit_arg_name() {
     local name="${1#--}"
     name="${name%%=*}"
-    _knit_str_hyphens_to_underscores "${name}"
+    local __ret
+    _knit_str_hyphens_to_underscores __ret "${name}"
+    printf '%s\n' "${__ret}"
 }
 
 # ------------------------------------------------------------------------------
@@ -407,15 +411,18 @@ _knit_output_type_var() {
 # ------------------------------------------------------------------------------
 # @fn _knit_output_type()
 #
-# This function prints the type of an output for a given command.
+# This function returns the type of an output for a given command.
 #
+# @param __knit_ret Name of the variable to hold the output type.
 # @param cmd Command to which the output belongs (must be mangled).
 # @param output Name of the output (must be normalized).
 # ------------------------------------------------------------------------------
 _knit_output_type() {
-    local type_var
-    type_var=$(_knit_output_type_var "$@")
-    printf "%s" "${!type_var}"
+    local -n __knit_ret=$1
+    # Mirror _knit_output_type_var's scheme inline so this stays fork-free on the
+    # describe hot path (it is iterated over every output of every command).
+    local __type_var="_KNIT_CMD_${2}_3_${3}_type"
+    __knit_ret="${!__type_var}"
 }
 
 # ------------------------------------------------------------------------------
@@ -424,11 +431,16 @@ _knit_output_type() {
 # Takes a command in the form "aaa:bbb:ccc" or "aaa bbb ccc" or
 # "aaa__1__bbb__1__cccc" and return the parent commands (e.g. "aaa:bbb" or
 # "aaa bbb" or "aaa__1__bbb".
+#
+# @param __knit_ret Name of the variable to hold the parent commands.
+# @param cmd Command name (colon/space/mangled).
 # ------------------------------------------------------------------------------
 _knit_command_get_parents() {
-    local cmd="$*"
-    if [[ "$cmd" =~ ^(.*)([[:space:]]|:|__1__)[^[:space:]:]*$ ]]; then
-        printf "%s" "${BASH_REMATCH[1]}"
+    local -n __knit_ret=$1; shift
+    local __cmd="$*"
+    __knit_ret=""
+    if [[ "$__cmd" =~ ^(.*)([[:space:]]|:|__1__)[^[:space:]:]*$ ]]; then
+        __knit_ret="${BASH_REMATCH[1]}"
     fi
 }
 
@@ -438,13 +450,17 @@ _knit_command_get_parents() {
 # Takes a command in the form "aaa:bbb:ccc" or "aaa bbb ccc" or
 # "aaa__1__bbb__1__cccc" and return the last command (e.g. "ccc" in all the
 # cases above).
+#
+# @param __knit_ret Name of the variable to hold the last command.
+# @param cmd Command name (colon/space/mangled).
 # ------------------------------------------------------------------------------
 _knit_command_get_last() {
-    local cmd="$*"
-    if [[ "$cmd" =~ (.*)([[:space:]]|:|__1__)([^[:space:]:]+)$ ]]; then
-        printf "%s" "${BASH_REMATCH[3]}"
+    local -n __knit_ret=$1; shift
+    local __cmd="$*"
+    if [[ "$__cmd" =~ (.*)([[:space:]]|:|__1__)([^[:space:]:]+)$ ]]; then
+        __knit_ret="${BASH_REMATCH[3]}"
     else
-        printf "%s" "${cmd}"
+        __knit_ret="${__cmd}"
     fi
 }
 
@@ -473,7 +489,7 @@ knit_register() {
     local cmd
     cmd=$(_knit_command_mangle "${demangled_cmd}")
     local parent_cmd
-    parent_cmd=$(_knit_command_get_parents "$cmd")
+    _knit_command_get_parents parent_cmd "$cmd"
     if [ -n "${parent_cmd}" ]  &&  ! _knit_set_find _KNIT_COMMANDS "${parent_cmd}"; then
         knit_fatal "Cannot register command \"${demangled_cmd}\" because its parent has not been registered."
     fi
@@ -1294,9 +1310,9 @@ _knit_check_argument_type() {
         return 0
     fi
     local alt_format
-    alt_format=$(_knit_str_underscores_to_hyphens "${name}")
+    _knit_str_underscores_to_hyphens alt_format "${name}"
     local resolved
-    resolved=$(_knit_type_resolve_alias "${param_type}") || resolved=""
+    _knit_type_resolve_alias resolved "${param_type}" || resolved=""
     if [[ -n "${resolved}" ]] && [[ -v _KNIT_ENUMS["${resolved}"] ]]; then
         local values
         values=$(knit_enum_values "${resolved}" ", ")
@@ -1331,7 +1347,7 @@ _knit_check_command_arguments() {
             continue
         fi
         local alt_format
-        alt_format=$(_knit_str_underscores_to_hyphens "${option}")
+        _knit_str_underscores_to_hyphens alt_format "${option}"
         knit_fatal "Command \"${demangled_cmd}\" requires a --${option} or --${alt_format} option."
     done < <(_knit_set_iter "${required_args_varname}")
     # Check that all the arguments provided are expected options or flags
@@ -1539,7 +1555,8 @@ _knit_print_options_block() {
     fi
     while read -r opt; do
         description=$(_knit_param_description "${cmd}" "${opt}")
-        opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
+        _knit_str_underscores_to_hyphens opt2 "${opt}"
+        opt2="--${opt2}"
         local when_raw_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
         local annotation="required"
         if [[ -v "${when_raw_var}" ]]; then
@@ -1550,7 +1567,8 @@ _knit_print_options_block() {
     while read -r opt; do
         description=$(_knit_param_description "${cmd}" "${opt}")
         default=$(_knit_param_default "${cmd}" "${opt}")
-        opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
+        _knit_str_underscores_to_hyphens opt2 "${opt}"
+        opt2="--${opt2}"
         local when_raw_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
         local annotation="default: '${default}'"
         if [[ -v "${when_raw_var}" ]]; then
@@ -1560,7 +1578,8 @@ _knit_print_options_block() {
     done < <(_knit_set_iter "${optional_args_varname}")
     while read -r opt; do
         description=$(_knit_param_description "${cmd}" "${opt}")
-        opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
+        _knit_str_underscores_to_hyphens opt2 "${opt}"
+        opt2="--${opt2}"
         local when_raw_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
         local annotation="flag"
         if [[ -v "${when_raw_var}" ]]; then
@@ -1590,7 +1609,7 @@ _knit_print_command_usage() {
     # [OPTIONS]". Detect that case from the parent's dispatch marker so the
     # usage line reflects the real grammar.
     local parent
-    parent=$(_knit_command_get_parents "${cmd}")
+    _knit_command_get_parents parent "${cmd}"
     local parent_is_dispatcher="false"
     if [[ -n "${parent}" ]]; then
         local parent_dispatch_var="_KNIT_CMD_${parent}_dispatch"
@@ -1607,7 +1626,7 @@ _knit_print_command_usage() {
     elif [[ "${parent_is_dispatcher}" == "true" ]]; then
         local parent_display leaf
         parent_display=$(_knit_command_with_space "${parent}")
-        leaf=$(_knit_command_get_last "${cmd}")
+        _knit_command_get_last leaf "${cmd}"
         printf "Usage: %s %s [OPTIONS] -- %s [OPTIONS]\n\n" \
             "$0" "${parent_display}" "${leaf}"
     elif [ -z "${!extra_var}" ]; then
@@ -1802,7 +1821,7 @@ _knit_check_constraints() {
             if [[ "${cond_result}" == "true" ]]; then
                 if [[ "${set_name}" == "required" && "${user_provided}" == "false" ]]; then
                     local alt_format
-                    alt_format=$(_knit_str_underscores_to_hyphens "${param}")
+                    _knit_str_underscores_to_hyphens alt_format "${param}"
                     knit_fatal "Command \"${demangled_cmd}\" requires --${param} or --${alt_format} when the constraint is satisfied."
                 fi
             else
@@ -1960,7 +1979,7 @@ _knit_invoke_command() {
 # ------------------------------------------------------------------------------
 knit_get_parameter() {
     local param
-    param=$(_knit_str_hyphens_to_underscores "$1")
+    _knit_str_hyphens_to_underscores param "$1"
     shift
     local list=("$@")
     local i
@@ -2139,7 +2158,7 @@ _knit_provenance_enabled() {
             with)    return 0 ;;
             without) return 1 ;;
         esac
-        c="$(_knit_command_get_parents "${c}")"
+        _knit_command_get_parents c "${c}"
     done
     # 3. Default by visibility.
     local hidden_var="_KNIT_CMD_${cmd}_is_hidden"
@@ -2372,9 +2391,11 @@ knit_extra_index() {
 # ------------------------------------------------------------------------------
 knit_check_arguments() {
     local caller="${FUNCNAME[1]:-knit_check_arguments}"
-    local options flags
-    options=" $(_knit_str_hyphens_to_underscores "$1") "
-    flags=" $(_knit_str_hyphens_to_underscores "$2") "
+    local options flags __opts __flags
+    _knit_str_hyphens_to_underscores __opts "$1"
+    _knit_str_hyphens_to_underscores __flags "$2"
+    options=" ${__opts} "
+    flags=" ${__flags} "
     shift 2
     local args=("$@")
     local i

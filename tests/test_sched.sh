@@ -263,7 +263,7 @@ teardown() {
 
     # Pin the backend and stub the actual submission so no real scheduler (or
     # background job) runs; native_cmd is recorded from the built command.
-    _knit_sched_backend() { printf 'slurm\n'; }
+    _knit_sched_backend() { local -n __r=$1; __r='slurm'; }
     _knit_sched_submit() { printf '12345\n'; }
 
     _KNIT_EXECUTING_COMMAND=("submit")
@@ -523,35 +523,37 @@ teardown() {
 # ---------- _knit_sched_backend ----------
 
 @test "_knit_sched_backend honours an explicit 'none' from metadata" {
-    _knit_metadata_load() { printf 'none\n'; }
-    run _knit_sched_backend
-    [ "$status" -eq 0 ]
-    [ "$output" = "none" ]
+    _knit_metadata_get() { local -n __r=$1; __r='none'; }
+    local out
+    _knit_sched_backend out
+    [ "$out" = "none" ]
 }
 
 @test "_knit_sched_backend passes slurm/pbs/local metadata through" {
-    _knit_metadata_load() { printf 'slurm\n'; }
-    run _knit_sched_backend
-    [ "$output" = "slurm" ]
-    _knit_metadata_load() { printf 'pbs\n'; }
-    run _knit_sched_backend
-    [ "$output" = "pbs" ]
-    _knit_metadata_load() { printf 'local\n'; }
-    run _knit_sched_backend
-    [ "$output" = "local" ]
+    local out
+    _knit_metadata_get() { local -n __r=$1; __r='slurm'; }
+    _knit_sched_backend out
+    [ "$out" = "slurm" ]
+    _knit_metadata_get() { local -n __r=$1; __r='pbs'; }
+    _knit_sched_backend out
+    [ "$out" = "pbs" ]
+    _knit_metadata_get() { local -n __r=$1; __r='local'; }
+    _knit_sched_backend out
+    [ "$out" = "local" ]
 }
 
 @test "_knit_sched_backend maps detection's <unknown> to local when unbootstrapped" {
-    _knit_metadata_load() { printf '\n'; }
+    _knit_metadata_get() { local -n __r=$1; __r=''; }
     _knit_detect_job_manager() { printf '<unknown>\n'; }
-    run _knit_sched_backend
-    [ "$status" -eq 0 ]
-    [ "$output" = "local" ]
+    local out
+    _knit_sched_backend out
+    [ "$out" = "local" ]
 }
 
 @test "_knit_sched_backend uses detection when metadata is empty" {
-    _knit_metadata_load() { printf '\n'; }
+    _knit_metadata_get() { local -n __r=$1; __r=''; }
     _knit_detect_job_manager() { printf 'slurm\n'; }
-    run _knit_sched_backend
-    [ "$output" = "slurm" ]
+    local out
+    _knit_sched_backend out
+    [ "$out" = "slurm" ]
 }

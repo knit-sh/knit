@@ -34,14 +34,14 @@
 # comma-separated hosts. Any --launcher-args string is word-split and appended
 # verbatim.
 #
+# @param argv_name Name of the array to fill with the launcher argument vector.
 # @param opts_name Name of the resolved placement-options associative array
 #                  (keys: procs, procs-per-node, hostnames, launcher-args).
-# @param argv_name Name of the array to fill with the launcher argument vector.
 # ------------------------------------------------------------------------------
 _knit_launch_slurm_cmdline() {
+    local -n _launch_argv="$1"
     # shellcheck disable=SC2178 # nameref to the caller's associative array
-    local -n _launch_opts="$1"
-    local -n _launch_argv="$2"
+    local -n _launch_opts="$2"
 
     local procs="${_launch_opts[procs]:-}"
     local ppn="${_launch_opts[procs-per-node]:-}"
@@ -61,8 +61,11 @@ _knit_launch_slurm_cmdline() {
         _launch_argv+=(--nodelist "${hosts}" --nodes "${#host_list[@]}")
     fi
     [[ -n "${cpp}" ]] && _launch_argv+=(--cpus-per-task "${cpp}")
-    [[ -n "${bind}" ]] && \
-        _launch_argv+=("--cpu-bind=$(_knit_launch_bind_value slurm "${bind}")")
+    if [[ -n "${bind}" ]]; then
+        local __bind_val
+        _knit_launch_bind_value __bind_val slurm "${bind}"
+        _launch_argv+=("--cpu-bind=${__bind_val}")
+    fi
     [[ -n "${gpp}" ]] && _launch_argv+=(--gpus-per-task "${gpp}")
     [[ -n "${gbind}" ]] && _launch_argv+=("--gpu-bind=${gbind}")
     if [[ -n "${extra}" ]]; then
@@ -89,6 +92,6 @@ _knit_launch_slurm_exec() {
     [[ "$1" == "--" ]] && shift
 
     local -a launcher
-    _knit_launch_slurm_cmdline "${arr_name}" launcher
+    _knit_launch_slurm_cmdline launcher "${arr_name}"
     "${launcher[@]}" "$@"
 }

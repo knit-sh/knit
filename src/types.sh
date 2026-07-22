@@ -64,26 +64,28 @@ _KNIT_LAST_ENUM=''
 #
 # Example:
 # ```
-# _knit_type_resolve_alias "int"      # prints "integer"
-# _knit_type_resolve_alias "integer"  # prints "integer"
-# _knit_type_resolve_alias "color"    # prints "color" (if enum defined)
+# local t; _knit_type_resolve_alias t "int"      # t == "integer"
+# local t; _knit_type_resolve_alias t "integer"  # t == "integer"
+# local t; _knit_type_resolve_alias t "color"    # t == "color" (if enum defined)
 # ```
 #
+# @param __knit_ret Name of the variable to hold the resolved type name.
 # @param type_name Type name or alias to resolve.
 # @return 0 if resolved successfully, 1 if the name is unknown.
 # ------------------------------------------------------------------------------
 _knit_type_resolve_alias() {
-    local name="$1"
+    local -n __knit_ret=$1
+    local name="$2"
     if [[ -v _KNIT_TYPE_ALIASES["${name}"] ]]; then
-        printf '%s\n' "${_KNIT_TYPE_ALIASES[${name}]}"
+        __knit_ret="${_KNIT_TYPE_ALIASES[${name}]}"
         return 0
     fi
     if [[ -v _KNIT_BUILTIN_TYPES["${name}"] ]]; then
-        printf '%s\n' "${name}"
+        __knit_ret="${name}"
         return 0
     fi
     if [[ -v _KNIT_ENUMS["${name}"] ]]; then
-        printf '%s\n' "${name}"
+        __knit_ret="${name}"
         return 0
     fi
     return 1
@@ -106,7 +108,8 @@ _knit_type_resolve_alias() {
 # @return 0 if the type exists, 1 otherwise.
 # ------------------------------------------------------------------------------
 knit_type_exists() {
-    _knit_type_resolve_alias "$1" > /dev/null
+    local __resolved
+    _knit_type_resolve_alias __resolved "$1"
 }
 
 # ------------------------------------------------------------------------------
@@ -242,7 +245,7 @@ knit_type_check() {
     local type="$1"
     local value="$2"
     local resolved
-    resolved=$(_knit_type_resolve_alias "${type}") || return 1
+    _knit_type_resolve_alias resolved "${type}" || return 1
 
     local integer_re='^-?[0-9]+$'
     local real_re='^-?([0-9]+\.?[0-9]*|[0-9]*\.[0-9]+)([eE][+-]?[0-9]+)?$'
@@ -301,21 +304,23 @@ knit_type_check() {
 #
 # Example:
 # ```
-# _knit_type_to_sqlite "integer"  # prints: INTEGER
-# _knit_type_to_sqlite "real"     # prints: REAL
-# _knit_type_to_sqlite "uuid"     # prints: TEXT
-# _knit_type_to_sqlite "int"      # prints: INTEGER (alias resolved)
+# local t; _knit_type_to_sqlite t "integer"  # t == INTEGER
+# local t; _knit_type_to_sqlite t "real"     # t == REAL
+# local t; _knit_type_to_sqlite t "uuid"     # t == TEXT
+# local t; _knit_type_to_sqlite t "int"      # t == INTEGER (alias resolved)
 # ```
 #
+# @param __knit_ret Name of the variable to hold the SQLite type affinity.
 # @param type_name Knit type name or alias.
 # @return 0 on success, 1 if the type is unknown.
 # ------------------------------------------------------------------------------
 _knit_type_to_sqlite() {
+    local -n __knit_ret=$1
     local resolved
-    resolved=$(_knit_type_resolve_alias "$1") || return 1
+    _knit_type_resolve_alias resolved "$2" || return 1
     case "${resolved}" in
-        integer) printf 'INTEGER' ;;
-        real)    printf 'REAL' ;;
-        *)       printf 'TEXT' ;;
+        integer) __knit_ret='INTEGER' ;;
+        real)    __knit_ret='REAL' ;;
+        *)       __knit_ret='TEXT' ;;
     esac
 }

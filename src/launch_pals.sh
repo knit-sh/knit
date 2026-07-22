@@ -39,14 +39,14 @@
 # Each placement flag is added only when the corresponding option is set; any
 # --launcher-args string is word-split and appended verbatim.
 #
+# @param argv_name Name of the array to fill with the launcher argument vector.
 # @param opts_name Name of the resolved placement-options associative array
 #                  (keys: procs, procs-per-node, hostnames, launcher-args).
-# @param argv_name Name of the array to fill with the launcher argument vector.
 # ------------------------------------------------------------------------------
 _knit_launch_pals_cmdline() {
+    local -n _launch_argv="$1"
     # shellcheck disable=SC2178 # nameref to the caller's associative array
-    local -n _launch_opts="$1"
-    local -n _launch_argv="$2"
+    local -n _launch_opts="$2"
 
     local procs="${_launch_opts[procs]:-}"
     local ppn="${_launch_opts[procs-per-node]:-}"
@@ -62,8 +62,11 @@ _knit_launch_pals_cmdline() {
     [[ -n "${ppn}" ]] && _launch_argv+=(--ppn "${ppn}")
     [[ -n "${hosts}" ]] && _launch_argv+=(--hosts "${hosts}")
     [[ -n "${cpp}" ]] && _launch_argv+=(--depth "${cpp}")
-    [[ -n "${bind}" ]] && \
-        _launch_argv+=(--cpu-bind "$(_knit_launch_bind_value pals "${bind}")")
+    if [[ -n "${bind}" ]]; then
+        local __bind_val
+        _knit_launch_bind_value __bind_val pals "${bind}"
+        _launch_argv+=(--cpu-bind "${__bind_val}")
+    fi
     [[ -n "${gpp}" ]] && \
         knit_warning "pals: --gpus-per-proc has no mpiexec flag (GPU affinity is a wrapper on PALS systems); ignoring (use --launcher-args)."
     [[ -n "${gbind}" ]] && \
@@ -92,6 +95,6 @@ _knit_launch_pals_exec() {
     [[ "$1" == "--" ]] && shift
 
     local -a launcher
-    _knit_launch_pals_cmdline "${arr_name}" launcher
+    _knit_launch_pals_cmdline launcher "${arr_name}"
     "${launcher[@]}" "$@"
 }

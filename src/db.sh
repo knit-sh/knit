@@ -18,14 +18,16 @@ declare -gA _KNIT_DB_REGISTERED_TABLES
 #
 # Example:
 # ```
-# _knit_db_sql_ident "my_table"   # prints: "my_table"
-# _knit_db_sql_ident 'a"b'        # prints: "a""b"
+# local q; _knit_db_sql_ident q "my_table"   # q == "my_table"
+# local q; _knit_db_sql_ident q 'a"b'        # q == "a""b"
 # ```
 #
+# @param __knit_ret Name of the variable to hold the quoted identifier.
 # @param name Identifier to quote.
 # ------------------------------------------------------------------------------
 _knit_db_sql_ident() {
-    printf '"%s"' "${1//\"/\"\"}"
+    local -n __knit_ret=$1
+    printf -v __knit_ret '"%s"' "${2//\"/\"\"}"
 }
 
 # ------------------------------------------------------------------------------
@@ -37,22 +39,24 @@ _knit_db_sql_ident() {
 #
 # Example:
 # ```
-# _knit_db_type_default "integer"  # prints: 0
-# _knit_db_type_default "boolean"  # prints: false
-# _knit_db_type_default "string"   # prints: (empty)
+# local d; _knit_db_type_default d "integer"  # d == 0
+# local d; _knit_db_type_default d "boolean"  # d == false
+# local d; _knit_db_type_default d "string"   # d == (empty)
 # ```
 #
+# @param __knit_ret Name of the variable to hold the default value.
 # @param type Knit type name or alias.
 # ------------------------------------------------------------------------------
 _knit_db_type_default() {
-    local type="$1"
+    local -n __knit_ret=$1
+    local type="$2"
     local resolved
-    resolved=$(_knit_type_resolve_alias "${type}") || resolved="${type}"
+    _knit_type_resolve_alias resolved "${type}" || resolved="${type}"
     case "${resolved}" in
-        integer) printf '0' ;;
-        real)    printf '0' ;;
-        boolean) printf 'false' ;;
-        *)       printf '' ;;
+        integer) __knit_ret='0' ;;
+        real)    __knit_ret='0' ;;
+        boolean) __knit_ret='false' ;;
+        *)       __knit_ret='' ;;
     esac
 }
 
@@ -81,9 +85,10 @@ _knit_db_create_table() {
         knit_fatal "_knit_db_create_table requires at least one column specification."
     fi
 
-    local exists
+    local exists esc_table
+    _knit_sql_escape esc_table "${table_name}"
     exists=$(_knit_sqlite3 \
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$(_knit_sql_escape "${table_name}")';" )
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='${esc_table}';" )
     if [[ "${exists}" -ne 0 ]]; then
         knit_fatal "Table \"${table_name}\" already exists in the database."
     fi
@@ -96,16 +101,18 @@ _knit_db_create_table() {
         fi
         local col_name="${spec%%:*}"
         local col_type="${spec#*:}"
-        col_name=$(_knit_str_hyphens_to_underscores "${col_name}")
-        local sqlite_type
-        sqlite_type=$(_knit_type_to_sqlite "${col_type}") \
+        _knit_str_hyphens_to_underscores col_name "${col_name}"
+        local sqlite_type col_ident
+        _knit_type_to_sqlite sqlite_type "${col_type}" \
             || knit_fatal "Column \"${col_name}\" has unknown type \"${col_type}\"."
-        col_defs+=("$(_knit_db_sql_ident "${col_name}") ${sqlite_type}")
+        _knit_db_sql_ident col_ident "${col_name}"
+        col_defs+=("${col_ident} ${sqlite_type}")
     done
 
-    local cols_sql
+    local cols_sql table_ident
     cols_sql=$(IFS=', '; printf '%s' "${col_defs[*]}")
-    _knit_sqlite3_write "CREATE TABLE $(_knit_db_sql_ident "${table_name}") (${cols_sql});"
+    _knit_db_sql_ident table_ident "${table_name}"
+    _knit_sqlite3_write "CREATE TABLE ${table_ident} (${cols_sql});"
 }
 
 # ------------------------------------------------------------------------------
@@ -130,9 +137,10 @@ _knit_db_check_table() {
     local table_name="$1"
     shift
 
-    local exists
+    local exists esc_table
+    _knit_sql_escape esc_table "${table_name}"
     exists=$(_knit_sqlite3 \
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$(_knit_sql_escape "${table_name}")';" )
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='${esc_table}';" )
     if [[ "${exists}" -eq 0 ]]; then
         return 1
     fi
@@ -146,9 +154,9 @@ _knit_db_check_table() {
         fi
         local col_name="${spec%%:*}"
         local col_type="${spec#*:}"
-        col_name=$(_knit_str_hyphens_to_underscores "${col_name}")
+        _knit_str_hyphens_to_underscores col_name "${col_name}"
         local sqlite_type
-        sqlite_type=$(_knit_type_to_sqlite "${col_type}") || return 2
+        _knit_type_to_sqlite sqlite_type "${col_type}" || return 2
         expected_names+=("${col_name}")
         expected_types+=("${sqlite_type}")
     done
@@ -158,7 +166,7 @@ _knit_db_check_table() {
     while IFS='|' read -r _cid col_name col_type _rest; do
         actual_names+=("${col_name}")
         actual_types+=("${col_type}")
-    done < <(_knit_sqlite3 "PRAGMA table_info('$(_knit_sql_escape "${table_name}")');" )
+    done < <(_knit_sqlite3 "PRAGMA table_info('${esc_table}');" )
 
     if [[ "${#expected_names[@]}" -ne "${#actual_names[@]}" ]]; then
         return 2
@@ -207,9 +215,10 @@ _knit_db_migrate_table() {
     fi
 
     # Check table exists
-    local exists
+    local exists esc_table
+    _knit_sql_escape esc_table "${table_name}"
     exists=$(_knit_sqlite3 \
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$(_knit_sql_escape "${table_name}")';" )
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='${esc_table}';" )
     if [[ "${exists}" -eq 0 ]]; then
         knit_fatal "Table \"${table_name}\" does not exist in the database."
     fi
@@ -236,8 +245,8 @@ _knit_db_migrate_table() {
             col_default=""
             has_def="0"
         fi
-        col_name=$(_knit_str_hyphens_to_underscores "${col_name}")
-        sqlite_type=$(_knit_type_to_sqlite "${col_type}") \
+        _knit_str_hyphens_to_underscores col_name "${col_name}"
+        _knit_type_to_sqlite sqlite_type "${col_type}" \
             || knit_fatal "Column \"${col_name}\" has unknown type \"${col_type}\"."
         desired_names+=("${col_name}")
         desired_knit_types+=("${col_type}")
@@ -250,7 +259,7 @@ _knit_db_migrate_table() {
     local current_names=()
     while IFS='|' read -r _cid col_name _rest; do
         current_names+=("${col_name}")
-    done < <(_knit_sqlite3 "PRAGMA table_info('$(_knit_sql_escape "${table_name}")');" )
+    done < <(_knit_sqlite3 "PRAGMA table_info('${esc_table}');" )
 
     # Validate: new columns must have defaults; record which columns are new
     local i is_new cur
@@ -295,35 +304,42 @@ _knit_db_migrate_table() {
 
     # Build column definitions for CREATE TABLE
     local col_defs=()
+    local col_ident
     for (( i = 0; i < ${#desired_names[@]}; i++ )); do
-        col_defs+=("$(_knit_db_sql_ident "${desired_names[$i]}") ${desired_sqlite_types[$i]}")
+        _knit_db_sql_ident col_ident "${desired_names[$i]}"
+        col_defs+=("${col_ident} ${desired_sqlite_types[$i]}")
     done
 
     # Build INSERT column list and SELECT expressions
     local insert_cols=()
     local select_exprs=()
+    local esc_default
     for (( i = 0; i < ${#desired_names[@]}; i++ )); do
-        insert_cols+=("$(_knit_db_sql_ident "${desired_names[$i]}")")
+        _knit_db_sql_ident col_ident "${desired_names[$i]}"
+        insert_cols+=("${col_ident}")
         if [[ "${new_columns[$i]}" == "0" ]]; then
-            select_exprs+=("$(_knit_db_sql_ident "${desired_names[$i]}")")
+            select_exprs+=("${col_ident}")
         else
             knit_trace "Adding column \"${desired_names[$i]}\" with default \"${desired_defaults[$i]}\" to table \"${table_name}\"."
-            select_exprs+=("'$(_knit_sql_escape "${desired_defaults[$i]}")'")
+            _knit_sql_escape esc_default "${desired_defaults[$i]}"
+            select_exprs+=("'${esc_default}'")
         fi
     done
 
-    local cols_sql insert_cols_sql select_exprs_sql tmp_name
+    local cols_sql insert_cols_sql select_exprs_sql tmp_name q_table q_tmp
     cols_sql=$(IFS=', '; printf '%s' "${col_defs[*]}")
     insert_cols_sql=$(IFS=', '; printf '%s' "${insert_cols[*]}")
     select_exprs_sql=$(IFS=', '; printf '%s' "${select_exprs[*]}")
     tmp_name="${table_name}_knit_tmp"
+    _knit_db_sql_ident q_table "${table_name}"
+    _knit_db_sql_ident q_tmp "${tmp_name}"
 
     _knit_sqlite3_write <<EOF
 BEGIN;
-ALTER TABLE $(_knit_db_sql_ident "${table_name}") RENAME TO $(_knit_db_sql_ident "${tmp_name}");
-CREATE TABLE $(_knit_db_sql_ident "${table_name}") (${cols_sql});
-INSERT INTO $(_knit_db_sql_ident "${table_name}") (${insert_cols_sql}) SELECT ${select_exprs_sql} FROM $(_knit_db_sql_ident "${tmp_name}");
-DROP TABLE $(_knit_db_sql_ident "${tmp_name}");
+ALTER TABLE ${q_table} RENAME TO ${q_tmp};
+CREATE TABLE ${q_table} (${cols_sql});
+INSERT INTO ${q_table} (${insert_cols_sql}) SELECT ${select_exprs_sql} FROM ${q_tmp};
+DROP TABLE ${q_tmp};
 COMMIT;
 EOF
 }
@@ -387,7 +403,7 @@ _knit_db_setup_table() {
     while IFS= read -r param; do
         type_var="_KNIT_CMD_${cmd}_2_${param}_type"
         type="${!type_var}"
-        default=$(_knit_db_type_default "${type}")
+        _knit_db_type_default default "${type}"
         check_specs+=("${param}:${type}")
         migrate_specs+=("${param}:${type}=${default}")
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_required" | sort)
@@ -469,16 +485,21 @@ _knit_db_record_invocation() {
     local -a args=("$@")
 
     local -a cols=() vals=()
-    cols+=("$(_knit_db_sql_ident "id")")
-    vals+=("'$(_knit_sql_escape "${id}")'")
+    local col_ident val_esc
+    _knit_db_sql_ident col_ident "id"
+    cols+=("${col_ident}")
+    _knit_sql_escape val_esc "${id}"
+    vals+=("'${val_esc}'")
 
     if _knit_command_is_wrapper "${cmd}"; then
         # A wrapper records the whole forwarded command line in a single "args"
         # column (it has no declared parameters or outputs).
         local rendered
         rendered=$(_knit_str_render_cmd args)
-        cols+=("$(_knit_db_sql_ident "args")")
-        vals+=("'$(_knit_sql_escape "${rendered}")'")
+        _knit_db_sql_ident col_ident "args"
+        cols+=("${col_ident}")
+        _knit_sql_escape val_esc "${rendered}"
+        vals+=("'${val_esc}'")
     else
         # Parameters and flags: values come from the expanded invocation args.
         local group name value
@@ -486,8 +507,10 @@ _knit_db_record_invocation() {
             while IFS= read -r name; do
                 [[ -z "${name}" ]] && continue
                 value="$(knit_get_parameter "${name}" "${args[@]}")" || value=""
-                cols+=("$(_knit_db_sql_ident "${name}")")
-                vals+=("'$(_knit_sql_escape "${value}")'")
+                _knit_db_sql_ident col_ident "${name}"
+                cols+=("${col_ident}")
+                _knit_sql_escape val_esc "${value}"
+                vals+=("'${val_esc}'")
             done < <(_knit_set_iter "_KNIT_CMD_${cmd}_${group}" | sort)
         done
 
@@ -504,15 +527,18 @@ _knit_db_record_invocation() {
                 default_var=$(_knit_output_default_var "${cmd}" "${name}")
                 value="${!default_var}"
             fi
-            cols+=("$(_knit_db_sql_ident "${name}")")
-            vals+=("'$(_knit_sql_escape "${value}")'")
+            _knit_db_sql_ident col_ident "${name}"
+            cols+=("${col_ident}")
+            _knit_sql_escape val_esc "${value}"
+            vals+=("'${val_esc}'")
         done < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
     fi
 
-    local cols_sql vals_sql row_sql
+    local cols_sql vals_sql row_sql table_ident
     cols_sql=$(IFS=', '; printf '%s' "${cols[*]}")
     vals_sql=$(IFS=', '; printf '%s' "${vals[*]}")
-    row_sql="INSERT INTO $(_knit_db_sql_ident "${table}") (${cols_sql}) VALUES (${vals_sql});"
+    _knit_db_sql_ident table_ident "${table}"
+    row_sql="INSERT INTO ${table_ident} (${cols_sql}) VALUES (${vals_sql});"
 
     # No edge requested: insert the row on its own (pre-provenance behavior).
     if [[ -z "${edge_type}" ]]; then
@@ -557,16 +583,21 @@ _knit_db_update_row() {
     shift 2
 
     local -a sets=()
-    local pair name value
+    local pair name value col_ident val_esc
     for pair in "$@"; do
         name="${pair%%=*}"
         value="${pair#*=}"
         name=$(_knit_name_normalize "${name}")
-        sets+=("$(_knit_db_sql_ident "${name}")='$(_knit_sql_escape "${value}")'")
+        _knit_db_sql_ident col_ident "${name}"
+        _knit_sql_escape val_esc "${value}"
+        sets+=("${col_ident}='${val_esc}'")
     done
 
-    local set_sql
+    local set_sql table_ident id_ident id_esc
     set_sql=$(IFS=', '; printf '%s' "${sets[*]}")
+    _knit_db_sql_ident table_ident "${table}"
+    _knit_db_sql_ident id_ident "id"
+    _knit_sql_escape id_esc "${id}"
     _knit_sqlite3_write \
-        "UPDATE $(_knit_db_sql_ident "${table}") SET ${set_sql} WHERE $(_knit_db_sql_ident "id")='$(_knit_sql_escape "${id}")';"
+        "UPDATE ${table_ident} SET ${set_sql} WHERE ${id_ident}='${id_esc}';"
 }

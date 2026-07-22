@@ -6,7 +6,7 @@ setup() {
     # Default allocation (8 hosts) and per-node core count (4) for the placement
     # resolver; individual tests override these stubs as needed.
     knit_job_hostnames() { printf 'h0\nh1\nh2\nh3\nh4\nh5\nh6\nh7\n'; }
-    _knit_metadata_load() { printf '4\n'; }
+    _knit_metadata_get() { local -n __r=$1; [[ "$2" == "__node_ncpus__" ]] && __r='4' || __r=''; }
 }
 
 teardown() {
@@ -144,7 +144,7 @@ teardown() {
 }
 
 @test "placement: unknown core count falls back to one rank per node" {
-    _knit_metadata_load() { printf '\n'; }
+    _knit_metadata_get() { local -n __r=$1; __r=''; }
     declare -A place
     _knit_run_resolve_placement place
     [ "${place[procs]}" = "8" ]
@@ -203,7 +203,7 @@ teardown() {
     knit_register_app "myapp" "_app_fn" "A test app."
     knit_done
     export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
-    _knit_launch_backend() { printf 'openmpi\n'; }
+    _knit_launch_backend() { local -n __r=$1; __r='openmpi'; }
     _knit_launch_exec() { printf 'EXEC %s\n' "$*"; }
     run _knit_invoke_command run --procs 2 -- myapp
     [ "$status" -eq 0 ]
@@ -217,7 +217,7 @@ teardown() {
     knit_done
     export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
     _knit_uuidv7() { printf 'run-uuid-1\n'; }
-    _knit_launch_backend() { printf 'none\n'; }
+    _knit_launch_backend() { local -n __r=$1; __r='none'; }
     _knit_launch_cmdline() { local -n _argv="$3"; _argv=(launcher); }
     # The launcher runs inside the dispatcher's subshell; echo the source context
     # it sees so we can assert the run's own id and command name were exported.
@@ -232,7 +232,7 @@ teardown() {
     knit_register_app "myapp" "_app_fn" "A test app."
     knit_done
     export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
-    _knit_launch_backend() { printf 'none\n'; }
+    _knit_launch_backend() { local -n __r=$1; __r='none'; }
     _knit_launch_cmdline() { local -n _argv="$3"; _argv=(launcher); }
     _knit_launch_exec() { :; }
     _knit_invoke_command run --procs 2 -- myapp
@@ -245,7 +245,7 @@ teardown() {
     knit_register_app "myapp" "_app_fn" "A test app."
     knit_done
     export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/parent-job-uuid"
-    _knit_launch_backend() { printf 'none\n'; }
+    _knit_launch_backend() { local -n __r=$1; __r='none'; }
     # _knit_run builds the launcher argv (for the native_cmd column) before
     # launching; stub it too so the over-specified `none` placement is not rejected.
     _knit_launch_cmdline() { local -n _argv="$3"; _argv=(launcher); }

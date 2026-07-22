@@ -30,8 +30,8 @@ teardown() {
 # with the runs-table assertions.
 _stub_dispatch() {
     knit_job_hostnames() { printf '%s\n' "nodeA" "nodeB"; }
-    _knit_metadata_load() { printf '%s' ""; }
-    _knit_launch_backend() { printf '%s' "none"; }
+    _knit_metadata_get() { local -n __r=$1; __r=''; }
+    _knit_launch_backend() { local -n __r=$1; __r='none'; }
     # _knit_run builds the launcher argv (for the native_cmd column) and then
     # launches; stub both so the (over-specified for `none`) placement these tests
     # use to exercise recording is not rejected by the real backend.
@@ -161,8 +161,8 @@ _stub_dispatch() {
     # _knit_uuidv7 is invoked via command substitution (a subshell), so any
     # counter it increments would not persist between calls.
     knit_job_hostnames() { printf '%s\n' "nodeA" "nodeB"; }
-    _knit_metadata_load() { printf '%s' ""; }
-    _knit_launch_backend() { printf '%s' "none"; }
+    _knit_metadata_get() { local -n __r=$1; __r=''; }
+    _knit_launch_backend() { local -n __r=$1; __r='none'; }
     _knit_launch_cmdline() { local -n _argv="$3"; _argv=(launcher); }
     _knit_launch_exec() { return 0; }
 

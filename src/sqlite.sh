@@ -148,13 +148,15 @@ EOF
 #
 # Example:
 # ```
-# _knit_sql_escape "it's"   # prints: it''s
+# local escaped; _knit_sql_escape escaped "it's"   # escaped == it''s
 # ```
 #
+# @param __knit_ret Name of the variable to hold the escaped string.
 # @param value String to escape.
 # ------------------------------------------------------------------------------
 _knit_sql_escape() {
-    printf '%s' "${1//\'/\'\'}"
+    local -n __knit_ret=$1
+    __knit_ret="${2//\'/\'\'}"
 }
 
 # ------------------------------------------------------------------------------
@@ -169,13 +171,15 @@ _knit_sql_escape() {
 #
 # Example:
 # ```
-# _knit_sql_quote_identifier "aaa:bbb"   # prints: "aaa:bbb"
+# local quoted; _knit_sql_quote_identifier quoted "aaa:bbb"   # quoted == "aaa:bbb"
 # ```
 #
+# @param __knit_ret Name of the variable to hold the quoted identifier.
 # @param name Identifier to quote.
 # ------------------------------------------------------------------------------
 _knit_sql_quote_identifier() {
-    printf '"%s"' "${1//\"/\"\"}"
+    local -n __knit_ret=$1
+    printf -v __knit_ret '"%s"' "${2//\"/\"\"}"
 }
 
 # shellcheck disable=SC2120

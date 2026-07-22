@@ -46,8 +46,10 @@ _knit_prov_now() {
 # the metadata table.
 # ------------------------------------------------------------------------------
 _knit_prov_create_table() {
+    local prov_ident
+    _knit_db_sql_ident prov_ident "${_KNIT_PROV_TABLE}"
     _knit_sqlite3_write <<EOF
-CREATE TABLE IF NOT EXISTS $(_knit_db_sql_ident "${_KNIT_PROV_TABLE}") (
+CREATE TABLE IF NOT EXISTS ${prov_ident} (
     source_id    TEXT,
     source_name  TEXT,
     target_id    TEXT,
@@ -91,7 +93,9 @@ _knit_prov_timestamp_literal() {
     if [[ -z "${value}" ]]; then
         printf 'NULL'
     else
-        printf "'%s'" "$(_knit_sql_escape "${value}")"
+        local esc
+        _knit_sql_escape esc "${value}"
+        printf "'%s'" "${esc}"
     fi
 }
 
@@ -122,13 +126,21 @@ _knit_prov_edge_sql() {
     local start_time="$6"
     local end_time="$7"
 
+    local tbl esc_sid esc_sname esc_tid esc_tname esc_etype
+    _knit_db_sql_ident tbl "${_KNIT_PROV_TABLE}"
+    _knit_sql_escape esc_sid "${source_id}"
+    _knit_sql_escape esc_sname "${source_name}"
+    _knit_sql_escape esc_tid "${target_id}"
+    _knit_sql_escape esc_tname "${target_name}"
+    _knit_sql_escape esc_etype "${edge_type}"
+
     printf 'INSERT INTO %s (source_id, source_name, target_id, target_name, edge_type, start_time, end_time) VALUES (%s, %s, %s, %s, %s, %s, %s);' \
-        "$(_knit_db_sql_ident "${_KNIT_PROV_TABLE}")" \
-        "'$(_knit_sql_escape "${source_id}")'" \
-        "'$(_knit_sql_escape "${source_name}")'" \
-        "'$(_knit_sql_escape "${target_id}")'" \
-        "'$(_knit_sql_escape "${target_name}")'" \
-        "'$(_knit_sql_escape "${edge_type}")'" \
+        "${tbl}" \
+        "'${esc_sid}'" \
+        "'${esc_sname}'" \
+        "'${esc_tid}'" \
+        "'${esc_tname}'" \
+        "'${esc_etype}'" \
         "$(_knit_prov_timestamp_literal "${start_time}")" \
         "$(_knit_prov_timestamp_literal "${end_time}")"
 }

@@ -35,14 +35,14 @@
 # Each placement flag is added only when the corresponding option is set; any
 # --launcher-args string is word-split and appended verbatim.
 #
+# @param argv_name Name of the array to fill with the launcher argument vector.
 # @param opts_name Name of the resolved placement-options associative array
 #                  (keys: procs, procs-per-node, hostnames, launcher-args).
-# @param argv_name Name of the array to fill with the launcher argument vector.
 # ------------------------------------------------------------------------------
 _knit_launch_pbs_cmdline() {
+    local -n _launch_argv="$1"
     # shellcheck disable=SC2178 # nameref to the caller's associative array
-    local -n _launch_opts="$1"
-    local -n _launch_argv="$2"
+    local -n _launch_opts="$2"
 
     local procs="${_launch_opts[procs]:-}"
     local ppn="${_launch_opts[procs-per-node]:-}"
@@ -59,8 +59,11 @@ _knit_launch_pbs_cmdline() {
     [[ -n "${hosts}" ]] && _launch_argv+=(-hosts "${hosts}")
     [[ -n "${cpp}" ]] && \
         knit_warning "pbs: --cpus-per-proc has no native Hydra flag; ignoring (use --launcher-args)."
-    [[ -n "${bind}" ]] && \
-        _launch_argv+=(-bind-to "$(_knit_launch_bind_value pbs "${bind}")")
+    if [[ -n "${bind}" ]]; then
+        local __bind_val
+        _knit_launch_bind_value __bind_val pbs "${bind}"
+        _launch_argv+=(-bind-to "${__bind_val}")
+    fi
     [[ -n "${gpp}" ]] && \
         knit_warning "pbs: --gpus-per-proc has no native Hydra flag; ignoring (use --launcher-args)."
     [[ -n "${gbind}" ]] && \
@@ -89,6 +92,6 @@ _knit_launch_pbs_exec() {
     [[ "$1" == "--" ]] && shift
 
     local -a launcher
-    _knit_launch_pbs_cmdline "${arr_name}" launcher
+    _knit_launch_pbs_cmdline launcher "${arr_name}"
     "${launcher[@]}" "$@"
 }

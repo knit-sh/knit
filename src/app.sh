@@ -138,7 +138,7 @@ _knit_run() {
     # __launcher__ -> live detection, with the no-launcher case mapping to none).
     local launcher_override backend
     launcher_override=$(knit_get_parameter "launcher" "$@") || launcher_override=""
-    backend="$(_knit_launch_backend "${launcher_override}")"
+    _knit_launch_backend backend "${launcher_override}"
 
     # Build the exact command that will run: the launcher argv (the launcher plus
     # the translated placement flags) followed by the per-rank worker re-entry.
@@ -235,7 +235,7 @@ _knit_run_resolve_placement() {
 
     # Per-node core count c (empty means unknown: no profile and no detection).
     local c
-    c="$(_knit_metadata_load --key "__node_ncpus__")"
+    _knit_metadata_get c "__node_ncpus__"
 
     # Step 1: resolve the host list H.
     local -a host_list=()

@@ -37,9 +37,32 @@ _knit_metadata_store() {
     force=$(knit_get_parameter "force" "$@") || force="false"
     local verb="INSERT"
     [[ "${force}" == "true" ]] && verb="INSERT OR REPLACE"
-    _knit_sqlite3_write "${verb} INTO metadata (key, value) VALUES ('$(_knit_sql_escape "${key}")', '$(_knit_sql_escape "${value}")');"
+    local esc_key esc_value
+    _knit_sql_escape esc_key "${key}"
+    _knit_sql_escape esc_value "${value}"
+    _knit_sqlite3_write "${verb} INTO metadata (key, value) VALUES ('${esc_key}', '${esc_value}');"
 }
 knit_done
+
+# ------------------------------------------------------------------------------
+# @fn _knit_metadata_get()
+#
+# Look up the value associated with a key in the metadata table and store it in
+# the caller-named variable (empty when the key is absent). This is the
+# nameref-returning counterpart of the `metadata load` command body, for
+# internal hot-path callers that would otherwise capture the value with a
+# forking command substitution.
+#
+# @param __knit_ret Name of the variable to hold the value.
+# @param key Metadata key to look up.
+# ------------------------------------------------------------------------------
+_knit_metadata_get() {
+    local -n __knit_ret=$1
+    local key="$2"
+    local esc_key
+    _knit_sql_escape esc_key "${key}"
+    __knit_ret=$(_knit_sqlite3 "SELECT value FROM metadata WHERE key = '${esc_key}';")
+}
 
 # ------------------------------------------------------------------------------
 # Load the value associated with a key from the metadata table.
@@ -50,16 +73,19 @@ knit_with_required "key:string" "Key."
 # ------------------------------------------------------------------------------
 # @fn _knit_metadata_load()
 #
-# Load the value associated with a key from the metadata table.
+# Load the value associated with a key from the metadata table (the CLI command
+# body; prints the value to stdout). Internal callers should use
+# _knit_metadata_get instead to avoid a command substitution.
 # ------------------------------------------------------------------------------
 _knit_metadata_load() {
     if ! _knit_is_bootstrapped; then
         [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
         knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
     fi
-    local key
+    local key value
     key=$(knit_get_parameter "key" "$@")
-    _knit_sqlite3 "SELECT value FROM metadata WHERE key = '$(_knit_sql_escape "${key}")';"
+    _knit_metadata_get value "${key}"
+    printf '%s\n' "${value}"
 }
 knit_done
 

@@ -32,9 +32,10 @@ _knit_job_status() {
     fi
     local id
     id=$(knit_get_parameter "id" "$@")
-    local state
+    local state esc_id
+    _knit_sql_escape esc_id "${id}"
     state=$(_knit_sqlite3 \
-        "SELECT state FROM jobs WHERE id = '$(_knit_sql_escape "${id}")';")
+        "SELECT state FROM jobs WHERE id = '${esc_id}';")
     if [[ -z "${state}" ]]; then
         knit_fatal "No job found with id \"${id}\"."
     fi
@@ -59,9 +60,11 @@ _knit_job_in_clause() {
     local part
     local -a parts
     IFS=',' read -ra parts <<< "${csv}"
+    local esc_part
     for part in "${parts[@]}"; do
         [[ -z "${part}" ]] && continue
-        in_values+=("'$(_knit_sql_escape "${part}")'")
+        _knit_sql_escape esc_part "${part}"
+        in_values+=("'${esc_part}'")
     done
     [[ "${#in_values[@]}" -eq 0 ]] && return 0
     local in_list
@@ -113,8 +116,11 @@ _knit_job_list() {
     json=$(knit_get_parameter "json" "$@") || json="false"
 
     local -a conditions=()
-    [[ -n "${status}" ]] \
-        && conditions+=("state = '$(_knit_sql_escape "${status}")'")
+    if [[ -n "${status}" ]]; then
+        local esc_status
+        _knit_sql_escape esc_status "${status}"
+        conditions+=("state = '${esc_status}'")
+    fi
 
     # Build the setup filter as the OR of --no-setup and the --setup IN list.
     local -a setup_conditions=()
@@ -170,9 +176,10 @@ knit_done
 # ------------------------------------------------------------------------------
 _knit_job_dir() {
     local id="$1"
-    local setup
+    local setup esc_id
+    _knit_sql_escape esc_id "${id}"
     setup="$(_knit_sqlite3 \
-        "SELECT setup FROM jobs WHERE id = '$(_knit_sql_escape "${id}")';")"
+        "SELECT setup FROM jobs WHERE id = '${esc_id}';")"
     if [[ -n "${setup}" ]]; then
         printf '%s\n' "${setup}/jobs/${id}"
     else
@@ -210,7 +217,7 @@ _knit_job_wait() {
     local id
     id=$(knit_get_parameter "id" "$@")
     local escaped
-    escaped=$(_knit_sql_escape "${id}")
+    _knit_sql_escape escaped "${id}"
 
     local state
     state="$(_knit_sqlite3 "SELECT state FROM jobs WHERE id = '${escaped}';")"
@@ -230,7 +237,9 @@ _knit_job_wait() {
         knit_fatal "Job \"${id}\" has no recorded launcher id (${jobdir}/.job.id is missing)."
     fi
     IFS= read -r jobid < "${jobdir}/.job.id"
-    _knit_sched_wait "$(_knit_sched_backend)" "${jobid}"
+    local backend
+    _knit_sched_backend backend
+    _knit_sched_wait "${backend}" "${jobid}"
 
     # The scheduler reports the job gone; give the compute-side terminal-state
     # write a brief window to become visible, then report it.
@@ -286,7 +295,7 @@ _knit_job_cancel() {
     local id
     id=$(knit_get_parameter "id" "$@")
     local escaped
-    escaped=$(_knit_sql_escape "${id}")
+    _knit_sql_escape escaped "${id}"
 
     local state
     state="$(_knit_sqlite3 "SELECT state FROM jobs WHERE id = '${escaped}';")"
@@ -309,7 +318,9 @@ _knit_job_cancel() {
     fi
     IFS= read -r jobid < "${jobdir}/.job.id"
 
-    _knit_sched_cancel "$(_knit_sched_backend)" "${jobid}"
+    local backend
+    _knit_sched_backend backend
+    _knit_sched_cancel "${backend}" "${jobid}"
     _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${id}" "state=killed"
     knit_info "Cancelled job \"${id}\"."
 }
@@ -343,7 +354,7 @@ _knit_job_rm() {
     id=$(knit_get_parameter "id" "$@")
     force=$(knit_get_parameter "force" "$@") || force="false"
     local escaped
-    escaped=$(_knit_sql_escape "${id}")
+    _knit_sql_escape escaped "${id}"
 
     local state
     state="$(_knit_sqlite3 "SELECT state FROM jobs WHERE id = '${escaped}';")"
@@ -383,35 +394,38 @@ knit_done
 # the caller). A parameter whose column is absent from the table is skipped, so a
 # job whose per-job table predates a newly added parameter still replays.
 #
+# @param out_name Name of the array variable to append the reconstructed args to.
 # @param cmd      Mangled command whose schema drives the reconstruction.
 # @param table    Table holding the recorded row.
 # @param id       Value of the row's "id" column.
 # @param skip     Space-separated normalized names to omit.
-# @param out_name Name of the array variable to append the reconstructed args to.
 # ------------------------------------------------------------------------------
 _knit_job_reconstruct_args_from_db_row() {
-    local cmd="$1" table="$2" id="$3" skip=" $4 "
     # shellcheck disable=SC2178 # nameref to the caller's args array
-    local -n _out="$5"
+    local -n _out="$1"
+    local cmd="$2" table="$3" id="$4" skip=" $5 "
     local escaped
-    escaped=$(_knit_sql_escape "${id}")
+    _knit_sql_escape escaped "${id}"
 
     # Columns actually present in the table (a parameter may have been added to
     # the command after this row was recorded).
     local -A cols=()
-    local _cid col _rest
+    local _cid col _rest esc_table q_table
+    _knit_sql_escape esc_table "${table}"
+    _knit_sql_quote_identifier q_table "${table}"
     while IFS='|' read -r _cid col _rest; do
         [[ -n "${col}" ]] && cols["${col}"]=1
-    done < <(_knit_sqlite3 "PRAGMA table_info('$(_knit_sql_escape "${table}")');")
+    done < <(_knit_sqlite3 "PRAGMA table_info('${esc_table}');")
 
-    local group name value
+    local group name value q_name
     for group in required optional; do
         while IFS= read -r name; do
             [[ -z "${name}" ]] && continue
             [[ "${skip}" == *" ${name} "* ]] && continue
             [[ -v cols["${name}"] ]] || continue
+            _knit_sql_quote_identifier q_name "${name}"
             value=$(_knit_sqlite3 \
-                "SELECT $(_knit_sql_quote_identifier "${name}") FROM $(_knit_sql_quote_identifier "${table}") WHERE id = '${escaped}';")
+                "SELECT ${q_name} FROM ${q_table} WHERE id = '${escaped}';")
             [[ -n "${value}" ]] && _out+=("--${name}" "${value}")
         done < <(_knit_set_iter "_KNIT_CMD_${cmd}_${group}" | sort)
     done
@@ -420,8 +434,9 @@ _knit_job_reconstruct_args_from_db_row() {
         [[ -z "${name}" ]] && continue
         [[ "${skip}" == *" ${name} "* ]] && continue
         [[ -v cols["${name}"] ]] || continue
+        _knit_sql_quote_identifier q_name "${name}"
         value=$(_knit_sqlite3 \
-            "SELECT $(_knit_sql_quote_identifier "${name}") FROM $(_knit_sql_quote_identifier "${table}") WHERE id = '${escaped}';")
+            "SELECT ${q_name} FROM ${q_table} WHERE id = '${escaped}';")
         [[ "${value}" == "true" ]] && _out+=("--${name}")
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_flags" | sort)
 }
@@ -457,7 +472,7 @@ _knit_job_resubmit() {
     local id
     id=$(knit_get_parameter "id" "$@")
     local escaped
-    escaped=$(_knit_sql_escape "${id}")
+    _knit_sql_escape escaped "${id}"
 
     # The submission row must exist; its "job" column names both the dispatch
     # target and the per-job parameter table.
@@ -474,8 +489,8 @@ _knit_job_resubmit() {
     local setup
     setup="$(_knit_sqlite3 "SELECT setup FROM jobs WHERE id = '${escaped}';")"
     [[ -n "${setup}" ]] && submit_opts+=("--setup" "${setup}")
-    _knit_job_reconstruct_args_from_db_row "submit" "${_KNIT_JOBS_TABLE}" "${id}" "setup" \
-        submit_opts
+    _knit_job_reconstruct_args_from_db_row submit_opts \
+        "submit" "${_KNIT_JOBS_TABLE}" "${id}" "setup"
 
     # Rebuild the job arguments from the per-job table, when the job has run at
     # least once (the table is created lazily on first run) and is a registered
@@ -484,12 +499,13 @@ _knit_job_resubmit() {
     local job_cmd
     job_cmd=$(_knit_command_mangle "submit:${job_name}")
     if [[ -n "${job_name}" ]] && _knit_set_find _KNIT_COMMANDS "${job_cmd}"; then
-        local cnt
+        local cnt esc_job_name
+        _knit_sql_escape esc_job_name "${job_name}"
         cnt="$(_knit_sqlite3 \
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$(_knit_sql_escape "${job_name}")';")"
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='${esc_job_name}';")"
         if [[ "${cnt}" -ne 0 ]]; then
-            _knit_job_reconstruct_args_from_db_row "${job_cmd}" "${job_name}" "${id}" "" \
-                job_args
+            _knit_job_reconstruct_args_from_db_row job_args \
+                "${job_cmd}" "${job_name}" "${id}" ""
         fi
     fi
 
@@ -531,7 +547,7 @@ _knit_job_show() {
     id=$(knit_get_parameter "id" "$@")
     json=$(knit_get_parameter "json" "$@") || json="false"
     local escaped
-    escaped=$(_knit_sql_escape "${id}")
+    _knit_sql_escape escaped "${id}"
 
     # The submission row must exist; its "job" column names the per-job table.
     # An empty result means no such row (a present row always has a non-empty
@@ -542,14 +558,17 @@ _knit_job_show() {
         knit_fatal "No job found with id \"${id}\"."
     fi
     IFS='|' read -r _ job_name <<< "${row}"
+    local q_job_name=""
+    [[ -n "${job_name}" ]] && _knit_sql_quote_identifier q_job_name "${job_name}"
 
     # The per-job table is created lazily on the job's first invocation, so it
     # may not exist yet for a job that was submitted but has not run.
     local param_table_exists=0
     if [[ -n "${job_name}" ]]; then
-        local cnt
+        local cnt esc_job_name
+        _knit_sql_escape esc_job_name "${job_name}"
         cnt="$(_knit_sqlite3 \
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$(_knit_sql_escape "${job_name}")';")"
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='${esc_job_name}';")"
         [[ "${cnt}" -ne 0 ]] && param_table_exists=1
     fi
 
@@ -561,7 +580,7 @@ _knit_job_show() {
         param_json="[]"
         if [[ "${param_table_exists}" -eq 1 ]]; then
             param_json="$(_knit_sqlite3 -json \
-                "SELECT * FROM $(_knit_sql_quote_identifier "${job_name}") WHERE id = '${escaped}';")"
+                "SELECT * FROM ${q_job_name} WHERE id = '${escaped}';")"
             [[ -z "${param_json}" ]] && param_json="[]"
         fi
         # shellcheck disable=SC2016 # $submission/$parameters are jq variables, not shell
@@ -578,7 +597,7 @@ _knit_job_show() {
     printf '\nParameters:\n'
     if [[ "${param_table_exists}" -eq 1 ]]; then
         _knit_sqlite3 -header -column \
-            "SELECT * FROM $(_knit_sql_quote_identifier "${job_name}") WHERE id = '${escaped}';"
+            "SELECT * FROM ${q_job_name} WHERE id = '${escaped}';"
     fi
 }
 knit_done
@@ -601,9 +620,10 @@ knit_done
 # ------------------------------------------------------------------------------
 _knit_job_show_file() {
     local id="$1" filename="$2" label="$3"
-    local found
+    local found esc_id
+    _knit_sql_escape esc_id "${id}"
     found="$(_knit_sqlite3 \
-        "SELECT id FROM jobs WHERE id = '$(_knit_sql_escape "${id}")';")"
+        "SELECT id FROM jobs WHERE id = '${esc_id}';")"
     if [[ -z "${found}" ]]; then
         knit_fatal "No job found with id \"${id}\"."
     fi
@@ -627,9 +647,10 @@ _knit_job_show_file() {
 # @param id Job UUID.
 # ------------------------------------------------------------------------------
 _knit_job_state_is_terminal() {
-    local state
+    local state esc_id
+    _knit_sql_escape esc_id "$1"
     state="$(_knit_sqlite3 \
-        "SELECT state FROM jobs WHERE id = '$(_knit_sql_escape "$1")';")"
+        "SELECT state FROM jobs WHERE id = '${esc_id}';")"
     case "${state}" in
         completed|killed) return 0 ;;
         *) return 1 ;;
@@ -662,9 +683,10 @@ _knit_job_state_is_terminal() {
 # ------------------------------------------------------------------------------
 _knit_job_follow_file() {
     local id="$1" filename="$2" label="$3"
-    local found
+    local found esc_id
+    _knit_sql_escape esc_id "${id}"
     found="$(_knit_sqlite3 \
-        "SELECT id FROM jobs WHERE id = '$(_knit_sql_escape "${id}")';")"
+        "SELECT id FROM jobs WHERE id = '${esc_id}';")"
     if [[ -z "${found}" ]]; then
         knit_fatal "No job found with id \"${id}\"."
     fi

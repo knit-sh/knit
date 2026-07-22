@@ -50,9 +50,9 @@ _knit_sched_none_submit() {
 # (the job runs as a background "bash <script>" on this host). Delegates to
 # _knit_sched_local_submit_cmdline.
 #
+# @param argv_name Name of the array to fill with the submission argv.
 # @param arr_name  Name of the resolved-options associative array.
 # @param script    Path to the batch script to run.
-# @param argv_name Name of the array to fill with the submission argv.
 # ------------------------------------------------------------------------------
 _knit_sched_none_submit_cmdline() {
     _knit_sched_local_submit_cmdline "$@"
@@ -97,7 +97,7 @@ _knit_sched_none_cancel() {
 # ------------------------------------------------------------------------------
 _knit_sched_none_hostfile() {
     local nodefile
-    nodefile="$(_knit_metadata_load --key "__default_nodefile__")"
+    _knit_metadata_get nodefile "__default_nodefile__"
     if [[ -n "${nodefile}" && -r "${nodefile}" ]]; then
         grep -v '^[[:space:]]*$' "${nodefile}"
     else

@@ -117,45 +117,45 @@ teardown() {
 
 @test "_knit_command_get_parents returns parent for colon-separated command" {
     local result
-    result=$(_knit_command_get_parents "aaa:bbb:ccc")
+    _knit_command_get_parents result "aaa:bbb:ccc"
     [ "$result" = "aaa:bbb" ]
 }
 
 @test "_knit_command_get_parents returns parent for mangled command" {
     local result
-    result=$(_knit_command_get_parents "aaa__1__bbb__1__ccc")
+    _knit_command_get_parents result "aaa__1__bbb__1__ccc"
     [ "$result" = "aaa__1__bbb" ]
 }
 
 @test "_knit_command_get_parents returns parent for space-separated command" {
     local result
-    result=$(_knit_command_get_parents "aaa bbb ccc")
+    _knit_command_get_parents result "aaa bbb ccc"
     [ "$result" = "aaa bbb" ]
 }
 
 @test "_knit_command_get_parents returns empty for top-level command" {
     local result
-    result=$(_knit_command_get_parents "aaa")
+    _knit_command_get_parents result "aaa"
     [ -z "$result" ]
 }
 
 @test "_knit_command_get_parents handles a last segment containing an underscore" {
     local result
-    result=$(_knit_command_get_parents "submit__1__my_job")
+    _knit_command_get_parents result "submit__1__my_job"
     [ "$result" = "submit" ]
-    result=$(_knit_command_get_parents "submit:my_job")
+    _knit_command_get_parents result "submit:my_job"
     [ "$result" = "submit" ]
 }
 
 @test "_knit_command_get_parents handles a last segment starting with an underscore" {
     local result
-    result=$(_knit_command_get_parents "wgrp__1___leaf")
+    _knit_command_get_parents result "wgrp__1___leaf"
     [ "$result" = "wgrp" ]
 }
 
 @test "_knit_command_get_parents handles a last segment containing a 1" {
     local result
-    result=$(_knit_command_get_parents "run__1__app1")
+    _knit_command_get_parents result "run__1__app1"
     [ "$result" = "run" ]
 }
 
@@ -163,27 +163,27 @@ teardown() {
 
 @test "_knit_command_get_last returns last part for colon-separated command" {
     local result
-    result=$(_knit_command_get_last "aaa:bbb:ccc")
+    _knit_command_get_last result "aaa:bbb:ccc"
     [ "$result" = "ccc" ]
 }
 
 @test "_knit_command_get_last returns last part for mangled command" {
     local result
-    result=$(_knit_command_get_last "aaa__1__bbb__1__ccc")
+    _knit_command_get_last result "aaa__1__bbb__1__ccc"
     [ "$result" = "ccc" ]
 }
 
 @test "_knit_command_get_last returns entire string for single-level command" {
     local result
-    result=$(_knit_command_get_last "aaa")
+    _knit_command_get_last result "aaa"
     [ "$result" = "aaa" ]
 }
 
 @test "_knit_command_get_last handles a last segment containing an underscore" {
     local result
-    result=$(_knit_command_get_last "submit__1__my_job")
+    _knit_command_get_last result "submit__1__my_job"
     [ "$result" = "my_job" ]
-    result=$(_knit_command_get_last "submit:my_job")
+    _knit_command_get_last result "submit:my_job"
     [ "$result" = "my_job" ]
 }
 

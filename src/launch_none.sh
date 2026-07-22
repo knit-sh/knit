@@ -57,12 +57,12 @@ _knit_launch_none_validate() {
 # placement is validated first so an over-specified request is still rejected on
 # this path.
 #
-# @param opts_name Name of the resolved placement-options associative array.
 # @param argv_name Name of the array to fill with the launcher argument vector.
+# @param opts_name Name of the resolved placement-options associative array.
 # ------------------------------------------------------------------------------
 _knit_launch_none_cmdline() {
-    _knit_launch_none_validate "$1"
-    local -n _launch_argv="$2"
+    local -n _launch_argv="$1"
+    _knit_launch_none_validate "$2"
     _launch_argv=()
 }
 

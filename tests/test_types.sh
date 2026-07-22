@@ -8,45 +8,45 @@ setup() {
 
 @test "resolve alias int to integer" {
     local result
-    result=$(_knit_type_resolve_alias "int")
+    _knit_type_resolve_alias result "int"
     [ "$result" = "integer" ]
 }
 
 @test "resolve alias double to real" {
     local result
-    result=$(_knit_type_resolve_alias "double")
+    _knit_type_resolve_alias result "double"
     [ "$result" = "real" ]
 }
 
 @test "resolve alias float to real" {
     local result
-    result=$(_knit_type_resolve_alias "float")
+    _knit_type_resolve_alias result "float"
     [ "$result" = "real" ]
 }
 
 @test "resolve alias bool to boolean" {
     local result
-    result=$(_knit_type_resolve_alias "bool")
+    _knit_type_resolve_alias result "bool"
     [ "$result" = "boolean" ]
 }
 
 @test "resolve canonical type returns itself" {
     for t in integer real boolean string path file filename date time datetime uuid; do
         local result
-        result=$(_knit_type_resolve_alias "$t")
+        _knit_type_resolve_alias result "$t"
         [ "$result" = "$t" ]
     done
 }
 
 @test "resolve unknown type fails" {
-    run _knit_type_resolve_alias "unknown"
+    run _knit_type_resolve_alias dummy "unknown"
     [ "$status" -eq 1 ]
 }
 
 @test "resolve enum type returns itself" {
     knit_define_enum "color" "red" "green" "blue"
     local result
-    result=$(_knit_type_resolve_alias "color")
+    _knit_type_resolve_alias result "color"
     [ "$result" = "color" ]
 }
 
@@ -346,54 +346,54 @@ setup() {
 
 @test "type to sqlite integer returns INTEGER" {
     local result
-    result=$(_knit_type_to_sqlite "integer")
+    _knit_type_to_sqlite result "integer"
     [ "$result" = "INTEGER" ]
 }
 
 @test "type to sqlite int alias returns INTEGER" {
     local result
-    result=$(_knit_type_to_sqlite "int")
+    _knit_type_to_sqlite result "int"
     [ "$result" = "INTEGER" ]
 }
 
 @test "type to sqlite real returns REAL" {
     local result
-    result=$(_knit_type_to_sqlite "real")
+    _knit_type_to_sqlite result "real"
     [ "$result" = "REAL" ]
 }
 
 @test "type to sqlite boolean returns TEXT" {
     local result
-    result=$(_knit_type_to_sqlite "boolean")
+    _knit_type_to_sqlite result "boolean"
     [ "$result" = "TEXT" ]
 }
 
 @test "type to sqlite string returns TEXT" {
     local result
-    result=$(_knit_type_to_sqlite "string")
+    _knit_type_to_sqlite result "string"
     [ "$result" = "TEXT" ]
 }
 
 @test "type to sqlite date returns TEXT" {
     local result
-    result=$(_knit_type_to_sqlite "date")
+    _knit_type_to_sqlite result "date"
     [ "$result" = "TEXT" ]
 }
 
 @test "type to sqlite uuid returns TEXT" {
     local result
-    result=$(_knit_type_to_sqlite "uuid")
+    _knit_type_to_sqlite result "uuid"
     [ "$result" = "TEXT" ]
 }
 
 @test "type to sqlite enum returns TEXT" {
     knit_define_enum "color" "red" "green"
     local result
-    result=$(_knit_type_to_sqlite "color")
+    _knit_type_to_sqlite result "color"
     [ "$result" = "TEXT" ]
 }
 
 @test "type to sqlite unknown type fails" {
-    run _knit_type_to_sqlite "unknown"
+    run _knit_type_to_sqlite dummy "unknown"
     [ "$status" -ne 0 ]
 }

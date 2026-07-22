@@ -5,21 +5,29 @@
 # ------------------------------------------------------------------------------
 # @fn _knit_str_hyphens_to_underscores()
 #
-# Function to convert hyphens to underscores.
+# Convert hyphens to underscores, storing the result in the caller-named
+# variable.
+#
+# @param __knit_ret Name of the variable to hold the result.
+# @param input String to convert.
 # ------------------------------------------------------------------------------
 _knit_str_hyphens_to_underscores() {
-  local input="$1"
-  echo "${input//-/_}"
+  local -n __knit_ret=$1
+  __knit_ret="${2//-/_}"
 }
 
 # ------------------------------------------------------------------------------
 # @fn _knit_str_underscores_to_hyphens()
 #
-# Function to convert underscores to hyphens.
+# Convert underscores to hyphens, storing the result in the caller-named
+# variable.
+#
+# @param __knit_ret Name of the variable to hold the result.
+# @param input String to convert.
 # ------------------------------------------------------------------------------
 _knit_str_underscores_to_hyphens() {
-  local input="$1"
-  echo "${input//_/-}"
+  local -n __knit_ret=$1
+  __knit_ret="${2//_/-}"
 }
 
 # ------------------------------------------------------------------------------

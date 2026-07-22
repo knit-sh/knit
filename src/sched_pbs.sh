@@ -81,7 +81,7 @@ _knit_sched_pbs_submit() {
     local script="$2"
 
     local -a cmd=()
-    _knit_sched_pbs_submit_cmdline "${arr_name}" "${script}" cmd
+    _knit_sched_pbs_submit_cmdline cmd "${arr_name}" "${script}"
 
     local out
     out="$("${cmd[@]}")" || return 1
@@ -96,15 +96,15 @@ _knit_sched_pbs_submit() {
 # the resolved "wait" option is "true" (see _knit_sched_pbs_submit for its
 # effect).
 #
+# @param argv_name Name of the array to fill with the submission argv.
 # @param arr_name  Name of the resolved-options associative array.
 # @param script    Path to the batch script to submit.
-# @param argv_name Name of the array to fill with the submission argv.
 # ------------------------------------------------------------------------------
 _knit_sched_pbs_submit_cmdline() {
-    local -n resolved="$1"
-    local script="$2"
     # shellcheck disable=SC2178 # nameref to the caller's array
-    local -n _submit_argv="$3"
+    local -n _submit_argv="$1"
+    local -n resolved="$2"
+    local script="$3"
 
     _submit_argv=(qsub)
     [[ "${resolved[wait]}" == "true" ]] && _submit_argv+=(-W block=true)

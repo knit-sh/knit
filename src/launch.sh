@@ -30,52 +30,54 @@
 # numa, thread); the OpenMPI/Hydra family (openmpi, mpich, pbs) matches PALS
 # except that a hardware thread is spelled hwthread. An unrecognized value is not
 # an error — it is passed through verbatim (with a warning) so a user can still
-# reach a launcher-specific binding this vocabulary does not cover. Prints the
+# reach a launcher-specific binding this vocabulary does not cover. Returns the
 # translated value.
 #
+# @param __knit_ret Name of the variable to hold the translated value.
 # @param backend Launcher backend name ("openmpi", "mpich", "slurm", ...).
 # @param value   The knit --bind value to translate.
 # ------------------------------------------------------------------------------
 _knit_launch_bind_value() {
-    local backend="$1"
-    local value="$2"
-    local out=""
-    case "${backend}" in
+    local -n __knit_ret=$1
+    local __backend="$2"
+    local __value="$3"
+    local __out=""
+    case "${__backend}" in
         slurm)
-            case "${value}" in
-                none) out="none" ;;
-                core) out="cores" ;;
-                socket) out="sockets" ;;
-                numa) out="ldoms" ;;
-                thread) out="threads" ;;
+            case "${__value}" in
+                none) __out="none" ;;
+                core) __out="cores" ;;
+                socket) __out="sockets" ;;
+                numa) __out="ldoms" ;;
+                thread) __out="threads" ;;
             esac
             ;;
         pals)
-            case "${value}" in
-                none) out="none" ;;
-                core) out="core" ;;
-                socket) out="socket" ;;
-                numa) out="numa" ;;
-                thread) out="thread" ;;
+            case "${__value}" in
+                none) __out="none" ;;
+                core) __out="core" ;;
+                socket) __out="socket" ;;
+                numa) __out="numa" ;;
+                thread) __out="thread" ;;
             esac
             ;;
         *)
             # openmpi, mpich, pbs — the OpenMPI/Hydra family, which share the same
             # binding vocabulary except that a hardware thread is spelled hwthread.
-            case "${value}" in
-                none) out="none" ;;
-                core) out="core" ;;
-                socket) out="socket" ;;
-                numa) out="numa" ;;
-                thread) out="hwthread" ;;
+            case "${__value}" in
+                none) __out="none" ;;
+                core) __out="core" ;;
+                socket) __out="socket" ;;
+                numa) __out="numa" ;;
+                thread) __out="hwthread" ;;
             esac
             ;;
     esac
-    if [[ -z "${out}" ]]; then
-        knit_warning "Unknown --bind value \"${value}\"; passing it through to the launcher verbatim."
-        out="${value}"
+    if [[ -z "${__out}" ]]; then
+        knit_warning "Unknown --bind value \"${__value}\"; passing it through to the launcher verbatim."
+        __out="${__value}"
     fi
-    printf '%s' "${out}"
+    __knit_ret="${__out}"
 }
 
 # ------------------------------------------------------------------------------
@@ -92,19 +94,21 @@ _knit_launch_bind_value() {
 # detected, detection reports "<unknown>" and this maps to the "none" backend:
 # the app runs as a single rank-0 process. This mirrors how _knit_sched_backend
 # degrades an undetected scheduler to the local background-process backend.
-# Prints one of "none", "openmpi", "mpich", "pals", "slurm", "pbs".
+# Returns one of "none", "openmpi", "mpich", "pals", "slurm", "pbs".
 #
+# @param __knit_ret Name of the variable to hold the resolved backend name.
 # @param override Optional explicit launcher name (a per-run --launcher value);
 #                 empty to fall back to metadata then detection.
 # ------------------------------------------------------------------------------
 _knit_launch_backend() {
-    local backend="$1"
-    [[ -z "${backend}" ]] && backend="$(_knit_metadata_load --key "__launcher__")"
-    [[ -z "${backend}" ]] && backend="$(_knit_detect_launcher)"
+    local -n __knit_ret=$1
+    local __backend="$2"
+    [[ -z "${__backend}" ]] && _knit_metadata_get __backend "__launcher__"
+    [[ -z "${__backend}" ]] && __backend="$(_knit_detect_launcher)"
     # Detection's "<unknown>" (no MPI launcher present), or an __launcher__
     # seeded with it at bootstrap, means the no-launcher case -> none.
-    [[ "${backend}" == "<unknown>" ]] && backend="none"
-    printf '%s\n' "${backend}"
+    [[ "${__backend}" == "<unknown>" ]] && __backend="none"
+    __knit_ret="${__backend}"
 }
 
 # ------------------------------------------------------------------------------
@@ -125,12 +129,12 @@ _knit_launch_cmdline() {
     local opts_name="$2"
     local argv_name="$3"
     case "${backend}" in
-        none) _knit_launch_none_cmdline "${opts_name}" "${argv_name}" ;;
-        openmpi) _knit_launch_openmpi_cmdline "${opts_name}" "${argv_name}" ;;
-        mpich) _knit_launch_mpich_cmdline "${opts_name}" "${argv_name}" ;;
-        slurm) _knit_launch_slurm_cmdline "${opts_name}" "${argv_name}" ;;
-        pbs) _knit_launch_pbs_cmdline "${opts_name}" "${argv_name}" ;;
-        pals) _knit_launch_pals_cmdline "${opts_name}" "${argv_name}" ;;
+        none) _knit_launch_none_cmdline "${argv_name}" "${opts_name}" ;;
+        openmpi) _knit_launch_openmpi_cmdline "${argv_name}" "${opts_name}" ;;
+        mpich) _knit_launch_mpich_cmdline "${argv_name}" "${opts_name}" ;;
+        slurm) _knit_launch_slurm_cmdline "${argv_name}" "${opts_name}" ;;
+        pbs) _knit_launch_pbs_cmdline "${argv_name}" "${opts_name}" ;;
+        pals) _knit_launch_pals_cmdline "${argv_name}" "${opts_name}" ;;
         *) knit_fatal "Launcher backend not implemented: ${backend}" ;;
     esac
 }

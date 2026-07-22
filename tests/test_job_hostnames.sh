@@ -229,7 +229,7 @@ teardown() {
 @test "none hostfile reads the configured nodefile" {
     local nf="${_KNIT_TEST_TMPDIR}/nodes"
     printf 'c1\nc1\nc2\n' > "${nf}"
-    _knit_metadata_load() { printf '%s\n' "${nf}"; }
+    _knit_metadata_get() { local -n __r=$1; __r="${nf}"; }
     run _knit_sched_none_hostfile
     [ "${status}" -eq 0 ]
     [ "${#lines[@]}" -eq 3 ]
@@ -238,7 +238,7 @@ teardown() {
 }
 
 @test "none hostfile falls back to hostname when no nodefile is configured" {
-    _knit_metadata_load() { printf '\n'; }
+    _knit_metadata_get() { local -n __r=$1; __r=''; }
     run _knit_sched_none_hostfile
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"$(hostname)"* ]]
@@ -264,7 +264,7 @@ teardown() {
 @test "hostfile dispatcher routes to the resolved backend" {
     # Uses the real _knit_sched_hostfile (the fixture is opt-in), stubbing only
     # its backend resolution and the per-backend source it should route to.
-    _knit_sched_backend() { printf 'pbs\n'; }
+    _knit_sched_backend() { local -n __r=$1; __r='pbs'; }
     _knit_sched_pbs_hostfile() { printf 'ROUTED\n'; }
     run _knit_sched_hostfile
     [ "${status}" -eq 0 ]
@@ -272,7 +272,7 @@ teardown() {
 }
 
 @test "hostfile dispatcher routes to the none backend" {
-    _knit_sched_backend() { printf 'none\n'; }
+    _knit_sched_backend() { local -n __r=$1; __r='none'; }
     _knit_sched_none_hostfile() { printf 'NONE-ROUTED\n'; }
     run _knit_sched_hostfile
     [ "${status}" -eq 0 ]

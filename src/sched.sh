@@ -70,18 +70,22 @@ _knit_uuidv7() {
 # ------------------------------------------------------------------------------
 # @fn _knit_sched_profile_field()
 #
-# Print a field from a machine profile's JSON, or nothing when the profile name
-# is empty or unknown. A thin guard around knit_get_profile_field so callers can
-# request a field unconditionally without emitting an "unknown profile" error.
+# Return a field from a machine profile's JSON, or the empty string when the
+# profile name is empty or unknown. A thin guard around knit_get_profile_field so
+# callers can request a field unconditionally without emitting an "unknown
+# profile" error.
 #
+# @param __knit_ret Name of the variable to hold the field value.
 # @param profile Profile name (may be empty).
 # @param jq_path jq path expression, e.g. '.scheduler.default_queue'.
 # ------------------------------------------------------------------------------
 _knit_sched_profile_field() {
-    local profile="$1"
-    local jq_path="$2"
-    if [[ -n "${profile}" ]] && knit_profile_exists "${profile}"; then
-        knit_get_profile_field "${profile}" "${jq_path}"
+    local -n __knit_ret=$1
+    local __profile="$2"
+    local __jq_path="$3"
+    __knit_ret=""
+    if [[ -n "${__profile}" ]] && knit_profile_exists "${__profile}"; then
+        __knit_ret="$(knit_get_profile_field "${__profile}" "${__jq_path}")"
     fi
 }
 
@@ -109,7 +113,7 @@ _knit_sched_resolve() {
     local -a cli=("$@")
 
     local profile
-    profile="$(_knit_metadata_load --key "__profile__")"
+    _knit_metadata_get profile "__profile__"
 
     local v
 
@@ -119,16 +123,16 @@ _knit_sched_resolve() {
     resolved["job-name"]="${v}"
 
     v="$(knit_get_parameter "account" "${cli[@]}")" || v=""
-    [[ -z "${v}" ]] && v="$(_knit_metadata_load --key "__account__")"
+    [[ -z "${v}" ]] && _knit_metadata_get v "__account__"
     resolved["account"]="${v}"
 
     v="$(knit_get_parameter "project" "${cli[@]}")" || v=""
-    [[ -z "${v}" ]] && v="$(_knit_metadata_load --key "__project__")"
+    [[ -z "${v}" ]] && _knit_metadata_get v "__project__"
     resolved["project"]="${v}"
 
     v="$(knit_get_parameter "queue" "${cli[@]}")" || v=""
-    [[ -z "${v}" ]] && v="$(_knit_metadata_load --key "__default_queue__")"
-    [[ -z "${v}" ]] && v="$(_knit_sched_profile_field "${profile}" '.scheduler.default_queue')"
+    [[ -z "${v}" ]] && _knit_metadata_get v "__default_queue__"
+    [[ -z "${v}" ]] && _knit_sched_profile_field v "${profile}" '.scheduler.default_queue'
     resolved["queue"]="${v}"
 
     # Resources -----------------------------------------------------------------
@@ -140,8 +144,8 @@ _knit_sched_resolve() {
     # so this comes from the bootstrap-detected/profile value. It drives ncpus and
     # mpiprocs on PBS and --ntasks-per-node on Slurm. Empty when unknown (no
     # profile and no detection); the backend then omits the per-node CPU directive.
-    v="$(_knit_metadata_load --key "__node_ncpus__")"
-    [[ -z "${v}" ]] && v="$(_knit_sched_profile_field "${profile}" '.hardware.cores_per_node')"
+    _knit_metadata_get v "__node_ncpus__"
+    [[ -z "${v}" ]] && _knit_sched_profile_field v "${profile}" '.hardware.cores_per_node'
     resolved["cpus-per-node"]="${v}"
 
     v="$(knit_get_parameter "gpus-per-node" "${cli[@]}")" || v=""
@@ -150,10 +154,10 @@ _knit_sched_resolve() {
 
     # Walltime falls back to the resolved queue's profile cap, then to one hour.
     v="$(knit_get_parameter "walltime" "${cli[@]}")" || v=""
-    [[ -z "${v}" ]] && v="$(_knit_metadata_load --key "__default_walltime__")"
+    [[ -z "${v}" ]] && _knit_metadata_get v "__default_walltime__"
     if [[ -z "${v}" && -n "${resolved["queue"]}" ]]; then
-        v="$(_knit_sched_profile_field "${profile}" \
-            ".scheduler.queues.\"${resolved["queue"]}\".max_walltime")"
+        _knit_sched_profile_field v "${profile}" \
+            ".scheduler.queues.\"${resolved["queue"]}\".max_walltime"
     fi
     [[ -z "${v}" ]] && v="01:00:00"
     resolved["walltime"]="${v}"
@@ -163,9 +167,9 @@ _knit_sched_resolve() {
     resolved["wait"]="${v}"
 
     # Site-mandatory scheduler arguments captured at bootstrap ------------------
-    v="$(_knit_metadata_load --key "__default_scheduler_args__")"
-    [[ -z "${v}" ]] && v="$(_knit_sched_profile_field "${profile}" \
-        '(.scheduler.default_args // []) | join(" ")')"
+    _knit_metadata_get v "__default_scheduler_args__"
+    [[ -z "${v}" ]] && _knit_sched_profile_field v "${profile}" \
+        '(.scheduler.default_args // []) | join(" ")'
     resolved["extra-args"]="${v}"
 }
 
@@ -188,15 +192,15 @@ _knit_sched_validate_caps() {
     local -n resolved="$1"
 
     local profile
-    profile="$(_knit_metadata_load --key "__profile__")"
+    _knit_metadata_get profile "__profile__"
     [[ -z "${profile}" ]] && return 0
 
     local queue="${resolved[queue]}"
     [[ -z "${queue}" ]] && return 0
 
     local max_walltime
-    max_walltime="$(_knit_sched_profile_field "${profile}" \
-        ".scheduler.queues.\"${queue}\".max_walltime")"
+    _knit_sched_profile_field max_walltime "${profile}" \
+        ".scheduler.queues.\"${queue}\".max_walltime"
     if [[ -n "${max_walltime}" ]]; then
         local req_s cap_s
         req_s="$(_knit_walltime_to_seconds "${resolved[walltime]}")"
@@ -207,8 +211,8 @@ _knit_sched_validate_caps() {
     fi
 
     local max_nodes
-    max_nodes="$(_knit_sched_profile_field "${profile}" \
-        ".scheduler.queues.\"${queue}\".max_nodes")"
+    _knit_sched_profile_field max_nodes "${profile}" \
+        ".scheduler.queues.\"${queue}\".max_nodes"
     if [[ -n "${max_nodes}" ]]; then
         local req_nodes="${resolved[nodes]}"
         if (( req_nodes > max_nodes )); then
@@ -261,10 +265,10 @@ _knit_sched_submit_cmdline() {
     local script="$3"
     local argv_name="$4"
     case "${backend}" in
-        local) _knit_sched_local_submit_cmdline "${arr_name}" "${script}" "${argv_name}" ;;
-        none)  _knit_sched_none_submit_cmdline "${arr_name}" "${script}" "${argv_name}" ;;
-        slurm) _knit_sched_slurm_submit_cmdline "${arr_name}" "${script}" "${argv_name}" ;;
-        pbs)   _knit_sched_pbs_submit_cmdline "${arr_name}" "${script}" "${argv_name}" ;;
+        local) _knit_sched_local_submit_cmdline "${argv_name}" "${arr_name}" "${script}" ;;
+        none)  _knit_sched_none_submit_cmdline "${argv_name}" "${arr_name}" "${script}" ;;
+        slurm) _knit_sched_slurm_submit_cmdline "${argv_name}" "${arr_name}" "${script}" ;;
+        pbs)   _knit_sched_pbs_submit_cmdline "${argv_name}" "${arr_name}" "${script}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
     esac
 }
@@ -325,15 +329,18 @@ _knit_sched_cancel() {
 # else live detection. Detection's "<unknown>" (no batch scheduler present) means
 # the workstation case and maps to the local background-process backend. An
 # explicit "none" in metadata is a real, deliberate backend (a user-owned
-# cluster driven without a scheduler) and flows through untouched. Prints one of
+# cluster driven without a scheduler) and flows through untouched. Returns one of
 # "local", "none", "slurm", "pbs".
+#
+# @param __knit_ret Name of the variable to hold the resolved backend name.
 # ------------------------------------------------------------------------------
 _knit_sched_backend() {
-    local backend
-    backend="$(_knit_metadata_load --key "__scheduler__")"
-    [[ -z "${backend}" ]] && backend="$(_knit_detect_job_manager)"
-    [[ "${backend}" == "<unknown>" ]] && backend="local"
-    printf '%s\n' "${backend}"
+    local -n __knit_ret=$1
+    local __backend
+    _knit_metadata_get __backend "__scheduler__"
+    [[ -z "${__backend}" ]] && __backend="$(_knit_detect_job_manager)"
+    [[ "${__backend}" == "<unknown>" ]] && __backend="local"
+    __knit_ret="${__backend}"
 }
 
 # ------------------------------------------------------------------------------
@@ -374,7 +381,7 @@ _knit_sched_wait() {
 # ------------------------------------------------------------------------------
 _knit_sched_hostfile() {
     local backend
-    backend="$(_knit_sched_backend)"
+    _knit_sched_backend backend
     case "${backend}" in
         local) _knit_sched_local_hostfile ;;
         none)  _knit_sched_none_hostfile ;;

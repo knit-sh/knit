@@ -33,41 +33,47 @@ declare -gA _KNIT_DESCRIBE_ONLY
 # "\uXXXX" escape. The surrounding quotes are NOT added (see
 # _knit_describe_json_str).
 #
+# @param __knit_ret Name of the variable to hold the escaped string.
 # @param string String to escape.
 # ------------------------------------------------------------------------------
 _knit_describe_json_escape() {
-    local s="$1"
-    s="${s//\\/\\\\}"
-    s="${s//\"/\\\"}"
-    s="${s//$'\n'/\\n}"
-    s="${s//$'\r'/\\r}"
-    s="${s//$'\t'/\\t}"
+    local -n __knit_ret=$1
+    local __s="$2"
+    __s="${__s//\\/\\\\}"
+    __s="${__s//\"/\\\"}"
+    __s="${__s//$'\n'/\\n}"
+    __s="${__s//$'\r'/\\r}"
+    __s="${__s//$'\t'/\\t}"
     # After the substitutions above the short-escaped characters are ordinary
     # two-character sequences, so any control character still present needs the
     # generic "\uXXXX" form. Only walk the string when one is actually there.
-    if [[ "${s}" == *[[:cntrl:]]* ]]; then
-        local out='' i ch
-        for (( i=0; i<${#s}; i++ )); do
-            ch="${s:i:1}"
-            if [[ "${ch}" == [[:cntrl:]] ]]; then
-                printf -v ch '\\u%04x' "'${ch}"
+    if [[ "${__s}" == *[[:cntrl:]]* ]]; then
+        local __out='' __i __ch
+        for (( __i=0; __i<${#__s}; __i++ )); do
+            __ch="${__s:__i:1}"
+            if [[ "${__ch}" == [[:cntrl:]] ]]; then
+                printf -v __ch '\\u%04x' "'${__ch}"
             fi
-            out+="${ch}"
+            __out+="${__ch}"
         done
-        s="${out}"
+        __s="${__out}"
     fi
-    printf '%s' "${s}"
+    __knit_ret="${__s}"
 }
 
 # ------------------------------------------------------------------------------
 # @fn _knit_describe_json_str()
 #
-# Print a value as a quoted, escaped JSON string literal.
+# Return a value as a quoted, escaped JSON string literal.
 #
+# @param __knit_ret Name of the variable to hold the JSON string literal.
 # @param string Value to render.
 # ------------------------------------------------------------------------------
 _knit_describe_json_str() {
-    printf '"%s"' "$(_knit_describe_json_escape "$1")"
+    local -n __knit_ret=$1
+    local __esc
+    _knit_describe_json_escape __esc "$2"
+    __knit_ret="\"${__esc}\""
 }
 
 # ------------------------------------------------------------------------------
@@ -141,7 +147,7 @@ _knit_describe_children() {
     local parent="$1"
     local c p
     while IFS= read -r c; do
-        p=$(_knit_command_get_parents "${c}")
+        _knit_command_get_parents p "${c}"
         if [[ "${p}" == "${parent}" ]]; then
             printf '%s\n' "${c}"
         fi
@@ -155,21 +161,23 @@ _knit_describe_children() {
 # "wrapper" (knit_register_wrapper), "job" (a child of "submit"), "app" (a child
 # of "run"), "setup" (a child of "setup"), or "command" otherwise.
 #
+# @param __knit_ret Name of the variable to hold the command kind.
 # @param cmd Mangled command name.
 # ------------------------------------------------------------------------------
 _knit_describe_command_kind() {
-    local cmd="$1"
-    if _knit_command_is_wrapper "${cmd}"; then
-        printf 'wrapper'
+    local -n __knit_ret=$1
+    local __cmd="$2"
+    if _knit_command_is_wrapper "${__cmd}"; then
+        __knit_ret='wrapper'
         return
     fi
-    local parent
-    parent=$(_knit_command_get_parents "${cmd}")
-    case "${parent}" in
-        submit) printf 'job' ;;
-        run)    printf 'app' ;;
-        setup)  printf 'setup' ;;
-        *)      printf 'command' ;;
+    local __parent
+    _knit_command_get_parents __parent "${__cmd}"
+    case "${__parent}" in
+        submit) __knit_ret='job' ;;
+        run)    __knit_ret='app' ;;
+        setup)  __knit_ret='setup' ;;
+        *)      __knit_ret='command' ;;
     esac
 }
 
@@ -265,21 +273,24 @@ _knit_describe_implementation() {
 # ------------------------------------------------------------------------------
 # @fn _knit_describe_enum_values_json()
 #
-# Print the values of an enum as an inline JSON array of strings (sorted for a
+# Return the values of an enum as an inline JSON array of strings (sorted for a
 # stable order).
 #
+# @param __knit_ret Name of the variable to hold the JSON array.
 # @param name Enum type name.
 # ------------------------------------------------------------------------------
 _knit_describe_enum_values_json() {
-    local name="$1"
-    local out='[' first=1 v
-    while IFS= read -r v; do
-        (( first )) || out+=', '
-        out+="$(_knit_describe_json_str "${v}")"
-        first=0
-    done < <(knit_enum_values "${name}" | sort)
-    out+=']'
-    printf '%s' "${out}"
+    local -n __knit_ret=$1
+    local __name="$2"
+    local __out='[' __first=1 __v __s
+    while IFS= read -r __v; do
+        (( __first )) || __out+=', '
+        _knit_describe_json_str __s "${__v}"
+        __out+="${__s}"
+        __first=0
+    done < <(knit_enum_values "${__name}" | sort)
+    __out+=']'
+    __knit_ret="${__out}"
 }
 
 # ------------------------------------------------------------------------------
@@ -303,32 +314,38 @@ _knit_describe_json_param() {
     local indent="$4"
     local inner="${indent}  "
     local dname type desc
-    dname=$(_knit_str_underscores_to_hyphens "${param}")
+    _knit_str_underscores_to_hyphens dname "${param}"
     desc=$(_knit_param_description "${cmd}" "${param}")
     if [[ "${group}" == "flags" ]]; then
         type="boolean"
     else
         type=$(_knit_param_type "${cmd}" "${param}")
     fi
-    local entries=()
-    entries+=("$(printf '%s"name": %s' "${inner}" "$(_knit_describe_json_str "${dname}")")")
-    entries+=("$(printf '%s"type": %s' "${inner}" "$(_knit_describe_json_str "${type}")")")
+    local entries=() s e
+    _knit_describe_json_str s "${dname}"
+    printf -v e '%s"name": %s' "${inner}" "${s}"; entries+=("${e}")
+    _knit_describe_json_str s "${type}"
+    printf -v e '%s"type": %s' "${inner}" "${s}"; entries+=("${e}")
     if [[ "${group}" != "flags" ]]; then
         local resolved
-        if resolved=$(_knit_type_resolve_alias "${type}") \
+        if _knit_type_resolve_alias resolved "${type}" \
             && [[ -v _KNIT_ENUMS["${resolved}"] ]]; then
-            entries+=("$(printf '%s"enum": %s' "${inner}" "$(_knit_describe_enum_values_json "${resolved}")")")
+            _knit_describe_enum_values_json s "${resolved}"
+            printf -v e '%s"enum": %s' "${inner}" "${s}"; entries+=("${e}")
         fi
     fi
     if [[ "${group}" == "optional" ]]; then
         local dflt
         dflt=$(_knit_param_default "${cmd}" "${param}")
-        entries+=("$(printf '%s"default": %s' "${inner}" "$(_knit_describe_json_str "${dflt}")")")
+        _knit_describe_json_str s "${dflt}"
+        printf -v e '%s"default": %s' "${inner}" "${s}"; entries+=("${e}")
     fi
-    entries+=("$(printf '%s"description": %s' "${inner}" "$(_knit_describe_json_str "${desc}")")")
+    _knit_describe_json_str s "${desc}"
+    printf -v e '%s"description": %s' "${inner}" "${s}"; entries+=("${e}")
     local when_raw_var="_KNIT_CMD_${cmd}_2_${param}_when_raw"
     if [[ -v "${when_raw_var}" ]]; then
-        entries+=("$(printf '%s"when": %s' "${inner}" "$(_knit_describe_json_str "${!when_raw_var}")")")
+        _knit_describe_json_str s "${!when_raw_var}"
+        printf -v e '%s"when": %s' "${inner}" "${s}"; entries+=("${e}")
     fi
     printf '%s' "${indent}"
     _knit_describe_emit_object "${indent}" "${entries[@]}"
@@ -366,7 +383,7 @@ _knit_describe_json_params() {
     local extra_var="_KNIT_CMD_${cmd}_extra"
     local extra_json='null'
     if [[ -n "${!extra_var}" ]]; then
-        extra_json="$(_knit_describe_json_str "${!extra_var}")"
+        _knit_describe_json_str extra_json "${!extra_var}"
     fi
     entries+=("$(printf '%s"extra": %s' "${inner}" "${extra_json}")")
     _knit_describe_emit_object "${indent}" "${entries[@]}"
@@ -387,15 +404,19 @@ _knit_describe_json_output() {
     local indent="$3"
     local inner="${indent}  "
     local dname type dflt desc
-    dname=$(_knit_str_underscores_to_hyphens "${output}")
-    type=$(_knit_output_type "${cmd}" "${output}")
+    _knit_str_underscores_to_hyphens dname "${output}"
+    _knit_output_type type "${cmd}" "${output}"
     dflt=$(_knit_output_default "${cmd}" "${output}")
     desc=$(_knit_output_description "${cmd}" "${output}")
-    local entries=()
-    entries+=("$(printf '%s"name": %s' "${inner}" "$(_knit_describe_json_str "${dname}")")")
-    entries+=("$(printf '%s"type": %s' "${inner}" "$(_knit_describe_json_str "${type}")")")
-    entries+=("$(printf '%s"default": %s' "${inner}" "$(_knit_describe_json_str "${dflt}")")")
-    entries+=("$(printf '%s"description": %s' "${inner}" "$(_knit_describe_json_str "${desc}")")")
+    local entries=() s e
+    _knit_describe_json_str s "${dname}"
+    printf -v e '%s"name": %s' "${inner}" "${s}"; entries+=("${e}")
+    _knit_describe_json_str s "${type}"
+    printf -v e '%s"type": %s' "${inner}" "${s}"; entries+=("${e}")
+    _knit_describe_json_str s "${dflt}"
+    printf -v e '%s"default": %s' "${inner}" "${s}"; entries+=("${e}")
+    _knit_describe_json_str s "${desc}"
+    printf -v e '%s"description": %s' "${inner}" "${s}"; entries+=("${e}")
     printf '%s' "${indent}"
     _knit_describe_emit_object "${indent}" "${entries[@]}"
 }
@@ -444,29 +465,30 @@ _knit_describe_json_command() {
     IFS=':' read -r -a segs <<< "${demangled}"
     local name="${segs[-1]}"
 
-    local path_json='[' i
+    local path_json='[' i s
     for (( i=0; i<${#segs[@]}; i++ )); do
         (( i )) && path_json+=', '
-        path_json+="$(_knit_describe_json_str "${segs[i]}")"
+        _knit_describe_json_str s "${segs[i]}"
+        path_json+="${s}"
     done
     path_json+=']'
 
     local desc_var="_KNIT_CMD_${cmd}_description"
     local kind
-    kind=$(_knit_describe_command_kind "${cmd}")
+    _knit_describe_command_kind kind "${cmd}"
     local builtin=false hidden=false
     _knit_command_is_builtin "${cmd}" && builtin=true
     local hidden_var="_KNIT_CMD_${cmd}_is_hidden"
     [[ "${!hidden_var}" == "true" ]] && hidden=true
     local dispatch_var="_KNIT_CMD_${cmd}_dispatch"
     local dispatch_json='null'
-    [[ -n "${!dispatch_var}" ]] && dispatch_json="$(_knit_describe_json_str "${!dispatch_var}")"
+    [[ -n "${!dispatch_var}" ]] && _knit_describe_json_str dispatch_json "${!dispatch_var}"
     local prov_var="_KNIT_CMD_${cmd}_provenance"
     local prov="${!prov_var}"
     [[ -z "${prov}" ]] && prov='default'
     local table_var="_KNIT_CMD_${cmd}_table"
     local table_json='null'
-    [[ -n "${!table_var:-}" ]] && table_json="$(_knit_describe_json_str "${!table_var}")"
+    [[ -n "${!table_var:-}" ]] && _knit_describe_json_str table_json "${!table_var}"
 
     local child_sel_ancestor="${sel_ancestor}"
     _knit_set_find _KNIT_DESCRIBE_ONLY "${cmd}" && child_sel_ancestor="true"
@@ -476,16 +498,20 @@ _knit_describe_json_command() {
         subs+=("$(_knit_describe_json_command "${c}" "${inner}  " "${child_sel_ancestor}")")
     done < <(_knit_describe_children "${cmd}")
 
-    local entries=()
-    entries+=("$(printf '%s"name": %s' "${inner}" "$(_knit_describe_json_str "${name}")")")
-    entries+=("$(printf '%s"path": %s' "${inner}" "${path_json}")")
-    entries+=("$(printf '%s"description": %s' "${inner}" "$(_knit_describe_json_str "${!desc_var}")")")
-    entries+=("$(printf '%s"kind": %s' "${inner}" "$(_knit_describe_json_str "${kind}")")")
-    entries+=("$(printf '%s"builtin": %s' "${inner}" "${builtin}")")
-    entries+=("$(printf '%s"hidden": %s' "${inner}" "${hidden}")")
-    entries+=("$(printf '%s"dispatcher": %s' "${inner}" "${dispatch_json}")")
-    entries+=("$(printf '%s"provenance": %s' "${inner}" "$(_knit_describe_json_str "${prov}")")")
-    entries+=("$(printf '%s"table": %s' "${inner}" "${table_json}")")
+    local entries=() e
+    _knit_describe_json_str s "${name}"
+    printf -v e '%s"name": %s' "${inner}" "${s}"; entries+=("${e}")
+    printf -v e '%s"path": %s' "${inner}" "${path_json}"; entries+=("${e}")
+    _knit_describe_json_str s "${!desc_var}"
+    printf -v e '%s"description": %s' "${inner}" "${s}"; entries+=("${e}")
+    _knit_describe_json_str s "${kind}"
+    printf -v e '%s"kind": %s' "${inner}" "${s}"; entries+=("${e}")
+    printf -v e '%s"builtin": %s' "${inner}" "${builtin}"; entries+=("${e}")
+    printf -v e '%s"hidden": %s' "${inner}" "${hidden}"; entries+=("${e}")
+    printf -v e '%s"dispatcher": %s' "${inner}" "${dispatch_json}"; entries+=("${e}")
+    _knit_describe_json_str s "${prov}"
+    printf -v e '%s"provenance": %s' "${inner}" "${s}"; entries+=("${e}")
+    printf -v e '%s"table": %s' "${inner}" "${table_json}"; entries+=("${e}")
     if ! _knit_describe_filter_on no_input_params; then
         entries+=("$(printf '%s"parameters": ' "${inner}"; _knit_describe_json_params "${cmd}" "${inner}")")
     fi
@@ -495,7 +521,8 @@ _knit_describe_json_command() {
     local impl
     impl=$(_knit_describe_implementation "${cmd}")
     if [[ -n "${impl}" ]]; then
-        entries+=("$(printf '%s"implementation": %s' "${inner}" "$(_knit_describe_json_str "${impl}")")")
+        _knit_describe_json_str s "${impl}"
+        printf -v e '%s"implementation": %s' "${inner}" "${s}"; entries+=("${e}")
     fi
     entries+=("$(printf '%s"subcommands": ' "${inner}"; _knit_describe_emit_array "${inner}" "${subs[@]}")")
 
@@ -514,12 +541,12 @@ _knit_describe_json_command() {
 _knit_describe_json_enums() {
     local indent="$1"
     local inner="${indent}  "
-    local entries=() name
+    local entries=() name s vals e
     while IFS= read -r name; do
         _knit_set_find _KNIT_BUILTIN_ENUMS "${name}" && continue
-        entries+=("$(printf '%s%s: %s' "${inner}" \
-            "$(_knit_describe_json_str "${name}")" \
-            "$(_knit_describe_enum_values_json "${name}")")")
+        _knit_describe_json_str s "${name}"
+        _knit_describe_enum_values_json vals "${name}"
+        printf -v e '%s%s: %s' "${inner}" "${s}" "${vals}"; entries+=("${e}")
     done < <(_knit_set_iter _KNIT_ENUMS | sort)
     _knit_describe_emit_object "${indent}" "${entries[@]}"
 }
@@ -539,9 +566,11 @@ _knit_describe_json() {
         roots+=("$(_knit_describe_json_command "${c}" "    " "false")")
     done < <(_knit_describe_children "")
 
-    local entries=()
-    entries+=("$(printf '  "knit_version": %s' "$(_knit_describe_json_str "${KNIT_VERSION}")")")
-    entries+=("$(printf '  "experiment": %s' "$(_knit_describe_json_str "${KNIT_SCRIPT_NAME}")")")
+    local entries=() s e
+    _knit_describe_json_str s "${KNIT_VERSION}"
+    printf -v e '  "knit_version": %s' "${s}"; entries+=("${e}")
+    _knit_describe_json_str s "${KNIT_SCRIPT_NAME}"
+    printf -v e '  "experiment": %s' "${s}"; entries+=("${e}")
     entries+=("$(printf '  "format_version": 1')")
     entries+=("$(printf '  "commands": '; _knit_describe_emit_array "  " "${roots[@]}")")
     entries+=("$(printf '  "enums": '; _knit_describe_json_enums "  ")")
@@ -640,24 +669,28 @@ _knit_describe_yaml_needs_quote() {
 # double-quoted (reusing the JSON escaper, whose escapes YAML's double-quoted
 # style shares); anything else is emitted verbatim.
 #
+# @param __knit_ret  Name of the variable to hold the rendered scalar.
 # @param value       String value to render.
 # @param cont_indent Indentation prepended to each line of a block scalar.
 # ------------------------------------------------------------------------------
 _knit_describe_yaml_scalar() {
-    local value="$1"
-    local cont_indent="$2"
-    if [[ "${value}" == *$'\n'* ]]; then
-        local out='|-' line
-        while IFS= read -r line || [[ -n "${line}" ]]; do
-            out+=$'\n'"${cont_indent}${line}"
-        done <<< "${value}"
-        printf '%s' "${out}"
+    local -n __knit_ret=$1
+    local __value="$2"
+    local __cont_indent="$3"
+    if [[ "${__value}" == *$'\n'* ]]; then
+        local __out='|-' __line
+        while IFS= read -r __line || [[ -n "${__line}" ]]; do
+            __out+=$'\n'"${__cont_indent}${__line}"
+        done <<< "${__value}"
+        __knit_ret="${__out}"
         return
     fi
-    if _knit_describe_yaml_needs_quote "${value}"; then
-        printf '"%s"' "$(_knit_describe_json_escape "${value}")"
+    if _knit_describe_yaml_needs_quote "${__value}"; then
+        local __esc
+        _knit_describe_json_escape __esc "${__value}"
+        __knit_ret="\"${__esc}\""
     else
-        printf '%s' "${value}"
+        __knit_ret="${__value}"
     fi
 }
 
@@ -668,23 +701,26 @@ _knit_describe_yaml_scalar() {
 # when it would be unsafe or coerced as a plain flow scalar (the plain-scalar
 # rules plus the flow indicators , [ ] { }). An empty list yields "[]".
 #
+# @param __knit_ret Name of the variable to hold the flow sequence.
 # @param ...values Scalar values.
 # ------------------------------------------------------------------------------
 _knit_describe_yaml_flow_seq() {
-    local out='[' first=1 v
-    for v in "$@"; do
-        (( first )) || out+=', '
-        first=0
-        if _knit_describe_yaml_needs_quote "${v}" \
-            || [[ "${v}" == *,* || "${v}" == *"["* || "${v}" == *"]"* \
-               || "${v}" == *"{"* || "${v}" == *"}"* ]]; then
-            out+="\"$(_knit_describe_json_escape "${v}")\""
+    local -n __knit_ret=$1; shift
+    local __out='[' __first=1 __v __esc
+    for __v in "$@"; do
+        (( __first )) || __out+=', '
+        __first=0
+        if _knit_describe_yaml_needs_quote "${__v}" \
+            || [[ "${__v}" == *,* || "${__v}" == *"["* || "${__v}" == *"]"* \
+               || "${__v}" == *"{"* || "${__v}" == *"}"* ]]; then
+            _knit_describe_json_escape __esc "${__v}"
+            __out+="\"${__esc}\""
         else
-            out+="${v}"
+            __out+="${__v}"
         fi
     done
-    out+=']'
-    printf '%s' "${out}"
+    __out+=']'
+    __knit_ret="${__out}"
 }
 
 # ------------------------------------------------------------------------------
@@ -704,41 +740,41 @@ _knit_describe_yaml_param() {
     local cmd="$1" group="$2" param="$3" item_indent="$4"
     local key="${item_indent}  "
     local cont="${key}  "
-    local dname type desc
-    dname=$(_knit_str_underscores_to_hyphens "${param}")
+    local dname type desc sc
+    _knit_str_underscores_to_hyphens dname "${param}"
     desc=$(_knit_param_description "${cmd}" "${param}")
     if [[ "${group}" == "flags" ]]; then
         type="boolean"
     else
         type=$(_knit_param_type "${cmd}" "${param}")
     fi
-    printf '%s- name: %s\n' "${item_indent}" \
-        "$(_knit_describe_yaml_scalar "${dname}" "${cont}")"
-    printf '%stype: %s\n' "${key}" \
-        "$(_knit_describe_yaml_scalar "${type}" "${cont}")"
+    _knit_describe_yaml_scalar sc "${dname}" "${cont}"
+    printf '%s- name: %s\n' "${item_indent}" "${sc}"
+    _knit_describe_yaml_scalar sc "${type}" "${cont}"
+    printf '%stype: %s\n' "${key}" "${sc}"
     if [[ "${group}" != "flags" ]]; then
         local resolved
-        if resolved=$(_knit_type_resolve_alias "${type}") \
+        if _knit_type_resolve_alias resolved "${type}" \
             && [[ -v _KNIT_ENUMS["${resolved}"] ]]; then
-            local vals=() v
+            local vals=() v fs
             while IFS= read -r v; do vals+=("${v}"); done \
                 < <(knit_enum_values "${resolved}" | sort)
-            printf '%senum: %s\n' "${key}" \
-                "$(_knit_describe_yaml_flow_seq "${vals[@]}")"
+            _knit_describe_yaml_flow_seq fs "${vals[@]}"
+            printf '%senum: %s\n' "${key}" "${fs}"
         fi
     fi
     if [[ "${group}" == "optional" ]]; then
         local dflt
         dflt=$(_knit_param_default "${cmd}" "${param}")
-        printf '%sdefault: %s\n' "${key}" \
-            "$(_knit_describe_yaml_scalar "${dflt}" "${cont}")"
+        _knit_describe_yaml_scalar sc "${dflt}" "${cont}"
+        printf '%sdefault: %s\n' "${key}" "${sc}"
     fi
-    printf '%sdescription: %s\n' "${key}" \
-        "$(_knit_describe_yaml_scalar "${desc}" "${cont}")"
+    _knit_describe_yaml_scalar sc "${desc}" "${cont}"
+    printf '%sdescription: %s\n' "${key}" "${sc}"
     local when_raw_var="_KNIT_CMD_${cmd}_2_${param}_when_raw"
     if [[ -v "${when_raw_var}" ]]; then
-        printf '%swhen: %s\n' "${key}" \
-            "$(_knit_describe_yaml_scalar "${!when_raw_var}" "${cont}")"
+        _knit_describe_yaml_scalar sc "${!when_raw_var}" "${cont}"
+        printf '%swhen: %s\n' "${key}" "${sc}"
     fi
 }
 
@@ -773,8 +809,9 @@ _knit_describe_yaml_params() {
     done
     local extra_var="_KNIT_CMD_${cmd}_extra"
     if [[ -n "${!extra_var}" ]]; then
-        printf '%sextra: %s\n' "${keys_indent}" \
-            "$(_knit_describe_yaml_scalar "${!extra_var}" "${keys_indent}  ")"
+        local sc
+        _knit_describe_yaml_scalar sc "${!extra_var}" "${keys_indent}  "
+        printf '%sextra: %s\n' "${keys_indent}" "${sc}"
     else
         printf '%sextra: null\n' "${keys_indent}"
     fi
@@ -794,19 +831,19 @@ _knit_describe_yaml_output() {
     local cmd="$1" output="$2" item_indent="$3"
     local key="${item_indent}  "
     local cont="${key}  "
-    local dname type dflt desc
-    dname=$(_knit_str_underscores_to_hyphens "${output}")
-    type=$(_knit_output_type "${cmd}" "${output}")
+    local dname type dflt desc sc
+    _knit_str_underscores_to_hyphens dname "${output}"
+    _knit_output_type type "${cmd}" "${output}"
     dflt=$(_knit_output_default "${cmd}" "${output}")
     desc=$(_knit_output_description "${cmd}" "${output}")
-    printf '%s- name: %s\n' "${item_indent}" \
-        "$(_knit_describe_yaml_scalar "${dname}" "${cont}")"
-    printf '%stype: %s\n' "${key}" \
-        "$(_knit_describe_yaml_scalar "${type}" "${cont}")"
-    printf '%sdefault: %s\n' "${key}" \
-        "$(_knit_describe_yaml_scalar "${dflt}" "${cont}")"
-    printf '%sdescription: %s\n' "${key}" \
-        "$(_knit_describe_yaml_scalar "${desc}" "${cont}")"
+    _knit_describe_yaml_scalar sc "${dname}" "${cont}"
+    printf '%s- name: %s\n' "${item_indent}" "${sc}"
+    _knit_describe_yaml_scalar sc "${type}" "${cont}"
+    printf '%stype: %s\n' "${key}" "${sc}"
+    _knit_describe_yaml_scalar sc "${dflt}" "${cont}"
+    printf '%sdefault: %s\n' "${key}" "${sc}"
+    _knit_describe_yaml_scalar sc "${desc}" "${cont}"
+    printf '%sdescription: %s\n' "${key}" "${sc}"
 }
 
 # ------------------------------------------------------------------------------
@@ -833,8 +870,8 @@ _knit_describe_yaml_command() {
     local name="${segs[-1]}"
 
     local desc_var="_KNIT_CMD_${cmd}_description"
-    local kind
-    kind=$(_knit_describe_command_kind "${cmd}")
+    local kind sc fs
+    _knit_describe_command_kind kind "${cmd}"
     local builtin=false hidden=false
     _knit_command_is_builtin "${cmd}" && builtin=true
     local hidden_var="_KNIT_CMD_${cmd}_is_hidden"
@@ -845,26 +882,27 @@ _knit_describe_yaml_command() {
     [[ -z "${prov}" ]] && prov='default'
     local table_var="_KNIT_CMD_${cmd}_table"
 
-    printf '%s- name: %s\n' "${item_indent}" \
-        "$(_knit_describe_yaml_scalar "${name}" "${cont}")"
-    printf '%spath: %s\n' "${key}" "$(_knit_describe_yaml_flow_seq "${segs[@]}")"
-    printf '%sdescription: %s\n' "${key}" \
-        "$(_knit_describe_yaml_scalar "${!desc_var}" "${cont}")"
-    printf '%skind: %s\n' "${key}" \
-        "$(_knit_describe_yaml_scalar "${kind}" "${cont}")"
+    _knit_describe_yaml_scalar sc "${name}" "${cont}"
+    printf '%s- name: %s\n' "${item_indent}" "${sc}"
+    _knit_describe_yaml_flow_seq fs "${segs[@]}"
+    printf '%spath: %s\n' "${key}" "${fs}"
+    _knit_describe_yaml_scalar sc "${!desc_var}" "${cont}"
+    printf '%sdescription: %s\n' "${key}" "${sc}"
+    _knit_describe_yaml_scalar sc "${kind}" "${cont}"
+    printf '%skind: %s\n' "${key}" "${sc}"
     printf '%sbuiltin: %s\n' "${key}" "${builtin}"
     printf '%shidden: %s\n' "${key}" "${hidden}"
     if [[ -n "${!dispatch_var}" ]]; then
-        printf '%sdispatcher: %s\n' "${key}" \
-            "$(_knit_describe_yaml_scalar "${!dispatch_var}" "${cont}")"
+        _knit_describe_yaml_scalar sc "${!dispatch_var}" "${cont}"
+        printf '%sdispatcher: %s\n' "${key}" "${sc}"
     else
         printf '%sdispatcher: null\n' "${key}"
     fi
-    printf '%sprovenance: %s\n' "${key}" \
-        "$(_knit_describe_yaml_scalar "${prov}" "${cont}")"
+    _knit_describe_yaml_scalar sc "${prov}" "${cont}"
+    printf '%sprovenance: %s\n' "${key}" "${sc}"
     if [[ -n "${!table_var:-}" ]]; then
-        printf '%stable: %s\n' "${key}" \
-            "$(_knit_describe_yaml_scalar "${!table_var}" "${cont}")"
+        _knit_describe_yaml_scalar sc "${!table_var}" "${cont}"
+        printf '%stable: %s\n' "${key}" "${sc}"
     else
         printf '%stable: null\n' "${key}"
     fi
@@ -889,8 +927,8 @@ _knit_describe_yaml_command() {
     local impl
     impl=$(_knit_describe_implementation "${cmd}")
     if [[ -n "${impl}" ]]; then
-        printf '%simplementation: %s\n' "${key}" \
-            "$(_knit_describe_yaml_scalar "${impl}" "${cont}")"
+        _knit_describe_yaml_scalar sc "${impl}" "${cont}"
+        printf '%simplementation: %s\n' "${key}" "${sc}"
     fi
 
     local child_sel_ancestor="${sel_ancestor}"
@@ -929,15 +967,15 @@ _knit_describe_yaml_enums() {
         return
     fi
     printf 'enums:\n'
-    local v
+    local v sc fs
     local -a vals
     for name in "${names[@]}"; do
         vals=()
         while IFS= read -r v; do vals+=("${v}"); done \
             < <(knit_enum_values "${name}" | sort)
-        printf '  %s: %s\n' \
-            "$(_knit_describe_yaml_scalar "${name}" '    ')" \
-            "$(_knit_describe_yaml_flow_seq "${vals[@]}")"
+        _knit_describe_yaml_scalar sc "${name}" '    '
+        _knit_describe_yaml_flow_seq fs "${vals[@]}"
+        printf '  %s: %s\n' "${sc}" "${fs}"
     done
 }
 
@@ -950,10 +988,11 @@ _knit_describe_yaml_enums() {
 # command tree, and the map of user-defined enums.
 # ------------------------------------------------------------------------------
 _knit_describe_yaml() {
-    printf 'knit_version: %s\n' \
-        "$(_knit_describe_yaml_scalar "${KNIT_VERSION}" '  ')"
-    printf 'experiment: %s\n' \
-        "$(_knit_describe_yaml_scalar "${KNIT_SCRIPT_NAME}" '  ')"
+    local sc
+    _knit_describe_yaml_scalar sc "${KNIT_VERSION}" '  '
+    printf 'knit_version: %s\n' "${sc}"
+    _knit_describe_yaml_scalar sc "${KNIT_SCRIPT_NAME}" '  '
+    printf 'experiment: %s\n' "${sc}"
     printf 'format_version: 1\n'
     local -a roots=()
     local c
@@ -1012,26 +1051,29 @@ _knit_describe_default_heading() {
 # ------------------------------------------------------------------------------
 # @fn _knit_describe_enum_constraint()
 #
-# Print a "one of: a, b, c" constraint string for an enum-typed parameter, or
-# nothing when the parameter's type is not an enum. Values are sorted to match
-# the other formatters.
+# Return a "one of: a, b, c" constraint string for an enum-typed parameter, or
+# the empty string when the parameter's type is not an enum. Values are sorted to
+# match the other formatters.
 #
+# @param __knit_ret Name of the variable to hold the constraint string.
 # @param cmd   Mangled command name.
 # @param param Normalized parameter name.
 # ------------------------------------------------------------------------------
 _knit_describe_enum_constraint() {
-    local cmd="$1"
-    local param="$2"
-    local type resolved
-    type=$(_knit_param_type "${cmd}" "${param}")
-    if resolved=$(_knit_type_resolve_alias "${type}") \
-        && [[ -v _KNIT_ENUMS["${resolved}"] ]]; then
-        local out='' v
-        while IFS= read -r v; do
-            [[ -n "${out}" ]] && out+=', '
-            out+="${v}"
-        done < <(knit_enum_values "${resolved}" | sort)
-        printf 'one of: %s' "${out}"
+    local -n __knit_ret=$1
+    local __cmd="$2"
+    local __param="$3"
+    local __type __resolved
+    __type=$(_knit_param_type "${__cmd}" "${__param}")
+    __knit_ret=""
+    if _knit_type_resolve_alias __resolved "${__type}" \
+        && [[ -v _KNIT_ENUMS["${__resolved}"] ]]; then
+        local __out='' __v
+        while IFS= read -r __v; do
+            [[ -n "${__out}" ]] && __out+=', '
+            __out+="${__v}"
+        done < <(knit_enum_values "${__resolved}" | sort)
+        __knit_ret="one of: ${__out}"
     fi
 }
 
@@ -1059,15 +1101,18 @@ _knit_describe_default_options() {
 
     local max=4 opt opt2 len
     while read -r opt; do
-        opt2="--$(_knit_str_underscores_to_hyphens "${opt}") <value>"
+        _knit_str_underscores_to_hyphens opt2 "${opt}"
+        opt2="--${opt2} <value>"
         len=${#opt2}; (( len > max )) && max=${len}
     done < <(_knit_set_iter "${req_var}" | sort)
     while read -r opt; do
-        opt2="--$(_knit_str_underscores_to_hyphens "${opt}") <value>"
+        _knit_str_underscores_to_hyphens opt2 "${opt}"
+        opt2="--${opt2} <value>"
         len=${#opt2}; (( len > max )) && max=${len}
     done < <(_knit_set_iter "${opt_var}" | sort)
     while read -r opt; do
-        opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
+        _knit_str_underscores_to_hyphens opt2 "${opt}"
+        opt2="--${opt2}"
         len=${#opt2}; (( len > max )) && max=${len}
     done < <(_knit_set_iter "${flg_var}" | sort)
 
@@ -1078,10 +1123,11 @@ _knit_describe_default_options() {
     local desc dflt when_var ann cons
     while read -r opt; do
         desc=$(_knit_param_description "${cmd}" "${opt}")
-        opt2="--$(_knit_str_underscores_to_hyphens "${opt}") <value>"
+        _knit_str_underscores_to_hyphens opt2 "${opt}"
+        opt2="--${opt2} <value>"
         when_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
         ann="required"
-        cons=$(_knit_describe_enum_constraint "${cmd}" "${opt}")
+        _knit_describe_enum_constraint cons "${cmd}" "${opt}"
         [[ -n "${cons}" ]] && ann+=", ${cons}"
         [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
@@ -1089,17 +1135,19 @@ _knit_describe_default_options() {
     while read -r opt; do
         desc=$(_knit_param_description "${cmd}" "${opt}")
         dflt=$(_knit_param_default "${cmd}" "${opt}")
-        opt2="--$(_knit_str_underscores_to_hyphens "${opt}") <value>"
+        _knit_str_underscores_to_hyphens opt2 "${opt}"
+        opt2="--${opt2} <value>"
         when_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
         ann="default: '${dflt}'"
-        cons=$(_knit_describe_enum_constraint "${cmd}" "${opt}")
+        _knit_describe_enum_constraint cons "${cmd}" "${opt}"
         [[ -n "${cons}" ]] && ann+=", ${cons}"
         [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
     done < <(_knit_set_iter "${opt_var}" | sort)
     while read -r opt; do
         desc=$(_knit_param_description "${cmd}" "${opt}")
-        opt2="--$(_knit_str_underscores_to_hyphens "${opt}")"
+        _knit_str_underscores_to_hyphens opt2 "${opt}"
+        opt2="--${opt2}"
         when_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
         ann="flag"
         [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
@@ -1128,15 +1176,15 @@ _knit_describe_default_outputs() {
 
     local max=0 o o2 len
     while read -r o; do
-        o2=$(_knit_str_underscores_to_hyphens "${o}")
+        _knit_str_underscores_to_hyphens o2 "${o}"
         len=${#o2}; (( len > max )) && max=${len}
     done < <(_knit_set_iter "${outs_var}" | sort)
 
     _knit_describe_default_heading "Outputs" "${use_color}" "${indent}"
     local type dflt desc
     while read -r o; do
-        o2=$(_knit_str_underscores_to_hyphens "${o}")
-        type=$(_knit_output_type "${cmd}" "${o}")
+        _knit_str_underscores_to_hyphens o2 "${o}"
+        _knit_output_type type "${cmd}" "${o}"
         dflt=$(_knit_output_default "${cmd}" "${o}")
         desc=$(_knit_output_description "${cmd}" "${o}")
         printf '%s%-*s  [%s, default: '\''%s'\''] %s\n' \
@@ -1166,7 +1214,7 @@ _knit_describe_default_command() {
     local sel_ancestor="$3"
     local display kind tag
     display=$(_knit_command_with_space "${cmd}")
-    kind=$(_knit_describe_command_kind "${cmd}")
+    _knit_describe_command_kind kind "${cmd}"
     if _knit_command_is_builtin "${cmd}"; then tag="builtin"; else tag="user"; fi
     local desc_var="_KNIT_CMD_${cmd}_description"
 
@@ -1252,14 +1300,16 @@ _knit_describe_default() {
 # escaped (they otherwise start a new column) and newlines/carriage returns are
 # folded to spaces (a table row must stay on one line).
 #
+# @param __knit_ret Name of the variable to hold the escaped value.
 # @param value Value to escape.
 # ------------------------------------------------------------------------------
 _knit_describe_md_cell() {
-    local v="$1"
-    v="${v//$'\n'/ }"
-    v="${v//$'\r'/ }"
-    v="${v//|/\\|}"
-    printf '%s' "${v}"
+    local -n __knit_ret=$1
+    local __v="$2"
+    __v="${__v//$'\n'/ }"
+    __v="${__v//$'\r'/ }"
+    __v="${__v//|/\\|}"
+    __knit_ret="${__v}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1270,13 +1320,19 @@ _knit_describe_md_cell() {
 # a declared value is shown as code and an empty-string default leaves a blank
 # cell.
 #
+# @param __knit_ret Name of the variable to hold the rendered code span.
 # @param value Value to render.
 # ------------------------------------------------------------------------------
 _knit_describe_md_code() {
-    local v="$1"
-    [[ -z "${v}" ]] && return
+    local -n __knit_ret=$1
+    local __v="$2"
+    __knit_ret=""
+    [[ -z "${__v}" ]] && return
+    local __cell __code
+    _knit_describe_md_cell __cell "${__v}"
     # shellcheck disable=SC2016 # backticks are literal Markdown code-span delimiters
-    printf '`%s`' "$(_knit_describe_md_cell "${v}")"
+    printf -v __code '`%s`' "${__cell}"
+    __knit_ret="${__code}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1284,23 +1340,28 @@ _knit_describe_md_code() {
 #
 # Build the "Constraints" column text for a parameter: the enum "one of: …" list
 # (when the type is an enum) and the "--when" clause (with the raw expression in
-# inline code), joined by "; ". Prints nothing when the parameter is
+# inline code), joined by "; ". Returns the empty string when the parameter is
 # unconstrained.
 #
+# @param __knit_ret Name of the variable to hold the constraints text.
 # @param cmd   Mangled command name.
 # @param param Normalized parameter name.
 # ------------------------------------------------------------------------------
 _knit_describe_md_constraints() {
-    local cmd="$1"
-    local param="$2"
-    local out when_var
-    out=$(_knit_describe_enum_constraint "${cmd}" "${param}")
-    when_var="_KNIT_CMD_${cmd}_2_${param}_when_raw"
-    if [[ -v "${when_var}" ]]; then
-        [[ -n "${out}" ]] && out+='; '
-        out+="when: \`${!when_var}\`"
+    local -n __knit_ret=$1
+    local __cmd="$2"
+    local __param="$3"
+    # The accumulator must not be named like any internal local of a helper it
+    # passes itself to by name: _knit_describe_enum_constraint has its own
+    # "local __out", which would shadow a nameref pointed at a caller "__out".
+    local acc __when_var
+    _knit_describe_enum_constraint acc "${__cmd}" "${__param}"
+    __when_var="_KNIT_CMD_${__cmd}_2_${__param}_when_raw"
+    if [[ -v "${__when_var}" ]]; then
+        [[ -n "${acc}" ]] && acc+='; '
+        acc+="when: \`${!__when_var}\`"
     fi
-    printf '%s' "${out}"
+    __knit_ret="${acc}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1317,42 +1378,48 @@ _knit_describe_md_params() {
     local cmd="$1"
     printf '#### Parameters\n\n'
     local -a rows=()
-    local p type desc dname cons dcell
+    local p type desc dname cons dcell pdflt row c_name c_type c_cons c_desc
     while IFS= read -r p; do
-        dname=$(_knit_str_underscores_to_hyphens "${p}")
+        _knit_str_underscores_to_hyphens dname "${p}"
         type=$(_knit_param_type "${cmd}" "${p}")
         desc=$(_knit_param_description "${cmd}" "${p}")
-        cons=$(_knit_describe_md_constraints "${cmd}" "${p}")
+        _knit_describe_md_constraints cons "${cmd}" "${p}"
         [[ -z "${cons}" ]] && cons='—'
-        rows+=("$(printf '| %s | required | %s | — | %s | %s |' \
-            "$(_knit_describe_md_code "${dname}")" \
-            "$(_knit_describe_md_cell "${type}")" \
-            "$(_knit_describe_md_cell "${cons}")" \
-            "$(_knit_describe_md_cell "${desc}")")")
+        _knit_describe_md_code c_name "${dname}"
+        _knit_describe_md_cell c_type "${type}"
+        _knit_describe_md_cell c_cons "${cons}"
+        _knit_describe_md_cell c_desc "${desc}"
+        printf -v row '| %s | required | %s | — | %s | %s |' \
+            "${c_name}" "${c_type}" "${c_cons}" "${c_desc}"
+        rows+=("${row}")
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_required" | sort)
     while IFS= read -r p; do
-        dname=$(_knit_str_underscores_to_hyphens "${p}")
+        _knit_str_underscores_to_hyphens dname "${p}"
         type=$(_knit_param_type "${cmd}" "${p}")
         desc=$(_knit_param_description "${cmd}" "${p}")
-        cons=$(_knit_describe_md_constraints "${cmd}" "${p}")
+        _knit_describe_md_constraints cons "${cmd}" "${p}"
         [[ -z "${cons}" ]] && cons='—'
-        dcell=$(_knit_describe_md_code "$(_knit_param_default "${cmd}" "${p}")")
-        rows+=("$(printf '| %s | optional | %s | %s | %s | %s |' \
-            "$(_knit_describe_md_code "${dname}")" \
-            "$(_knit_describe_md_cell "${type}")" \
-            "${dcell}" \
-            "$(_knit_describe_md_cell "${cons}")" \
-            "$(_knit_describe_md_cell "${desc}")")")
+        pdflt=$(_knit_param_default "${cmd}" "${p}")
+        _knit_describe_md_code dcell "${pdflt}"
+        _knit_describe_md_code c_name "${dname}"
+        _knit_describe_md_cell c_type "${type}"
+        _knit_describe_md_cell c_cons "${cons}"
+        _knit_describe_md_cell c_desc "${desc}"
+        printf -v row '| %s | optional | %s | %s | %s | %s |' \
+            "${c_name}" "${c_type}" "${dcell}" "${c_cons}" "${c_desc}"
+        rows+=("${row}")
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_optional" | sort)
     while IFS= read -r p; do
-        dname=$(_knit_str_underscores_to_hyphens "${p}")
+        _knit_str_underscores_to_hyphens dname "${p}"
         desc=$(_knit_param_description "${cmd}" "${p}")
-        cons=$(_knit_describe_md_constraints "${cmd}" "${p}")
+        _knit_describe_md_constraints cons "${cmd}" "${p}"
         [[ -z "${cons}" ]] && cons='—'
-        rows+=("$(printf '| %s | flag | boolean | — | %s | %s |' \
-            "$(_knit_describe_md_code "${dname}")" \
-            "$(_knit_describe_md_cell "${cons}")" \
-            "$(_knit_describe_md_cell "${desc}")")")
+        _knit_describe_md_code c_name "${dname}"
+        _knit_describe_md_cell c_cons "${cons}"
+        _knit_describe_md_cell c_desc "${desc}"
+        printf -v row '| %s | flag | boolean | — | %s | %s |' \
+            "${c_name}" "${c_cons}" "${c_desc}"
+        rows+=("${row}")
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_flags" | sort)
 
     if (( ${#rows[@]} == 0 )); then
@@ -1377,18 +1444,19 @@ _knit_describe_md_outputs() {
     local cmd="$1"
     printf '#### Outputs\n\n'
     local -a rows=()
-    local o dname type dflt desc dcell
+    local o dname type dflt desc dcell row c_name c_type c_desc
     while IFS= read -r o; do
-        dname=$(_knit_str_underscores_to_hyphens "${o}")
-        type=$(_knit_output_type "${cmd}" "${o}")
+        _knit_str_underscores_to_hyphens dname "${o}"
+        _knit_output_type type "${cmd}" "${o}"
         dflt=$(_knit_output_default "${cmd}" "${o}")
         desc=$(_knit_output_description "${cmd}" "${o}")
-        dcell=$(_knit_describe_md_code "${dflt}")
-        rows+=("$(printf '| %s | %s | %s | %s |' \
-            "$(_knit_describe_md_code "${dname}")" \
-            "$(_knit_describe_md_cell "${type}")" \
-            "${dcell}" \
-            "$(_knit_describe_md_cell "${desc}")")")
+        _knit_describe_md_code dcell "${dflt}"
+        _knit_describe_md_code c_name "${dname}"
+        _knit_describe_md_cell c_type "${type}"
+        _knit_describe_md_cell c_desc "${desc}"
+        printf -v row '| %s | %s | %s | %s |' \
+            "${c_name}" "${c_type}" "${dcell}" "${c_desc}"
+        rows+=("${row}")
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
 
     if (( ${#rows[@]} == 0 )); then
@@ -1420,7 +1488,7 @@ _knit_describe_md_command() {
     local sel_ancestor="$2"
     local display kind tag
     display=$(_knit_command_with_space "${cmd}")
-    kind=$(_knit_describe_command_kind "${cmd}")
+    _knit_describe_command_kind kind "${cmd}"
     if _knit_command_is_builtin "${cmd}"; then tag="builtin"; else tag="user"; fi
     local desc_var="_KNIT_CMD_${cmd}_description"
 

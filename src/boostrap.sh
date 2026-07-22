@@ -187,8 +187,8 @@ _knit_bootstrap() {
 
     # Default walltime: explicit flag, else the profile's default-queue cap.
     if [[ -z "${default_walltime}" && -n "${profile}" && -n "${default_queue}" ]]; then
-        default_walltime="$(_knit_sched_profile_field "${profile}" \
-            ".scheduler.queues.\"${default_queue}\".max_walltime")"
+        _knit_sched_profile_field default_walltime "${profile}" \
+            ".scheduler.queues.\"${default_queue}\".max_walltime"
     fi
 
     # Per-node core count precedence: explicit flag -> profile -> live detection.

@@ -47,8 +47,10 @@ knit_framed() {
                 ;;
         esac
     fi
-    if [[ -n "$log_level" ]] && \
-       (( $(_knit_log_level_to_int "${KNIT_LOG_LEVEL}") > $(_knit_log_level_to_int "$log_level") )); then
+    local __cur_lvl __req_lvl
+    _knit_log_level_to_int __cur_lvl "${KNIT_LOG_LEVEL}"
+    _knit_log_level_to_int __req_lvl "$log_level"
+    if [[ -n "$log_level" ]] && (( __cur_lvl > __req_lvl )); then
         cat > /dev/null
         return 0
     fi

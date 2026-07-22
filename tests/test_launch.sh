@@ -12,86 +12,95 @@ teardown() {
 # ---------- _knit_launch_backend ----------
 
 @test "_knit_launch_backend prefers an explicit override" {
-    _knit_metadata_load()   { printf 'openmpi\n'; }
+    _knit_metadata_get()    { local -n __r=$1; __r='openmpi'; }
     _knit_detect_launcher() { printf 'mpich\n'; }
-    run _knit_launch_backend slurm
-    [ "$status" -eq 0 ]
-    [ "$output" = "slurm" ]
+    local out
+    _knit_launch_backend out slurm
+    [ "$out" = "slurm" ]
 }
 
 @test "_knit_launch_backend uses metadata when no override" {
-    _knit_metadata_load()   { printf 'openmpi\n'; }
+    _knit_metadata_get()    { local -n __r=$1; __r='openmpi'; }
     _knit_detect_launcher() { printf 'mpich\n'; }
-    run _knit_launch_backend
-    [ "$output" = "openmpi" ]
+    local out
+    _knit_launch_backend out
+    [ "$out" = "openmpi" ]
 }
 
 @test "_knit_launch_backend falls back to detection when metadata is empty" {
-    _knit_metadata_load()   { printf '\n'; }
+    _knit_metadata_get()    { local -n __r=$1; __r=''; }
     _knit_detect_launcher() { printf 'mpich\n'; }
-    run _knit_launch_backend
-    [ "$output" = "mpich" ]
+    local out
+    _knit_launch_backend out
+    [ "$out" = "mpich" ]
 }
 
 @test "_knit_launch_backend passes an autodetected pals through unchanged" {
-    _knit_metadata_load()   { printf '\n'; }
+    _knit_metadata_get()    { local -n __r=$1; __r=''; }
     _knit_detect_launcher() { printf 'pals\n'; }
-    run _knit_launch_backend
-    [ "$output" = "pals" ]
+    local out
+    _knit_launch_backend out
+    [ "$out" = "pals" ]
 }
 
 @test "_knit_launch_backend maps detection's <unknown> to none" {
-    _knit_metadata_load()   { printf '\n'; }
+    _knit_metadata_get()    { local -n __r=$1; __r=''; }
     _knit_detect_launcher() { printf '<unknown>\n'; }
-    run _knit_launch_backend
-    [ "$output" = "none" ]
+    local out
+    _knit_launch_backend out
+    [ "$out" = "none" ]
 }
 
 @test "_knit_launch_backend maps a <unknown> metadata value to none" {
-    _knit_metadata_load()   { printf '<unknown>\n'; }
-    run _knit_launch_backend
-    [ "$output" = "none" ]
+    _knit_metadata_get()    { local -n __r=$1; __r='<unknown>'; }
+    local out
+    _knit_launch_backend out
+    [ "$out" = "none" ]
 }
 
 # ---------- _knit_launch_bind_value: normalized binding vocabulary ----------
 
 @test "bind value maps the OpenMPI/Hydra family (openmpi/mpich/pbs)" {
-    [ "$(_knit_launch_bind_value openmpi none)" = "none" ]
-    [ "$(_knit_launch_bind_value openmpi core)" = "core" ]
-    [ "$(_knit_launch_bind_value mpich socket)" = "socket" ]
-    [ "$(_knit_launch_bind_value pbs numa)" = "numa" ]
+    local v
+    _knit_launch_bind_value v openmpi none;   [ "$v" = "none" ]
+    _knit_launch_bind_value v openmpi core;   [ "$v" = "core" ]
+    _knit_launch_bind_value v mpich socket;   [ "$v" = "socket" ]
+    _knit_launch_bind_value v pbs numa;       [ "$v" = "numa" ]
     # A hardware thread is spelled hwthread across this family.
-    [ "$(_knit_launch_bind_value openmpi thread)" = "hwthread" ]
-    [ "$(_knit_launch_bind_value mpich thread)" = "hwthread" ]
+    _knit_launch_bind_value v openmpi thread; [ "$v" = "hwthread" ]
+    _knit_launch_bind_value v mpich thread;   [ "$v" = "hwthread" ]
 }
 
 @test "bind value maps the Slurm spellings" {
-    [ "$(_knit_launch_bind_value slurm none)" = "none" ]
-    [ "$(_knit_launch_bind_value slurm core)" = "cores" ]
-    [ "$(_knit_launch_bind_value slurm socket)" = "sockets" ]
-    [ "$(_knit_launch_bind_value slurm numa)" = "ldoms" ]
-    [ "$(_knit_launch_bind_value slurm thread)" = "threads" ]
+    local v
+    _knit_launch_bind_value v slurm none;   [ "$v" = "none" ]
+    _knit_launch_bind_value v slurm core;   [ "$v" = "cores" ]
+    _knit_launch_bind_value v slurm socket; [ "$v" = "sockets" ]
+    _knit_launch_bind_value v slurm numa;   [ "$v" = "ldoms" ]
+    _knit_launch_bind_value v slurm thread; [ "$v" = "threads" ]
 }
 
 @test "bind value maps the PALS spellings" {
-    [ "$(_knit_launch_bind_value pals none)" = "none" ]
-    [ "$(_knit_launch_bind_value pals core)" = "core" ]
-    [ "$(_knit_launch_bind_value pals socket)" = "socket" ]
-    [ "$(_knit_launch_bind_value pals numa)" = "numa" ]
-    [ "$(_knit_launch_bind_value pals thread)" = "thread" ]
+    local v
+    _knit_launch_bind_value v pals none;   [ "$v" = "none" ]
+    _knit_launch_bind_value v pals core;   [ "$v" = "core" ]
+    _knit_launch_bind_value v pals socket; [ "$v" = "socket" ]
+    _knit_launch_bind_value v pals numa;   [ "$v" = "numa" ]
+    _knit_launch_bind_value v pals thread; [ "$v" = "thread" ]
 }
 
 @test "bind value passes an unknown value through verbatim with a warning" {
-    run _knit_launch_bind_value slurm map_ldom:0
+    local v
+    run _knit_launch_bind_value v slurm map_ldom:0
     [ "$status" -eq 0 ]
     [[ "$output" == *"Unknown --bind value"* ]]
     [[ "$output" == *"map_ldom:0"* ]]
 }
 
-@test "bind value of an unknown value is exactly the value on stdout" {
-    # The warning goes to stderr, so only the verbatim value reaches stdout.
+@test "bind value of an unknown value is exactly the value returned" {
+    # The warning goes to stderr; the verbatim value is written to the nameref.
     local out
-    out=$(_knit_launch_bind_value openmpi weird 2>/dev/null)
+    _knit_launch_bind_value out openmpi weird 2>/dev/null
     [ "${out}" = "weird" ]
 }
 

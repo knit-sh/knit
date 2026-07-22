@@ -294,7 +294,7 @@ teardown() {
     knit_with_output "count:integer" "0" "A count."
     knit_done
     local result
-    result=$(_knit_output_type "ot_cmd" "count")
+    _knit_output_type result "ot_cmd" "count"
     [ "$result" = "integer" ]
 }
 
