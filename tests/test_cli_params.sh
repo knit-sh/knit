@@ -249,26 +249,6 @@ teardown() {
     [ "${_KNIT_CMD_ko_outer_cmd_output_value[outer_out]}" = "outer_val" ]
 }
 
-# ---------- _knit_output_description_var / _knit_output_default_var / _knit_output_type_var ----------
-
-@test "_knit_output_description_var returns expected variable name" {
-    local result
-    result=$(_knit_output_description_var "mycmd" "myoutput")
-    [ "$result" = "_KNIT_CMD_mycmd_3_myoutput_description" ]
-}
-
-@test "_knit_output_default_var returns expected variable name" {
-    local result
-    result=$(_knit_output_default_var "mycmd" "myoutput")
-    [ "$result" = "_KNIT_CMD_mycmd_3_myoutput_default" ]
-}
-
-@test "_knit_output_type_var returns expected variable name" {
-    local result
-    result=$(_knit_output_type_var "mycmd" "myoutput")
-    [ "$result" = "_KNIT_CMD_mycmd_3_myoutput_type" ]
-}
-
 # ---------- _knit_output_description / _knit_output_default / _knit_output_type ----------
 
 @test "_knit_output_description returns stored description" {
@@ -276,7 +256,7 @@ teardown() {
     knit_with_output "score:real" "0.0" "The score."
     knit_done
     local result
-    result=$(_knit_output_description "od_cmd" "score")
+    _knit_output_description result "od_cmd" "score"
     [ "$result" = "The score." ]
 }
 
@@ -285,7 +265,7 @@ teardown() {
     knit_with_output "count:integer" "42" "A count."
     knit_done
     local result
-    result=$(_knit_output_default "odef_cmd" "count")
+    _knit_output_default result "odef_cmd" "count"
     [ "$result" = "42" ]
 }
 

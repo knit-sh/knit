@@ -347,11 +347,11 @@ _knit_describe_json_param() {
     local inner="${indent}  "
     local dname type desc
     _knit_str_underscores_to_hyphens dname "${param}"
-    desc=$(_knit_param_description "${cmd}" "${param}")
+    _knit_param_description desc "${cmd}" "${param}"
     if [[ "${group}" == "flags" ]]; then
         type="boolean"
     else
-        type=$(_knit_param_type "${cmd}" "${param}")
+        _knit_param_type type "${cmd}" "${param}"
     fi
     local entries=() s e
     _knit_describe_json_str s "${dname}"
@@ -368,7 +368,7 @@ _knit_describe_json_param() {
     fi
     if [[ "${group}" == "optional" ]]; then
         local dflt
-        dflt=$(_knit_param_default "${cmd}" "${param}")
+        _knit_param_default dflt "${cmd}" "${param}"
         _knit_describe_json_str s "${dflt}"
         printf -v e '%s"default": %s' "${inner}" "${s}"; entries+=("${e}")
     fi
@@ -438,8 +438,8 @@ _knit_describe_json_output() {
     local dname type dflt desc
     _knit_str_underscores_to_hyphens dname "${output}"
     _knit_output_type type "${cmd}" "${output}"
-    dflt=$(_knit_output_default "${cmd}" "${output}")
-    desc=$(_knit_output_description "${cmd}" "${output}")
+    _knit_output_default dflt "${cmd}" "${output}"
+    _knit_output_description desc "${cmd}" "${output}"
     local entries=() s e
     _knit_describe_json_str s "${dname}"
     printf -v e '%s"name": %s' "${inner}" "${s}"; entries+=("${e}")
@@ -774,11 +774,11 @@ _knit_describe_yaml_param() {
     local cont="${key}  "
     local dname type desc sc
     _knit_str_underscores_to_hyphens dname "${param}"
-    desc=$(_knit_param_description "${cmd}" "${param}")
+    _knit_param_description desc "${cmd}" "${param}"
     if [[ "${group}" == "flags" ]]; then
         type="boolean"
     else
-        type=$(_knit_param_type "${cmd}" "${param}")
+        _knit_param_type type "${cmd}" "${param}"
     fi
     _knit_describe_yaml_scalar sc "${dname}" "${cont}"
     printf '%s- name: %s\n' "${item_indent}" "${sc}"
@@ -797,7 +797,7 @@ _knit_describe_yaml_param() {
     fi
     if [[ "${group}" == "optional" ]]; then
         local dflt
-        dflt=$(_knit_param_default "${cmd}" "${param}")
+        _knit_param_default dflt "${cmd}" "${param}"
         _knit_describe_yaml_scalar sc "${dflt}" "${cont}"
         printf '%sdefault: %s\n' "${key}" "${sc}"
     fi
@@ -866,8 +866,8 @@ _knit_describe_yaml_output() {
     local dname type dflt desc sc
     _knit_str_underscores_to_hyphens dname "${output}"
     _knit_output_type type "${cmd}" "${output}"
-    dflt=$(_knit_output_default "${cmd}" "${output}")
-    desc=$(_knit_output_description "${cmd}" "${output}")
+    _knit_output_default dflt "${cmd}" "${output}"
+    _knit_output_description desc "${cmd}" "${output}"
     _knit_describe_yaml_scalar sc "${dname}" "${cont}"
     printf '%s- name: %s\n' "${item_indent}" "${sc}"
     _knit_describe_yaml_scalar sc "${type}" "${cont}"
@@ -1096,7 +1096,7 @@ _knit_describe_enum_constraint() {
     local __cmd="$2"
     local __param="$3"
     local __type __resolved
-    __type=$(_knit_param_type "${__cmd}" "${__param}")
+    _knit_param_type __type "${__cmd}" "${__param}"
     __knit_ret=""
     if _knit_type_resolve_alias __resolved "${__type}" \
         && [[ -v _KNIT_ENUMS["${__resolved}"] ]]; then
@@ -1154,7 +1154,7 @@ _knit_describe_default_options() {
 
     local desc dflt when_var ann cons
     while read -r opt; do
-        desc=$(_knit_param_description "${cmd}" "${opt}")
+        _knit_param_description desc "${cmd}" "${opt}"
         _knit_str_underscores_to_hyphens opt2 "${opt}"
         opt2="--${opt2} <value>"
         when_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
@@ -1165,8 +1165,8 @@ _knit_describe_default_options() {
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
     done < <(_knit_set_iter "${req_var}" | sort)
     while read -r opt; do
-        desc=$(_knit_param_description "${cmd}" "${opt}")
-        dflt=$(_knit_param_default "${cmd}" "${opt}")
+        _knit_param_description desc "${cmd}" "${opt}"
+        _knit_param_default dflt "${cmd}" "${opt}"
         _knit_str_underscores_to_hyphens opt2 "${opt}"
         opt2="--${opt2} <value>"
         when_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
@@ -1177,7 +1177,7 @@ _knit_describe_default_options() {
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
     done < <(_knit_set_iter "${opt_var}" | sort)
     while read -r opt; do
-        desc=$(_knit_param_description "${cmd}" "${opt}")
+        _knit_param_description desc "${cmd}" "${opt}"
         _knit_str_underscores_to_hyphens opt2 "${opt}"
         opt2="--${opt2}"
         when_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
@@ -1217,8 +1217,8 @@ _knit_describe_default_outputs() {
     while read -r o; do
         _knit_str_underscores_to_hyphens o2 "${o}"
         _knit_output_type type "${cmd}" "${o}"
-        dflt=$(_knit_output_default "${cmd}" "${o}")
-        desc=$(_knit_output_description "${cmd}" "${o}")
+        _knit_output_default dflt "${cmd}" "${o}"
+        _knit_output_description desc "${cmd}" "${o}"
         printf '%s%-*s  [%s, default: '\''%s'\''] %s\n' \
             "${cind}" "${max}" "${o2}" "${type}" "${dflt}" "${desc}"
     done < <(_knit_set_iter "${outs_var}" | sort)
@@ -1413,8 +1413,8 @@ _knit_describe_md_params() {
     local p type desc dname cons dcell pdflt row c_name c_type c_cons c_desc
     while IFS= read -r p; do
         _knit_str_underscores_to_hyphens dname "${p}"
-        type=$(_knit_param_type "${cmd}" "${p}")
-        desc=$(_knit_param_description "${cmd}" "${p}")
+        _knit_param_type type "${cmd}" "${p}"
+        _knit_param_description desc "${cmd}" "${p}"
         _knit_describe_md_constraints cons "${cmd}" "${p}"
         [[ -z "${cons}" ]] && cons='—'
         _knit_describe_md_code c_name "${dname}"
@@ -1427,11 +1427,11 @@ _knit_describe_md_params() {
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_required" | sort)
     while IFS= read -r p; do
         _knit_str_underscores_to_hyphens dname "${p}"
-        type=$(_knit_param_type "${cmd}" "${p}")
-        desc=$(_knit_param_description "${cmd}" "${p}")
+        _knit_param_type type "${cmd}" "${p}"
+        _knit_param_description desc "${cmd}" "${p}"
         _knit_describe_md_constraints cons "${cmd}" "${p}"
         [[ -z "${cons}" ]] && cons='—'
-        pdflt=$(_knit_param_default "${cmd}" "${p}")
+        _knit_param_default pdflt "${cmd}" "${p}"
         _knit_describe_md_code dcell "${pdflt}"
         _knit_describe_md_code c_name "${dname}"
         _knit_describe_md_cell c_type "${type}"
@@ -1443,7 +1443,7 @@ _knit_describe_md_params() {
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_optional" | sort)
     while IFS= read -r p; do
         _knit_str_underscores_to_hyphens dname "${p}"
-        desc=$(_knit_param_description "${cmd}" "${p}")
+        _knit_param_description desc "${cmd}" "${p}"
         _knit_describe_md_constraints cons "${cmd}" "${p}"
         [[ -z "${cons}" ]] && cons='—'
         _knit_describe_md_code c_name "${dname}"
@@ -1480,8 +1480,8 @@ _knit_describe_md_outputs() {
     while IFS= read -r o; do
         _knit_str_underscores_to_hyphens dname "${o}"
         _knit_output_type type "${cmd}" "${o}"
-        dflt=$(_knit_output_default "${cmd}" "${o}")
-        desc=$(_knit_output_description "${cmd}" "${o}")
+        _knit_output_default dflt "${cmd}" "${o}"
+        _knit_output_description desc "${cmd}" "${o}"
         _knit_describe_md_code dcell "${dflt}"
         _knit_describe_md_code c_name "${dname}"
         _knit_describe_md_cell c_type "${type}"

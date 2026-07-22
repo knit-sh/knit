@@ -187,26 +187,6 @@ teardown() {
     [ "$result" = "my_job" ]
 }
 
-# ---------- _knit_param_description_var / _knit_param_default_var / _knit_param_type_var ----------
-
-@test "_knit_param_description_var returns expected variable name" {
-    local result
-    result=$(_knit_param_description_var "mycmd" "myparam")
-    [ "$result" = "_KNIT_CMD_mycmd_2_myparam_description" ]
-}
-
-@test "_knit_param_default_var returns expected variable name" {
-    local result
-    result=$(_knit_param_default_var "mycmd" "myparam")
-    [ "$result" = "_KNIT_CMD_mycmd_2_myparam_default" ]
-}
-
-@test "_knit_param_type_var returns expected variable name" {
-    local result
-    result=$(_knit_param_type_var "mycmd" "myparam")
-    [ "$result" = "_KNIT_CMD_mycmd_2_myparam_type" ]
-}
-
 # ---------- _knit_param_description / _knit_param_default / _knit_param_type ----------
 
 @test "_knit_param_description returns stored description" {
@@ -214,7 +194,7 @@ teardown() {
     knit_with_optional "value:string" "default_val" "My description."
     knit_done
     local result
-    result=$(_knit_param_description "pd_cmd" "value")
+    _knit_param_description result "pd_cmd" "value"
     [ "$result" = "My description." ]
 }
 
@@ -223,7 +203,7 @@ teardown() {
     knit_with_optional "count:integer" "42" "A count."
     knit_done
     local result
-    result=$(_knit_param_default "pdef_cmd" "count")
+    _knit_param_default result "pdef_cmd" "count"
     [ "$result" = "42" ]
 }
 
@@ -232,7 +212,7 @@ teardown() {
     knit_with_required "count:integer" "A count."
     knit_done
     local result
-    result=$(_knit_param_type "pt_cmd" "count")
+    _knit_param_type result "pt_cmd" "count"
     [ "$result" = "integer" ]
 }
 

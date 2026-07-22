@@ -227,76 +227,35 @@ _knit_param_check_declaration() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_param_description_var()
-#
-# This function prints the name of the variable that contains the description of
-# a parameter for a given command.
-#
-# @param cmd Command to which the parameter belongs (must be mangled).
-# @param param Name of the parameter (must be normalized).
-# ------------------------------------------------------------------------------
-_knit_param_description_var() {
-    local cmd="$1"
-    local param="$2"
-    printf "_KNIT_CMD_%s_2_%s_description" "${cmd}" "${param}"
-}
-
-# ------------------------------------------------------------------------------
 # @fn _knit_param_description()
 #
-# This function prints the description of a parameter for a given command.
+# This function returns the description of a parameter for a given command.
 #
+# @param __knit_ret Name of the variable to hold the description.
 # @param cmd Command to which the parameter belongs (must be mangled).
 # @param param Name of the parameter (must be normalized).
 # ------------------------------------------------------------------------------
 _knit_param_description() {
-    local description_var
-    description_var=$(_knit_param_description_var "$@")
-    printf "%s" "${!description_var}"
-}
-
-# ------------------------------------------------------------------------------
-# @fn _knit_param_default_var()
-#
-# This function prints the name of the variable that contains the default value
-# of a parameter for a given command.
-#
-# @param cmd Command to which the parameter belongs (must be mangled).
-# @param param Name of the parameter (must be normalized).
-# ------------------------------------------------------------------------------
-_knit_param_default_var() {
-    local cmd="$1"
-    local param="$2"
-    printf "_KNIT_CMD_%s_2_%s_default" "${cmd}" "${param}"
-}
-
-# ------------------------------------------------------------------------------
-# @fn _knit_param_type_var()
-#
-# This function prints the name of the variable that contains the type of a
-# parameter for a given command.
-#
-# @param cmd Command to which the parameter belongs (must be mangled).
-# @param param Name of the parameter (must be normalized).
-# ------------------------------------------------------------------------------
-_knit_param_type_var() {
-    local cmd="$1"
-    local param="$2"
-    printf "_KNIT_CMD_%s_2_%s_type" "${cmd}" "${param}"
+    local -n __knit_ret=$1
+    # Build the backing variable name inline (mirrors the registration scheme)
+    # so this stays fork-free on the describe hot path.
+    local __var="_KNIT_CMD_${2}_2_${3}_description"
+    __knit_ret="${!__var}"
 }
 
 # ------------------------------------------------------------------------------
 # @fn _knit_param_default()
 #
-# This function prints the default value of a parameter for a given command.
+# This function returns the default value of a parameter for a given command.
 #
+# @param __knit_ret Name of the variable to hold the default value.
 # @param cmd Command to which the parameter belongs (must be mangled).
 # @param param Name of the parameter (must be normalized).
 # ------------------------------------------------------------------------------
 _knit_param_default() {
-    local default_var
-    default_var=$(_knit_param_default_var "$@")
-    printf "%s" "${!default_var}"
+    local -n __knit_ret=$1
+    local __var="_KNIT_CMD_${2}_2_${3}_default"
+    __knit_ret="${!__var}"
 }
 
 # ------------------------------------------------------------------------------
@@ -324,88 +283,46 @@ _knit_resolve_default() {
 # ------------------------------------------------------------------------------
 # @fn _knit_param_type()
 #
-# This function prints the type of a parameter for a given command.
+# This function returns the type of a parameter for a given command.
 #
+# @param __knit_ret Name of the variable to hold the type.
 # @param cmd Command to which the parameter belongs (must be mangled).
 # @param param Name of the parameter (must be normalized).
 # ------------------------------------------------------------------------------
 _knit_param_type() {
-    local type_var
-    type_var=$(_knit_param_type_var "$@")
-    printf "%s" "${!type_var}"
-}
-
-# ------------------------------------------------------------------------------
-# @fn _knit_output_description_var()
-#
-# This function prints the name of the variable that contains the description
-# of an output for a given command.
-#
-# @param cmd Command to which the output belongs (must be mangled).
-# @param output Name of the output (must be normalized).
-# ------------------------------------------------------------------------------
-_knit_output_description_var() {
-    local cmd="$1"
-    local output="$2"
-    printf "_KNIT_CMD_%s_3_%s_description" "${cmd}" "${output}"
+    local -n __knit_ret=$1
+    local __var="_KNIT_CMD_${2}_2_${3}_type"
+    __knit_ret="${!__var}"
 }
 
 # ------------------------------------------------------------------------------
 # @fn _knit_output_description()
 #
-# This function prints the description of an output for a given command.
+# This function returns the description of an output for a given command.
 #
+# @param __knit_ret Name of the variable to hold the description.
 # @param cmd Command to which the output belongs (must be mangled).
 # @param output Name of the output (must be normalized).
 # ------------------------------------------------------------------------------
 _knit_output_description() {
-    local description_var
-    description_var=$(_knit_output_description_var "$@")
-    printf "%s" "${!description_var}"
-}
-
-# ------------------------------------------------------------------------------
-# @fn _knit_output_default_var()
-#
-# This function prints the name of the variable that contains the default value
-# of an output for a given command.
-#
-# @param cmd Command to which the output belongs (must be mangled).
-# @param output Name of the output (must be normalized).
-# ------------------------------------------------------------------------------
-_knit_output_default_var() {
-    local cmd="$1"
-    local output="$2"
-    printf "_KNIT_CMD_%s_3_%s_default" "${cmd}" "${output}"
+    local -n __knit_ret=$1
+    local __var="_KNIT_CMD_${2}_3_${3}_description"
+    __knit_ret="${!__var}"
 }
 
 # ------------------------------------------------------------------------------
 # @fn _knit_output_default()
 #
-# This function prints the default value of an output for a given command.
+# This function returns the default value of an output for a given command.
 #
+# @param __knit_ret Name of the variable to hold the default value.
 # @param cmd Command to which the output belongs (must be mangled).
 # @param output Name of the output (must be normalized).
 # ------------------------------------------------------------------------------
 _knit_output_default() {
-    local default_var
-    default_var=$(_knit_output_default_var "$@")
-    printf "%s" "${!default_var}"
-}
-
-# ------------------------------------------------------------------------------
-# @fn _knit_output_type_var()
-#
-# This function prints the name of the variable that contains the type of an
-# output for a given command.
-#
-# @param cmd Command to which the output belongs (must be mangled).
-# @param output Name of the output (must be normalized).
-# ------------------------------------------------------------------------------
-_knit_output_type_var() {
-    local cmd="$1"
-    local output="$2"
-    printf "_KNIT_CMD_%s_3_%s_type" "${cmd}" "${output}"
+    local -n __knit_ret=$1
+    local __var="_KNIT_CMD_${2}_3_${3}_default"
+    __knit_ret="${!__var}"
 }
 
 # ------------------------------------------------------------------------------
@@ -419,8 +336,9 @@ _knit_output_type_var() {
 # ------------------------------------------------------------------------------
 _knit_output_type() {
     local -n __knit_ret=$1
-    # Mirror _knit_output_type_var's scheme inline so this stays fork-free on the
-    # describe hot path (it is iterated over every output of every command).
+    # Build the backing variable name inline (mirrors the registration scheme)
+    # so this stays fork-free on the describe hot path (it is iterated over
+    # every output of every command).
     local __type_var="_KNIT_CMD_${2}_3_${3}_type"
     __knit_ret="${!__type_var}"
 }
@@ -1056,16 +974,10 @@ knit_with_output() {
     if _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${output}"; then
         knit_fatal "Output \"${param_name}\" already declared for \"${demangled_cmd}\"."
     fi
-    local description_var
-    description_var=$(_knit_output_description_var "${cmd}" "${output}")
-    local default_var
-    default_var=$(_knit_output_default_var "${cmd}" "${output}")
-    local type_var
-    type_var=$(_knit_output_type_var "${cmd}" "${output}")
     knit_trace "Adding output \"${param_name}\" (type: ${param_type}) to command \"${demangled_cmd}\"."
-    printf -v "${description_var}" '%s' "$3"
-    printf -v "${default_var}"     '%s' "$2"
-    printf -v "${type_var}"        '%s' "${param_type}"
+    printf -v "_KNIT_CMD_${cmd}_3_${output}_description" '%s' "$3"
+    printf -v "_KNIT_CMD_${cmd}_3_${output}_default"     '%s' "$2"
+    printf -v "_KNIT_CMD_${cmd}_3_${output}_type"        '%s' "${param_type}"
     _knit_set_add "_KNIT_CMD_${cmd}_outputs" "${output}"
 }
 
@@ -1305,7 +1217,7 @@ _knit_check_argument_type() {
     local name="$3"
     local value="$4"
     local param_type
-    param_type=$(_knit_param_type "${cmd}" "${name}")
+    _knit_param_type param_type "${cmd}" "${name}"
     if [[ -z "${param_type}" ]] || knit_type_check "${param_type}" "${value}"; then
         return 0
     fi
@@ -1463,7 +1375,7 @@ _knit_expand_command_arguments() {
             continue
         fi
         local default_value
-        default_value=$(_knit_param_default "${cmd}" "${option}")
+        _knit_param_default default_value "${cmd}" "${option}"
         # Resolve an "ENV[NAME]" default against the current environment (see
         # _knit_resolve_default); ordinary defaults are returned unchanged.
         default_value=$(_knit_resolve_default "${default_value}")
@@ -1554,7 +1466,7 @@ _knit_print_options_block() {
         printf "  %-${max_opt_length}s  %s\n" "--help" "Print this help message and exit."
     fi
     while read -r opt; do
-        description=$(_knit_param_description "${cmd}" "${opt}")
+        _knit_param_description description "${cmd}" "${opt}"
         _knit_str_underscores_to_hyphens opt2 "${opt}"
         opt2="--${opt2}"
         local when_raw_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
@@ -1565,8 +1477,8 @@ _knit_print_options_block() {
         printf "  %-${max_opt_length}s  [%s] %s\n" "${opt2} <value>" "${annotation}" "${description}"
     done < <(_knit_set_iter "${required_args_varname}")
     while read -r opt; do
-        description=$(_knit_param_description "${cmd}" "${opt}")
-        default=$(_knit_param_default "${cmd}" "${opt}")
+        _knit_param_description description "${cmd}" "${opt}"
+        _knit_param_default default "${cmd}" "${opt}"
         _knit_str_underscores_to_hyphens opt2 "${opt}"
         opt2="--${opt2}"
         local when_raw_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
@@ -1577,7 +1489,7 @@ _knit_print_options_block() {
         printf "  %-${max_opt_length}s  [%s] %s\n" "${opt2} <value>" "${annotation}" "${description}"
     done < <(_knit_set_iter "${optional_args_varname}")
     while read -r opt; do
-        description=$(_knit_param_description "${cmd}" "${opt}")
+        _knit_param_description description "${cmd}" "${opt}"
         _knit_str_underscores_to_hyphens opt2 "${opt}"
         opt2="--${opt2}"
         local when_raw_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
@@ -2041,9 +1953,8 @@ knit_output() {
     if ! _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${normalized}"; then
         knit_fatal "\"${name}\" is not a declared output of command \"${demangled_cmd}\"."
     fi
-    local type_var
-    type_var=$(_knit_output_type_var "${cmd}" "${normalized}")
-    local type="${!type_var}"
+    local type
+    _knit_output_type type "${cmd}" "${normalized}"
     if ! knit_type_check "${type}" "${value}"; then
         knit_fatal "Output \"${name}\" expects type \"${type}\" but got \"${value}\"."
     fi

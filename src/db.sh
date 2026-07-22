@@ -518,14 +518,12 @@ _knit_db_record_invocation() {
         # default.
         # shellcheck disable=SC2178 # nameref to the command's output-value array
         local -n outvals="_KNIT_CMD_${cmd}_output_value"
-        local default_var
         while IFS= read -r name; do
             [[ -z "${name}" ]] && continue
             if [[ -v outvals["${name}"] ]]; then
                 value="${outvals["${name}"]}"
             else
-                default_var=$(_knit_output_default_var "${cmd}" "${name}")
-                value="${!default_var}"
+                _knit_output_default value "${cmd}" "${name}"
             fi
             _knit_db_sql_ident col_ident "${name}"
             cols+=("${col_ident}")
