@@ -24,6 +24,19 @@ declare -gA _KNIT_DESCRIBE_FILTERS
 declare -gA _KNIT_DESCRIBE_ONLY
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_DESCRIBE_CHILDREN
+#
+# Parent-to-children adjacency map for the current "describe" invocation, built
+# once by _knit_describe_build_children_map and read by _knit_describe_children.
+# Each key is a mangled parent command name (or the empty string for the
+# top-level commands); each value is the newline-terminated, sorted list of that
+# parent's direct children. Building it once turns the command-tree walk from
+# O(N^2) (every node re-scanning every command) into O(N), and replaces the
+# per-call "sort" fork with a single sort at build time.
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_DESCRIBE_CHILDREN
+
+# ------------------------------------------------------------------------------
 # @fn _knit_describe_json_escape()
 #
 # Escape a string so it can be embedded inside a JSON string literal, without any
@@ -135,23 +148,42 @@ _knit_describe_emit_array() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_describe_build_children_map()
+#
+# Populate _KNIT_DESCRIBE_CHILDREN for the current invocation: bucket every
+# registered command under its parent. The full command set is sorted once, so
+# each parent's bucket ends up in sorted order without a per-bucket sort, and the
+# only "sort" fork is this single one. Callers (via _knit_describe_children) then
+# read a parent's children with a plain array lookup — no per-node re-scan.
+# ------------------------------------------------------------------------------
+_knit_describe_build_children_map() {
+    _KNIT_DESCRIBE_CHILDREN=()
+    local c p
+    while IFS= read -r c; do
+        _knit_command_get_parents p "${c}"
+        # A "@" prefix keeps the subscript non-empty: the top-level parent is the
+        # empty string, which bash rejects as an associative-array subscript.
+        _KNIT_DESCRIBE_CHILDREN["@${p}"]+="${c}"$'\n'
+    done < <(_knit_set_iter _KNIT_COMMANDS | sort)
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_describe_children()
 #
-# Print the mangled names of the direct children of a command, sorted for a
-# stable order. The parent is given as a mangled name, or the empty string to
-# list the top-level (root) commands.
+# Print the mangled names of the direct children of a command, one per line,
+# sorted for a stable order. The parent is given as a mangled name, or the empty
+# string to list the top-level (root) commands. This reads the _KNIT_DESCRIBE_CHILDREN
+# map, building it on first use if it is empty, so the traversal helpers can be
+# called directly (e.g. in tests) without going through _knit_describe. In the
+# normal command path _knit_describe clears the map when it finishes, so each
+# invocation rebuilds it and never sees a stale tree.
 #
 # @param parent Mangled parent command name, or "" for top-level commands.
 # ------------------------------------------------------------------------------
 _knit_describe_children() {
     local parent="$1"
-    local c p
-    while IFS= read -r c; do
-        _knit_command_get_parents p "${c}"
-        if [[ "${p}" == "${parent}" ]]; then
-            printf '%s\n' "${c}"
-        fi
-    done < <(_knit_set_iter _KNIT_COMMANDS | sort)
+    (( ${#_KNIT_DESCRIBE_CHILDREN[@]} == 0 )) && _knit_describe_build_children_map
+    printf '%s' "${_KNIT_DESCRIBE_CHILDREN[@${parent}]:-}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1635,11 +1667,18 @@ _knit_describe() {
     format=$(knit_get_parameter format "$@") || format="default"
     output=$(knit_get_parameter output "$@") || output=""
     _knit_describe_read_filters "$@"
+    local rc=0
     if [[ -n "${output}" ]]; then
-        _knit_describe_emit "${format}" "$@" > "${output}"
+        _knit_describe_emit "${format}" "$@" > "${output}" || rc=$?
     else
-        _knit_describe_emit "${format}" "$@"
+        _knit_describe_emit "${format}" "$@" || rc=$?
     fi
+    # Drop the parent->children map so a later invocation in the same shell (e.g.
+    # after more commands are registered) rebuilds it from scratch on first use.
+    # Preserve the emit status: the map clear must not mask a redirect failure
+    # (e.g. an unwritable --output path).
+    _KNIT_DESCRIBE_CHILDREN=()
+    return "${rc}"
 }
 
 knit_define_enum "describe_format" \
