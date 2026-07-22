@@ -82,12 +82,30 @@ setup() {
     done
 }
 
-@test "iterating over a set" {
+@test "iterating over a set yields insertion order" {
     _knit_set_new MY_SET
-    _knit_set_add MY_SET "Matthieu" "Rob" "Phil"
+    _knit_set_add MY_SET "zebra" "apple" "mango"
     local result
-    result=$(_knit_set_iter MY_SET | sort)
-    [ "$result" = "$(printf 'Matthieu\nPhil\nRob')" ]
+    result=$(_knit_set_iter MY_SET)
+    [ "$result" = "$(printf 'zebra\napple\nmango')" ]
+}
+
+@test "duplicates do not change iteration order" {
+    _knit_set_new MY_SET
+    _knit_set_add MY_SET "zebra" "apple"
+    _knit_set_add MY_SET "apple" "mango" "zebra"
+    local result
+    result=$(_knit_set_iter MY_SET)
+    [ "$result" = "$(printf 'zebra\napple\nmango')" ]
+}
+
+@test "insertion order is preserved on a set declared with declare -gA" {
+    # No _knit_set_new: the order array must be created lazily by _knit_set_add.
+    declare -gA MY_DIRECT_SET
+    _knit_set_add MY_DIRECT_SET "gamma" "alpha" "beta"
+    local result
+    result=$(_knit_set_iter MY_DIRECT_SET)
+    [ "$result" = "$(printf 'gamma\nalpha\nbeta')" ]
 }
 
 @test "iterating over an empty set produces no output" {
@@ -95,6 +113,58 @@ setup() {
     local result
     result=$(_knit_set_iter MY_SET)
     [ -z "$result" ]
+}
+
+@test "_knit_set_array returns elements in insertion order" {
+    _knit_set_new MY_SET
+    _knit_set_add MY_SET "zebra" "apple" "mango"
+    local -a result
+    _knit_set_array result MY_SET
+    [ "${#result[@]}" -eq 3 ]
+    [ "${result[0]}" = "zebra" ]
+    [ "${result[1]}" = "apple" ]
+    [ "${result[2]}" = "mango" ]
+}
+
+@test "_knit_set_array on an empty set yields an empty array" {
+    _knit_set_new MY_SET
+    local -a result=("stale")
+    _knit_set_array result MY_SET
+    [ "${#result[@]}" -eq 0 ]
+}
+
+@test "_knit_set_array on a single-element set" {
+    _knit_set_new MY_SET
+    _knit_set_add MY_SET "only"
+    local -a result
+    _knit_set_array result MY_SET
+    [ "${#result[@]}" -eq 1 ]
+    [ "${result[0]}" = "only" ]
+}
+
+@test "removal keeps the order array consistent" {
+    _knit_set_new MY_SET
+    _knit_set_add MY_SET "zebra" "apple" "mango" "kiwi"
+    _knit_set_remove MY_SET "apple"
+    local result
+    result=$(_knit_set_iter MY_SET)
+    [ "$result" = "$(printf 'zebra\nmango\nkiwi')" ]
+    # Re-adding a removed element appends it at the end.
+    _knit_set_add MY_SET "apple"
+    result=$(_knit_set_iter MY_SET)
+    [ "$result" = "$(printf 'zebra\nmango\nkiwi\napple')" ]
+}
+
+@test "removing all elements leaves an empty ordered set" {
+    _knit_set_new MY_SET
+    _knit_set_add MY_SET "zebra" "apple"
+    _knit_set_remove MY_SET "zebra" "apple"
+    local -a result
+    _knit_set_array result MY_SET
+    [ "${#result[@]}" -eq 0 ]
+    local iter
+    iter=$(_knit_set_iter MY_SET)
+    [ -z "$iter" ]
 }
 
 @test "finding an element that is not in a set" {

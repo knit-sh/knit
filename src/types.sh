@@ -128,7 +128,7 @@ knit_type_exists() {
 knit_define_enum() {
     local name="$1"
     shift
-    _KNIT_ENUMS["${name}"]=1
+    _knit_set_add _KNIT_ENUMS "${name}"
     _KNIT_LAST_ENUM="${name}"
     _knit_set_new "_KNIT_ENUM_${name}"
     _knit_set_add "_KNIT_ENUM_${name}" "$@"
