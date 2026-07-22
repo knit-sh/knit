@@ -8,6 +8,14 @@
 declare -gA _KNIT_COMMANDS
 
 # ------------------------------------------------------------------------------
+# Top-level commands (those with no parent), in registration order. Together
+# with the per-command "_KNIT_CMD_<cmd>_subcommands" arrays this forms an
+# explicit command-tree adjacency so help/describe can traverse the tree in
+# declaration order without deriving it from prefix-matching _KNIT_COMMANDS.
+# ------------------------------------------------------------------------------
+declare -ga _KNIT_ROOT_COMMANDS=()
+
+# ------------------------------------------------------------------------------
 # Set of defined parameter set names (normalized).
 # ------------------------------------------------------------------------------
 declare -gA _KNIT_PARAMETER_SETS
@@ -415,6 +423,20 @@ knit_register() {
         knit_fatal "Command \"${demangled_cmd}\" is already registered."
     fi
     _knit_set_add _KNIT_COMMANDS "${cmd}"
+    # Record the command in the tree adjacency (registration order). Every
+    # command gets an empty children array; each non-root command is appended to
+    # its parent's array (which exists because the parent was registered first,
+    # enforced above), and each root command to _KNIT_ROOT_COMMANDS. "__main__"
+    # is the tree container itself, so it is not listed as a root command.
+    declare -ga "_KNIT_CMD_${cmd}_subcommands=()"
+    if [[ "${cmd}" != "__main__" ]]; then
+        if [[ -n "${parent_cmd}" ]]; then
+            local -n _knit_parent_subs="_KNIT_CMD_${parent_cmd}_subcommands"
+            _knit_parent_subs+=("${cmd}")
+        else
+            _KNIT_ROOT_COMMANDS+=("${cmd}")
+        fi
+    fi
     _knit_set_new "_KNIT_CMD_${cmd}_required"
     _knit_set_new "_KNIT_CMD_${cmd}_optional"
     _knit_set_new "_KNIT_CMD_${cmd}_flags"
@@ -1576,44 +1598,28 @@ _knit_print_command_usage() {
     local subcommands_full=()
     local max_subcommand_len=0
     local c
-    if [[ "${cmd}" != "__main__" ]]; then # non-root command
-        while read -r c; do
-            local hidden_var_name="_KNIT_CMD_${c}_is_hidden"
-            if [[ "${!hidden_var_name}" == "true" ]]; then
-                continue
-            fi
-            if [[ "${c}" == "${cmd}" ]]; then
-                continue
-            fi
-            if [[ "${c:0:${#cmd}}" != "$cmd" ]]; then
-                continue
-            fi
-            local name="${c:$((${#cmd}+5))}"
-            if [[ "${name}" =~ "__1__" ]]; then
-                continue
-            fi
-            subcommands+=("${name}")
-            subcommands_full+=("${c}")
-            if ((max_subcommand_len < ${#name})); then
-                max_subcommand_len=${#name}
-            fi
-        done < <(_knit_set_iter _KNIT_COMMANDS)
-    else # root command
-        while read -r c; do
-            local hidden_var_name="_KNIT_CMD_${c}_is_hidden"
-            if [[ "${!hidden_var_name}" == "true" ]]; then
-                continue
-            fi
-            if [[ "${c}" =~ "__1__" ]]; then
-                continue
-            fi
-            subcommands+=("${c}")
-            subcommands_full+=("${c}")
-            if ((max_subcommand_len < ${#c})); then
-                max_subcommand_len=${#c}
-            fi
-        done < <(_knit_set_iter _KNIT_COMMANDS)
+    # The direct children come straight from the tree adjacency, in registration
+    # order: the root commands for "__main__", else the command's own list.
+    local children_var
+    if [[ "${cmd}" == "__main__" ]]; then
+        children_var="_KNIT_ROOT_COMMANDS"
+    else
+        children_var="_KNIT_CMD_${cmd}_subcommands"
     fi
+    local -n children_ref="${children_var}"
+    for c in "${children_ref[@]}"; do
+        local hidden_var_name="_KNIT_CMD_${c}_is_hidden"
+        if [[ "${!hidden_var_name}" == "true" ]]; then
+            continue
+        fi
+        local name
+        _knit_command_get_last name "${c}"
+        subcommands+=("${name}")
+        subcommands_full+=("${c}")
+        if ((max_subcommand_len < ${#name})); then
+            max_subcommand_len=${#name}
+        fi
+    done
     if [ "${#subcommands[@]}" -gt "0" ]; then
         local sub_name="_KNIT_CMD_${cmd}_sucommand_title"
         sub_name=${!sub_name}
