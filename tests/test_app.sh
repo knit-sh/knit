@@ -21,7 +21,7 @@ teardown() {
 }
 
 @test "run command uses the \"Apps\" subcommand title" {
-    [ "${_KNIT_CMD_run_sucommand_title}" = "Apps" ]
+    [ "${_KNIT_CMD_run_subcommand_title}" = "Apps" ]
 }
 
 @test "run command is a dispatcher with the \"app\" placeholder" {

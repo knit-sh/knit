@@ -22,7 +22,7 @@ teardown() {
 }
 
 @test "submit command uses the \"Jobs\" subcommand title" {
-    [ "${_KNIT_CMD_submit_sucommand_title}" = "Jobs" ]
+    [ "${_KNIT_CMD_submit_subcommand_title}" = "Jobs" ]
 }
 
 # ---------- knit_register_job ----------

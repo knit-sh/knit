@@ -453,7 +453,7 @@ knit_register() {
     declare -ga "_KNIT_CMD_${cmd}_before_cb"
     declare -ga "_KNIT_CMD_${cmd}_after_cb"
     declare -ga "_KNIT_CMD_${cmd}_notes"
-    printf -v "_KNIT_CMD_${cmd}_sucommand_title" '%s' 'Subcommands'
+    printf -v "_KNIT_CMD_${cmd}_subcommand_title" '%s' 'Subcommands'
     _KNIT_DONE_CBS=()
     _KNIT_CURRENT_FUNCTION="${name}"
     _KNIT_CURRENT_COMMAND="${cmd}"
@@ -696,7 +696,7 @@ knit_with_subcommand_title() {
     fi
     knit_trace "Changing subcommand title from '${_KNIT_CURRENT_COMMAND_DEMANGLED}' to '$1'."
     local cmd="${_KNIT_CURRENT_COMMAND}"
-    printf -v "_KNIT_CMD_${cmd}_sucommand_title" '%s' "$1"
+    printf -v "_KNIT_CMD_${cmd}_subcommand_title" '%s' "$1"
 }
 
 # ------------------------------------------------------------------------------
@@ -1621,7 +1621,7 @@ _knit_print_command_usage() {
         fi
     done
     if [ "${#subcommands[@]}" -gt "0" ]; then
-        local sub_name="_KNIT_CMD_${cmd}_sucommand_title"
+        local sub_name="_KNIT_CMD_${cmd}_subcommand_title"
         sub_name=${!sub_name}
         local hrule
         printf -v hrule "%*s" "${#sub_name}" ""

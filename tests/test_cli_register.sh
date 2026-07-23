@@ -122,7 +122,7 @@ teardown() {
     knit_register knit_empty "sct_cmd" "Test."
     knit_with_subcommand_title "My Operations"
     knit_done
-    [ "${_KNIT_CMD_sct_cmd_sucommand_title}" = "My Operations" ]
+    [ "${_KNIT_CMD_sct_cmd_subcommand_title}" = "My Operations" ]
 }
 
 @test "knit_with_subcommand_title fails outside of knit_register" {
