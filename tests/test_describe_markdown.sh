@@ -103,7 +103,7 @@ _register_fixture() {
 @test "an enum parameter inlines its values and a when clause in Constraints" {
     run knit describe --format markdown --only greet
     [ "$status" -eq 0 ]
-    [[ "${output}" == *'one of: blue, green, red; when: `count > 1`'* ]]
+    [[ "${output}" == *'one of: red, green, blue; when: `count > 1`'* ]]
 }
 
 # ---------- outputs table ----------

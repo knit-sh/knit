@@ -143,7 +143,7 @@ _require_yq() {
 @test "an enum type inlines its values as a flow sequence" {
     run _knit_describe_yaml
     [ "$status" -eq 0 ]
-    [[ "${output}" == *'enum: [blue, green, red]'* ]]
+    [[ "${output}" == *'enum: [red, green, blue]'* ]]
 }
 
 @test "a --when constraint is emitted as a plain scalar" {

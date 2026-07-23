@@ -24,19 +24,6 @@ declare -gA _KNIT_DESCRIBE_FILTERS
 declare -gA _KNIT_DESCRIBE_ONLY
 
 # ------------------------------------------------------------------------------
-# @var _KNIT_DESCRIBE_CHILDREN
-#
-# Parent-to-children adjacency map for the current "describe" invocation, built
-# once by _knit_describe_build_children_map and read by _knit_describe_children.
-# Each key is a mangled parent command name (or the empty string for the
-# top-level commands); each value is the newline-terminated, sorted list of that
-# parent's direct children. Building it once turns the command-tree walk from
-# O(N^2) (every node re-scanning every command) into O(N), and replaces the
-# per-call "sort" fork with a single sort at build time.
-# ------------------------------------------------------------------------------
-declare -gA _KNIT_DESCRIBE_CHILDREN
-
-# ------------------------------------------------------------------------------
 # @fn _knit_describe_json_escape()
 #
 # Escape a string so it can be embedded inside a JSON string literal, without any
@@ -148,42 +135,33 @@ _knit_describe_emit_array() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_describe_build_children_map()
-#
-# Populate _KNIT_DESCRIBE_CHILDREN for the current invocation: bucket every
-# registered command under its parent. The full command set is sorted once, so
-# each parent's bucket ends up in sorted order without a per-bucket sort, and the
-# only "sort" fork is this single one. Callers (via _knit_describe_children) then
-# read a parent's children with a plain array lookup — no per-node re-scan.
-# ------------------------------------------------------------------------------
-_knit_describe_build_children_map() {
-    _KNIT_DESCRIBE_CHILDREN=()
-    local c p
-    while IFS= read -r c; do
-        _knit_command_get_parents p "${c}"
-        # A "@" prefix keeps the subscript non-empty: the top-level parent is the
-        # empty string, which bash rejects as an associative-array subscript.
-        _KNIT_DESCRIBE_CHILDREN["@${p}"]+="${c}"$'\n'
-    done < <(_knit_set_iter _KNIT_COMMANDS | sort)
-}
-
-# ------------------------------------------------------------------------------
 # @fn _knit_describe_children()
 #
-# Print the mangled names of the direct children of a command, one per line,
-# sorted for a stable order. The parent is given as a mangled name, or the empty
-# string to list the top-level (root) commands. This reads the _KNIT_DESCRIBE_CHILDREN
-# map, building it on first use if it is empty, so the traversal helpers can be
-# called directly (e.g. in tests) without going through _knit_describe. In the
-# normal command path _knit_describe clears the map when it finishes, so each
-# invocation rebuilds it and never sees a stale tree.
+# Return the mangled names of the direct children of a command as an array, in
+# registration (declaration) order. The parent is given as a mangled name, or
+# the empty string to list the top-level (root) commands. This reads the command
+# tree adjacency built at registration time (_KNIT_ROOT_COMMANDS and the
+# per-command "_KNIT_CMD_<cmd>_subcommands" arrays), so it is fork-free and needs
+# no per-invocation build/teardown.
 #
+# @param __knit_ret Name of the array variable to populate (nameref output).
 # @param parent Mangled parent command name, or "" for top-level commands.
 # ------------------------------------------------------------------------------
 _knit_describe_children() {
+    # The output nameref is an indexed array. The sibling describe helpers all use
+    # the conventional "__knit_ret" name for scalar (string) outputs; reusing it
+    # here would make shellcheck infer "__knit_ret" as an array file-wide and warn
+    # on every scalar use, so this one array output gets a distinct reserved name.
+    # shellcheck disable=SC2178 # nameref to indexed array
+    local -n __knit_ret_children=$1; shift
     local parent="$1"
-    (( ${#_KNIT_DESCRIBE_CHILDREN[@]} == 0 )) && _knit_describe_build_children_map
-    printf '%s' "${_KNIT_DESCRIBE_CHILDREN[@${parent}]:-}"
+    if [[ -z "${parent}" ]]; then
+        __knit_ret_children=("${_KNIT_ROOT_COMMANDS[@]}")
+    else
+        # shellcheck disable=SC2178 # nameref to indexed array
+        local -n __knit_children_ref="_KNIT_CMD_${parent}_subcommands"
+        __knit_ret_children=("${__knit_children_ref[@]}")
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -274,10 +252,12 @@ _knit_describe_should_emit() {
     # Not selected: keep the command only as a container for a selected
     # descendant. The command is not in the selection here, so the ancestor flag
     # passed down is unchanged.
+    local -a __children
+    _knit_describe_children __children "${cmd}"
     local c
-    while IFS= read -r c; do
+    for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "${sel_ancestor}" && return 0
-    done < <(_knit_describe_children "${cmd}")
+    done
     return 1
 }
 
@@ -315,12 +295,14 @@ _knit_describe_enum_values_json() {
     local -n __knit_ret=$1
     local __name="$2"
     local __out='[' __first=1 __v __s
-    while IFS= read -r __v; do
+    local -a __vals
+    _knit_set_array __vals "_KNIT_ENUM_${__name}"
+    for __v in "${__vals[@]}"; do
         (( __first )) || __out+=', '
         _knit_describe_json_str __s "${__v}"
         __out+="${__s}"
         __first=0
-    done < <(knit_enum_values "${__name}" | sort)
+    done
     __out+=']'
     __knit_ret="${__out}"
 }
@@ -399,15 +381,19 @@ _knit_describe_json_params() {
     local elem="${inner}  "
     local p
     local req=() opt=() flg=()
-    while IFS= read -r p; do
+    local -a __items
+    _knit_set_array __items "_KNIT_CMD_${cmd}_required"
+    for p in "${__items[@]}"; do
         req+=("$(_knit_describe_json_param "${cmd}" required "${p}" "${elem}")")
-    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_required" | sort)
-    while IFS= read -r p; do
+    done
+    _knit_set_array __items "_KNIT_CMD_${cmd}_optional"
+    for p in "${__items[@]}"; do
         opt+=("$(_knit_describe_json_param "${cmd}" optional "${p}" "${elem}")")
-    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_optional" | sort)
-    while IFS= read -r p; do
+    done
+    _knit_set_array __items "_KNIT_CMD_${cmd}_flags"
+    for p in "${__items[@]}"; do
         flg+=("$(_knit_describe_json_param "${cmd}" flags "${p}" "${elem}")")
-    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_flags" | sort)
+    done
     local entries=()
     entries+=("$(printf '%s"required": ' "${inner}"; _knit_describe_emit_array "${inner}" "${req[@]}")")
     entries+=("$(printf '%s"optional": ' "${inner}"; _knit_describe_emit_array "${inner}" "${opt[@]}")")
@@ -467,9 +453,11 @@ _knit_describe_json_outputs() {
     local indent="$2"
     local elem="${indent}  "
     local items=() o
-    while IFS= read -r o; do
+    local -a __items
+    _knit_set_array __items "_KNIT_CMD_${cmd}_outputs"
+    for o in "${__items[@]}"; do
         items+=("$(_knit_describe_json_output "${cmd}" "${o}" "${elem}")")
-    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
+    done
     _knit_describe_emit_array "${indent}" "${items[@]}"
 }
 
@@ -524,11 +512,13 @@ _knit_describe_json_command() {
 
     local child_sel_ancestor="${sel_ancestor}"
     _knit_set_find _KNIT_DESCRIBE_ONLY "${cmd}" && child_sel_ancestor="true"
+    local -a __children
+    _knit_describe_children __children "${cmd}"
     local subs=() c
-    while IFS= read -r c; do
+    for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "${child_sel_ancestor}" || continue
         subs+=("$(_knit_describe_json_command "${c}" "${inner}  " "${child_sel_ancestor}")")
-    done < <(_knit_describe_children "${cmd}")
+    done
 
     local entries=() e
     _knit_describe_json_str s "${name}"
@@ -574,12 +564,14 @@ _knit_describe_json_enums() {
     local indent="$1"
     local inner="${indent}  "
     local entries=() name s vals e
-    while IFS= read -r name; do
+    local -a __enums
+    _knit_set_array __enums _KNIT_ENUMS
+    for name in "${__enums[@]}"; do
         _knit_set_find _KNIT_BUILTIN_ENUMS "${name}" && continue
         _knit_describe_json_str s "${name}"
         _knit_describe_enum_values_json vals "${name}"
         printf -v e '%s%s: %s' "${inner}" "${s}" "${vals}"; entries+=("${e}")
-    done < <(_knit_set_iter _KNIT_ENUMS | sort)
+    done
     _knit_describe_emit_object "${indent}" "${entries[@]}"
 }
 
@@ -592,11 +584,13 @@ _knit_describe_json_enums() {
 # map of user-defined enums.
 # ------------------------------------------------------------------------------
 _knit_describe_json() {
+    local -a __children
+    _knit_describe_children __children ""
     local roots=() c
-    while IFS= read -r c; do
+    for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "false" || continue
         roots+=("$(_knit_describe_json_command "${c}" "    " "false")")
-    done < <(_knit_describe_children "")
+    done
 
     local entries=() s e
     _knit_describe_json_str s "${KNIT_VERSION}"
@@ -788,9 +782,8 @@ _knit_describe_yaml_param() {
         local resolved
         if _knit_type_resolve_alias resolved "${type}" \
             && [[ -v _KNIT_ENUMS["${resolved}"] ]]; then
-            local vals=() v fs
-            while IFS= read -r v; do vals+=("${v}"); done \
-                < <(knit_enum_values "${resolved}" | sort)
+            local vals fs
+            _knit_set_array vals "_KNIT_ENUM_${resolved}"
             _knit_describe_yaml_flow_seq fs "${vals[@]}"
             printf '%senum: %s\n' "${key}" "${fs}"
         fi
@@ -827,9 +820,7 @@ _knit_describe_yaml_params() {
     local grp p
     local -a names
     for grp in required optional flags; do
-        names=()
-        while IFS= read -r p; do names+=("${p}"); done \
-            < <(_knit_set_iter "_KNIT_CMD_${cmd}_${grp}" | sort)
+        _knit_set_array names "_KNIT_CMD_${cmd}_${grp}"
         if (( ${#names[@]} == 0 )); then
             printf '%s%s: []\n' "${keys_indent}" "${grp}"
         else
@@ -943,10 +934,9 @@ _knit_describe_yaml_command() {
         _knit_describe_yaml_params "${cmd}" "${cont}"
     fi
     if ! _knit_describe_filter_on no_output_params; then
-        local -a onames=()
+        local -a onames
         local o
-        while IFS= read -r o; do onames+=("${o}"); done \
-            < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
+        _knit_set_array onames "_KNIT_CMD_${cmd}_outputs"
         if (( ${#onames[@]} == 0 )); then
             printf '%soutputs: []\n' "${key}"
         else
@@ -965,12 +955,14 @@ _knit_describe_yaml_command() {
 
     local child_sel_ancestor="${sel_ancestor}"
     _knit_set_find _KNIT_DESCRIBE_ONLY "${cmd}" && child_sel_ancestor="true"
+    local -a __children
+    _knit_describe_children __children "${cmd}"
     local -a subs=()
     local c
-    while IFS= read -r c; do
+    for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "${child_sel_ancestor}" || continue
         subs+=("${c}")
-    done < <(_knit_describe_children "${cmd}")
+    done
     if (( ${#subs[@]} == 0 )); then
         printf '%ssubcommands: []\n' "${key}"
     else
@@ -990,21 +982,21 @@ _knit_describe_yaml_command() {
 _knit_describe_yaml_enums() {
     local -a names=()
     local name
-    while IFS= read -r name; do
+    local -a __enums
+    _knit_set_array __enums _KNIT_ENUMS
+    for name in "${__enums[@]}"; do
         _knit_set_find _KNIT_BUILTIN_ENUMS "${name}" && continue
         names+=("${name}")
-    done < <(_knit_set_iter _KNIT_ENUMS | sort)
+    done
     if (( ${#names[@]} == 0 )); then
         printf 'enums: {}\n'
         return
     fi
     printf 'enums:\n'
-    local v sc fs
+    local sc fs
     local -a vals
     for name in "${names[@]}"; do
-        vals=()
-        while IFS= read -r v; do vals+=("${v}"); done \
-            < <(knit_enum_values "${name}" | sort)
+        _knit_set_array vals "_KNIT_ENUM_${name}"
         _knit_describe_yaml_scalar sc "${name}" '    '
         _knit_describe_yaml_flow_seq fs "${vals[@]}"
         printf '  %s: %s\n' "${sc}" "${fs}"
@@ -1026,12 +1018,14 @@ _knit_describe_yaml() {
     _knit_describe_yaml_scalar sc "${KNIT_SCRIPT_NAME}" '  '
     printf 'experiment: %s\n' "${sc}"
     printf 'format_version: 1\n'
+    local -a __children
+    _knit_describe_children __children ""
     local -a roots=()
     local c
-    while IFS= read -r c; do
+    for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "false" || continue
         roots+=("${c}")
-    done < <(_knit_describe_children "")
+    done
     if (( ${#roots[@]} == 0 )); then
         printf 'commands: []\n'
     else
@@ -1101,10 +1095,12 @@ _knit_describe_enum_constraint() {
     if _knit_type_resolve_alias __resolved "${__type}" \
         && [[ -v _KNIT_ENUMS["${__resolved}"] ]]; then
         local __out='' __v
-        while IFS= read -r __v; do
+        local -a __vals
+        _knit_set_array __vals "_KNIT_ENUM_${__resolved}"
+        for __v in "${__vals[@]}"; do
             [[ -n "${__out}" ]] && __out+=', '
             __out+="${__v}"
-        done < <(knit_enum_values "${__resolved}" | sort)
+        done
         __knit_ret="one of: ${__out}"
     fi
 }
@@ -1132,28 +1128,33 @@ _knit_describe_default_options() {
     local flg_var="_KNIT_CMD_${cmd}_flags"
 
     local max=4 opt opt2 len
-    while read -r opt; do
+    local -a __items
+    _knit_set_array __items "${req_var}"
+    for opt in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens opt2 "${opt}"
         opt2="--${opt2} <value>"
         len=${#opt2}; (( len > max )) && max=${len}
-    done < <(_knit_set_iter "${req_var}" | sort)
-    while read -r opt; do
+    done
+    _knit_set_array __items "${opt_var}"
+    for opt in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens opt2 "${opt}"
         opt2="--${opt2} <value>"
         len=${#opt2}; (( len > max )) && max=${len}
-    done < <(_knit_set_iter "${opt_var}" | sort)
-    while read -r opt; do
+    done
+    _knit_set_array __items "${flg_var}"
+    for opt in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens opt2 "${opt}"
         opt2="--${opt2}"
         len=${#opt2}; (( len > max )) && max=${len}
-    done < <(_knit_set_iter "${flg_var}" | sort)
+    done
 
     _knit_describe_default_heading "Options" "${use_color}" "${indent}"
     printf '%s%-*s  %s\n' "${cind}" "${max}" "--help" \
         "Print this help message and exit."
 
     local desc dflt when_var ann cons
-    while read -r opt; do
+    _knit_set_array __items "${req_var}"
+    for opt in "${__items[@]}"; do
         _knit_param_description desc "${cmd}" "${opt}"
         _knit_str_underscores_to_hyphens opt2 "${opt}"
         opt2="--${opt2} <value>"
@@ -1163,8 +1164,9 @@ _knit_describe_default_options() {
         [[ -n "${cons}" ]] && ann+=", ${cons}"
         [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
-    done < <(_knit_set_iter "${req_var}" | sort)
-    while read -r opt; do
+    done
+    _knit_set_array __items "${opt_var}"
+    for opt in "${__items[@]}"; do
         _knit_param_description desc "${cmd}" "${opt}"
         _knit_param_default dflt "${cmd}" "${opt}"
         _knit_str_underscores_to_hyphens opt2 "${opt}"
@@ -1175,8 +1177,9 @@ _knit_describe_default_options() {
         [[ -n "${cons}" ]] && ann+=", ${cons}"
         [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
-    done < <(_knit_set_iter "${opt_var}" | sort)
-    while read -r opt; do
+    done
+    _knit_set_array __items "${flg_var}"
+    for opt in "${__items[@]}"; do
         _knit_param_description desc "${cmd}" "${opt}"
         _knit_str_underscores_to_hyphens opt2 "${opt}"
         opt2="--${opt2}"
@@ -1184,7 +1187,7 @@ _knit_describe_default_options() {
         ann="flag"
         [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
-    done < <(_knit_set_iter "${flg_var}" | sort)
+    done
 }
 
 # ------------------------------------------------------------------------------
@@ -1207,21 +1210,23 @@ _knit_describe_default_outputs() {
     local outs_var="_KNIT_CMD_${cmd}_outputs"
 
     local max=0 o o2 len
-    while read -r o; do
+    local -a __items
+    _knit_set_array __items "${outs_var}"
+    for o in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens o2 "${o}"
         len=${#o2}; (( len > max )) && max=${len}
-    done < <(_knit_set_iter "${outs_var}" | sort)
+    done
 
     _knit_describe_default_heading "Outputs" "${use_color}" "${indent}"
     local type dflt desc
-    while read -r o; do
+    for o in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens o2 "${o}"
         _knit_output_type type "${cmd}" "${o}"
         _knit_output_default dflt "${cmd}" "${o}"
         _knit_output_description desc "${cmd}" "${o}"
         printf '%s%-*s  [%s, default: '\''%s'\''] %s\n' \
             "${cind}" "${max}" "${o2}" "${type}" "${dflt}" "${desc}"
-    done < <(_knit_set_iter "${outs_var}" | sort)
+    done
 }
 
 # ------------------------------------------------------------------------------
@@ -1262,10 +1267,9 @@ _knit_describe_default_command() {
         _knit_describe_default_options "${cmd}" "${use_color}" "${sec}"
     fi
 
-    local has_out=0 o
-    while IFS= read -r o; do has_out=1; break; done \
-        < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs")
-    if ! _knit_describe_filter_on no_output_params && (( has_out )); then
+    local -a __outs
+    _knit_set_array __outs "_KNIT_CMD_${cmd}_outputs"
+    if ! _knit_describe_filter_on no_output_params && (( ${#__outs[@]} )); then
         printf '\n'
         _knit_describe_default_outputs "${cmd}" "${use_color}" "${sec}"
     fi
@@ -1290,12 +1294,14 @@ _knit_describe_default_command() {
 
     local child_sel_ancestor="${sel_ancestor}"
     _knit_set_find _KNIT_DESCRIBE_ONLY "${cmd}" && child_sel_ancestor="true"
+    local -a __children
+    _knit_describe_children __children "${cmd}"
     local c
-    while IFS= read -r c; do
+    for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "${child_sel_ancestor}" || continue
         printf '\n'
         _knit_describe_default_command "${c}" "${use_color}" "${child_sel_ancestor}"
-    done < <(_knit_describe_children "${cmd}")
+    done
 }
 
 # ------------------------------------------------------------------------------
@@ -1316,13 +1322,15 @@ _knit_describe_default() {
         use_color="false"
     fi
 
+    local -a __children
+    _knit_describe_children __children ""
     local first=1 c
-    while IFS= read -r c; do
+    for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "false" || continue
         (( first )) || printf '\n'
         first=0
         _knit_describe_default_command "${c}" "${use_color}" "false"
-    done < <(_knit_describe_children "")
+    done
 }
 
 # ------------------------------------------------------------------------------
@@ -1411,7 +1419,9 @@ _knit_describe_md_params() {
     printf '#### Parameters\n\n'
     local -a rows=()
     local p type desc dname cons dcell pdflt row c_name c_type c_cons c_desc
-    while IFS= read -r p; do
+    local -a __items
+    _knit_set_array __items "_KNIT_CMD_${cmd}_required"
+    for p in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens dname "${p}"
         _knit_param_type type "${cmd}" "${p}"
         _knit_param_description desc "${cmd}" "${p}"
@@ -1424,8 +1434,9 @@ _knit_describe_md_params() {
         printf -v row '| %s | required | %s | — | %s | %s |' \
             "${c_name}" "${c_type}" "${c_cons}" "${c_desc}"
         rows+=("${row}")
-    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_required" | sort)
-    while IFS= read -r p; do
+    done
+    _knit_set_array __items "_KNIT_CMD_${cmd}_optional"
+    for p in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens dname "${p}"
         _knit_param_type type "${cmd}" "${p}"
         _knit_param_description desc "${cmd}" "${p}"
@@ -1440,8 +1451,9 @@ _knit_describe_md_params() {
         printf -v row '| %s | optional | %s | %s | %s | %s |' \
             "${c_name}" "${c_type}" "${dcell}" "${c_cons}" "${c_desc}"
         rows+=("${row}")
-    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_optional" | sort)
-    while IFS= read -r p; do
+    done
+    _knit_set_array __items "_KNIT_CMD_${cmd}_flags"
+    for p in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens dname "${p}"
         _knit_param_description desc "${cmd}" "${p}"
         _knit_describe_md_constraints cons "${cmd}" "${p}"
@@ -1452,7 +1464,7 @@ _knit_describe_md_params() {
         printf -v row '| %s | flag | boolean | — | %s | %s |' \
             "${c_name}" "${c_cons}" "${c_desc}"
         rows+=("${row}")
-    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_flags" | sort)
+    done
 
     if (( ${#rows[@]} == 0 )); then
         printf '*None.*\n'
@@ -1477,7 +1489,9 @@ _knit_describe_md_outputs() {
     printf '#### Outputs\n\n'
     local -a rows=()
     local o dname type dflt desc dcell row c_name c_type c_desc
-    while IFS= read -r o; do
+    local -a __items
+    _knit_set_array __items "_KNIT_CMD_${cmd}_outputs"
+    for o in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens dname "${o}"
         _knit_output_type type "${cmd}" "${o}"
         _knit_output_default dflt "${cmd}" "${o}"
@@ -1489,7 +1503,7 @@ _knit_describe_md_outputs() {
         printf -v row '| %s | %s | %s | %s |' \
             "${c_name}" "${c_type}" "${dcell}" "${c_desc}"
         rows+=("${row}")
-    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
+    done
 
     if (( ${#rows[@]} == 0 )); then
         printf '*None.*\n'
@@ -1550,12 +1564,14 @@ _knit_describe_md_command() {
 
     local child_sel_ancestor="${sel_ancestor}"
     _knit_set_find _KNIT_DESCRIBE_ONLY "${cmd}" && child_sel_ancestor="true"
+    local -a __children
+    _knit_describe_children __children "${cmd}"
     local c
-    while IFS= read -r c; do
+    for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "${child_sel_ancestor}" || continue
         printf '\n'
         _knit_describe_md_command "${c}" "${child_sel_ancestor}"
-    done < <(_knit_describe_children "${cmd}")
+    done
 }
 
 # ------------------------------------------------------------------------------
@@ -1576,12 +1592,14 @@ _knit_describe_markdown() {
     fi
     printf '# %s\n\n' "${title}"
     printf '## Commands\n'
+    local -a __children
+    _knit_describe_children __children ""
     local c
-    while IFS= read -r c; do
+    for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "false" || continue
         printf '\n'
         _knit_describe_md_command "${c}" "false"
-    done < <(_knit_describe_children "")
+    done
 }
 
 # ------------------------------------------------------------------------------
@@ -1667,18 +1685,11 @@ _knit_describe() {
     format=$(knit_get_parameter format "$@") || format="default"
     output=$(knit_get_parameter output "$@") || output=""
     _knit_describe_read_filters "$@"
-    local rc=0
     if [[ -n "${output}" ]]; then
-        _knit_describe_emit "${format}" "$@" > "${output}" || rc=$?
+        _knit_describe_emit "${format}" "$@" > "${output}"
     else
-        _knit_describe_emit "${format}" "$@" || rc=$?
+        _knit_describe_emit "${format}" "$@"
     fi
-    # Drop the parent->children map so a later invocation in the same shell (e.g.
-    # after more commands are registered) rebuilds it from scratch on first use.
-    # Preserve the emit status: the map clear must not mask a redirect failure
-    # (e.g. an unwritable --output path).
-    _KNIT_DESCRIBE_CHILDREN=()
-    return "${rc}"
 }
 
 knit_define_enum "describe_format" \

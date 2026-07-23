@@ -426,16 +426,16 @@ knit_register() {
     # Record the command in the tree adjacency (registration order). Every
     # command gets an empty children array; each non-root command is appended to
     # its parent's array (which exists because the parent was registered first,
-    # enforced above), and each root command to _KNIT_ROOT_COMMANDS. "__main__"
-    # is the tree container itself, so it is not listed as a root command.
+    # enforced above), and each parentless command to _KNIT_ROOT_COMMANDS. The
+    # hidden "__main__" root is included there too (help filters it out; describe
+    # lists it only under --include-hidden), so the top-level command list is
+    # simply every parentless command.
     declare -ga "_KNIT_CMD_${cmd}_subcommands=()"
-    if [[ "${cmd}" != "__main__" ]]; then
-        if [[ -n "${parent_cmd}" ]]; then
-            local -n _knit_parent_subs="_KNIT_CMD_${parent_cmd}_subcommands"
-            _knit_parent_subs+=("${cmd}")
-        else
-            _KNIT_ROOT_COMMANDS+=("${cmd}")
-        fi
+    if [[ -n "${parent_cmd}" ]]; then
+        local -n _knit_parent_subs="_KNIT_CMD_${parent_cmd}_subcommands"
+        _knit_parent_subs+=("${cmd}")
+    else
+        _KNIT_ROOT_COMMANDS+=("${cmd}")
     fi
     _knit_set_new "_KNIT_CMD_${cmd}_required"
     _knit_set_new "_KNIT_CMD_${cmd}_optional"

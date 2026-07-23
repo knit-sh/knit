@@ -81,7 +81,7 @@ _json() {
 @test "an enum-typed parameter inlines its allowed values" {
     run _knit_describe_json
     [ "$status" -eq 0 ]
-    [ "$(_json "[p['enum'] for p in [c for c in d['commands'] if c['name']=='greet'][0]['parameters']['optional'] if p['name']=='shade'][0]")" = "['blue', 'green', 'red']" ]
+    [ "$(_json "[p['enum'] for p in [c for c in d['commands'] if c['name']=='greet'][0]['parameters']['optional'] if p['name']=='shade'][0]")" = "['red', 'green', 'blue']" ]
 }
 
 @test "a --when constraint is included when present" {
@@ -107,7 +107,7 @@ _json() {
 @test "user-defined enums are listed, builtins are not" {
     run _knit_describe_json
     [ "$status" -eq 0 ]
-    [ "$(_json "d['enums']['color']")" = "['blue', 'green', 'red']" ]
+    [ "$(_json "d['enums']['color']")" = "['red', 'green', 'blue']" ]
     [ "$(_json "'describe_format' in d['enums']")" = "False" ]
 }
 

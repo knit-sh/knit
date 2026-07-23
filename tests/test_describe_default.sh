@@ -129,7 +129,7 @@ _force_no_color() { _knit_describe_stdout_is_terminal() { return 1; }; }
     _force_no_color
     run knit describe --format default --only greet
     [ "$status" -eq 0 ]
-    [[ "${output}" == *'one of: blue, green, red'* ]]
+    [[ "${output}" == *'one of: red, green, blue'* ]]
 }
 
 @test "a --when constraint is shown" {
