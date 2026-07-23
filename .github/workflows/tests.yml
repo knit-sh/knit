@@ -12,9 +12,35 @@ on:
     - cron: '37 5 * * 1'
   workflow_dispatch:
 
+# Cancel an in-flight run when a newer commit is pushed to the same ref, so a
+# PR's ~50-job unit fan-out doesn't pile up behind superseded commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  unit:
+  # Emit the list of test files as a JSON array so the unit job can fan out one
+  # matrix job per file (fromJSON below). Keeps the matrix in sync with the
+  # tests/ directory automatically as files are added or removed.
+  prep:
     runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.list.outputs.files }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: echo "files=$(maint/list-test-files.sh)" >> "$GITHUB_OUTPUT"
+
+  unit:
+    needs: prep
+    runs-on: ubuntu-latest
+    strategy:
+      # One job per test file: a failure shows up as a single red job named
+      # after the file, instead of one big log to scan. fail-fast off so every
+      # file still reports even when one fails.
+      fail-fast: false
+      matrix:
+        file: ${{ fromJSON(needs.prep.outputs.files) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -27,7 +53,19 @@ jobs:
         run: make
 
       - name: Run unit tests
-        run: make check-unit
+        run: bats "tests/${{ matrix.file }}"
+
+  # Stable aggregate check: branch protection can require "unit-all" instead of
+  # the ~50 per-file job names. Passes only if every matrix job succeeded.
+  unit-all:
+    needs: unit
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all unit test files passed
+        run: |
+          [[ "${{ needs.unit.result }}" == "success" ]] \
+            || { echo "one or more unit test files failed"; exit 1; }
 
   integration:
     runs-on: ubuntu-latest
