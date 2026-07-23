@@ -18,9 +18,9 @@ jobs:
       # Codecov waits for every shard's upload before finalizing the status.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     env:
-      SHARD_COUNT: 4
+      SHARD_COUNT: 6
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,20 +62,34 @@ jobs:
           #
           # Within the shard, run kcov once per test file rather than once over
           # the whole subset. kcov's bash coverage (PS4 method) accumulates
-          # ~45 MB of state per traced test inside a single process, so a single
-          # invocation over many tests grows unbounded and OOM-kills the runner.
-          # Per-file invocation lets each kcov process free its memory between
-          # files, bounding peak RSS to the largest single file (~40 tests ->
-          # ~1.8 GB). The independent per-file processes run in parallel with
-          # xargs -P (capped at nproc); with the per-file bound above, peak RSS
-          # stays well under the runner's 16 GB. xargs returns 123 if any
-          # invocation fails, so a failing test still fails this step. The
-          # per-file results are merged, then this shard's merged report is
-          # uploaded to Codecov, which combines all shards for the commit.
+          # ~45 MB of state per traced test inside a single process (and more for
+          # subprocess-heavy suites, whose forked children are traced too), so a
+          # single invocation over many tests grows unbounded and OOM-kills the
+          # runner. Per-file invocation lets each kcov process free its memory
+          # between files, bounding peak RSS to the largest single file.
+          #
+          # The per-file processes run in parallel with xargs -P, but peak RSS is
+          # (concurrency x per-file RSS), so parallelism must be bounded by MEMORY,
+          # not CPU: -P "$(nproc)" ran the shard's biggest files together and
+          # exhausted the 16 GB runner. Budget ~6 GB per parallel kcov job and cap
+          # at nproc; on a 16 GB / 4-core runner this yields -P 2, which keeps peak
+          # RSS safe while still overlapping two files. It scales up automatically
+          # on larger runners. xargs returns 123 if any invocation fails, so a
+          # failing test still fails this step. The per-file results are merged,
+          # then this shard's merged report is uploaded to Codecov, which combines
+          # all shards for the commit.
           # kcov creates the leaf output dir but not its parent, so make it.
           mkdir -p coverage
+          mem_gb=$(awk '/MemTotal/ {print int($2 / 1024 / 1024)}' /proc/meminfo)
+          ncpu=$(nproc)
+          jobs=$(( mem_gb / 6 ))
+          # if-form (not `(( ... )) && ...`), which returns 1 when the condition
+          # is false and would trip the step's `set -e`.
+          if (( jobs < 1 )); then jobs=1; fi
+          if (( jobs > ncpu )); then jobs=${ncpu}; fi
+          echo "coverage concurrency: -P ${jobs} (MemTotal ${mem_gb} GB, nproc ${ncpu})"
           maint/coverage-shard.sh "${{ matrix.shard }}" "${SHARD_COUNT}" \
-            | xargs -d '\n' -P "$(nproc)" -n1 bash -c '
+            | xargs -d '\n' -P "${jobs}" -n1 bash -c '
                 t="$1"; name=$(basename "$t" .sh)
                 echo "=== coverage: ${name} ==="
                 kcov --include-path=src "coverage/${name}" bats "$t"
