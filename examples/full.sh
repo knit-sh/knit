@@ -390,6 +390,7 @@
 #
 #   ./full.sh describe                       # human-readable (colored on a TTY)
 #   ./full.sh describe --format json         # machine-readable JSON
+#   ./full.sh describe --format json --compact  # the same JSON on one line
 #   ./full.sh describe --format yaml         # the same model, YAML
 #   ./full.sh describe --format markdown     # a COMMANDS.md-style document
 #

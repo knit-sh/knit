@@ -117,26 +117,49 @@ _json() {
     [ "$(_json "[c['name'] for c in d['commands'] if c['name'] in ('_run','__main__')]")" = "[]" ]
 }
 
-@test "describe --format json-compact produces well-formed JSON" {
-    run knit describe --format json-compact
+@test "describe --format json --compact produces well-formed JSON" {
+    run knit describe --format json --compact
     [ "$status" -eq 0 ]
     printf '%s' "${output}" | python3 -c 'import json,sys; json.load(sys.stdin)'
 }
 
-@test "json-compact output is a single line" {
-    run knit describe --format json-compact
+@test "compact json output is a single line" {
+    run knit describe --format json --compact
     [ "$status" -eq 0 ]
     [ "$(printf '%s\n' "${output}" | wc -l)" -eq 1 ]
 }
 
-@test "json-compact carries the same content as json" {
+@test "compact json packs tokens with no insignificant whitespace" {
     local pretty compact
     pretty=$(knit describe --format json)
-    compact=$(knit describe --format json-compact)
+    compact=$(knit describe --format json --compact)
+    # The pretty form opens indented with a space after the colon; the compact
+    # form packs the opening brace and the first key/value together.
+    [[ "${pretty}" == $'{\n  "knit_version": "'* ]]
+    [[ "${compact}" == '{"knit_version":"'* ]]
+}
+
+@test "compact json carries the same content as pretty json" {
+    local pretty compact
+    pretty=$(knit describe --format json)
+    compact=$(knit describe --format json --compact)
     python3 - "${pretty}" "${compact}" <<'PY'
 import json, sys
 assert json.loads(sys.argv[1]) == json.loads(sys.argv[2])
 PY
+}
+
+@test "--compact with a non-json format warns and is ignored" {
+    run knit describe --format yaml --compact
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *'--compact'*'--format json'* ]]
+    # The yaml document is still emitted (the flag is ignored, not fatal).
+    [[ "${output}" == *'knit_version:'* ]]
+}
+
+@test "json-compact is no longer a valid format" {
+    run knit describe --format json-compact
+    [ "$status" -ne 0 ]
 }
 
 @test "an unknown format is a fatal error" {

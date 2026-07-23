@@ -24,6 +24,37 @@ declare -gA _KNIT_DESCRIBE_FILTERS
 declare -gA _KNIT_DESCRIBE_ONLY
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_DESCRIBE_JSON_NL
+#
+# Inter-entry newline the JSON builders insert inside objects and arrays. Its
+# default (a newline) produces pretty-printed JSON; _knit_describe_json_compact
+# shadows it with the empty string to emit single-line compact JSON without a
+# second minify pass.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_DESCRIBE_JSON_NL
+_KNIT_DESCRIBE_JSON_NL=$'\n'
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_DESCRIBE_JSON_CS
+#
+# Insignificant space the JSON builders insert after each ":" and inline ",".
+# Defaults to a single space (pretty); shadowed with the empty string by
+# _knit_describe_json_compact for compact output.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_DESCRIBE_JSON_CS
+_KNIT_DESCRIBE_JSON_CS=' '
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_DESCRIBE_JSON_IND
+#
+# One level of indentation for the JSON builders. Defaults to two spaces
+# (pretty); shadowed with the empty string by _knit_describe_json_compact so all
+# indentation collapses for compact output.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_DESCRIBE_JSON_IND
+_KNIT_DESCRIBE_JSON_IND='  '
+
+# ------------------------------------------------------------------------------
 # @fn _knit_describe_json_escape()
 #
 # Escape a string so it can be embedded inside a JSON string literal, without any
@@ -94,13 +125,13 @@ _knit_describe_emit_object() {
         printf '{}'
         return
     fi
-    printf '{\n'
+    printf '{%s' "${_KNIT_DESCRIBE_JSON_NL}"
     local n=$# i=0 e
     for e in "$@"; do
         i=$(( i + 1 ))
         printf '%s' "${e}"
         (( i < n )) && printf ','
-        printf '\n'
+        printf '%s' "${_KNIT_DESCRIBE_JSON_NL}"
     done
     printf '%s}' "${indent}"
 }
@@ -123,13 +154,13 @@ _knit_describe_emit_array() {
         printf '[]'
         return
     fi
-    printf '[\n'
+    printf '[%s' "${_KNIT_DESCRIBE_JSON_NL}"
     local n=$# i=0 e
     for e in "$@"; do
         i=$(( i + 1 ))
         printf '%s' "${e}"
         (( i < n )) && printf ','
-        printf '\n'
+        printf '%s' "${_KNIT_DESCRIBE_JSON_NL}"
     done
     printf '%s]' "${indent}"
 }
@@ -298,7 +329,7 @@ _knit_describe_enum_values_json() {
     local -a __vals
     _knit_set_array __vals "_KNIT_ENUM_${__name}"
     for __v in "${__vals[@]}"; do
-        (( __first )) || __out+=', '
+        (( __first )) || __out+=",${_KNIT_DESCRIBE_JSON_CS}"
         _knit_describe_json_str __s "${__v}"
         __out+="${__s}"
         __first=0
@@ -326,7 +357,8 @@ _knit_describe_json_param() {
     local group="$2"
     local param="$3"
     local indent="$4"
-    local inner="${indent}  "
+    local inner="${indent}${_KNIT_DESCRIBE_JSON_IND}"
+    local cs="${_KNIT_DESCRIBE_JSON_CS}"
     local dname type desc
     _knit_str_underscores_to_hyphens dname "${param}"
     _knit_param_description desc "${cmd}" "${param}"
@@ -337,29 +369,29 @@ _knit_describe_json_param() {
     fi
     local entries=() s e
     _knit_describe_json_str s "${dname}"
-    printf -v e '%s"name": %s' "${inner}" "${s}"; entries+=("${e}")
+    printf -v e '%s"name":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     _knit_describe_json_str s "${type}"
-    printf -v e '%s"type": %s' "${inner}" "${s}"; entries+=("${e}")
+    printf -v e '%s"type":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     if [[ "${group}" != "flags" ]]; then
         local resolved
         if _knit_type_resolve_alias resolved "${type}" \
             && [[ -v _KNIT_ENUMS["${resolved}"] ]]; then
             _knit_describe_enum_values_json s "${resolved}"
-            printf -v e '%s"enum": %s' "${inner}" "${s}"; entries+=("${e}")
+            printf -v e '%s"enum":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
         fi
     fi
     if [[ "${group}" == "optional" ]]; then
         local dflt
         _knit_param_default dflt "${cmd}" "${param}"
         _knit_describe_json_str s "${dflt}"
-        printf -v e '%s"default": %s' "${inner}" "${s}"; entries+=("${e}")
+        printf -v e '%s"default":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     fi
     _knit_describe_json_str s "${desc}"
-    printf -v e '%s"description": %s' "${inner}" "${s}"; entries+=("${e}")
+    printf -v e '%s"description":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     local when_raw_var="_KNIT_CMD_${cmd}_2_${param}_when_raw"
     if [[ -v "${when_raw_var}" ]]; then
         _knit_describe_json_str s "${!when_raw_var}"
-        printf -v e '%s"when": %s' "${inner}" "${s}"; entries+=("${e}")
+        printf -v e '%s"when":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     fi
     printf '%s' "${indent}"
     _knit_describe_emit_object "${indent}" "${entries[@]}"
@@ -377,8 +409,9 @@ _knit_describe_json_param() {
 _knit_describe_json_params() {
     local cmd="$1"
     local indent="$2"
-    local inner="${indent}  "
-    local elem="${inner}  "
+    local inner="${indent}${_KNIT_DESCRIBE_JSON_IND}"
+    local elem="${inner}${_KNIT_DESCRIBE_JSON_IND}"
+    local cs="${_KNIT_DESCRIBE_JSON_CS}"
     local p
     local req=() opt=() flg=()
     local -a __items
@@ -395,15 +428,15 @@ _knit_describe_json_params() {
         flg+=("$(_knit_describe_json_param "${cmd}" flags "${p}" "${elem}")")
     done
     local entries=()
-    entries+=("$(printf '%s"required": ' "${inner}"; _knit_describe_emit_array "${inner}" "${req[@]}")")
-    entries+=("$(printf '%s"optional": ' "${inner}"; _knit_describe_emit_array "${inner}" "${opt[@]}")")
-    entries+=("$(printf '%s"flags": ' "${inner}"; _knit_describe_emit_array "${inner}" "${flg[@]}")")
+    entries+=("$(printf '%s"required":%s' "${inner}" "${cs}"; _knit_describe_emit_array "${inner}" "${req[@]}")")
+    entries+=("$(printf '%s"optional":%s' "${inner}" "${cs}"; _knit_describe_emit_array "${inner}" "${opt[@]}")")
+    entries+=("$(printf '%s"flags":%s' "${inner}" "${cs}"; _knit_describe_emit_array "${inner}" "${flg[@]}")")
     local extra_var="_KNIT_CMD_${cmd}_extra"
     local extra_json='null'
     if [[ -n "${!extra_var}" ]]; then
         _knit_describe_json_str extra_json "${!extra_var}"
     fi
-    entries+=("$(printf '%s"extra": %s' "${inner}" "${extra_json}")")
+    entries+=("$(printf '%s"extra":%s%s' "${inner}" "${cs}" "${extra_json}")")
     _knit_describe_emit_object "${indent}" "${entries[@]}"
 }
 
@@ -420,7 +453,8 @@ _knit_describe_json_output() {
     local cmd="$1"
     local output="$2"
     local indent="$3"
-    local inner="${indent}  "
+    local inner="${indent}${_KNIT_DESCRIBE_JSON_IND}"
+    local cs="${_KNIT_DESCRIBE_JSON_CS}"
     local dname type dflt desc
     _knit_str_underscores_to_hyphens dname "${output}"
     _knit_output_type type "${cmd}" "${output}"
@@ -428,13 +462,13 @@ _knit_describe_json_output() {
     _knit_output_description desc "${cmd}" "${output}"
     local entries=() s e
     _knit_describe_json_str s "${dname}"
-    printf -v e '%s"name": %s' "${inner}" "${s}"; entries+=("${e}")
+    printf -v e '%s"name":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     _knit_describe_json_str s "${type}"
-    printf -v e '%s"type": %s' "${inner}" "${s}"; entries+=("${e}")
+    printf -v e '%s"type":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     _knit_describe_json_str s "${dflt}"
-    printf -v e '%s"default": %s' "${inner}" "${s}"; entries+=("${e}")
+    printf -v e '%s"default":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     _knit_describe_json_str s "${desc}"
-    printf -v e '%s"description": %s' "${inner}" "${s}"; entries+=("${e}")
+    printf -v e '%s"description":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     printf '%s' "${indent}"
     _knit_describe_emit_object "${indent}" "${entries[@]}"
 }
@@ -451,7 +485,7 @@ _knit_describe_json_output() {
 _knit_describe_json_outputs() {
     local cmd="$1"
     local indent="$2"
-    local elem="${indent}  "
+    local elem="${indent}${_KNIT_DESCRIBE_JSON_IND}"
     local items=() o
     local -a __items
     _knit_set_array __items "_KNIT_CMD_${cmd}_outputs"
@@ -478,7 +512,8 @@ _knit_describe_json_command() {
     local cmd="$1"
     local indent="$2"
     local sel_ancestor="$3"
-    local inner="${indent}  "
+    local inner="${indent}${_KNIT_DESCRIBE_JSON_IND}"
+    local cs="${_KNIT_DESCRIBE_JSON_CS}"
     local demangled
     demangled=$(_knit_command_demangle "${cmd}")
     local -a segs
@@ -487,7 +522,7 @@ _knit_describe_json_command() {
 
     local path_json='[' i s
     for (( i=0; i<${#segs[@]}; i++ )); do
-        (( i )) && path_json+=', '
+        (( i )) && path_json+=",${cs}"
         _knit_describe_json_str s "${segs[i]}"
         path_json+="${s}"
     done
@@ -517,36 +552,36 @@ _knit_describe_json_command() {
     local subs=() c
     for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "${child_sel_ancestor}" || continue
-        subs+=("$(_knit_describe_json_command "${c}" "${inner}  " "${child_sel_ancestor}")")
+        subs+=("$(_knit_describe_json_command "${c}" "${inner}${_KNIT_DESCRIBE_JSON_IND}" "${child_sel_ancestor}")")
     done
 
     local entries=() e
     _knit_describe_json_str s "${name}"
-    printf -v e '%s"name": %s' "${inner}" "${s}"; entries+=("${e}")
-    printf -v e '%s"path": %s' "${inner}" "${path_json}"; entries+=("${e}")
+    printf -v e '%s"name":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
+    printf -v e '%s"path":%s%s' "${inner}" "${cs}" "${path_json}"; entries+=("${e}")
     _knit_describe_json_str s "${!desc_var}"
-    printf -v e '%s"description": %s' "${inner}" "${s}"; entries+=("${e}")
+    printf -v e '%s"description":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     _knit_describe_json_str s "${kind}"
-    printf -v e '%s"kind": %s' "${inner}" "${s}"; entries+=("${e}")
-    printf -v e '%s"builtin": %s' "${inner}" "${builtin}"; entries+=("${e}")
-    printf -v e '%s"hidden": %s' "${inner}" "${hidden}"; entries+=("${e}")
-    printf -v e '%s"dispatcher": %s' "${inner}" "${dispatch_json}"; entries+=("${e}")
+    printf -v e '%s"kind":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
+    printf -v e '%s"builtin":%s%s' "${inner}" "${cs}" "${builtin}"; entries+=("${e}")
+    printf -v e '%s"hidden":%s%s' "${inner}" "${cs}" "${hidden}"; entries+=("${e}")
+    printf -v e '%s"dispatcher":%s%s' "${inner}" "${cs}" "${dispatch_json}"; entries+=("${e}")
     _knit_describe_json_str s "${prov}"
-    printf -v e '%s"provenance": %s' "${inner}" "${s}"; entries+=("${e}")
-    printf -v e '%s"table": %s' "${inner}" "${table_json}"; entries+=("${e}")
+    printf -v e '%s"provenance":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
+    printf -v e '%s"table":%s%s' "${inner}" "${cs}" "${table_json}"; entries+=("${e}")
     if ! _knit_describe_filter_on no_input_params; then
-        entries+=("$(printf '%s"parameters": ' "${inner}"; _knit_describe_json_params "${cmd}" "${inner}")")
+        entries+=("$(printf '%s"parameters":%s' "${inner}" "${cs}"; _knit_describe_json_params "${cmd}" "${inner}")")
     fi
     if ! _knit_describe_filter_on no_output_params; then
-        entries+=("$(printf '%s"outputs": ' "${inner}"; _knit_describe_json_outputs "${cmd}" "${inner}")")
+        entries+=("$(printf '%s"outputs":%s' "${inner}" "${cs}"; _knit_describe_json_outputs "${cmd}" "${inner}")")
     fi
     local impl
     impl=$(_knit_describe_implementation "${cmd}")
     if [[ -n "${impl}" ]]; then
         _knit_describe_json_str s "${impl}"
-        printf -v e '%s"implementation": %s' "${inner}" "${s}"; entries+=("${e}")
+        printf -v e '%s"implementation":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     fi
-    entries+=("$(printf '%s"subcommands": ' "${inner}"; _knit_describe_emit_array "${inner}" "${subs[@]}")")
+    entries+=("$(printf '%s"subcommands":%s' "${inner}" "${cs}"; _knit_describe_emit_array "${inner}" "${subs[@]}")")
 
     printf '%s' "${indent}"
     _knit_describe_emit_object "${indent}" "${entries[@]}"
@@ -562,7 +597,7 @@ _knit_describe_json_command() {
 # ------------------------------------------------------------------------------
 _knit_describe_json_enums() {
     local indent="$1"
-    local inner="${indent}  "
+    local inner="${indent}${_KNIT_DESCRIBE_JSON_IND}"
     local entries=() name s vals e
     local -a __enums
     _knit_set_array __enums _KNIT_ENUMS
@@ -570,7 +605,7 @@ _knit_describe_json_enums() {
         _knit_set_find _KNIT_BUILTIN_ENUMS "${name}" && continue
         _knit_describe_json_str s "${name}"
         _knit_describe_enum_values_json vals "${name}"
-        printf -v e '%s%s: %s' "${inner}" "${s}" "${vals}"; entries+=("${e}")
+        printf -v e '%s%s:%s%s' "${inner}" "${s}" "${_KNIT_DESCRIBE_JSON_CS}" "${vals}"; entries+=("${e}")
     done
     _knit_describe_emit_object "${indent}" "${entries[@]}"
 }
@@ -584,72 +619,47 @@ _knit_describe_json_enums() {
 # map of user-defined enums.
 # ------------------------------------------------------------------------------
 _knit_describe_json() {
+    local ind="${_KNIT_DESCRIBE_JSON_IND}"
+    local cs="${_KNIT_DESCRIBE_JSON_CS}"
     local -a __children
     _knit_describe_children __children ""
     local roots=() c
     for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "false" || continue
-        roots+=("$(_knit_describe_json_command "${c}" "    " "false")")
+        roots+=("$(_knit_describe_json_command "${c}" "${ind}${ind}" "false")")
     done
 
     local entries=() s e
     _knit_describe_json_str s "${KNIT_VERSION}"
-    printf -v e '  "knit_version": %s' "${s}"; entries+=("${e}")
+    printf -v e '%s"knit_version":%s%s' "${ind}" "${cs}" "${s}"; entries+=("${e}")
     _knit_describe_json_str s "${KNIT_SCRIPT_NAME}"
-    printf -v e '  "experiment": %s' "${s}"; entries+=("${e}")
-    entries+=("$(printf '  "format_version": 1')")
-    entries+=("$(printf '  "commands": '; _knit_describe_emit_array "  " "${roots[@]}")")
-    entries+=("$(printf '  "enums": '; _knit_describe_json_enums "  ")")
+    printf -v e '%s"experiment":%s%s' "${ind}" "${cs}" "${s}"; entries+=("${e}")
+    entries+=("$(printf '%s"format_version":%s1' "${ind}" "${cs}")")
+    entries+=("$(printf '%s"commands":%s' "${ind}" "${cs}"; _knit_describe_emit_array "${ind}" "${roots[@]}")")
+    entries+=("$(printf '%s"enums":%s' "${ind}" "${cs}"; _knit_describe_json_enums "${ind}")")
     _knit_describe_emit_object "" "${entries[@]}"
     printf '\n'
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_describe_json_minify()
+# @fn _knit_describe_json_compact()
 #
-# Strip insignificant whitespace (indentation, newlines, and the spaces the
-# pretty printer inserts after ":" and ",") from a JSON document, producing a
-# single compact line. The scan is string-aware: whitespace is removed only
-# outside of string literals, so spaces inside values are preserved and escape
-# sequences (\", \\, \uXXXX, …) are copied verbatim. Pure bash, so it keeps the
-# no-jq, works-before-bootstrap guarantee of the rest of "describe".
-#
-# @param json JSON document to compact.
+# Emit the JSON description as a single compact line (no indentation, no
+# inter-entry newlines, and no spaces after ":" or ","). It shadows the JSON
+# builders' whitespace separators (_KNIT_DESCRIBE_JSON_NL / _CS / _IND) with the
+# empty string for the duration of one _knit_describe_json call, so the compact
+# form is produced directly by the same builder tree — no second minify pass.
+# The locals are visible to the builders (and their command-substitution
+# subshells) through bash dynamic scoping, and are restored automatically on
+# return.
 # ------------------------------------------------------------------------------
-_knit_describe_json_minify() {
-    local s="$1"
-    local out='' seg chunk c
-    while [[ -n "${s}" ]]; do
-        # Outside a string: consume up to the next quote, dropping whitespace.
-        seg="${s%%\"*}"
-        out+="${seg//[$' \t\n']/}"
-        if [[ "${seg}" == "${s}" ]]; then
-            break
-        fi
-        s="${s#"${seg}"}"
-        # Copy the string literal verbatim, honoring backslash escapes.
-        out+='"'
-        s="${s:1}"
-        while [[ -n "${s}" ]]; do
-            chunk="${s%%[\"\\]*}"
-            out+="${chunk}"
-            if [[ "${chunk}" == "${s}" ]]; then
-                s=''
-                break
-            fi
-            s="${s#"${chunk}"}"
-            c="${s:0:1}"
-            if [[ "${c}" == $'\\' ]]; then
-                out+="${s:0:2}"
-                s="${s:2}"
-            else
-                out+='"'
-                s="${s:1}"
-                break
-            fi
-        done
-    done
-    printf '%s' "${out}"
+_knit_describe_json_compact() {
+    # These shadow the module-scoped separators consulted by the JSON builders
+    # and their nested command substitutions; shellcheck sees them assigned but
+    # not read within this function, hence the disable.
+    # shellcheck disable=SC2034 # read by the builders via dynamic scoping
+    local _KNIT_DESCRIBE_JSON_NL='' _KNIT_DESCRIBE_JSON_CS='' _KNIT_DESCRIBE_JSON_IND=''
+    _knit_describe_json
 }
 
 # ------------------------------------------------------------------------------
@@ -1639,24 +1649,27 @@ _knit_describe_read_filters() {
 #
 # Emit the description in the requested format to standard output. Split out from
 # _knit_describe so the caller can redirect the whole document to a file for
-# "--output" without duplicating the format dispatch.
+# "--output" without duplicating the format dispatch. "--compact" selects the
+# single-line JSON variant and applies only to the "json" format.
 #
-# @param format Output format ("default", "json", "json-compact", "yaml", or
-#               "markdown").
-# @param ...    Command arguments (expanded by the CLI framework).
+# @param format  Output format ("default", "json", "yaml", or "markdown").
+# @param compact "true" to emit compact single-line JSON (json format only).
+# @param ...     Command arguments (expanded by the CLI framework).
 # ------------------------------------------------------------------------------
 _knit_describe_emit() {
     local format="$1"
-    shift
+    local compact="$2"
+    shift 2
     case "${format}" in
         default)
             _knit_describe_default "$@"
             ;;
         json)
-            _knit_describe_json
-            ;;
-        json-compact)
-            printf '%s\n' "$(_knit_describe_json_minify "$(_knit_describe_json)")"
+            if [[ "${compact}" == "true" ]]; then
+                _knit_describe_json_compact
+            else
+                _knit_describe_json
+            fi
             ;;
         yaml)
             _knit_describe_yaml
@@ -1681,19 +1694,23 @@ _knit_describe_emit() {
 # @param ... Command arguments (expanded by the CLI framework).
 # ------------------------------------------------------------------------------
 _knit_describe() {
-    local format output
+    local format output compact
     format=$(knit_get_parameter format "$@") || format="default"
     output=$(knit_get_parameter output "$@") || output=""
+    compact=$(knit_get_parameter compact "$@") || compact="false"
+    if [[ "${compact}" == "true" && "${format}" != "json" ]]; then
+        knit_warning "The --compact flag only applies to --format json; ignoring it."
+    fi
     _knit_describe_read_filters "$@"
     if [[ -n "${output}" ]]; then
-        _knit_describe_emit "${format}" "$@" > "${output}"
+        _knit_describe_emit "${format}" "${compact}" "$@" > "${output}"
     else
-        _knit_describe_emit "${format}" "$@"
+        _knit_describe_emit "${format}" "${compact}" "$@"
     fi
 }
 
 knit_define_enum "describe_format" \
-    "default" "json" "json-compact" "yaml" "markdown"
+    "default" "json" "yaml" "markdown"
 _knit_is_builtin
 
 knit_register _knit_describe "describe" \
@@ -1701,7 +1718,9 @@ knit_register _knit_describe "describe" \
 _knit_is_builtin
 knit_without_provenance
 knit_with_optional "format:describe_format" "default" \
-    "Output format: default, json, json-compact, yaml, or markdown."
+    "Output format: default, json, yaml, or markdown."
+knit_with_flag "compact" \
+    "Emit single-line JSON with no insignificant whitespace (only applies to --format json)."
 knit_with_flag "no-color" \
     "Disable ANSI color in the default format (auto-enabled only on a terminal)." \
     --when '.format == "default"'
