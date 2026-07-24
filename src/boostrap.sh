@@ -68,6 +68,7 @@ knit_define_enum "__launcher__"  "auto" "openmpi" "mpich" "pals"
 _knit_is_builtin
 knit_register _knit_bootstrap "bootstrap" "Bootstrap the Knit framework."
 _knit_is_builtin
+knit_usable_before_bootstrap
 knit_with_optional "spack:string" "" \
     "Spack git ref (tag, branch, or commit) to provision. Empty uses the latest release. Provisioning also happens automatically when a setup declares a Spack environment."
 knit_with_optional "spack-packages:string" "" \

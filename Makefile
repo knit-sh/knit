@@ -8,8 +8,8 @@ KNIT_SOURCE = src/global.sh   \
               src/local.sh    \
               src/cli.sh      \
               src/frame.sh    \
-              src/profile.sh  \
               src/boostrap.sh \
+              src/profile.sh  \
               src/sqlite.sh   \
               src/jq.sh       \
               src/prov.sh     \

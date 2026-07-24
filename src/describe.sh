@@ -1716,14 +1716,14 @@ _knit_is_builtin
 knit_register _knit_describe "describe" \
     "Describe all declared commands and their parameters."
 _knit_is_builtin
+knit_usable_before_bootstrap
 knit_without_provenance
 knit_with_optional "format:describe_format" "default" \
     "Output format: default, json, yaml, or markdown."
 knit_with_flag "compact" \
     "Emit single-line JSON with no insignificant whitespace (only applies to --format json)."
 knit_with_flag "no-color" \
-    "Disable ANSI color in the default format (auto-enabled only on a terminal)." \
-    --when '.format == "default"'
+    "Disable ANSI color in the default format (auto-enabled only on a terminal)."
 knit_with_flag "exclude-builtins" \
     "Omit framework builtin commands; show only user-declared commands."
 knit_with_flag "no-input-params" \
