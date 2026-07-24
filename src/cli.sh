@@ -449,6 +449,7 @@ knit_register() {
     printf -v "_KNIT_CMD_${cmd}_is_hidden"       '%s' 'false'
     printf -v "_KNIT_CMD_${cmd}_is_wrapper"      '%s' 'false'
     printf -v "_KNIT_CMD_${cmd}_is_builtin"      '%s' 'false'
+    printf -v "_KNIT_CMD_${cmd}_usable_before_bootstrap" '%s' 'false'
     printf -v "_KNIT_CMD_${cmd}_provenance"      '%s' ''
     declare -ga "_KNIT_CMD_${cmd}_before_cb"
     declare -ga "_KNIT_CMD_${cmd}_after_cb"
@@ -604,6 +605,43 @@ knit_hidden() {
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local cmd_hidden_name="_KNIT_CMD_${cmd}_is_hidden"
     printf -v "${cmd_hidden_name}" '%s' 'true'
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_usable_before_bootstrap()
+#
+# Mark the command currently being registered as usable before bootstrap, i.e. it
+# may be invoked (and appears in "--help") on a fresh checkout where no ".knit/"
+# directory exists yet. Commands are not usable before bootstrap by default.
+#
+# A command usable before bootstrap must not declare a database table
+# (knit_with_table) nor carry any "--when" constraint on its parameters (both
+# rely on binaries that bootstrap provisions), and a subcommand may only be
+# usable before bootstrap if its parent is too. These rules are enforced at
+# knit_done time; this decorator only sets the marker.
+#
+# Calling it more than once on the same command is harmless (idempotent).
+# ------------------------------------------------------------------------------
+knit_usable_before_bootstrap() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_usable_before_bootstrap should be used after a call to \"knit_register\"."
+    fi
+    knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as usable before bootstrap."
+    printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_usable_before_bootstrap" '%s' 'true'
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_command_is_usable_before_bootstrap()
+#
+# Test whether a command is usable before bootstrap, i.e. it was marked with
+# knit_usable_before_bootstrap during its registration.
+#
+# @param cmd Command (mangled name) to test.
+# @return 0 if the command is usable before bootstrap, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_command_is_usable_before_bootstrap() {
+    local var="_KNIT_CMD_${1}_usable_before_bootstrap"
+    [[ "${!var:-}" == "true" ]]
 }
 
 # ------------------------------------------------------------------------------
