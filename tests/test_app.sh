@@ -2,6 +2,12 @@
 
 setup() {
     source knit.sh
+    # These tests exercise "run" internals (routing, launcher exec, provenance
+    # export) with stubbed launchers and no real ".knit/". Setting the
+    # bootstrapping flag stands the pre-bootstrap guard down (as during bootstrap
+    # itself) while _knit_is_bootstrapped stays false, so table setup and row
+    # recording remain no-ops — the exact state these tests were written against.
+    _KNIT_IS_BOOTSTRAPPING="true"
     _KNIT_TEST_TMPDIR="$(mktemp -d)"
     # Default allocation (8 hosts) and per-node core count (4) for the placement
     # resolver; individual tests override these stubs as needed.

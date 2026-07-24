@@ -11,7 +11,8 @@
 # Spack environment), job submission to a batch scheduler (Slurm/PBS) — or to
 # local background processes when no scheduler is present — MPI application
 # launch across a job's allocation with `knit run`, the Spack package
-# manager (`knit spack`, plus Spack-backed setups), and a machine- and
+# manager (`knit spack`, plus Spack-backed setups), commands that are usable
+# before bootstrap (`knit_usable_before_bootstrap`), and a machine- and
 # human-readable description of the whole interface with `knit describe`.
 #
 # HOW TO USE THIS FILE
@@ -43,9 +44,9 @@
 # -----------------------------------------------------------------------------
 #   ./full.sh --help
 #
-# Prints the program description and the list of subcommands: estimate, submit,
-# run, setup, bootstrap, metadata, profile, job, db, spack. Every command takes
-# --help,
+# Prints the program description and the list of subcommands: preflight,
+# estimate, submit, run, setup, bootstrap, metadata, profile, job, db, spack.
+# Every command takes --help,
 # e.g.
 #
 #   ./full.sh estimate --help
@@ -68,6 +69,19 @@
 # as `--setup` / `--path` / `--procs`), and — for any command declared with
 # `knit_with_setup` — the setup type it requires. (`knit_with_setup` works on any
 # command now, not just jobs; a non-job command gains its own `--setup` option.)
+#
+# Most commands only make sense once the experiment is bootstrapped (they need
+# the database and binaries that `bootstrap` provisions under ./.knit). A few are
+# meaningful *before* bootstrap and are declared `knit_usable_before_bootstrap`:
+# `bootstrap` itself, `describe`, `profile`, and — in this experiment — the
+# `preflight` command below. On a fresh checkout `./full.sh --help` lists only
+# those usable commands; running a not-usable one first is refused with a uniform
+# "requires bootstrap" message instead of a confusing failure deep inside:
+#
+#   ./full.sh preflight            # runs before bootstrap: checks prerequisites
+#   ./full.sh estimate --samples 1000   # refused: "requires bootstrap"
+#
+# After bootstrap, `--help` lists everything and all commands run normally.
 #
 # -----------------------------------------------------------------------------
 # 2. Bootstrap the experiment
@@ -466,6 +480,35 @@ _pi_monte_carlo() {
     [[ "${format}" == "scientific" ]] && awk_fmt="%.5e"
     awk -v i="${inside}" -v n="${samples}" "BEGIN { printf \"${awk_fmt}\", 4 * i / n }"
 }
+
+# -----------------------------------------------------------------------------
+# preflight — a command that is usable *before* bootstrap.
+#
+# Declared with knit_usable_before_bootstrap, so it appears in `--help` and runs
+# on a fresh checkout (before ./.knit exists). Such commands must not declare a
+# table or use --when: both would silently do nothing before bootstrap. This one
+# just reports whether the host has the tools bootstrap needs.
+# -----------------------------------------------------------------------------
+knit_register preflight "preflight" "Check this machine has what bootstrap needs (usable before bootstrap)."
+knit_usable_before_bootstrap
+preflight() {
+    local ok=0 tool
+    for tool in cc curl tar; do
+        if command -v "${tool}" >/dev/null 2>&1; then
+            printf '  %-6s found\n' "${tool}"
+        else
+            printf '  %-6s MISSING\n' "${tool}"
+            ok=1
+        fi
+    done
+    if [[ "${ok}" -eq 0 ]]; then
+        printf 'All prerequisites present — ready to bootstrap.\n'
+    else
+        printf 'Some prerequisites are missing (see above).\n'
+    fi
+    return "${ok}"
+}
+knit_done
 
 # -----------------------------------------------------------------------------
 # estimate — a plain command: quick local pi estimate, recorded in the DB.

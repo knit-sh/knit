@@ -1905,6 +1905,19 @@ _knit_invoke_command() {
     if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
         knit_fatal "Unknown command \"${demangled_cmd}\"."
     fi
+    # Central runtime guard: before bootstrap, refuse any command not declared
+    # usable before bootstrap, with one uniform message, rather than letting it
+    # fail deep inside for want of a provisioned binary. Introspection stays
+    # available: a "--help" invocation (the only help form, for both wrappers and
+    # ordinary commands, is "$1 == --help") is never gated. Commands invoked as
+    # part of the bootstrap command itself run before ".knit/" exists yet must be
+    # allowed through, so the guard also stands down while bootstrapping.
+    if [[ "${1:-}" != "--help" ]] \
+        && [[ "${_KNIT_IS_BOOTSTRAPPING}" != "true" ]] \
+        && ! _knit_command_is_usable_before_bootstrap "${cmd}" \
+        && ! _knit_is_bootstrapped; then
+        knit_fatal "Command \"${demangled_cmd}\" requires bootstrap. Run \"$0 bootstrap\" first."
+    fi
     # get the name of the corresponding function
     local func_name_var="_KNIT_CMD_${cmd}_function"
     local func="${!func_name_var}"

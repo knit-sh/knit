@@ -2,6 +2,10 @@
 
 setup() {
     source knit.sh
+    # The worker tests invoke "run" with no real ".knit/"; stand the pre-bootstrap
+    # guard down (as during bootstrap itself) while leaving _knit_is_bootstrapped
+    # false, so recording stays a no-op. See test_app.sh for the fuller note.
+    _KNIT_IS_BOOTSTRAPPING="true"
     # Start each test from a known-empty MPI environment: clear every
     # launcher-native variable the host environment might carry, plus any
     # KNIT_MPI_* left over from a previous normalization.
