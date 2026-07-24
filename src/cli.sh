@@ -1708,9 +1708,21 @@ _knit_print_command_usage() {
         children_var="_KNIT_CMD_${cmd}_subcommands"
     fi
     local -n children_ref="${children_var}"
+    # Before bootstrap, also omit any child that is not usable before bootstrap:
+    # it cannot run yet (the runtime guard would refuse it), so listing it would
+    # be misleading. After bootstrap every non-hidden child is listed. The usable
+    # set is a connected subtree (validation rule 3), so this per-level test is
+    # sufficient: a usable child shown at a deeper level always has a usable
+    # (hence shown) parent.
+    local pre_bootstrap="false"
+    _knit_is_bootstrapped || pre_bootstrap="true"
     for c in "${children_ref[@]}"; do
         local hidden_var_name="_KNIT_CMD_${c}_is_hidden"
         if [[ "${!hidden_var_name}" == "true" ]]; then
+            continue
+        fi
+        if [[ "${pre_bootstrap}" == "true" ]] \
+            && ! _knit_command_is_usable_before_bootstrap "${c}"; then
             continue
         fi
         local name
