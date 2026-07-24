@@ -92,6 +92,19 @@ knit_with_flag "ignore-system-sqlite" \
     "Build sqlite from source even if a system sqlite3 is available."
 knit_with_flag "ignore-system-jq" \
     "Download jq even if a system jq is available."
+# The --ai-* options mirror 'ai init' and are stored via the same shared helper.
+# The base-url default below must stay in sync with _KNIT_AI_DEFAULT_BASE_URL in
+# src/ai.sh (loaded after this file, so it cannot be referenced here).
+knit_with_optional "ai-api-key-env:string" "" \
+    "Name of the env var holding the AI provider API key. Configures AI when given."
+knit_with_optional "ai-base-url-env:string" "" \
+    "Name of the env var holding the AI endpoint base URL."
+knit_with_optional "ai-model-env:string" "" \
+    "Name of the env var holding the AI model id."
+knit_with_optional "ai-base-url:string" "https://api.openai.com/v1" \
+    "Literal fallback AI base URL used when the base-url env var is unset."
+knit_with_optional "ai-model:string" "" \
+    "Literal fallback AI model id used when the model env var is unset."
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap()
 #
@@ -112,6 +125,11 @@ _knit_bootstrap() {
     local default_nodefile
     local ignore_system_sqlite
     local ignore_system_jq
+    local ai_api_key_env
+    local ai_base_url_env
+    local ai_model_env
+    local ai_base_url
+    local ai_model
     project="$(knit_get_parameter "project" "$@")"
     spack_ref="$(knit_get_parameter "spack" "$@")"
     spack_packages_ref="$(knit_get_parameter "spack-packages" "$@")"
@@ -124,6 +142,11 @@ _knit_bootstrap() {
     default_nodefile="$(knit_get_parameter "default-nodefile" "$@")"
     ignore_system_sqlite="$(knit_get_parameter "ignore-system-sqlite" "$@")"
     ignore_system_jq="$(knit_get_parameter "ignore-system-jq" "$@")"
+    ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
+    ai_base_url_env="$(knit_get_parameter "ai-base-url-env" "$@")"
+    ai_model_env="$(knit_get_parameter "ai-model-env" "$@")"
+    ai_base_url="$(knit_get_parameter "ai-base-url" "$@")"
+    ai_model="$(knit_get_parameter "ai-model" "$@")"
 
     if [[ -n "${profile}" ]] && ! knit_profile_exists "${profile}"; then
         knit_fatal "Unknown profile: ${profile}. Run 'knit profile list' to see available profiles."
@@ -227,6 +250,15 @@ _knit_bootstrap() {
     knit metadata store --key "__node_ncpus__"             --value "${node_ncpus}"
     knit metadata store --key "__node_ngpus__"             --value "${node_ngpus}"
     knit metadata store --key "__default_nodefile__"       --value "${default_nodefile}"
+
+    # AI provider config: written only when an API-key env var name is supplied
+    # (the one required field of a usable config). Overwrite is on since bootstrap
+    # is writing fresh metadata.
+    if [[ -n "${ai_api_key_env}" ]]; then
+        knit_trace "Writing AI provider metadata..."
+        _knit_ai_store_config "${ai_api_key_env}" "${ai_base_url_env}" \
+            "${ai_model_env}" "${ai_base_url}" "${ai_model}" "true"
+    fi
 
     # Bootstrap completed successfully
     _KNIT_BOOTSTRAP_COMPLETED="true"
