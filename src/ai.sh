@@ -14,6 +14,18 @@ declare -g _KNIT_AI_DEFAULT_BASE_URL
 _KNIT_AI_DEFAULT_BASE_URL="https://api.openai.com/v1"
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_AI_TOOL_OUTPUT_MAX_BYTES
+#
+# Approximate ceiling on the size of a single tool result handed back to the
+# model. A tool whose output exceeds this is cut to the budget and marked with an
+# explicit "…(truncated)" line, so a huge `describe` or query result can't blow
+# the context window silently. Measured in characters (== bytes for ASCII, which
+# covers knit's introspection output).
+# ------------------------------------------------------------------------------
+declare -g _KNIT_AI_TOOL_OUTPUT_MAX_BYTES
+_KNIT_AI_TOOL_OUTPUT_MAX_BYTES=8192
+
+# ------------------------------------------------------------------------------
 # @fn _knit_ai_store_config()
 #
 # Write the provider-access configuration to the metadata table as `ai.*`
@@ -193,6 +205,265 @@ _knit_ai_chat_request() {
     fi
 
     printf '%s\n' "${resp}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_sql_is_readonly()
+#
+# Shared read-only SQL guard for the `knit_db_query` tool and (in a later
+# milestone) `ai query`. A statement is considered read-only when its leading
+# keyword is one of SELECT / WITH / EXPLAIN / PRAGMA and it contains no write
+# keyword (INSERT / UPDATE / DELETE / DROP / ALTER / CREATE / REPLACE / ATTACH)
+# as a whole word anywhere. The second check catches piggy-backed writes such as
+# "SELECT 1; DROP TABLE runs" that pass the leading-keyword test.
+#
+# Word boundaries are handled by uppercasing the statement and replacing every
+# non-word character with a space, then matching the space-padded keyword; this
+# avoids relying on the non-POSIX `\b` regex escape and never misfires on a
+# column named e.g. `created_at` (the underscore keeps it one token).
+#
+# @param sql The SQL statement to check.
+# @return 0 if the statement is read-only, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_ai_sql_is_readonly() {
+    local up="${1^^}"
+
+    # Strip leading whitespace, then require an allowed leading keyword followed
+    # by a non-word character or end-of-string (so "SELECTED" is not "SELECT").
+    local trimmed="${up#"${up%%[![:space:]]*}"}"
+    [[ "${trimmed}" =~ ^(SELECT|WITH|EXPLAIN|PRAGMA)([^A-Z0-9_]|$) ]] || return 1
+
+    # Reject any write keyword appearing as a whole word anywhere.
+    local norm=" ${up//[^A-Z0-9_]/ } "
+    local kw
+    for kw in INSERT UPDATE DELETE DROP ALTER CREATE REPLACE ATTACH; do
+        [[ "${norm}" == *" ${kw} "* ]] && return 1
+    done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_truncate()
+#
+# Print the given text, cut to _KNIT_AI_TOOL_OUTPUT_MAX_BYTES with an explicit
+# "…(truncated)" marker appended when it is longer. Used to bound every tool
+# result handed back to the model.
+#
+# @param text The text to bound.
+# ------------------------------------------------------------------------------
+_knit_ai_truncate() {
+    local text="$1"
+    local max="${_KNIT_AI_TOOL_OUTPUT_MAX_BYTES}"
+    if (( ${#text} > max )); then
+        printf '%s\n…(truncated)\n' "${text:0:max}"
+    else
+        printf '%s\n' "${text}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_tool_describe()
+#
+# Tool handler: structured introspection of the command tree, as YAML. Optional
+# `only` (comma-separated command list) and `recursive` narrow/expand the scope.
+#
+# @param only Optional comma-separated command list (colon form, e.g. "a,b:c").
+# @param recursive "true" to also include the selected commands' subcommands.
+# ------------------------------------------------------------------------------
+_knit_ai_tool_describe() {
+    local only="${1:-}"
+    local recursive="${2:-}"
+    local -a args=(describe --format yaml)
+    [[ -n "${only}" ]] && args+=(--only "${only}")
+    [[ "${recursive}" == "true" ]] && args+=(--recursive)
+    knit "${args[@]}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_tool_help()
+#
+# Tool handler: the `--help` text for one specific command. The command name may
+# contain spaces for a nested command (e.g. "job show stdout"); it is split into
+# words before being passed to knit.
+#
+# @param command The command whose help to show (space-separated for nesting).
+# ------------------------------------------------------------------------------
+_knit_ai_tool_help() {
+    local command="$1"
+    if [[ -z "${command}" ]]; then
+        printf 'Error: knit_help requires a "command" argument.\n'
+        return 0
+    fi
+    local -a parts=()
+    read -r -a parts <<< "${command}"
+    knit "${parts[@]}" --help
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_tool_metadata_show()
+#
+# Tool handler: all experiment metadata. Everything in the metadata table is safe
+# to send (only env-var names and non-secret config, never secrets).
+# ------------------------------------------------------------------------------
+_knit_ai_tool_metadata_show() {
+    knit metadata show
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_tool_db_query()
+#
+# Tool handler: run a read-only SQL query against the experiment database and
+# print the result (aligned columns with a header). The statement must pass
+# _knit_ai_sql_is_readonly; a rejected statement returns an error string (fed
+# back to the model) rather than being run. The query always runs on the read
+# path (_knit_sqlite3, never _knit_sqlite3_write), so it can never mutate the DB.
+#
+# @param sql The SQL statement to run.
+# ------------------------------------------------------------------------------
+_knit_ai_tool_db_query() {
+    local sql="$1"
+    if [[ -z "${sql}" ]]; then
+        printf 'Error: knit_db_query requires a "sql" argument.\n'
+        return 0
+    fi
+    if ! _knit_ai_sql_is_readonly "${sql}"; then
+        printf 'Error: query rejected. Only read-only statements are allowed (leading SELECT/WITH/EXPLAIN/PRAGMA, no write keywords).\n'
+        return 0
+    fi
+    _knit_sqlite3 -header -column "${sql}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_tool_job_output()
+#
+# Tool handler: a recorded job's captured stdout/stderr or its generated batch
+# script, via the `job show <stream>` subcommands (there is no top-level `knit
+# stdout` command).
+#
+# @param id The job UUID.
+# @param stream One of "stdout" (default), "stderr", or "script".
+# ------------------------------------------------------------------------------
+_knit_ai_tool_job_output() {
+    local id="$1"
+    local stream="${2:-stdout}"
+    if [[ -z "${id}" ]]; then
+        printf 'Error: knit_job_output requires an "id" argument.\n'
+        return 0
+    fi
+    case "${stream}" in
+        stdout|stderr|script) ;;
+        *)
+            printf 'Error: unknown stream "%s" (use stdout, stderr, or script).\n' \
+                "${stream}"
+            return 0
+            ;;
+    esac
+    knit job show "${stream}" --id "${id}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_tools_schema()
+#
+# Print the OpenAI `tools[]` JSON array describing the read-only tool set exposed
+# to the model. There is deliberately no command-execution tool: the model can
+# inspect the experiment but cannot run experiment commands or mutate anything.
+# ------------------------------------------------------------------------------
+_knit_ai_tools_schema() {
+    _knit_jq -n '
+    [
+      { "type": "function", "function": {
+          "name": "knit_describe",
+          "description": "Structured introspection of the experiment: its commands, parameters, types and outputs, as YAML. Prefer this before answering structural questions.",
+          "parameters": { "type": "object", "properties": {
+              "only": { "type": "string", "description": "Optional comma-separated command list (colon form, e.g. \"a,b:c\") to restrict the description to." },
+              "recursive": { "type": "boolean", "description": "With only, also include the selected commands subcommands." }
+          }, "required": [] } } },
+      { "type": "function", "function": {
+          "name": "knit_help",
+          "description": "The --help text for one specific command.",
+          "parameters": { "type": "object", "properties": {
+              "command": { "type": "string", "description": "The command whose help to show; space-separated for a nested command, e.g. \"job show stdout\"." }
+          }, "required": ["command"] } } },
+      { "type": "function", "function": {
+          "name": "knit_metadata_show",
+          "description": "Show all stored experiment metadata (key/value pairs). Safe: contains only env-var names and non-secret config.",
+          "parameters": { "type": "object", "properties": {}, "required": [] } } },
+      { "type": "function", "function": {
+          "name": "knit_db_query",
+          "description": "Run a read-only SQL query against the experiment database to inspect recorded runs, jobs and outputs. Only SELECT/WITH/EXPLAIN/PRAGMA statements are allowed.",
+          "parameters": { "type": "object", "properties": {
+              "sql": { "type": "string", "description": "A single read-only SQL statement." }
+          }, "required": ["sql"] } } },
+      { "type": "function", "function": {
+          "name": "knit_job_output",
+          "description": "Retrieve a recorded jobs captured stdout, stderr, or its generated batch script.",
+          "parameters": { "type": "object", "properties": {
+              "id": { "type": "string", "description": "The job UUID." },
+              "stream": { "type": "string", "enum": ["stdout", "stderr", "script"], "description": "Which output to retrieve (default stdout)." }
+          }, "required": ["id"] } } }
+    ]'
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_dispatch_tool()
+#
+# Route a model-requested tool call to its handler and print the (truncated)
+# result. Tool arguments arrive as a JSON object string and are parsed with
+# _knit_jq -r. Only allowlisted tools run; an unknown name yields an error
+# string. Handler output (including any fatal from the underlying knit surface,
+# e.g. an unknown job id) is captured so it becomes the tool result rather than
+# aborting the agentic loop.
+#
+# Before running the handler, the recording-suppression state is cleared (unset
+# KNIT_DISABLE_RECORDING, reset _KNIT_RECORDING_SUPPRESSED) so a recordable
+# tool-command would record exactly as if the user had run it directly. The `ai`
+# command's own non-recording state never leaks into the commands it drives.
+#
+# @param name The tool name (e.g. "knit_describe").
+# @param args_json JSON object string of the tool's arguments.
+# ------------------------------------------------------------------------------
+_knit_ai_dispatch_tool() {
+    local name="$1"
+    local args_json="$2"
+    [[ -z "${args_json}" ]] && args_json="{}"
+
+    # Clear recording suppression for the tool invocation (see above).
+    unset KNIT_DISABLE_RECORDING
+    _KNIT_RECORDING_SUPPRESSED=""
+
+    local out
+    case "${name}" in
+        knit_describe)
+            local only recursive
+            only=$(printf '%s' "${args_json}" | _knit_jq -r '.only // ""')
+            recursive=$(printf '%s' "${args_json}" | _knit_jq -r '.recursive // false')
+            out=$(_knit_ai_tool_describe "${only}" "${recursive}" 2>&1)
+            ;;
+        knit_help)
+            local command
+            command=$(printf '%s' "${args_json}" | _knit_jq -r '.command // ""')
+            out=$(_knit_ai_tool_help "${command}" 2>&1)
+            ;;
+        knit_metadata_show)
+            out=$(_knit_ai_tool_metadata_show 2>&1)
+            ;;
+        knit_db_query)
+            local sql
+            sql=$(printf '%s' "${args_json}" | _knit_jq -r '.sql // ""')
+            out=$(_knit_ai_tool_db_query "${sql}" 2>&1)
+            ;;
+        knit_job_output)
+            local id stream
+            id=$(printf '%s' "${args_json}" | _knit_jq -r '.id // ""')
+            stream=$(printf '%s' "${args_json}" | _knit_jq -r '.stream // "stdout"')
+            out=$(_knit_ai_tool_job_output "${id}" "${stream}" 2>&1)
+            ;;
+        *)
+            out="Error: unknown tool \"${name}\"."
+            ;;
+    esac
+
+    _knit_ai_truncate "${out}"
 }
 
 # ------------------------------------------------------------------------------
