@@ -618,16 +618,79 @@ knit_hidden() {
 # (knit_with_table) nor carry any "--when" constraint on its parameters (both
 # rely on binaries that bootstrap provisions), and a subcommand may only be
 # usable before bootstrap if its parent is too. These rules are enforced at
-# knit_done time; this decorator only sets the marker.
+# knit_done time by _knit_usable_before_bootstrap_validate (registered here as a
+# knit_done callback), so that they see the final command definition regardless
+# of the order in which knit_with_table / knit_with_* / this decorator are
+# called.
 #
-# Calling it more than once on the same command is harmless (idempotent).
+# Calling it more than once on the same command is harmless (idempotent): the
+# validation callback is registered only on the first call.
 # ------------------------------------------------------------------------------
 knit_usable_before_bootstrap() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_usable_before_bootstrap should be used after a call to \"knit_register\"."
     fi
     knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as usable before bootstrap."
-    printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_usable_before_bootstrap" '%s' 'true'
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    if ! _knit_command_is_usable_before_bootstrap "${cmd}"; then
+        _knit_push_done_cb _knit_usable_before_bootstrap_validate \
+            "${cmd}" "${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+    fi
+    printf -v "_KNIT_CMD_${cmd}_usable_before_bootstrap" '%s' 'true'
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_usable_before_bootstrap_validate()
+#
+# knit_done callback registered by knit_usable_before_bootstrap. Enforces the
+# three rules a command usable before bootstrap must satisfy. Each rule guards a
+# behavior that would otherwise degrade silently (not crash) before bootstrap, so
+# the point is to guarantee correct pre-bootstrap behavior, not to avoid a crash:
+#
+#   1. No database table: table row recording is skipped before bootstrap, so a
+#      usable command declaring a table would silently record nothing.
+#   2. No "--when" constraint on any parameter: constraint evaluation (via jq) is
+#      skipped before bootstrap, so a usable command's constraint would be
+#      silently ignored.
+#   3. Parent must also be usable before bootstrap: keeps the usable set a
+#      connected subtree rooted at the top level, which is what makes the
+#      "--help" filtering and runtime guard correct without extra reachability
+#      logic.
+#
+# Any violation is fatal, naming the command and the specific reason.
+#
+# @param cmd Command (mangled name) being validated.
+# @param demangled Command name in demangled form (for messages).
+# ------------------------------------------------------------------------------
+_knit_usable_before_bootstrap_validate() {
+    local cmd="$1"
+    local demangled="$2"
+
+    # Rule 1: no database table.
+    local table_var="_KNIT_CMD_${cmd}_table"
+    if [[ -n "${!table_var:-}" ]]; then
+        knit_fatal "Command \"${demangled}\" is usable before bootstrap and cannot declare a table (knit_with_table): before bootstrap its invocations would silently record nothing."
+    fi
+
+    # Rule 2: no "--when" constraint on any parameter.
+    local set_name param when_var
+    for set_name in required optional flags; do
+        while IFS= read -r param; do
+            when_var="_KNIT_CMD_${cmd}_2_${param}_when"
+            if [[ -v "${when_var}" ]]; then
+                knit_fatal "Command \"${demangled}\" is usable before bootstrap and cannot use --when (on parameter \"${param}\"): before bootstrap the constraint would be silently skipped."
+            fi
+        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_${set_name}")
+    done
+
+    # Rule 3: parent must also be usable before bootstrap.
+    local parent
+    _knit_command_get_parents parent "${cmd}"
+    if [[ -n "${parent}" ]] && ! _knit_command_is_usable_before_bootstrap "${parent}"; then
+        local parent_demangled
+        parent_demangled=$(_knit_command_demangle "${parent}")
+        knit_fatal "Command \"${demangled}\" is usable before bootstrap but its parent \"${parent_demangled}\" is not."
+    fi
 }
 
 # ------------------------------------------------------------------------------
