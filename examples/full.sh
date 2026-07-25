@@ -12,8 +12,10 @@
 # local background processes when no scheduler is present — MPI application
 # launch across a job's allocation with `knit run`, the Spack package
 # manager (`knit spack`, plus Spack-backed setups), commands that are usable
-# before bootstrap (`knit_usable_before_bootstrap`), and a machine- and
-# human-readable description of the whole interface with `knit describe`.
+# before bootstrap (`knit_usable_before_bootstrap`), a machine- and
+# human-readable description of the whole interface with `knit describe`, and
+# natural-language access to the experiment and its recorded runs with
+# `knit ai` (read-only; needs an OpenAI-compatible provider).
 #
 # HOW TO USE THIS FILE
 # --------------------
@@ -45,7 +47,7 @@
 #   ./full.sh --help
 #
 # Prints the program description and the list of subcommands: preflight,
-# estimate, submit, run, setup, bootstrap, metadata, profile, job, db, spack.
+# estimate, submit, run, setup, bootstrap, metadata, profile, job, db, spack, ai.
 # Every command takes --help,
 # e.g.
 #
@@ -121,6 +123,9 @@
 # the scheduler, launcher, queue, walltime cap and per-node core count:
 #
 #   ./full.sh bootstrap --project pi-demo --profile polaris
+#
+# You can also configure the AI provider here with the --ai-* options (see step
+# 13); e.g. --ai-api-key-env OPENAI_API_KEY --ai-model gpt-4o-mini.
 #
 # Bootstrap is one-shot: re-running it on an already-bootstrapped experiment is
 # an error. To start over, `rm -rf .knit` first.
@@ -422,7 +427,51 @@
 # instead of stdout (and disables color for the default format).
 #
 # -----------------------------------------------------------------------------
-# 13. Clean up
+# 13. Ask questions in natural language (knit ai)
+# -----------------------------------------------------------------------------
+# knit can put an LLM in front of your experiment: it answers questions about
+# the interface and the recorded runs by calling knit's own commands. Everything
+# the AI can do is READ-ONLY — the tools it may call (describe, help, metadata
+# show, db query, job show) never modify anything, and any SQL it generates is
+# checked and rejected unless it is a read-only statement.
+#
+# First point knit at an OpenAI-compatible provider. knit never stores your API
+# key: you give it the NAME of the environment variable that holds the key, and
+# it reads that variable at call time.
+#
+#   export OPENAI_API_KEY=sk-...
+#   ./full.sh ai init --api-key-env OPENAI_API_KEY --model gpt-4o-mini
+#
+# The same thing can be configured at bootstrap with the --ai-* options:
+#
+#   ./full.sh bootstrap --project pi-demo \
+#       --ai-api-key-env OPENAI_API_KEY --ai-model gpt-4o-mini
+#
+# --base-url defaults to https://api.openai.com/v1; point it at any
+# OpenAI-compatible endpoint. If you would rather keep the base URL or model out
+# of the database too, store their env-var names instead (--base-url-env /
+# --model-env). Use --force to overwrite an existing configuration.
+#
+# `ai ask` answers open-ended questions, calling the read-only tools as needed:
+#
+#   ./full.sh ai ask --question "which commands submit a job?"
+#   ./full.sh ai ask --question "how many montecarlo jobs completed?"
+#   ./full.sh ai ask --question "..." --verbose   # stream tool calls to stderr
+#
+# `ai query` is narrower and easy to audit: it turns a question into a SINGLE
+# read-only SQL statement, runs it against ./.knit/knit.db, and prints the result
+# in the sqlite output mode you pick. If the SQL errors, knit feeds the error
+# back so the model can correct it (up to --max-iterations):
+#
+#   ./full.sh ai query --question "list completed jobs and their hostnames"
+#   ./full.sh ai query --question "count runs per app" --format csv
+#   ./full.sh ai query --question "..." --sql-only   # print the SQL, don't run it
+#
+# Both commands need a configured provider and a reachable API key; without one
+# they stop with a clear message pointing you back to `ai init`.
+#
+# -----------------------------------------------------------------------------
+# 14. Clean up
 # -----------------------------------------------------------------------------
 #   rm -rf .knit env libenv
 #
