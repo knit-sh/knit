@@ -1,0 +1,194 @@
+#!/usr/bin/env bats
+
+setup() {
+    source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
+    knit_test_require_sqlite
+    knit_test_require_jq
+    knit_test_db_setup
+
+    _KNIT_JQ_EXE="jq"
+    KNIT_SCRIPT_NAME="my-exp.sh"
+    _knit_create_metadata_table
+
+    # A small real table for the query loop to run against.
+    _knit_sqlite3_write "CREATE TABLE t(name TEXT, n INT);"
+    _knit_sqlite3_write "INSERT INTO t VALUES('alice', 2), ('bob', 1);"
+}
+
+teardown() {
+    knit_test_db_teardown
+}
+
+# Stub curl to return a canned response per call, in order, and capture each
+# request body to a numbered file so a later turn's payload can be inspected.
+_stub_curl_seq() {
+    export KNIT_T_SEQ="${BATS_TEST_TMPDIR}/seq"
+    rm -rf "${KNIT_T_SEQ}"; mkdir -p "${KNIT_T_SEQ}"
+    local i=1 r
+    for r in "$@"; do
+        printf '%s' "${r}" > "${KNIT_T_SEQ}/resp_${i}"
+        (( i++ ))
+    done
+    printf '0' > "${KNIT_T_SEQ}/n"
+    curl() {
+        local cfg=""
+        while (( $# )); do
+            case "$1" in
+                -K) cfg="$2"; shift 2 ;;
+                *)  shift ;;
+            esac
+        done
+        local n
+        n=$(<"${KNIT_T_SEQ}/n"); n=$(( n + 1 ))
+        printf '%s' "${n}" > "${KNIT_T_SEQ}/n"
+        local bf
+        bf=$(sed -n 's/^data-binary = "@\(.*\)"$/\1/p' "${cfg}")
+        [[ -n "${bf}" ]] && cp "${bf}" "${KNIT_T_SEQ}/body_${n}"
+        cat "${KNIT_T_SEQ}/resp_${n}"
+    }
+}
+
+# Shorthand: an assistant reply whose content is the given SQL text.
+_sql_resp() {
+    _knit_jq -n --arg sql "$1" '{choices:[{message:{role:"assistant",content:$sql}}]}'
+}
+
+# ---------- _knit_ai_query_mode_args ----------
+
+@test "mode args map the format, headers, and separator" {
+    local -a args
+    _knit_ai_query_mode_args args "box" "false" ""
+    [ "${args[*]}" = "-cmd .mode box -cmd .headers on" ]
+
+    _knit_ai_query_mode_args args "csv" "true" ";"
+    [ "${args[*]}" = "-cmd .mode csv -cmd .headers off -cmd .separator ;" ]
+}
+
+# ---------- _knit_ai_extract_sql ----------
+
+@test "extract_sql returns a bare statement unchanged (trimmed)" {
+    run _knit_ai_extract_sql "  SELECT 1  "
+    [ "$output" = "SELECT 1" ]
+}
+
+@test "extract_sql strips a fenced code block and language tag" {
+    run _knit_ai_extract_sql $'```sql\nSELECT name FROM t\n```'
+    [ "$output" = "SELECT name FROM t" ]
+}
+
+# ---------- _knit_ai_query_loop ----------
+
+@test "query loop runs generated SQL and prints it in the chosen format" {
+    _stub_curl_seq "$(_sql_resp 'SELECT name FROM t ORDER BY n')"
+    run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "names?" "sys" 3 \
+        false false csv false ""
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"name"* ]]   # header present by default
+    [[ "$output" == *"bob"* ]]
+    [[ "$output" == *"alice"* ]]
+}
+
+@test "query loop rejects a write statement without running it" {
+    _stub_curl_seq "$(_sql_resp 'DROP TABLE t')"
+    run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "drop it" "sys" 1 \
+        false false csv false ""
+    [ "$status" -ne 0 ]
+    # The table still exists: the write never reached the database.
+    run _knit_sqlite3 "SELECT count(*) FROM t"
+    [ "$status" -eq 0 ]
+    [ "$output" = "2" ]
+}
+
+@test "query loop feeds a sqlite error back and the second attempt succeeds" {
+    _stub_curl_seq \
+        "$(_sql_resp 'SELECT nope FROM t')" \
+        "$(_sql_resp 'SELECT name FROM t ORDER BY n')"
+    run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "names?" "sys" 3 \
+        false false csv false ""
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alice"* ]]
+    # Exactly two provider calls; the second carried the sqlite error back.
+    [ "$(cat "${KNIT_T_SEQ}/n")" = "2" ]
+    local body2; body2=$(cat "${KNIT_T_SEQ}/body_2")
+    [[ "$(printf '%s' "${body2}" | jq -r '.messages[-1].content')" == *"no such column"* ]]
+}
+
+@test "query loop fatals after hitting the iteration cap" {
+    _stub_curl_seq \
+        "$(_sql_resp 'SELECT nope FROM t')" \
+        "$(_sql_resp 'SELECT still_nope FROM t')"
+    run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "names?" "sys" 2 \
+        false false csv false ""
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"could not produce a working query"* ]]
+    [ "$(cat "${KNIT_T_SEQ}/n")" = "2" ]
+}
+
+@test "query loop --sql-only prints the SQL and does not run it" {
+    _stub_curl_seq "$(_sql_resp 'DROP TABLE t')"
+    run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "drop it" "sys" 3 \
+        false true csv false ""
+    [ "$status" -eq 0 ]
+    [ "$output" = "DROP TABLE t" ]
+    # Only one call; the (write) statement was never executed.
+    [ "$(cat "${KNIT_T_SEQ}/n")" = "1" ]
+    run _knit_sqlite3 "SELECT count(*) FROM t"
+    [ "$output" = "2" ]
+}
+
+@test "query loop --verbose streams generated SQL and sqlite errors to stderr" {
+    _stub_curl_seq \
+        "$(_sql_resp 'SELECT nope FROM t')" \
+        "$(_sql_resp 'SELECT name FROM t')"
+    run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "names?" "sys" 3 \
+        true false csv false ""
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"generated SQL"* ]]
+    [[ "$output" == *"sqlite error"* ]]
+}
+
+# ---------- ai query (end to end via the dispatcher, stubbed curl) ----------
+
+@test "ai query resolves config, runs the loop, and prints the result" {
+    _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
+    export KNIT_T_KEY="sk-secret"
+    _stub_curl_seq "$(_sql_resp 'SELECT name FROM t ORDER BY n')"
+
+    run knit ai query --question "list names" --format csv
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"bob"* ]]
+    [[ "$output" == *"alice"* ]]
+}
+
+@test "ai query --sql-only prints SQL via the dispatcher" {
+    _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
+    export KNIT_T_KEY="sk-secret"
+    _stub_curl_seq "$(_sql_resp 'SELECT name FROM t')"
+
+    run knit ai query --question "list names" --sql-only
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"SELECT name FROM t"* ]]
+}
+
+@test "ai query fatals cleanly when the provider is not configured" {
+    run knit ai query --question "list names"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not configured"* ]]
+}
+
+@test "ai query rejects an invalid --format value" {
+    _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
+    export KNIT_T_KEY="sk-secret"
+    run knit ai query --question "x" --format bogus
+    [ "$status" -ne 0 ]
+}
+
+# ---------- system prompt ----------
+
+@test "query system prompt seeds the schema and a one-statement instruction" {
+    run _knit_ai_query_system_prompt
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"SINGLE SQL statement"* ]]
+    [[ "$output" == *"CREATE TABLE t"* ]]   # the seeded schema
+    [[ "$output" == *"- ai query:"* ]]      # the compact describe summary
+}

@@ -709,3 +709,262 @@ _knit_ai_ask() {
         "${question}" "${system_prompt}" "${max_iterations}" "${raw}" "${verbose}"
 }
 knit_done
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_query_mode_args()
+#
+# Translate an `ai query --format` value (a `sqlite_format` enum value) plus the
+# `--no-header`/`--separator` options into the sequence of sqlite3 `-cmd ".mode
+# …"` arguments that select the requested output mode, filled into the caller's
+# array by nameref. The enum values map 1:1 onto sqlite3 `.mode` names, so no
+# lookup table is needed. Headers are on by default (`.headers on`) and turned
+# off by `--no-header`; a non-empty separator overrides the mode default.
+#
+# @param __knit_ret Name of the array variable to fill with the sqlite3 args.
+# @param format The sqlite_format enum value (e.g. "box", "csv").
+# @param no_header "true" to omit column headers.
+# @param separator Optional column separator for csv/list modes.
+# ------------------------------------------------------------------------------
+_knit_ai_query_mode_args() {
+    local -n __knit_ret=$1
+    local format="$2"
+    local no_header="$3"
+    local separator="$4"
+
+    __knit_ret=(-cmd ".mode ${format}")
+    if [[ "${no_header}" == "true" ]]; then
+        __knit_ret+=(-cmd ".headers off")
+    else
+        __knit_ret+=(-cmd ".headers on")
+    fi
+    [[ -n "${separator}" ]] && __knit_ret+=(-cmd ".separator ${separator}")
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_extract_sql()
+#
+# Extract the bare SQL statement from a model reply, tolerating a reply wrapped
+# in a Markdown code fence (```sql … ```) and surrounding whitespace even though
+# the system prompt asks for none. When a fence is present, the content between
+# the first and next fence is taken and an optional leading language tag (`sql`)
+# is dropped; then leading/trailing whitespace is trimmed.
+#
+# @param text The raw model reply.
+# ------------------------------------------------------------------------------
+_knit_ai_extract_sql() {
+    local text="$1"
+    local fence='```'
+    if [[ "${text}" == *"${fence}"* ]]; then
+        text="${text#*"${fence}"}"
+        text="${text%%"${fence}"*}"
+        text="${text#sql}"
+        text="${text#SQL}"
+    fi
+    text="${text#"${text%%[![:space:]]*}"}"
+    text="${text%"${text##*[![:space:]]}"}"
+    printf '%s' "${text}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_query_system_prompt()
+#
+# Print the system prompt for `ai query`: it instructs the model to translate the
+# question into exactly one read-only SQL statement and nothing else, and seeds
+# the model with the database schema (`_knit_sqlite3 ".schema"`) and a compact
+# `describe` summary for column semantics.
+# ------------------------------------------------------------------------------
+_knit_ai_query_system_prompt() {
+    local schema summary
+    schema=$(_knit_sqlite3 ".schema" 2>/dev/null)
+    summary=$(_knit_ai_describe_summary)
+    cat <<EOF
+You translate a natural-language question about the "knit" experiment
+"${KNIT_SCRIPT_NAME}" into exactly ONE read-only SQL query for its SQLite
+database.
+
+Rules:
+- Reply with a SINGLE SQL statement and NOTHING else: no prose, no explanation,
+  no Markdown code fences.
+- The statement must be read-only: it must start with SELECT, WITH, EXPLAIN, or
+  PRAGMA. Never emit INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/REPLACE/ATTACH.
+- Use only the tables and columns present in the schema below.
+
+Database schema:
+${schema}
+
+Command reference (for column semantics):
+${summary}
+EOF
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_query_loop()
+#
+# Run the bounded self-correcting loop behind `ai query`. Seeds the conversation
+# with the query system prompt and the user question, then per round: asks the
+# model for a single SQL statement, extracts it, and (unless --sql-only) checks
+# it with the shared read-only guard and runs it on the read path
+# (_knit_sqlite3, never _knit_sqlite3_write) in the requested output mode. On
+# success the formatted result is printed and the loop returns 0. A guard
+# rejection or a sqlite error is fed back to the model as a follow-up message so
+# the next round can correct it. After max_iterations failed rounds the loop
+# fatals, showing the last SQL and error.
+#
+# With --sql-only the first generated statement is printed and the loop returns
+# without touching the database.
+#
+# @param base_url Resolved endpoint base URL.
+# @param api_key Resolved API key (passed straight to the request helper).
+# @param model Resolved model id.
+# @param question The user's natural-language question.
+# @param system_prompt The system prompt to seed the conversation with.
+# @param max_iterations Cap on generate→run→fix rounds.
+# @param verbose "true" to stream each generated SQL and any error to stderr.
+# @param sql_only "true" to print the generated SQL and return without running.
+# @param format The sqlite_format enum value for the output mode.
+# @param no_header "true" to omit column headers.
+# @param separator Optional column separator for csv/list modes.
+# @return 0 on a successful (or --sql-only) run; fatals on hitting the cap.
+# ------------------------------------------------------------------------------
+_knit_ai_query_loop() {
+    local base_url="$1"
+    local api_key="$2"
+    local model="$3"
+    local question="$4"
+    local system_prompt="$5"
+    local max_iterations="$6"
+    local verbose="$7"
+    local sql_only="$8"
+    local format="$9"
+    local no_header="${10}"
+    local separator="${11}"
+
+    local messages
+    # shellcheck disable=SC2016 # $system/$question are jq variables, not shell
+    messages=$(_knit_jq -n \
+        --arg system "${system_prompt}" \
+        --arg question "${question}" \
+        '[{role: "system", content: $system}, {role: "user", content: $question}]')
+
+    local -a mode_args=()
+    _knit_ai_query_mode_args mode_args "${format}" "${no_header}" "${separator}"
+
+    local i resp message sql out
+    local last_sql="" last_err=""
+    for (( i = 1; i <= max_iterations; i++ )); do
+        resp=$(_knit_ai_chat_request "${base_url}" "${api_key}" "${model}" \
+            "${messages}") || return 1
+
+        message=$(printf '%s' "${resp}" | _knit_jq -c '.choices[0].message')
+        if [[ -z "${message}" || "${message}" == "null" ]]; then
+            knit_fatal "AI response contained no message."
+        fi
+
+        # shellcheck disable=SC2016 # $m/$msg are jq variables, not shell
+        messages=$(_knit_jq -n \
+            --argjson m "${messages}" \
+            --argjson msg "${message}" \
+            '$m + [$msg]')
+
+        sql=$(printf '%s' "${message}" | _knit_jq -r '.content // ""')
+        sql=$(_knit_ai_extract_sql "${sql}")
+        last_sql="${sql}"
+
+        [[ "${verbose}" == "true" ]] && \
+            printf 'ai: generated SQL:\n%s\n' "${sql}" >&2
+
+        if [[ "${sql_only}" == "true" ]]; then
+            printf '%s\n' "${sql}"
+            return 0
+        fi
+
+        if ! _knit_ai_sql_is_readonly "${sql}"; then
+            last_err="query rejected: only read-only statements are allowed (leading SELECT/WITH/EXPLAIN/PRAGMA, no write keywords)."
+            [[ "${verbose}" == "true" ]] && printf 'ai: %s\n' "${last_err}" >&2
+            # shellcheck disable=SC2016 # $m/$e are jq variables, not shell
+            messages=$(_knit_jq -n \
+                --argjson m "${messages}" \
+                --arg e "${last_err}" \
+                '$m + [{role: "user", content: ("That SQL was rejected: " + $e + " Return a single read-only statement only.")}]')
+            continue
+        fi
+
+        if out=$(_knit_sqlite3 "${mode_args[@]}" "${sql}" 2>&1); then
+            printf '%s\n' "${out}"
+            return 0
+        fi
+        last_err="${out}"
+        [[ "${verbose}" == "true" ]] && \
+            printf 'ai: sqlite error:\n%s\n' "${last_err}" >&2
+        # shellcheck disable=SC2016 # $m/$e are jq variables, not shell
+        messages=$(_knit_jq -n \
+            --argjson m "${messages}" \
+            --arg e "${last_err}" \
+            '$m + [{role: "user", content: ("Running that SQL failed with this sqlite error:\n" + $e + "\nReturn a corrected single read-only SQL statement only.")}]')
+    done
+
+    knit_fatal "ai query: could not produce a working query after %s attempts. Last SQL: %s ; last error: %s" \
+        "${max_iterations}" "${last_sql}" "${last_err}"
+}
+
+# ------------------------------------------------------------------------------
+# Registration of the sqlite_format enum for 'ai query --format'.
+# ------------------------------------------------------------------------------
+knit_define_enum "sqlite_format" \
+    "box" "column" "csv" "json" "line" "list" "markdown" "table" "html"
+_knit_is_builtin
+
+# ------------------------------------------------------------------------------
+# Registration of 'ai query'.
+# ------------------------------------------------------------------------------
+knit_register _knit_ai_query "ai:query" \
+    "Answer a question by generating and running a read-only SQL query."
+_knit_is_builtin
+knit_without_provenance
+knit_with_required "question:string" \
+    "The natural-language question to answer."
+knit_with_optional "format:sqlite_format" "box" \
+    "sqlite3 output mode: box, column, csv, json, line, list, markdown, table, html."
+knit_with_flag "no-header" \
+    "Omit column headers (tabular/CSV modes)."
+knit_with_optional "separator:string" "" \
+    "Column separator for csv/list modes (defaults to the sqlite default)."
+knit_with_optional "max-iterations:integer" "3" \
+    "Cap on generate -> run -> fix rounds."
+knit_with_optional "model:string" "" \
+    "Override the configured model for this call."
+knit_with_flag "sql-only" \
+    "Print the generated SQL without running it."
+knit_with_flag "verbose" \
+    "Stream each generated SQL and any sqlite error to stderr as the loop runs."
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_query()
+#
+# Body of 'ai query': resolve the provider config, build the query system prompt
+# (schema + describe summary), and run the self-correcting query loop, which
+# prints the formatted result (or the SQL alone with --sql-only). The resolved
+# API key stays in a local and is never logged or recorded.
+# ------------------------------------------------------------------------------
+_knit_ai_query() {
+    local question format no_header separator max_iterations model sql_only verbose
+    question="$(knit_get_parameter "question" "$@")"
+    format="$(knit_get_parameter "format" "$@")"
+    no_header="$(knit_get_parameter "no-header" "$@")" || no_header="false"
+    separator="$(knit_get_parameter "separator" "$@")"
+    max_iterations="$(knit_get_parameter "max-iterations" "$@")"
+    model="$(knit_get_parameter "model" "$@")"
+    sql_only="$(knit_get_parameter "sql-only" "$@")" || sql_only="false"
+    verbose="$(knit_get_parameter "verbose" "$@")" || verbose="false"
+
+    local api_key base_url resolved_model
+    _knit_ai_resolve_config api_key base_url resolved_model "${model}"
+
+    local system_prompt
+    system_prompt="$(_knit_ai_query_system_prompt)"
+
+    _knit_ai_query_loop "${base_url}" "${api_key}" "${resolved_model}" \
+        "${question}" "${system_prompt}" "${max_iterations}" "${verbose}" \
+        "${sql_only}" "${format}" "${no_header}" "${separator}"
+}
+knit_done
