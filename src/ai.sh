@@ -467,6 +467,152 @@ _knit_ai_dispatch_tool() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_ai_describe_summary()
+#
+# Print a compact one-line-per-command summary of the whole command tree
+# ("- <full command path>: <description>"), used to seed the model's first turn
+# so it need not call knit_describe just to learn what commands exist. Built from
+# the machine-readable `describe --format json --compact` output. Best-effort: a
+# failure prints nothing (the model can still call the tools for detail).
+# ------------------------------------------------------------------------------
+_knit_ai_describe_summary() {
+    local json
+    json=$(knit describe --format json --compact 2>/dev/null) || return 0
+    printf '%s' "${json}" | _knit_jq -r '
+        def walk: .[]? | "- \(.path | join(" ")): \(.description // "")",
+                         (.subcommands | walk);
+        .commands | walk' 2>/dev/null
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_default_system_prompt()
+#
+# Print the default system prompt for `ai ask`: a short explanation of knit, the
+# instruction to answer about *this* experiment using only the read-only tools,
+# and a compact seeded summary of the available commands. Overridden wholesale by
+# `ai ask --system`.
+# ------------------------------------------------------------------------------
+_knit_ai_default_system_prompt() {
+    local summary
+    summary=$(_knit_ai_describe_summary)
+    cat <<EOF
+You are an assistant embedded in "knit", a Bash framework for reproducible HPC
+experiments. Answer questions about THIS specific experiment (invoked as
+"${KNIT_SCRIPT_NAME}") by inspecting it with the read-only tools provided. Never
+invent commands, parameters, or results; if you are unsure, call a tool.
+
+Prefer calling knit_describe (optionally with "only") before answering questions
+about commands, parameters, or outputs. Use knit_db_query to inspect recorded
+runs and jobs, knit_job_output to read a job's captured stdout/stderr or batch
+script, and knit_metadata_show for configuration. All tools are read-only: you
+cannot run experiment commands or modify anything.
+
+The experiment exposes these commands:
+${summary}
+EOF
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_loop()
+#
+# Run the agentic tool-calling loop for `ai ask`. Seeds the conversation with the
+# system prompt and the user question, then repeatedly POSTs the accumulating
+# message array (with the read-only tool schema) to the provider. On each turn:
+# the assistant message is appended; if it carries no tool calls it is the final
+# answer (printed and the loop returns); otherwise every requested tool is
+# dispatched and its result appended as a tool-role message before the next turn.
+# The message array is grown with `_knit_jq --argjson` so JSON types stay intact.
+#
+# Stops after max_iterations rounds with a warning if no final answer is reached.
+#
+# @param base_url Resolved endpoint base URL.
+# @param api_key Resolved API key (passed straight to the request helper).
+# @param model Resolved model id.
+# @param question The user's natural-language question.
+# @param system_prompt The system prompt to seed the conversation with.
+# @param max_iterations Hard cap on tool-call rounds.
+# @param raw "true" to print the raw final message JSON instead of its text.
+# @param verbose "true" to stream each tool call and result to stderr.
+# @return 0 when a final answer is produced, 1 on hitting the iteration cap.
+# ------------------------------------------------------------------------------
+_knit_ai_loop() {
+    local base_url="$1"
+    local api_key="$2"
+    local model="$3"
+    local question="$4"
+    local system_prompt="$5"
+    local max_iterations="$6"
+    local raw="$7"
+    local verbose="$8"
+
+    local tools
+    tools=$(_knit_ai_tools_schema)
+
+    local messages
+    # shellcheck disable=SC2016 # $system/$question are jq variables, not shell
+    messages=$(_knit_jq -n \
+        --arg system "${system_prompt}" \
+        --arg question "${question}" \
+        '[{role: "system", content: $system}, {role: "user", content: $question}]')
+
+    local i resp message n_tools
+    local j tc_id tc_name tc_args result
+    for (( i = 1; i <= max_iterations; i++ )); do
+        resp=$(_knit_ai_chat_request "${base_url}" "${api_key}" "${model}" \
+            "${messages}" "${tools}") || return 1
+
+        message=$(printf '%s' "${resp}" | _knit_jq -c '.choices[0].message')
+        if [[ -z "${message}" || "${message}" == "null" ]]; then
+            knit_fatal "AI response contained no message."
+        fi
+
+        # Append the assistant message (keeps any tool_calls intact for the
+        # follow-up tool-role messages the API requires).
+        # shellcheck disable=SC2016 # $m/$msg are jq variables, not shell
+        messages=$(_knit_jq -n \
+            --argjson m "${messages}" \
+            --argjson msg "${message}" \
+            '$m + [$msg]')
+
+        n_tools=$(printf '%s' "${message}" | _knit_jq -r '(.tool_calls // []) | length')
+        if (( n_tools == 0 )); then
+            if [[ "${raw}" == "true" ]]; then
+                printf '%s\n' "${message}"
+            else
+                printf '%s' "${message}" | _knit_jq -r '.content // ""'
+            fi
+            return 0
+        fi
+
+        for (( j = 0; j < n_tools; j++ )); do
+            tc_id=$(printf '%s' "${message}" | _knit_jq -r ".tool_calls[${j}].id")
+            tc_name=$(printf '%s' "${message}" | _knit_jq -r ".tool_calls[${j}].function.name")
+            tc_args=$(printf '%s' "${message}" | _knit_jq -r ".tool_calls[${j}].function.arguments")
+
+            [[ "${verbose}" == "true" ]] && \
+                printf 'ai: tool call %s(%s)\n' "${tc_name}" "${tc_args}" >&2
+
+            result=$(_knit_ai_dispatch_tool "${tc_name}" "${tc_args}")
+
+            [[ "${verbose}" == "true" ]] && \
+                printf 'ai: tool result for %s:\n%s\n' "${tc_name}" "${result}" >&2
+
+            # Append the tool result as a tool-role message keyed by call id.
+            # shellcheck disable=SC2016 # $m/$id/$content are jq variables, not shell
+            messages=$(_knit_jq -n \
+                --argjson m "${messages}" \
+                --arg id "${tc_id}" \
+                --arg content "${result}" \
+                '$m + [{role: "tool", tool_call_id: $id, content: $content}]')
+        done
+    done
+
+    knit_warning "ai: hit --max-iterations (%s) without a final answer." \
+        "${max_iterations}"
+    return 1
+}
+
+# ------------------------------------------------------------------------------
 # Registration of the ai command group.
 #
 # `ai` commands read/write the metadata table and/or the run/job database, so
@@ -514,5 +660,52 @@ _knit_ai_init() {
 
     _knit_ai_store_config "${api_key_env}" "${base_url_env}" "${model_env}" \
         "${base_url}" "${model}" "${force}"
+}
+knit_done
+
+# ------------------------------------------------------------------------------
+# Registration of 'ai ask'.
+# ------------------------------------------------------------------------------
+knit_register _knit_ai_ask "ai:ask" \
+    "Ask a natural-language question about the experiment."
+_knit_is_builtin
+knit_without_provenance
+knit_with_required "question:string" \
+    "The natural-language question to answer."
+knit_with_optional "model:string" "" \
+    "Override the configured model for this call."
+knit_with_optional "max-iterations:integer" "8" \
+    "Hard cap on agentic tool-call rounds."
+knit_with_optional "system:string" "" \
+    "Replace the built-in system prompt with this text."
+knit_with_flag "raw" \
+    "Print the raw final message JSON instead of just the answer text."
+knit_with_flag "verbose" \
+    "Stream each tool call and tool result to stderr as the loop runs."
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_ask()
+#
+# Body of 'ai ask': resolve the provider config, build the system prompt (the
+# built-in one unless --system overrides it), and run the agentic loop, which
+# prints the final answer. The resolved API key stays in a local and is never
+# logged or recorded.
+# ------------------------------------------------------------------------------
+_knit_ai_ask() {
+    local question model max_iterations system raw verbose
+    question="$(knit_get_parameter "question" "$@")"
+    model="$(knit_get_parameter "model" "$@")"
+    max_iterations="$(knit_get_parameter "max-iterations" "$@")"
+    system="$(knit_get_parameter "system" "$@")"
+    raw="$(knit_get_parameter "raw" "$@")" || raw="false"
+    verbose="$(knit_get_parameter "verbose" "$@")" || verbose="false"
+
+    local api_key base_url resolved_model
+    _knit_ai_resolve_config api_key base_url resolved_model "${model}"
+
+    local system_prompt="${system}"
+    [[ -z "${system_prompt}" ]] && system_prompt="$(_knit_ai_default_system_prompt)"
+
+    _knit_ai_loop "${base_url}" "${api_key}" "${resolved_model}" \
+        "${question}" "${system_prompt}" "${max_iterations}" "${raw}" "${verbose}"
 }
 knit_done
