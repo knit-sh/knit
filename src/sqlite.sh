@@ -218,3 +218,30 @@ _knit_sqlite3_write() {
     ( flock 9 || knit_fatal "Could not acquire database lock \"${lock}\"."
       _knit_sqlite3 "$@" ) 9>"${lock}"
 }
+
+# ------------------------------------------------------------------------------
+# Register the "knit sql" wrapper: forwards every argument verbatim to the
+# knit-private sqlite3, opened on the experiment database. This is a convenience
+# for running ad hoc queries or edits by hand; unlike "knit db query" it is not
+# restricted to read-only statements. It goes through _knit_sqlite3 (busy
+# timeout, no held write lock) so concurrent knit writers are not blocked while
+# an interactive session is open. The central runtime guard refuses it before
+# bootstrap (the database does not exist yet), so no in-body check is needed.
+# ------------------------------------------------------------------------------
+knit_register_wrapper "sql" "_knit_sql" \
+    "Run the knit-private sqlite3 on the experiment database, forwarding all arguments verbatim."
+_knit_is_builtin
+knit_without_provenance
+# ------------------------------------------------------------------------------
+# @fn _knit_sql()
+#
+# Body of the "knit sql" wrapper command. Forwards all arguments verbatim to
+# the knit-private sqlite3 running on the experiment database.
+#
+# @param ... Arguments forwarded verbatim to sqlite3 (including --help).
+# @return The exit status of sqlite3.
+# ------------------------------------------------------------------------------
+_knit_sql() {
+    _knit_sqlite3 "$@"
+}
+knit_done
