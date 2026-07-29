@@ -45,6 +45,32 @@ declare -ga _KNIT_EXECUTING_ROW_ID=()
 declare -ga _KNIT_EXECUTING_START_TIME=()
 
 # ------------------------------------------------------------------------------
+# Stack of call-site aliases, parallel to _KNIT_EXECUTING_COMMAND: entry i holds
+# the alias knit_as named frame i's invocation with, or empty for a plain call.
+# Captured when the frame is pushed (from _KNIT_CALL_ALIAS, which knit_as sets
+# just before delegating) and read back by _knit_record_invocation, which writes
+# it to the frame's "call" edge alias column. Per-frame, so an alias on a
+# dispatcher call never leaks onto the nested edges its body records.
+# ------------------------------------------------------------------------------
+declare -ga _KNIT_EXECUTING_ALIAS=()
+
+# ------------------------------------------------------------------------------
+# One-shot call-site alias for the next command invocation. knit_as sets it (to
+# the user-supplied alias) immediately before delegating to knit; the first
+# _knit_invoke_command it reaches captures it into _KNIT_EXECUTING_ALIAS and
+# clears it, so exactly one edge — the directly named call — carries the alias.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_CALL_ALIAS=""
+
+# ------------------------------------------------------------------------------
+# Set of call-site aliases already used within each invocation, so knit_as can
+# reject a reused alias (which would make two edges indistinguishable in a
+# query). Keyed by "<parent-row-id>:<alias>", where the parent row id scopes the
+# alias to the calling invocation (empty for a root-level call).
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_USED_ALIASES=()
+
+# ------------------------------------------------------------------------------
 # Row id of the most recently recorded invocation. Exposed so a dispatcher can
 # learn the id resolved for a body it invoked, after that body returns and its
 # entry has been popped off _KNIT_EXECUTING_ROW_ID. knit setup uses it to write
@@ -1879,6 +1905,12 @@ _knit_check_constraints() {
 # @param ...args Arguments for the command.
 # ------------------------------------------------------------------------------
 _knit_invoke_command() {
+    # Capture the call-site alias (set by knit_as) for this invocation before any
+    # before-callback can invoke a nested command and consume it. One-shot: cleared
+    # here so only this invocation's frame carries it, and pushed onto the frame's
+    # alias slot at each push site below.
+    local _knit_call_alias="${_KNIT_CALL_ALIAS}"
+    _KNIT_CALL_ALIAS=""
     # find the command and subcommands
     local demangled_cmd=""
     while [[ $# -gt 0 ]]; do
@@ -1944,6 +1976,7 @@ _knit_invoke_command() {
         _KNIT_EXECUTING_COMMAND+=("${cmd}")
         _KNIT_EXECUTING_ROW_ID+=("$(_knit_resolve_row_id "${cmd}")")
         _KNIT_EXECUTING_START_TIME+=("$(_knit_prov_now)")
+        _KNIT_EXECUTING_ALIAS+=("${_knit_call_alias}")
         $func "$@"
         local wrapper_status=$?
         # Keep the command on the stack through the after-callbacks (see the
@@ -1956,6 +1989,7 @@ _knit_invoke_command() {
         unset '_KNIT_EXECUTING_COMMAND[-1]'
         unset '_KNIT_EXECUTING_ROW_ID[-1]'
         unset '_KNIT_EXECUTING_START_TIME[-1]'
+        unset '_KNIT_EXECUTING_ALIAS[-1]'
         return "${wrapper_status}"
     fi
     # check if the first argument is --help
@@ -1990,6 +2024,7 @@ _knit_invoke_command() {
     _KNIT_EXECUTING_COMMAND+=("${cmd}")
     _KNIT_EXECUTING_ROW_ID+=("$(_knit_resolve_row_id "${cmd}")")
     _KNIT_EXECUTING_START_TIME+=("$(_knit_prov_now)")
+    _KNIT_EXECUTING_ALIAS+=("${_knit_call_alias}")
     $func "${args[@]}"
     local func_status=$?
     # call the "after" callbacks. The command stays on _KNIT_EXECUTING_COMMAND
@@ -2004,6 +2039,7 @@ _knit_invoke_command() {
     unset '_KNIT_EXECUTING_COMMAND[-1]'
     unset '_KNIT_EXECUTING_ROW_ID[-1]'
     unset '_KNIT_EXECUTING_START_TIME[-1]'
+    unset '_KNIT_EXECUTING_ALIAS[-1]'
     return "${func_status}"
 }
 
@@ -2162,6 +2198,58 @@ _knit_record_row_now() {
         knit_fatal "_knit_record_row_now should be called from within a registered command function."
     fi
     _knit_record_invocation "${_KNIT_EXECUTING_COMMAND[-1]}" "$@"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_as()
+#
+# Name a call so distinct invocations of the same command can be told apart in a
+# query. Used at a call site as `knit_as <alias> <cmd> …`: it records <alias> on
+# the provenance "call" edge of the delegated invocation, then runs
+# `knit <cmd> …`. A later query addresses each call independently by its alias
+# (an edge property). Without knit_as a call edge has a NULL alias.
+#
+# ```
+# knit_as fast run --procs 8 -- mcrank
+# knit_as slow run --procs 1 -- mcrank
+# ```
+#
+# The alias is one-shot: it lands only on the directly named call's edge, never
+# on the nested edges that call's body records. It is validated at the call site:
+# it must be non-empty, must not be a registered table name (which would collide
+# with a node label in a query), and must not already have been used within the
+# current invocation (two edges sharing an alias would be indistinguishable).
+#
+# @param alias The name to record on the call edge.
+# @param cmd   The command to invoke (followed by its arguments).
+# @param ...   Arguments for the command.
+# ------------------------------------------------------------------------------
+knit_as() {
+    local alias="$1"
+    if [[ -z "${alias}" ]]; then
+        knit_fatal "knit_as requires a non-empty alias."
+    fi
+    shift
+    if [[ $# -eq 0 ]]; then
+        knit_fatal "knit_as requires a command to invoke (usage: knit_as <alias> <cmd> …)."
+    fi
+    if [[ -v _KNIT_DB_REGISTERED_TABLES["${alias}"] ]]; then
+        knit_fatal "knit_as alias \"${alias}\" collides with a registered table name."
+    fi
+    # Reuse is scoped to the calling invocation (its row id, empty at root), so the
+    # same alias may be used under different parents but not twice under one.
+    local parent_id=""
+    if [[ ${#_KNIT_EXECUTING_ROW_ID[@]} -gt 0 ]]; then
+        parent_id="${_KNIT_EXECUTING_ROW_ID[-1]}"
+    fi
+    local used_key="${parent_id}:${alias}"
+    if [[ -v _KNIT_USED_ALIASES["${used_key}"] ]]; then
+        knit_fatal "knit_as alias \"${alias}\" is already used in this invocation."
+    fi
+    _KNIT_USED_ALIASES["${used_key}"]="1"
+    # Hand the alias to the next invocation, which captures and clears it.
+    _KNIT_CALL_ALIAS="${alias}"
+    knit "$@"
 }
 
 # ------------------------------------------------------------------------------
@@ -2344,12 +2432,13 @@ _knit_record_invocation() {
     # Transparent command: record only the data row (no edge), exactly as before
     # provenance existed.
     if [[ "${prov_enabled}" != "true" ]]; then
-        _knit_db_record_invocation "${cmd}" "${table}" "${id}" "" "" "" "" "" "$@"
+        _knit_db_record_invocation "${cmd}" "${table}" "${id}" "" "" "" "" "" "" "$@"
         return 0
     fi
 
-    # Participating command: resolve the edge source (the caller) and the call
-    # edge's timestamps, then write the edge (with the data row, if any).
+    # Participating command: resolve the edge source (the caller), the call edge's
+    # timestamps, and the call-site alias (from this frame's slot, set by knit_as),
+    # then write the edge (with the data row, if any).
     _knit_prov_ensure_table
     local source_id source_name
     _knit_resolve_source_context source_id source_name
@@ -2359,16 +2448,21 @@ _knit_record_invocation() {
     fi
     local end_time
     end_time="$(_knit_prov_now)"
+    local alias=""
+    if [[ ${#_KNIT_EXECUTING_ALIAS[@]} -gt 0 ]]; then
+        alias="${_KNIT_EXECUTING_ALIAS[-1]}"
+    fi
 
     if [[ -n "${table}" ]]; then
         _knit_db_record_invocation "${cmd}" "${table}" "${id}" \
-            "${source_id}" "${source_name}" "call" "${start_time}" "${end_time}" "$@"
+            "${source_id}" "${source_name}" "call" "${start_time}" "${end_time}" \
+            "${alias}" "$@"
     else
         # No data row: record the edge on its own; its target id joins to nothing.
         local target_name
         target_name="$(_knit_command_demangle "${cmd}")"
         _knit_prov_record_edge "${source_id}" "${source_name}" "${id}" \
-            "${target_name}" "call" "${start_time}" "${end_time}"
+            "${target_name}" "call" "${start_time}" "${end_time}" "${alias}"
     fi
 }
 

@@ -493,7 +493,7 @@ __test_register_cmd() {
     _knit_prov_create_table
     declare -gA _KNIT_CMD_noedgecmd_output_value=()
 
-    _knit_db_record_invocation "noedgecmd" "noedge_t" "cid" "" "" "" "" ""
+    _knit_db_record_invocation "noedgecmd" "noedge_t" "cid" "" "" "" "" "" ""
 
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM noedge_t;")" -eq 1 ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM __provenance__;")" -eq 0 ]
@@ -509,7 +509,7 @@ __test_register_cmd() {
     declare -gA _KNIT_CMD_edgecmd_output_value=()
 
     _knit_db_record_invocation "edgecmd" "edges_t" "child-1" \
-        "parent-1" "top" "call" "100.5" "101.5" "--label" "hi"
+        "parent-1" "top" "call" "100.5" "101.5" "" "--label" "hi"
 
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM edges_t;")" -eq 1 ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM edges_t;")" = "child-1" ]
@@ -519,6 +519,21 @@ __test_register_cmd() {
     edge=$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT source_id,source_name,target_id,target_name,edge_type,start_time,end_time FROM __provenance__;")
     [ "$edge" = "parent-1|top|child-1|edgecmd|call|100.5|101.5" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT alias FROM __provenance__;")" = "" ]
+}
+
+@test "record row writes a call-site alias onto the edge" {
+    knit_register _t_alias_fn "aliascmd" "Alias."
+    knit_with_table "alias_t"
+    _t_alias_fn() { :; }
+    knit_done
+    _knit_prov_create_table
+    declare -gA _KNIT_CMD_aliascmd_output_value=()
+
+    _knit_db_record_invocation "aliascmd" "alias_t" "child-2" \
+        "parent-2" "top" "call" "1" "2" "fast"
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT alias FROM __provenance__;")" = "fast" ]
 }
 
 @test "record row rolls back the data row when the edge insert fails" {
@@ -530,7 +545,7 @@ __test_register_cmd() {
     # __provenance__ is intentionally NOT created, so the edge insert fails and
     # the whole transaction (row + edge) must roll back.
 
-    run _knit_db_record_invocation "atomcmd" "atoms_t" "child-x" "p" "top" "call" "1" "2"
+    run _knit_db_record_invocation "atomcmd" "atoms_t" "child-x" "p" "top" "call" "1" "2" ""
     [ "$status" -ne 0 ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM atoms_t;")" -eq 0 ]
 }

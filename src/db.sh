@@ -470,6 +470,7 @@ _knit_db_setup_table() {
 # @param edge_type   Edge type (e.g. "call"), or empty to record no edge.
 # @param start_time  Edge start_time (epoch seconds, empty -> NULL).
 # @param end_time    Edge end_time (epoch seconds, empty -> NULL).
+# @param alias       Edge call-site alias (empty -> NULL); see prov.sh.
 # @param ...         The expanded invocation arguments (params/flags to read).
 # ------------------------------------------------------------------------------
 _knit_db_record_invocation() {
@@ -481,7 +482,8 @@ _knit_db_record_invocation() {
     local edge_type="$6"
     local start_time="$7"
     local end_time="$8"
-    shift 8
+    local alias="$9"
+    shift 9
     local -a args=("$@")
 
     local -a cols=() vals=()
@@ -550,7 +552,7 @@ _knit_db_record_invocation() {
     target_name=$(_knit_command_demangle "${cmd}")
     edge_sql=$(_knit_prov_edge_sql \
         "${source_id}" "${source_name}" "${id}" "${target_name}" \
-        "${edge_type}" "${start_time}" "${end_time}")
+        "${edge_type}" "${start_time}" "${end_time}" "${alias}")
     # ".bail on" makes the sqlite3 CLI stop at the first failing statement and
     # roll the open transaction back; without it (the default) a failed edge
     # insert would leave the row committed, defeating atomicity.
