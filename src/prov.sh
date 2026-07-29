@@ -38,12 +38,13 @@ _knit_prov_now() {
 #
 # Create the provenance edge table if it does not already exist. Each row is one
 # directed relationship between two invocations, "source --edge_type--> target":
-# a "call" edge (source invoked target) or a "uses" edge (target references a
+# a "call" edge (source invoked target) or a "used_by" edge (target references a
 # setup, which is the source, built by an earlier invocation). The source is
 # always the antecedent (the caller, the setup) and the target the dependent (the
 # callee, the consumer). Node identity is the pair (id, name); the timestamps are
-# REAL epoch seconds and are NULL for "uses" edges. Called at bootstrap alongside
-# the metadata table.
+# REAL epoch seconds and are NULL for "used_by" edges. The nullable "alias" column
+# holds the call-site name recorded by knit_as (NULL for a plain edge). Called at
+# bootstrap alongside the metadata table.
 # ------------------------------------------------------------------------------
 _knit_prov_create_table() {
     local prov_ident
@@ -56,7 +57,8 @@ CREATE TABLE IF NOT EXISTS ${prov_ident} (
     target_name  TEXT,
     edge_type    TEXT,
     start_time   REAL,
-    end_time     REAL
+    end_time     REAL,
+    alias        TEXT
 );
 EOF
 }
@@ -79,16 +81,17 @@ _knit_prov_ensure_table() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_prov_timestamp_literal()
+# @fn _knit_prov_nullable_literal()
 #
-# Render a timestamp argument as a SQL literal for a REAL column: an empty
-# argument becomes NULL (used for "uses" edges, which have no duration); a
-# non-empty argument becomes a single-quoted, escaped literal, which SQLite's
-# type affinity coerces to a REAL.
+# Render an argument as a SQL literal for a nullable column: an empty argument
+# becomes a bare NULL; a non-empty argument becomes a single-quoted, escaped
+# literal. Used for the two REAL timestamp columns (empty for "used_by" edges,
+# which have no duration; SQLite's type affinity coerces the quoted number to a
+# REAL) and for the TEXT "alias" column (empty for a plain, unaliased edge).
 #
-# @param value Timestamp value (epoch seconds) or empty for NULL.
+# @param value Column value, or empty for NULL.
 # ------------------------------------------------------------------------------
-_knit_prov_timestamp_literal() {
+_knit_prov_nullable_literal() {
     local value="$1"
     if [[ -z "${value}" ]]; then
         printf 'NULL'
@@ -107,15 +110,17 @@ _knit_prov_timestamp_literal() {
 # (see _knit_prov_record_edge) or inside a transaction next to a data-row insert
 # (see _knit_db_record_invocation). Timestamps are rendered as NULL when empty.
 #
-# @param source_id   UUID of the source (caller for "call"; setup for "uses");
+# @param source_id   UUID of the source (caller for "call"; setup for "used_by");
 #                    empty for a root invocation.
 # @param source_name Demangled command name of the source (empty for a root).
-# @param target_id   UUID of the target (callee for "call"; consumer for "uses").
+# @param target_id   UUID of the target (callee for "call"; consumer for
+#                    "used_by").
 # @param target_name Demangled command name of the target.
-# @param edge_type   "call" (source invoked target) or "uses" (target references
-#                    a setup, which is the source).
+# @param edge_type   "call" (source invoked target) or "used_by" (target
+#                    references a setup, which is the source).
 # @param start_time  Epoch seconds when the call started (empty -> NULL).
 # @param end_time    Epoch seconds when the call returned (empty -> NULL).
+# @param alias       Call-site name from knit_as (empty -> NULL).
 # ------------------------------------------------------------------------------
 _knit_prov_edge_sql() {
     local source_id="$1"
@@ -125,6 +130,7 @@ _knit_prov_edge_sql() {
     local edge_type="$5"
     local start_time="$6"
     local end_time="$7"
+    local alias="$8"
 
     local tbl esc_sid esc_sname esc_tid esc_tname esc_etype
     _knit_db_sql_ident tbl "${_KNIT_PROV_TABLE}"
@@ -134,15 +140,16 @@ _knit_prov_edge_sql() {
     _knit_sql_escape esc_tname "${target_name}"
     _knit_sql_escape esc_etype "${edge_type}"
 
-    printf 'INSERT INTO %s (source_id, source_name, target_id, target_name, edge_type, start_time, end_time) VALUES (%s, %s, %s, %s, %s, %s, %s);' \
+    printf 'INSERT INTO %s (source_id, source_name, target_id, target_name, edge_type, start_time, end_time, alias) VALUES (%s, %s, %s, %s, %s, %s, %s, %s);' \
         "${tbl}" \
         "'${esc_sid}'" \
         "'${esc_sname}'" \
         "'${esc_tid}'" \
         "'${esc_tname}'" \
         "'${esc_etype}'" \
-        "$(_knit_prov_timestamp_literal "${start_time}")" \
-        "$(_knit_prov_timestamp_literal "${end_time}")"
+        "$(_knit_prov_nullable_literal "${start_time}")" \
+        "$(_knit_prov_nullable_literal "${end_time}")" \
+        "$(_knit_prov_nullable_literal "${alias}")"
 }
 
 # ------------------------------------------------------------------------------
@@ -150,8 +157,8 @@ _knit_prov_edge_sql() {
 #
 # Insert a single provenance edge into the edge table, serialized through the
 # advisory-locked writer. Used on its own for a target that records no data row
-# (a table-less command) and for "uses" edges; a target that also records a data
-# row writes both in one transaction via _knit_db_record_invocation instead.
+# (a table-less command) and for "used_by" edges; a target that also records a
+# data row writes both in one transaction via _knit_db_record_invocation instead.
 #
 # @param source_id   See _knit_prov_edge_sql.
 # @param source_name See _knit_prov_edge_sql.

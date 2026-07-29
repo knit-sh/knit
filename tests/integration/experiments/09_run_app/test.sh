@@ -290,10 +290,10 @@ check_eq "$(printf '%s' "${subset_db_host}" | sed 's/\..*//')" \
 # Provenance: edge shapes and full-graph connectedness
 #
 # The launch job's chain is submit -> submit:launch -> run -> run:ranks (call
-# edges), plus a "uses" edge from the shared setup to the submission. Assert the
+# edges), plus a "used_by" edge from the shared setup to the submission. Assert the
 # edge shapes crisply, then walk the whole (non-bootstrap) graph from one
 # submission and confirm it is a single connected component — the call edges
-# form the invocation tree and the uses edges cross to the referenced setup
+# form the invocation tree and the used_by edges cross to the referenced setup
 # (which, being shared, ties all three jobs into one component).
 # ==========================================================================
 
@@ -312,16 +312,16 @@ check_sqlite ".knit/knit.db" \
     "1" \
     "provenance has the 'run -> run:ranks' call edge (distinct ids)"
 
-# The shared setup's "uses" edge: source is the setup body's id (read back from
+# The shared setup's "used_by" edge: source is the setup body's id (read back from
 # .setup.id), target is the submission (jobs.id), with NULL timestamps.
 setup_id=$(cat "${WORKDIR}/env/.setup.id")
 check_sqlite ".knit/knit.db" \
-    "SELECT source_name, target_name, start_time, end_time FROM __provenance__ WHERE edge_type='uses' AND source_id='${setup_id}' AND target_id='${launch_uuid}';" \
+    "SELECT source_name, target_name, start_time, end_time FROM __provenance__ WHERE edge_type='used_by' AND source_id='${setup_id}' AND target_id='${launch_uuid}';" \
     "setup:env|submit:launch||" \
-    "provenance has the 'setup:env -> submit:launch' uses edge (source_id == .setup.id, NULL times)"
+    "provenance has the 'setup:env -> submit:launch' used_by edge (source_id == .setup.id, NULL times)"
 
 # Full-graph connectedness: every non-bootstrap node reachable from one
-# submission. Treat edges as undirected (a call/uses edge connects its two
+# submission. Treat edges as undirected (a call/used_by edge connects its two
 # endpoints), seed at the launch submission, and count reachable node ids;
 # compare to the total distinct non-bootstrap, non-root node ids. Equal ==> the
 # submission's component covers the whole experiment graph (bootstrap forms its

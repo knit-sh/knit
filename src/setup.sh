@@ -24,7 +24,7 @@ knit_with_subcommand_title "Setups"
 # `$KNIT_SETUP_PREFIX/.activate.sh`. On success the setup name is also recorded
 # in `$KNIT_SETUP_PREFIX/.setup.type` so `knit submit` can validate a job's
 # knit_with_setup requirement, and the setup body's row id in
-# `$KNIT_SETUP_PREFIX/.setup.id` so a consumer can record a "uses" edge to it.
+# `$KNIT_SETUP_PREFIX/.setup.id` so a consumer can record a "used_by" edge to it.
 # Removes the directory and fatals on failure.
 #
 # Usage:
@@ -91,10 +91,10 @@ _knit_setup() {
     # check a job's knit_with_setup requirement against it.
     printf '%s\n' "${setup_name}" > "${path}/.setup.type"
 
-    # Record the setup body's row id so a later consumer can record a "uses" edge
+    # Record the setup body's row id so a later consumer can record a "used_by" edge
     # to this setup by id (robust) rather than by matching directory paths. Only
     # written when the body recorded a row (i.e. the experiment is bootstrapped);
-    # a setup directory without this marker simply yields no "uses" edge.
+    # a setup directory without this marker simply yields no "used_by" edge.
     if [[ -n "${body_row_id}" ]]; then
         printf '%s\n' "${body_row_id}" > "${path}/.setup.id"
     fi
@@ -259,10 +259,10 @@ _knit_setup_dep_before_cb() {
 # ------------------------------------------------------------------------------
 # @fn _knit_setup_record_uses_edge()
 #
-# Record a "uses" provenance edge from the setup built at <setup_path> to a
+# Record a "used_by" provenance edge from the setup built at <setup_path> to a
 # consuming invocation. The edge's source is the setup (its row id read from the
 # setup directory's .setup.id marker, its name "setup:<type>" from .setup.type);
-# its target is the consumer. A "uses" edge has no duration, so both timestamps
+# its target is the consumer. A "used_by" edge has no duration, so both timestamps
 # are NULL. Shared by `knit submit` (jobs) and by the generic setup-dependency
 # after-callback (plain commands and apps).
 #
@@ -292,14 +292,14 @@ _knit_setup_record_uses_edge() {
     IFS= read -r setup_type < "${setup_path}/.setup.type" 2>/dev/null || setup_type=""
     _knit_prov_ensure_table
     _knit_prov_record_edge "${setup_id}" "setup:${setup_type}" \
-        "${target_id}" "$(_knit_command_demangle "${target_cmd}")" "uses" "" ""
+        "${target_id}" "$(_knit_command_demangle "${target_cmd}")" "used_by" "" ""
 }
 
 # ------------------------------------------------------------------------------
 # @fn _knit_setup_dep_after_cb()
 #
 # After-callback installed by knit_with_setup on a plain command or an app,
-# alongside _knit_setup_dep_before_cb. It records a "uses" edge from the setup the
+# alongside _knit_setup_dep_before_cb. It records a "used_by" edge from the setup the
 # command depends on to the command itself. It runs as an after-callback (not the
 # before-callback that sources the environment) because the consumer's frame is on
 # the executing stacks only from push time onward, so the consumer's resolved row
@@ -386,7 +386,7 @@ knit_with_setup() {
     fi
 
     # Plain commands and apps get a --setup option, a before-callback that
-    # validates and activates it, and an after-callback that records the "uses"
+    # validates and activates it, and an after-callback that records the "used_by"
     # edge (the consumer's row id, the edge target, is resolved only from push
     # time on, so the edge is emitted after the body rather than in the
     # before-callback).

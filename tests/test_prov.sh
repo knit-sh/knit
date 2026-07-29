@@ -25,7 +25,7 @@ teardown() {
     local names
     names=$(sqlite3 "${_KNIT_DATABASE}" \
         "PRAGMA table_info('__provenance__');" | cut -d'|' -f2 | tr '\n' ',')
-    [ "$names" = "source_id,source_name,target_id,target_name,edge_type,start_time,end_time," ]
+    [ "$names" = "source_id,source_name,target_id,target_name,edge_type,start_time,end_time,alias," ]
 }
 
 @test "create table gives the timestamp columns REAL affinity" {
@@ -61,15 +61,32 @@ teardown() {
     [ "$row" = "pid|submit:mc|cid|run|call|10.5|12.25" ]
 }
 
-@test "record edge stores empty timestamps as NULL (uses edge)" {
+@test "record edge leaves alias NULL when unset" {
     _knit_prov_create_table
-    _knit_prov_record_edge "sid" "setup:libs" "cid" "submit:mc" "uses" "" ""
+    _knit_prov_record_edge "pid" "submit:mc" "cid" "run" "call" "10.5" "12.25"
+
+    local nulls
+    nulls=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM __provenance__ WHERE alias IS NULL;")
+    [ "$nulls" -eq 1 ]
+}
+
+@test "record edge stores a call-site alias" {
+    _knit_prov_create_table
+    _knit_prov_record_edge "pid" "montecarlo" "cid" "runs" "call" "1" "2" "fast"
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT alias FROM __provenance__;")" = "fast" ]
+}
+
+@test "record edge stores empty timestamps as NULL (used_by edge)" {
+    _knit_prov_create_table
+    _knit_prov_record_edge "sid" "setup:libs" "cid" "submit:mc" "used_by" "" ""
 
     local nulls
     nulls=$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM __provenance__ WHERE start_time IS NULL AND end_time IS NULL;")
     [ "$nulls" -eq 1 ]
-    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT edge_type FROM __provenance__;")" = "uses" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT edge_type FROM __provenance__;")" = "used_by" ]
 }
 
 @test "record edge records an empty parent for a root invocation" {
@@ -92,14 +109,26 @@ teardown() {
 
 # ---------- _knit_prov_edge_sql ----------
 
-@test "edge insert sql renders empty timestamps as bare NULL" {
+@test "edge insert sql renders empty timestamps and alias as bare NULL" {
     local sql
-    sql=$(_knit_prov_edge_sql "p" "pn" "c" "cn" "uses" "" "")
-    [[ "$sql" == *"'uses', NULL, NULL);" ]]
+    sql=$(_knit_prov_edge_sql "p" "pn" "c" "cn" "used_by" "" "")
+    [[ "$sql" == *"'used_by', NULL, NULL, NULL);" ]]
 }
 
 @test "edge insert sql quotes non-empty timestamps" {
     local sql
     sql=$(_knit_prov_edge_sql "p" "pn" "c" "cn" "call" "3.5" "4.5")
-    [[ "$sql" == *"'call', '3.5', '4.5');" ]]
+    [[ "$sql" == *"'call', '3.5', '4.5', NULL);" ]]
+}
+
+@test "edge insert sql quotes a non-empty alias" {
+    local sql
+    sql=$(_knit_prov_edge_sql "p" "pn" "c" "cn" "call" "3.5" "4.5" "fast")
+    [[ "$sql" == *"'call', '3.5', '4.5', 'fast');" ]]
+}
+
+@test "edge insert sql lists the alias column" {
+    local sql
+    sql=$(_knit_prov_edge_sql "p" "pn" "c" "cn" "call" "" "")
+    [[ "$sql" == *"start_time, end_time, alias) VALUES"* ]]
 }

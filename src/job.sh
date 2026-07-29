@@ -138,7 +138,7 @@ _knit_submit() {
     knit_output "job" "${job_name}"
     knit_output "state" "submitted"
 
-    # Record a "uses" edge from the setup this job references (if any) to this
+    # Record a "used_by" edge from the setup this job references (if any) to this
     # submission, so the setup can be reached from the job by id. Emitted here on
     # the login side, where the setup was resolved and validated; the job's row id
     # is this submission's UUID. Best-effort and gated like other provenance

@@ -48,7 +48,7 @@ declare -ga _KNIT_EXECUTING_START_TIME=()
 # Row id of the most recently recorded invocation. Exposed so a dispatcher can
 # learn the id resolved for a body it invoked, after that body returns and its
 # entry has been popped off _KNIT_EXECUTING_ROW_ID. knit setup uses it to write
-# the setup body's row id to .setup.id, so a later consumer can record a "uses"
+# the setup body's row id to .setup.id, so a later consumer can record a "used_by"
 # edge to the setup by id rather than by matching directory paths.
 # ------------------------------------------------------------------------------
 declare -g _KNIT_LAST_ROW_ID=""
