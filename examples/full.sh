@@ -11,11 +11,14 @@
 # Spack environment), job submission to a batch scheduler (Slurm/PBS) — or to
 # local background processes when no scheduler is present — MPI application
 # launch across a job's allocation with `knit run`, the Spack package
-# manager (`knit spack`, plus Spack-backed setups), commands that are usable
-# before bootstrap (`knit_usable_before_bootstrap`), a machine- and
-# human-readable description of the whole interface with `knit describe`, and
-# natural-language access to the experiment and its recorded runs with
-# `knit ai` (read-only; needs an OpenAI-compatible provider).
+# manager (`knit spack`, plus Spack-backed setups), call-site aliasing of
+# provenance edges with `knit_as`, querying the database and its provenance
+# graph with `knit query` (read-only SQL, a schema catalog, and Cypher over the
+# recorded provenance), commands that are usable before bootstrap
+# (`knit_usable_before_bootstrap`), a machine- and human-readable description of
+# the whole interface with `knit describe`, and natural-language access to the
+# experiment and its recorded runs with `knit ai` (read-only; needs an
+# OpenAI-compatible provider).
 #
 # HOW TO USE THIS FILE
 # --------------------
@@ -47,7 +50,8 @@
 #   ./full.sh --help
 #
 # Prints the program description and the list of subcommands: preflight,
-# estimate, submit, run, setup, bootstrap, metadata, profile, job, db, spack, ai.
+# estimate, submit, run, setup, bootstrap, metadata, profile, job, db, query,
+# spack, ai.
 # Every command takes --help,
 # e.g.
 #
@@ -204,8 +208,9 @@
 #
 #   ./full.sh db tables
 #
-# Note: in the future, knit will provide further tools to simplify querying its
-# database, including producing plots.
+# `knit query` (section 14) adds higher-level querying on top of `db query`:
+# read-only SQL, a schema catalog, and Cypher queries over the provenance graph.
+# Producing plots from the database is still future work.
 #
 # -----------------------------------------------------------------------------
 # 7. Create a setup (a reproducible environment)
@@ -471,7 +476,70 @@
 # they stop with a clear message pointing you back to `ai init`.
 #
 # -----------------------------------------------------------------------------
-# 14. Clean up
+# 14. Provenance and querying (knit_as + knit query)
+# -----------------------------------------------------------------------------
+# Everything knit records is also a node in a provenance graph. When a command's
+# body invokes another command, knit records a "call" edge between them; a job
+# submitted with --setup records a "used_by" edge from the setup to the job. The
+# steps above have already built such a graph (every submit --setup ... added a
+# used_by edge). `knit query` lets you read both the tables and that graph.
+#
+# `knit_as` labels a call edge, so repeated invocations of the same command can
+# be told apart later. The `sweep` job below runs `estimate` twice under the
+# aliases "coarse" and "fine":
+#
+#   knit_as coarse estimate --samples 1000
+#   knit_as fine   estimate --samples 100000
+#
+# Submit it (it requires the mcenv setup, so a used_by edge is recorded too),
+# then query the results three ways:
+#
+#   ./full.sh submit --setup ./env --wait -- sweep
+#
+# `knit query catalog` introspects the live database schema. A table owned by a
+# command is annotated with that command (e.g. the `jobs` table is owned by
+# `submit`):
+#
+#   ./full.sh query catalog                  # every table and its columns
+#   ./full.sh query catalog -- jobs          # just the jobs table
+#
+# `knit query sql` runs a read-only SQL statement through knit's own sqlite (any
+# write is rejected). It is the scriptable sibling of `db query` from step 6:
+#
+#   ./full.sh query sql --exec \
+#       "SELECT id, samples, pi FROM estimate ORDER BY samples" --header --column
+#
+# `knit query graph` runs a Cypher query over the provenance graph, powered by
+# knit-graph (bootstrap built it under ./.knit). A node's label may be written as
+# either the table name or the owning command name — knit passes the live map to
+# knit-graph — and each edge carries its type ("call"/"used_by") and any knit_as
+# alias. Cross the submit->job call edge (the `submit` command owns the `jobs`
+# table) to read the job name:
+#
+#   ./full.sh query graph --exec \
+#       "MATCH (j:submit)-[:call]->(s:sweep) RETURN j.job"
+#
+# tell the two aliased estimate calls apart (inline and WHERE spellings both
+# work):
+#
+#   ./full.sh query graph --exec \
+#       "MATCH (s:sweep)-[{alias:'fine'}]->(e:estimate) RETURN e.samples"
+#   ./full.sh query graph --exec \
+#       "MATCH (s:sweep)-[e]->(x:estimate) WHERE e.alias = 'coarse' RETURN x.samples"
+#
+# or follow the used_by edge back to the setup a job consumed (label the setup
+# with its `setup:<name>` table; the job endpoint is named but not projected):
+#
+#   ./full.sh query graph --exec \
+#       "MATCH (env:\`setup:mcenv\`)-[:used_by]->(s:sweep) RETURN env.id"
+#
+# Both `sql` and `graph` share --format (list/json/csv/box/markdown/...),
+# --header and --separator; `graph` also takes --explain / --ast to inspect the
+# SQL knit-graph generates for a query. `knit query` only ever reads, so it is
+# safe to run at any time after bootstrap.
+#
+# -----------------------------------------------------------------------------
+# 15. Clean up
 # -----------------------------------------------------------------------------
 #   rm -rf .knit env libenv
 #
@@ -718,6 +786,23 @@ _mcparallel_job() {
     # omitted, so each rank fills them from the setup environment it inherits
     # (MC_SAMPLES / MC_SEED).
     knit run --procs "${procs}" -- mcrank
+}
+knit_done
+
+# -----------------------------------------------------------------------------
+# sweep — a job that runs `estimate` twice, labelling each call with knit_as.
+#
+# When a command's body invokes another command, knit records a provenance
+# "call" edge between them. knit_as labels that edge so repeated invocations can
+# be told apart in `knit query graph` (guided-tour section 14). Here the two
+# estimate calls are aliased "coarse" and "fine"; each also records its own row
+# in the `estimate` table.
+# -----------------------------------------------------------------------------
+knit_register_job "sweep" _sweep_job "Run a coarse and a fine estimate (aliased for provenance)."
+knit_with_setup    "mcenv"                             # requires an `mcenv` setup
+_sweep_job() {
+    knit_as coarse estimate --samples 1000
+    knit_as fine   estimate --samples 100000
 }
 knit_done
 
