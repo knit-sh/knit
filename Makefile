@@ -36,6 +36,7 @@ KNIT_SOURCE = src/global.sh   \
               src/app.sh      \
               src/describe.sh \
               src/ai.sh       \
+              src/query.sh    \
               src/main.sh
 
 KNIT_OUTPUT = knit.sh
