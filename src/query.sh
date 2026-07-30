@@ -275,3 +275,56 @@ _knit_query_graph() {
     _knit_knit_graph "${kg_args[@]}"
 }
 knit_done
+
+# ------------------------------------------------------------------------------
+# Registration of 'query sql'.
+# ------------------------------------------------------------------------------
+knit_register _knit_query_sql "query:sql" \
+    "Run a read-only SQL query against the provenance database."
+_knit_is_builtin
+knit_without_provenance
+knit_with_required "exec:string" \
+    "The SQL statement to run (must be read-only)."
+knit_with_optional "format:query_format" "list" \
+    "Output mode: list, json, box, csv, markdown, table, line, html, ascii, column, tabs."
+knit_with_flag "header" \
+    "Add a header row (off by default)."
+knit_with_optional "separator:string" "" \
+    "Column separator (defaults to sqlite3's default)."
+# ------------------------------------------------------------------------------
+# @fn _knit_query_sql()
+#
+# Body of 'query sql': run the --exec SQL statement on knit's own read path
+# (_knit_sqlite3) with the shared output options shaping the result. The
+# statement is rejected unless it is read-only (leading SELECT/WITH/EXPLAIN/PRAGMA
+# and no write keyword, via the shared guard) so a query can never mutate the
+# provenance database. Output opts are read with the shared reader and translated
+# to sqlite3 `.mode`/`.headers`/`.separator` dot-commands by the same helper
+# `ai query` uses, so SQL and Cypher results present identically. sqlite3's exit
+# status is propagated.
+#
+# @param ... The command invocation arguments.
+# @return The exit status of sqlite3, or fatal on a non-read-only statement.
+# ------------------------------------------------------------------------------
+_knit_query_sql() {
+    local args=("$@")
+
+    local exec_sql
+    exec_sql="$(knit_get_parameter "exec" "${args[@]}")"
+
+    if ! _knit_ai_sql_is_readonly "${exec_sql}"; then
+        knit_fatal "knit query sql: only read-only statements are allowed (leading SELECT/WITH/EXPLAIN/PRAGMA, no write keywords)."
+    fi
+
+    local fmt hdr sep
+    _knit_query_read_output_opts fmt hdr sep "${args[@]}"
+
+    local no_header="true"
+    [[ "${hdr}" == "true" ]] && no_header="false"
+
+    local -a mode_args=()
+    _knit_ai_query_mode_args mode_args "${fmt}" "${no_header}" "${sep}"
+
+    _knit_sqlite3 "${mode_args[@]}" "${exec_sql}"
+}
+knit_done

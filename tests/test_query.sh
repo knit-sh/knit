@@ -214,3 +214,52 @@ setup:libs=setup:libs" ]
     run knit query graph --exec "MATCH (n) RETURN n"
     [ "$status" -eq 4 ]
 }
+
+# ---------- knit query sql ----------
+
+@test "query sql forwards mode args and the SQL to sqlite3" {
+    local argfile="${BATS_TEST_TMPDIR}/sql-args"
+    _knit_sqlite3() { printf '%s\n' "$*" > "${argfile}"; }
+    run knit query sql --exec "SELECT 1"
+    [ "$status" -eq 0 ]
+    [ "$(cat "${argfile}")" = "-cmd .mode list -cmd .headers off SELECT 1" ]
+}
+
+@test "query sql honours --format/--header/--separator" {
+    local argfile="${BATS_TEST_TMPDIR}/sql-args"
+    _knit_sqlite3() { printf '%s\n' "$*" > "${argfile}"; }
+    run knit query sql --format csv --header --separator ";" --exec "SELECT 1"
+    [ "$status" -eq 0 ]
+    [ "$(cat "${argfile}")" = "-cmd .mode csv -cmd .headers on -cmd .separator ; SELECT 1" ]
+}
+
+@test "query sql rejects a non-read-only statement" {
+    _knit_sqlite3() { printf 'RAN\n'; }
+    run knit query sql --exec "DROP TABLE runs"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"read-only"* ]]
+    [[ "${output}" != *"RAN"* ]]
+}
+
+@test "query sql rejects a piggy-backed write" {
+    _knit_sqlite3() { printf 'RAN\n'; }
+    run knit query sql --exec "SELECT 1; DROP TABLE runs"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"read-only"* ]]
+}
+
+@test "query sql propagates sqlite3's non-zero exit" {
+    _knit_sqlite3() { return 5; }
+    run knit query sql --exec "SELECT 1"
+    [ "$status" -eq 5 ]
+}
+
+@test "query sql formats a real read query end-to-end" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE t(name TEXT, n INT);"
+    _knit_sqlite3_write "INSERT INTO t VALUES('alice', 2), ('bob', 1);"
+    run knit query sql --format list --header --separator "," \
+        --exec "SELECT name, n FROM t ORDER BY n;"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$(printf 'name,n\nbob,1\nalice,2')" ]
+}
