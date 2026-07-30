@@ -241,3 +241,30 @@ _knit_detect_node_ncpus() {
 _knit_command_path() {
     command -v "$1" 2>/dev/null
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_detect_sqlite_dev()
+#
+# Return 0 if the system provides usable SQLite3 development files (the sqlite3.h
+# header and the libsqlite3 library) on the C compiler's default search paths,
+# 1 otherwise. Verified by compiling and linking a tiny probe program against
+# libsqlite3 -- exactly what knit-graph's build does -- so a positive result
+# means knit-graph can be built against the system SQLite without a from-source
+# build. The compiler is the one named by CC (default "cc"); returns 1 when no
+# compiler is available or the probe fails to build.
+# ------------------------------------------------------------------------------
+_knit_detect_sqlite_dev() {
+    local cc="${CC:-cc}"
+    command -v "${cc}" &>/dev/null || return 1
+
+    local tmpdir
+    tmpdir="$(mktemp -d)" || return 1
+    printf '#include <sqlite3.h>\nint main(void){return sqlite3_libversion_number()>0?0:1;}\n' \
+        > "${tmpdir}/probe.c"
+    local status=1
+    if "${cc}" "${tmpdir}/probe.c" -o "${tmpdir}/probe" -lsqlite3 &>/dev/null; then
+        status=0
+    fi
+    rm -rf "${tmpdir}"
+    return "${status}"
+}

@@ -241,3 +241,25 @@ _write_mock() {
     [ "$status" -eq 0 ]
     [ "$output" = "16" ]
 }
+
+# ---------- _knit_detect_sqlite_dev ----------
+
+@test "detect sqlite dev returns 1 when no C compiler is available" {
+    export CC="${MOCK_BIN}/no-such-compiler"
+    run _knit_detect_sqlite_dev
+    [ "$status" -eq 1 ]
+}
+
+@test "detect sqlite dev returns 0 when the probe compiles and links" {
+    _write_mock "${MOCK_BIN}/mockcc" 'exit 0'
+    export CC="${MOCK_BIN}/mockcc"
+    run _knit_detect_sqlite_dev
+    [ "$status" -eq 0 ]
+}
+
+@test "detect sqlite dev returns 1 when the probe fails to build" {
+    _write_mock "${MOCK_BIN}/mockcc" 'exit 1'
+    export CC="${MOCK_BIN}/mockcc"
+    run _knit_detect_sqlite_dev
+    [ "$status" -eq 1 ]
+}

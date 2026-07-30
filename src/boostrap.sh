@@ -92,6 +92,10 @@ knit_with_flag "ignore-system-sqlite" \
     "Build sqlite from source even if a system sqlite3 is available."
 knit_with_flag "ignore-system-jq" \
     "Download jq even if a system jq is available."
+knit_with_optional "knit-graph-version:string" "" \
+    "knit-graph release version to provision. Empty uses the pinned default."
+knit_with_optional "knit-graph-url:string" "" \
+    "URL of the knit-graph release tarball. Empty derives it from the version."
 # The --ai-* options mirror 'ai init' and are stored via the same shared helper.
 # The base-url default below must stay in sync with _KNIT_AI_DEFAULT_BASE_URL in
 # src/ai.sh (loaded after this file, so it cannot be referenced here).
@@ -125,6 +129,8 @@ _knit_bootstrap() {
     local default_nodefile
     local ignore_system_sqlite
     local ignore_system_jq
+    local knitgraph_version
+    local knitgraph_url
     local ai_api_key_env
     local ai_base_url_env
     local ai_model_env
@@ -142,6 +148,8 @@ _knit_bootstrap() {
     default_nodefile="$(knit_get_parameter "default-nodefile" "$@")"
     ignore_system_sqlite="$(knit_get_parameter "ignore-system-sqlite" "$@")"
     ignore_system_jq="$(knit_get_parameter "ignore-system-jq" "$@")"
+    knitgraph_version="$(knit_get_parameter "knit-graph-version" "$@")"
+    knitgraph_url="$(knit_get_parameter "knit-graph-url" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
     ai_base_url_env="$(knit_get_parameter "ai-base-url-env" "$@")"
     ai_model_env="$(knit_get_parameter "ai-model-env" "$@")"
@@ -161,11 +169,18 @@ _knit_bootstrap() {
     mkdir "${_KNIT_PREFIX}" > "${_KNIT_TRACE_FILE}" 2>&1
     trap _knit_bootstrap_on_exit EXIT
 
+    # knit-graph (always provisioned below) links against Knit's sqlite
+    # development files. _knit_bootstrap_sqlite uses the system sqlite only when
+    # those dev files are usable and otherwise builds from source, recording the
+    # prefix knit-graph must build against in _KNIT_SQLITE_PREFIX.
     knit_trace "Bootstrapping sqlite..."
     _knit_bootstrap_sqlite "${ignore_system_sqlite}"
 
     knit_trace "Bootstrapping jq..."
     _knit_bootstrap_jq "${ignore_system_jq}"
+
+    knit_trace "Bootstrapping knit-graph..."
+    _knit_bootstrap_knitgraph "${knitgraph_version}" "${knitgraph_url}"
 
     # Provision Spack after sqlite/jq: resolving the latest release needs jq, and
     # recording provenance metadata needs the (sqlite-backed) metadata table.

@@ -88,6 +88,7 @@ _bootstrap_with_stubs() {
     _KNIT_IS_BOOTSTRAPPED=""
     _knit_bootstrap_sqlite() { :; }
     _knit_bootstrap_jq() { :; }
+    _knit_bootstrap_knitgraph() { :; }
     _knit_bootstrap_need_spack() { return 1; }
     _knit_detect_job_manager() { printf 'local'; }
     _knit_detect_launcher() { printf 'openmpi'; }

@@ -23,6 +23,18 @@ _KNIT_SQLITE_EXE="${_KNIT_PREFIX}/sqlite/bin/sqlite3"
 _KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_SQLITE_PREFIX
+#
+# Installation prefix of the SQLite that knit-graph is built against, set by
+# _knit_bootstrap_sqlite: the from-source install prefix (_KNIT_PREFIX/sqlite)
+# when SQLite is built from source, or empty when the system SQLite is used (its
+# development files are on the compiler's default search paths, so knit-graph
+# needs no --with-sqlite3). Read by _knit_build_knitgraph.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_SQLITE_PREFIX
+_KNIT_SQLITE_PREFIX=""
+
+# ------------------------------------------------------------------------------
 # Busy timeout (milliseconds) applied to every sqlite3 invocation. If another
 # writer holds the database lock, sqlite retries for up to this long before
 # giving up with "database is locked". A second line of defence behind the
@@ -53,13 +65,17 @@ _knit_sqlite_framed_run() {
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_sqlite()
 #
-# Make an sqlite3 program available at _KNIT_SQLITE_EXE. When a system sqlite3
-# is found on PATH and the caller did not request otherwise, symlink it into the
-# .knit directory instead of building from source; otherwise download and build
-# sqlite3 from source. The metadata table is created in either case.
+# Make an sqlite3 program available at _KNIT_SQLITE_EXE. The system sqlite3 is
+# symlinked into the .knit directory only when both its CLI is on PATH and its
+# development files (header + library) are usable -- knit-graph links against
+# those, and a symlinked CLI alone does not guarantee they exist. Otherwise
+# sqlite3 is downloaded and built from source, which lays down both the CLI and
+# the development files. Sets _KNIT_SQLITE_PREFIX to the install prefix knit-graph
+# must build against (empty for the system, where the dev files are on the default
+# search paths). The metadata and provenance tables are created in either case.
 #
-# @param ignore_system When "true", always build from source even if a system
-#        sqlite3 is present.
+# @param ignore_system When "true", always build from source even if a usable
+#        system sqlite3 is present.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_sqlite() {
     local ignore_system="${1:-false}"
@@ -68,12 +84,14 @@ _knit_bootstrap_sqlite() {
         system_sqlite="$(_knit_command_path sqlite3)"
     fi
 
-    if [[ -n "${system_sqlite}" ]]; then
+    if [[ -n "${system_sqlite}" ]] && _knit_detect_sqlite_dev; then
         knit_info "Using system sqlite3 at ${system_sqlite} (symlinked)."
         mkdir -p "$(dirname "${_KNIT_SQLITE_EXE}")"
         ln -s "${system_sqlite}" "${_KNIT_SQLITE_EXE}"
+        _KNIT_SQLITE_PREFIX=""
     else
         _knit_build_sqlite
+        _KNIT_SQLITE_PREFIX="${_KNIT_PREFIX}/sqlite"
     fi
 
     knit_trace "Creating database and tables..."
@@ -182,20 +200,41 @@ _knit_sql_quote_identifier() {
     printf -v __knit_ret '"%s"' "${2//\"/\"\"}"
 }
 
+# ------------------------------------------------------------------------------
+# @fn _knit_run_isolated()
+#
+# Execute a command with the dynamic-linker environment variables scrubbed
+# (LD_LIBRARY_PATH, LD_PRELOAD, LD_AUDIT) so that an active user environment -- a
+# Spack environment, an environment module, or a manually exported
+# LD_LIBRARY_PATH -- cannot make a Knit-provisioned binary load a shared library
+# (most importantly libsqlite3) other than the one it was built against. Knit's
+# sqlite3 and knit-graph are self-contained: a from-source build carries an rpath
+# to Knit's private libsqlite3 and a system build uses the default search paths,
+# so neither needs anything from the caller's environment. `env` replaces itself
+# with the target binary, so this adds no extra process.
+#
+# @param ... Command and arguments to execute.
+# ------------------------------------------------------------------------------
+_knit_run_isolated() {
+    env -u LD_LIBRARY_PATH -u LD_PRELOAD -u LD_AUDIT "$@"
+}
+
 # shellcheck disable=SC2120
 # ------------------------------------------------------------------------------
 # @fn _knit_sqlite3()
 #
 # Invoke Knit's sqlite3-installed program on the main database. Every invocation
 # sets a busy timeout so that a concurrent writer only causes a bounded wait
-# rather than an immediate "database is locked" failure. Use this for reads;
-# route writes through _knit_sqlite3_write so they are also serialized by the
-# advisory lock.
+# rather than an immediate "database is locked" failure. The dynamic-linker
+# environment is scrubbed (via _knit_run_isolated) so an active user environment
+# cannot swap in a different libsqlite3. Use this for reads; route writes through
+# _knit_sqlite3_write so they are also serialized by the advisory lock.
 #
 # @param ... Parameters to forward to the sqlite3 command.
 # ------------------------------------------------------------------------------
 _knit_sqlite3() {
-    ${_KNIT_SQLITE_EXE} -cmd ".timeout ${_KNIT_SQLITE_BUSY_TIMEOUT_MS}" \
+    _knit_run_isolated "${_KNIT_SQLITE_EXE}" \
+        -cmd ".timeout ${_KNIT_SQLITE_BUSY_TIMEOUT_MS}" \
         "${_KNIT_DATABASE}" "$@"
 }
 

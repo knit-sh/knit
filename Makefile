@@ -12,6 +12,7 @@ KNIT_SOURCE = src/global.sh   \
               src/profile.sh  \
               src/sqlite.sh   \
               src/jq.sh       \
+              src/graph.sh    \
               src/prov.sh     \
               src/db.sh       \
               src/spack.sh    \

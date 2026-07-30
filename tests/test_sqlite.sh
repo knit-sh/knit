@@ -42,6 +42,31 @@ teardown() {
     [ -z "$result" ]
 }
 
+# ---------- _knit_run_isolated ----------
+
+@test "run isolated scrubs LD_LIBRARY_PATH, LD_PRELOAD, and LD_AUDIT" {
+    export LD_LIBRARY_PATH="/evil/lib"
+    export LD_PRELOAD="/evil/preload.so"
+    export LD_AUDIT="/evil/audit.so"
+    # The child records its view of the three vars to a file. stderr is discarded
+    # because the bogus LD_PRELOAD/LD_AUDIT make ld.so warn when it starts `env`
+    # itself (before env scrubs them for the child) -- a test-only artifact of the
+    # bogus probe paths, not of the scrubbing.
+    local out; out="$(mktemp)"
+    _knit_run_isolated bash -c \
+        'printf "%s|%s|%s" "${LD_LIBRARY_PATH-unset}" "${LD_PRELOAD-unset}" "${LD_AUDIT-unset}" > "$1"' \
+        _ "${out}" 2>/dev/null
+    local got; got="$(cat "${out}")"
+    rm -f "${out}"
+    [ "${got}" = "unset|unset|unset" ]
+}
+
+@test "run isolated passes through the command's arguments and exit status" {
+    run _knit_run_isolated bash -c 'printf "%s-%s" "$1" "$2"; exit 3' _ aa bb
+    [ "$status" -eq 3 ]
+    [ "$output" = "aa-bb" ]
+}
+
 # ---------- _knit_sql_quote_identifier ----------
 
 @test "sql quote identifier wraps a plain name in double quotes" {
