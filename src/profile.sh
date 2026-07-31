@@ -27,6 +27,21 @@ declare -g _KNIT_PROFILE_LAST_HTTP
 _KNIT_PROFILE_LAST_HTTP=""
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_MODULE_INIT_CANDIDATES
+#
+# Ordered list of environment-module init scripts searched (after an optional
+# profile "module_init" override and the MODULESHOME-derived path) when
+# materializing .knit/platform.sh. The first that exists is sourced to make the
+# `module` shell function available. Overridable for testing.
+# ------------------------------------------------------------------------------
+declare -ga _KNIT_MODULE_INIT_CANDIDATES
+_KNIT_MODULE_INIT_CANDIDATES=(
+    "/etc/profile.d/lmod.sh"
+    "/usr/share/lmod/lmod/init/bash"
+    "/etc/profile.d/modules.sh"
+)
+
+# ------------------------------------------------------------------------------
 # @fn _knit_profile_http_get()
 #
 # Fetch a URL and, on HTTP 200, store the body in the named variable. Records
@@ -272,6 +287,159 @@ _knit_load_profile() {
     knit_trace "Loaded profile: scheduler=${_KNIT_PROFILE_SCHEDULER_TYPE}" \
         "launcher=${_KNIT_PROFILE_LAUNCHER_TYPE}" \
         "queue=${_KNIT_PROFILE_SCHEDULER_DEFAULT_QUEUE}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_resolve_module_init()
+#
+# Resolve the environment-module init script to source when materializing the
+# platform (§5.2), trying in order: an explicit profile "module_init" override;
+# the MODULESHOME-derived path and the standard candidate list
+# (_KNIT_MODULE_INIT_CANDIDATES); finally, if `module` is already a function or
+# command in this environment, no init line is needed (empty result). Returns
+# non-zero when none applies, so the caller can fatal.
+#
+# @param __knit_ret1 Name of the variable to hold the resolved init path (empty
+#                    when `module` is already available and no script is needed).
+# @param json        The resolved profile JSON content.
+# ------------------------------------------------------------------------------
+_knit_resolve_module_init() {
+    local -n __knit_ret1=$1
+    local json="$2"
+
+    local override
+    override="$(printf '%s' "${json}" | _knit_jq -r '.module_init // empty')"
+    if [[ -n "${override}" ]]; then
+        __knit_ret1="${override}"
+        return 0
+    fi
+
+    local -a candidates=()
+    [[ -n "${MODULESHOME:-}" ]] && candidates+=("${MODULESHOME}/init/bash")
+    candidates+=("${_KNIT_MODULE_INIT_CANDIDATES[@]}")
+
+    local c
+    for c in "${candidates[@]}"; do
+        if [[ -f "${c}" ]]; then
+            __knit_ret1="${c}"
+            return 0
+        fi
+    done
+
+    # Last resort: `module` is already available in this environment; emit no
+    # init line and rely on the inherited environment.
+    if declare -F module >/dev/null 2>&1 || command -v module >/dev/null 2>&1; then
+        __knit_ret1=""
+        return 0
+    fi
+
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_render_platform_sh()
+#
+# Render the platform shell fragment (§5.3) to a file: an optional module-init
+# source line, an optional `module purge`, a single `module load` of the
+# profile's modules, and one `export KEY=VALUE` per environment entry. The file
+# is left absent (not created) when the profile has neither `modules` nor
+# `environment`. Fatal when `modules` is present but no module init resolves.
+#
+# @param json    The resolved profile JSON content.
+# @param outfile Path of the platform.sh file to write.
+# ------------------------------------------------------------------------------
+_knit_render_platform_sh() {
+    local json="$1"
+    local outfile="$2"
+
+    local modules has_env
+    modules="$(printf '%s' "${json}" | _knit_jq -r '(.modules // []) | join(" ")')"
+    has_env="$(printf '%s' "${json}" | _knit_jq -r '(.environment // {}) | length')"
+
+    # Nothing to render -> leave the file absent so consumers treat it as a no-op.
+    if [[ -z "${modules}" && "${has_env}" == "0" ]]; then
+        return 0
+    fi
+
+    local -a lines=("# knit platform environment (generated at bootstrap)")
+
+    if [[ -n "${modules}" ]]; then
+        local init purge
+        # Resolve the init before opening the file so a failure fatals cleanly
+        # without leaving a partial platform.sh behind.
+        if ! _knit_resolve_module_init init "${json}"; then
+            knit_fatal "%s" "profile lists modules (${modules}) but no 'module' init script was found; set \"module_init\" in the profile."
+        fi
+        [[ -n "${init}" ]] && lines+=("source ${init}")
+        purge="$(printf '%s' "${json}" | _knit_jq -r '.module_purge // false')"
+        [[ "${purge}" == "true" ]] && lines+=("module purge")
+        lines+=("module load ${modules}")
+    fi
+
+    if [[ "${has_env}" != "0" ]]; then
+        local key val line
+        while IFS=$'\t' read -r key val; do
+            [[ -z "${key}" ]] && continue
+            # %q shell-quotes the value; platform.sh is sourced by bash.
+            printf -v line 'export %s=%q' "${key}" "${val}"
+            lines+=("${line}")
+        done < <(printf '%s' "${json}" \
+            | _knit_jq -r '.environment | to_entries[] | .key + "\t" + (.value|tostring)')
+    fi
+
+    printf '%s\n' "${lines[@]}" > "${outfile}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_render_packages_yaml()
+#
+# Render the profile's `externals` (§6.2) to a Spack config fragment: a single
+# top-level `packages:` map with one entry per external name, each carrying its
+# externals list (spec, optional prefix, optional modules) and `buildable`
+# (default true). The file is left absent when the profile has no `externals`.
+#
+# @param json    The resolved profile JSON content.
+# @param outfile Path of the packages.yaml file to write.
+# ------------------------------------------------------------------------------
+_knit_render_packages_yaml() {
+    local json="$1"
+    local outfile="$2"
+
+    local count
+    count="$(printf '%s' "${json}" | _knit_jq -r '(.externals // []) | length')"
+    if [[ "${count}" == "0" ]]; then
+        return 0
+    fi
+
+    printf '%s' "${json}" | _knit_jq -r '
+        "packages:",
+        ( .externals | group_by(.name)[] |
+          "  " + .[0].name + ":",
+          "    externals:",
+          ( .[] |
+            "    - spec: \"" + .spec + "\"",
+            ( if .prefix then "      prefix: " + .prefix else empty end),
+            ( if .modules then "      modules: [" + (.modules | join(", ")) + "]" else empty end)
+          ),
+          "    buildable: " + ((.[0] | if has("buildable") then .buildable else true end) | tostring)
+        )
+    ' > "${outfile}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_render_platform_files()
+#
+# Materialize the profile's platform artifacts under _KNIT_PREFIX:
+# platform.sh (modules + environment, §5.3) and packages.yaml (externals,
+# §6.2). Either file is left absent when the profile omits the corresponding
+# fields. Called by bootstrap after the profile is resolved.
+#
+# @param json The resolved profile JSON content.
+# ------------------------------------------------------------------------------
+_knit_render_platform_files() {
+    local json="$1"
+    _knit_render_platform_sh   "${json}" "${_KNIT_PREFIX}/platform.sh"
+    _knit_render_packages_yaml "${json}" "${_KNIT_PREFIX}/packages.yaml"
 }
 
 # ------------------------------------------------------------------------------

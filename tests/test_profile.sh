@@ -17,6 +17,13 @@ setup() {
 
     # A minimal, valid profile used across the resolution tests.
     _SAMPLE_PROFILE='{"scheduler":{"type":"slurm"},"launcher":{"type":"openmpi"}}'
+
+    # Materialization writes under _KNIT_PREFIX; isolate it and the module-init
+    # search from the host so the render tests are deterministic.
+    _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/.knit"
+    mkdir -p "${_KNIT_PREFIX}"
+    unset MODULESHOME
+    _KNIT_MODULE_INIT_CANDIDATES=("${_KNIT_TEST_TMPDIR}/none/lmod.sh")
 }
 
 teardown() {
@@ -190,4 +197,107 @@ _stub_http_fail() {
     [ "${lines[1]}" = "anl/improv" ]
     [ "${lines[2]}" = "ornl/frontier" ]
     [[ "$(cat "${_KNIT_TEST_TMPDIR}/last_url")" == *"/src/profiles/index.json" ]]
+}
+
+# ---------- _knit_render_platform_files : platform.sh ----------
+
+@test "render writes a well-formed platform.sh (init, purge, load, exports)" {
+    local init="${_KNIT_TEST_TMPDIR}/init.sh"
+    touch "${init}"
+    local json
+    json="$(jq -nc --arg i "${init}" \
+        '{module_init:$i, module_purge:true,
+          modules:["PrgEnv-gnu","cray-mpich","cmake"],
+          environment:{MPICH_GPU_SUPPORT_ENABLED:1, FOO:"a b"}}')"
+    _knit_render_platform_files "${json}"
+
+    local f="${_KNIT_PREFIX}/platform.sh"
+    [ -f "${f}" ]
+    grep -Fqx "source ${init}" "${f}"
+    grep -Fqx "module purge" "${f}"
+    grep -Fqx "module load PrgEnv-gnu cray-mpich cmake" "${f}"
+    # One module load line only.
+    [ "$(grep -c '^module load ' "${f}")" -eq 1 ]
+    grep -Fqx "export MPICH_GPU_SUPPORT_ENABLED=1" "${f}"
+    # The space in the value is shell-quoted by %q.
+    grep -Fqx 'export FOO=a\ b' "${f}"
+}
+
+@test "render omits module purge when module_purge is absent/false" {
+    local init="${_KNIT_TEST_TMPDIR}/init.sh"
+    touch "${init}"
+    local json
+    json="$(jq -nc --arg i "${init}" '{module_init:$i, modules:["cmake"]}')"
+    _knit_render_platform_files "${json}"
+    ! grep -Fqx "module purge" "${_KNIT_PREFIX}/platform.sh"
+}
+
+@test "render leaves platform.sh absent when no modules or environment" {
+    _knit_render_platform_files '{"scheduler":{"type":"slurm"}}'
+    [ ! -f "${_KNIT_PREFIX}/platform.sh" ]
+}
+
+@test "render writes an environment-only platform.sh with no module lines" {
+    _knit_render_platform_files '{"environment":{"X":"1"}}'
+    local f="${_KNIT_PREFIX}/platform.sh"
+    [ -f "${f}" ]
+    grep -Fqx "export X=1" "${f}"
+    ! grep -q "^module " "${f}"
+    ! grep -q "^source " "${f}"
+}
+
+@test "render finds the module init via the candidate search" {
+    local cand="${_KNIT_TEST_TMPDIR}/search/lmod.sh"
+    mkdir -p "$(dirname "${cand}")"
+    touch "${cand}"
+    _KNIT_MODULE_INIT_CANDIDATES=("${cand}")
+    _knit_render_platform_files '{"modules":["cmake"]}'
+    grep -Fqx "source ${cand}" "${_KNIT_PREFIX}/platform.sh"
+}
+
+@test "render honours the MODULESHOME-derived init path" {
+    export MODULESHOME="${_KNIT_TEST_TMPDIR}/mh"
+    mkdir -p "${MODULESHOME}/init"
+    touch "${MODULESHOME}/init/bash"
+    _knit_render_platform_files '{"modules":["cmake"]}'
+    grep -Fqx "source ${MODULESHOME}/init/bash" "${_KNIT_PREFIX}/platform.sh"
+}
+
+@test "render fatals when modules are listed but no init resolves" {
+    # Candidate list points at nothing and module is not a shell function here.
+    _KNIT_MODULE_INIT_CANDIDATES=("${_KNIT_TEST_TMPDIR}/absent/lmod.sh")
+    run _knit_render_platform_files '{"modules":["cmake"]}'
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"no 'module' init script"* ]]
+    [ ! -f "${_KNIT_PREFIX}/platform.sh" ]
+}
+
+# ---------- _knit_render_platform_files : packages.yaml ----------
+
+@test "render writes a packages.yaml block per external" {
+    local json='{"externals":[
+        {"name":"mpich","spec":"[email protected] %[email protected]",
+         "prefix":"/opt/cray/pe/mpich/8.1.28","modules":["cray-mpich/8.1.28"],
+         "buildable":false}]}'
+    _knit_render_platform_files "${json}"
+
+    local f="${_KNIT_PREFIX}/packages.yaml"
+    [ -f "${f}" ]
+    grep -Fqx "packages:" "${f}"
+    grep -Fqx "  mpich:" "${f}"
+    grep -Fqx "    externals:" "${f}"
+    grep -Fqx '    - spec: "[email protected] %[email protected]"' "${f}"
+    grep -Fqx "      prefix: /opt/cray/pe/mpich/8.1.28" "${f}"
+    grep -Fqx "      modules: [cray-mpich/8.1.28]" "${f}"
+    grep -Fqx "    buildable: false" "${f}"
+}
+
+@test "render defaults buildable to true when omitted" {
+    _knit_render_platform_files '{"externals":[{"name":"hdf5","spec":"[email protected]"}]}'
+    grep -Fqx "    buildable: true" "${_KNIT_PREFIX}/packages.yaml"
+}
+
+@test "render leaves packages.yaml absent when no externals" {
+    _knit_render_platform_files '{"modules":["cmake"],"module_init":"/dev/null"}'
+    [ ! -f "${_KNIT_PREFIX}/packages.yaml" ]
 }
