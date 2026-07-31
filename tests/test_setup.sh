@@ -6,6 +6,8 @@ setup() {
     knit_test_db_setup
 
     _KNIT_TEST_TMPDIR="$(mktemp -d)"
+    _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/.knit"
+    mkdir -p "${_KNIT_PREFIX}"
 }
 
 teardown() {
@@ -157,6 +159,44 @@ teardown() {
     _knit_setup_after_cb
     run bash -c "source knit.sh >/dev/null 2>&1; source '${KNIT_SETUP_PREFIX}/.activate.sh'"
     [ "$status" -eq 0 ]
+}
+
+# ---------- platform consumption (before/after cb) ----------
+
+@test "setup before callback sources the platform fragment" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
+    printf '%s\n' 'export _KNIT_TEST_PLATFORM_CANARY=on' > "${_KNIT_PREFIX}/platform.sh"
+    _knit_setup_before_cb
+    [ "${_KNIT_TEST_PLATFORM_CANARY:-}" = "on" ]
+    unset _KNIT_TEST_PLATFORM_CANARY
+}
+
+@test "setup before callback is a no-op when platform.sh is absent" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
+    rm -f "${_KNIT_PREFIX}/platform.sh"
+    run _knit_setup_before_cb
+    [ "$status" -eq 0 ]
+}
+
+@test "setup after callback inlines platform.sh at the top of .activate.sh" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
+    printf '%s\n' '# knit platform environment (generated at bootstrap)' \
+                  'module load cray-mpich' > "${_KNIT_PREFIX}/platform.sh"
+    _knit_setup_after_cb
+    local activate="${KNIT_SETUP_PREFIX}/.activate.sh"
+    grep -Fq 'module load cray-mpich' "${activate}"
+    # The inlined platform block must precede the environment dump.
+    local platform_line export_line
+    platform_line=$(grep -n 'module load cray-mpich' "${activate}" | head -1 | cut -d: -f1)
+    export_line=$(grep -n '^export ' "${activate}" | head -1 | cut -d: -f1)
+    [ "${platform_line}" -lt "${export_line}" ]
+}
+
+@test "setup after callback does not inline when platform.sh is absent" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
+    rm -f "${_KNIT_PREFIX}/platform.sh"
+    _knit_setup_after_cb
+    ! grep -Fq 'Platform activation (inlined' "${KNIT_SETUP_PREFIX}/.activate.sh"
 }
 
 # ---------- _knit_setup ----------

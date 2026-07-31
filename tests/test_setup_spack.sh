@@ -210,6 +210,19 @@ EOF
     [[ "$output" == *"${KNIT_SETUP_PREFIX}/spack-env ${KNIT_SETUP_PREFIX}/spack.yaml"* ]]
 }
 
+@test "before callback sources the platform fragment before activating Spack" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/.knit"
+    mkdir -p "${_KNIT_PREFIX}"
+    printf '%s\n' 'export _KNIT_TEST_SPACK_PLATFORM=on' > "${_KNIT_PREFIX}/platform.sh"
+    _knit_spack_env_install() { :; }
+    _knit_spack_exec() { :; }
+    _knit_setup_spack_env_before_cb "stdin" "spack: {}"
+    [ "${_KNIT_TEST_SPACK_PLATFORM:-}" = "on" ]
+    unset _KNIT_TEST_SPACK_PLATFORM
+}
+
 # ---------- _knit_setup_spack_env_after_cb ----------
 
 @test "after callback appends the re-activation block to .activate.sh" {
