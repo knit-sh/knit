@@ -250,3 +250,25 @@ EOF
     [[ "$output" == *"exec:env create -d /tmp/envdir /tmp/spack.yaml"* ]]
     [[ "$output" == *"exec:-e /tmp/envdir install"* ]]
 }
+
+@test "spack_env_install injects packages.yaml before install when present" {
+    _knit_spack_exec() { printf 'exec:%s\n' "$*"; }
+    _knit_spack_framed_run() { shift; "$@"; }
+    printf 'packages:\n' > "${_KNIT_PREFIX}/packages.yaml"
+    run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"exec:-e /tmp/envdir config add -f ${_KNIT_PREFIX}/packages.yaml"* ]]
+    # config add must precede install.
+    local add_line install_line
+    add_line="$(printf '%s\n' "$output" | grep -n 'config add -f' | head -1 | cut -d: -f1)"
+    install_line="$(printf '%s\n' "$output" | grep -n -- '-e /tmp/envdir install' | head -1 | cut -d: -f1)"
+    [ "${add_line}" -lt "${install_line}" ]
+}
+
+@test "spack_env_install skips packages.yaml injection when absent" {
+    _knit_spack_exec() { printf 'exec:%s\n' "$*"; }
+    _knit_spack_framed_run() { shift; "$@"; }
+    run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"config add -f"* ]]
+}

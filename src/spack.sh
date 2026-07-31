@@ -276,6 +276,11 @@ _knit_spack_exec() {
 # _knit_spack_exec, so the knit-private Spack is used and setup-env.sh is sourced
 # at most once per process. The (long-running) install is framed.
 #
+# When the platform declares externals, "${_KNIT_PREFIX}/packages.yaml" exists;
+# it is merged into the environment with "spack config add -f" before
+# concretization, so specs like "mpi"/"hdf5" resolve to the platform's vendor
+# installs. The step is skipped when the file is absent.
+#
 # @param env_dir Directory in which to create the Spack environment.
 # @param yaml    Path to the spack.yaml manifest describing the environment.
 # ------------------------------------------------------------------------------
@@ -283,6 +288,9 @@ _knit_spack_env_install() {
     local env_dir="$1"
     local yaml="$2"
     _knit_spack_exec env create -d "${env_dir}" "${yaml}"
+    if [[ -f "${_KNIT_PREFIX}/packages.yaml" ]]; then
+        _knit_spack_exec -e "${env_dir}" config add -f "${_KNIT_PREFIX}/packages.yaml"
+    fi
     _knit_spack_framed_run "spack: install env" \
         _knit_spack_exec -e "${env_dir}" install
 }
