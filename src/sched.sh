@@ -70,13 +70,14 @@ _knit_uuidv7() {
 # ------------------------------------------------------------------------------
 # @fn _knit_sched_profile_field()
 #
-# Return a field from a machine profile's JSON, or the empty string when the
-# profile name is empty or unknown. A thin guard around knit_get_profile_field so
-# callers can request a field unconditionally without emitting an "unknown
-# profile" error.
+# Return a field from the bootstrapped experiment's machine profile, or the
+# empty string when no profile is configured. The value comes from the profile
+# JSON frozen at bootstrap (__profile_json__ metadata), read via
+# knit_get_profile_field. The profile argument is retained as a gate so callers
+# can request a field unconditionally.
 #
 # @param __knit_ret Name of the variable to hold the field value.
-# @param profile Profile name (may be empty).
+# @param profile Profile label (may be empty; empty means "no profile").
 # @param jq_path jq path expression, e.g. '.scheduler.default_queue'.
 # ------------------------------------------------------------------------------
 _knit_sched_profile_field() {
@@ -84,8 +85,8 @@ _knit_sched_profile_field() {
     local __profile="$2"
     local __jq_path="$3"
     __knit_ret=""
-    if [[ -n "${__profile}" ]] && knit_profile_exists "${__profile}"; then
-        __knit_ret="$(knit_get_profile_field "${__profile}" "${__jq_path}")"
+    if [[ -n "${__profile}" ]]; then
+        __knit_ret="$(knit_get_profile_field "${__jq_path}")"
     fi
 }
 

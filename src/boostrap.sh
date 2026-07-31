@@ -156,10 +156,6 @@ _knit_bootstrap() {
     ai_base_url="$(knit_get_parameter "ai-base-url" "$@")"
     ai_model="$(knit_get_parameter "ai-model" "$@")"
 
-    if [[ -n "${profile}" ]] && ! knit_profile_exists "${profile}"; then
-        knit_fatal "Unknown profile: ${profile}. Run 'knit profile list' to see available profiles."
-    fi
-
     # Create directory
     if [ -d "${_KNIT_PREFIX}" ]; then
         knit_fatal "Knit is already bootstrapped."
@@ -189,15 +185,20 @@ _knit_bootstrap() {
         _knit_bootstrap_spack "${spack_ref}" "${spack_packages_ref}"
     fi
 
-    # Load profile defaults (jq is now available).
+    # Load profile defaults (jq is now available). The profile is resolved and
+    # downloaded here (URL / local file / /etc/knit / GitHub shorthand) and frozen
+    # into metadata so nothing at run time re-opens the source.
     local default_queue=""
     local default_scheduler_args=""
     local default_launcher_args=""
     local node_ncpus=""
     local node_ngpus=""
+    local profile_json=""
+    local profile_label=""
     if [[ -n "${profile}" ]]; then
-        knit_trace "Loading profile ${profile}..."
-        _knit_load_profile "${profile}"
+        knit_trace "Resolving profile ${profile}..."
+        _knit_resolve_profile profile_json profile_label "${profile}"
+        _knit_load_profile "${profile_json}"
         default_queue="${_KNIT_PROFILE_SCHEDULER_DEFAULT_QUEUE}"
         default_scheduler_args="${_KNIT_PROFILE_SCHEDULER_DEFAULT_ARGS}"
         default_launcher_args="${_KNIT_PROFILE_LAUNCHER_DEFAULT_ARGS}"
@@ -224,10 +225,12 @@ _knit_bootstrap() {
         launcher="$(_knit_detect_launcher)"
     fi
 
-    # Default walltime: explicit flag, else the profile's default-queue cap.
-    if [[ -z "${default_walltime}" && -n "${profile}" && -n "${default_queue}" ]]; then
-        _knit_sched_profile_field default_walltime "${profile}" \
-            ".scheduler.queues.\"${default_queue}\".max_walltime"
+    # Default walltime: explicit flag, else the profile's default-queue cap. Read
+    # from the in-memory profile JSON: __profile_json__ metadata is not written
+    # until below, so _knit_sched_profile_field would find nothing here.
+    if [[ -z "${default_walltime}" && -n "${profile_json}" && -n "${default_queue}" ]]; then
+        default_walltime="$(printf '%s' "${profile_json}" \
+            | _knit_jq -r ".scheduler.queues.\"${default_queue}\".max_walltime // empty")"
     fi
 
     # Per-node core count precedence: explicit flag -> profile -> live detection.
@@ -255,7 +258,8 @@ _knit_bootstrap() {
     knit_trace "Writing initial metadata..."
     knit metadata store --key "__project__"                --value "${project}"
     knit metadata store --key "__account__"                --value "${account}"
-    knit metadata store --key "__profile__"                --value "${profile}"
+    knit metadata store --key "__profile__"                --value "${profile_label}"
+    knit metadata store --key "__profile_json__"           --value "${profile_json}"
     knit metadata store --key "__scheduler__"              --value "${scheduler}"
     knit metadata store --key "__launcher__"               --value "${launcher}"
     knit metadata store --key "__default_queue__"          --value "${default_queue}"

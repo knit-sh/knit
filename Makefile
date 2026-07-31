@@ -41,21 +41,11 @@ KNIT_SOURCE = src/global.sh   \
 
 KNIT_OUTPUT = knit.sh
 
-PROFILE_JSONS := $(shell find src/profiles -name '*.json' | sort)
-
 all: knit.sh
 
-knit.sh: $(KNIT_SOURCE) $(PROFILE_JSONS)
+knit.sh: $(KNIT_SOURCE)
 	@echo "Concatenating files into $(KNIT_OUTPUT)..."
-	@tmp=$$(mktemp); \
-	echo 'declare -gA _KNIT_PROFILE_JSON' > "$$tmp"; \
-	for f in $(PROFILE_JSONS); do \
-		name=$$(basename "$$f" .json); \
-		printf '_KNIT_PROFILE_JSON["%s"]=%s\n' \
-			"$$name" "'$$(jq -c . "$$f")'" >> "$$tmp"; \
-	done; \
-	cat "$$tmp" $(KNIT_SOURCE) > $(KNIT_OUTPUT); \
-	rm -f "$$tmp"
+	@cat $(KNIT_SOURCE) > $(KNIT_OUTPUT)
 	@echo "Done. Created $(KNIT_OUTPUT)"
 
 KNIT_TESTS := $(wildcard tests/test_*.sh)
@@ -97,16 +87,8 @@ doccheck:
 	exit $$status
 
 .PHONY: coverage
-coverage: $(KNIT_SOURCE) $(PROFILE_JSONS)
-	@tmp=$$(mktemp); \
-	echo 'declare -gA _KNIT_PROFILE_JSON' > "$$tmp"; \
-	for f in $(PROFILE_JSONS); do \
-		name=$$(basename "$$f" .json); \
-		printf '_KNIT_PROFILE_JSON["%s"]=%s\n' \
-			"$$name" "'$$(jq -c . "$$f")'" >> "$$tmp"; \
-	done; \
-	{ cat "$$tmp"; for f in $(KNIT_SOURCE); do echo "source $$f"; done; } > $(KNIT_OUTPUT); \
-	rm -f "$$tmp"
+coverage: $(KNIT_SOURCE)
+	@{ for f in $(KNIT_SOURCE); do echo "source $$f"; done; } > $(KNIT_OUTPUT)
 
 DOCS_VENV := .docs-venv
 

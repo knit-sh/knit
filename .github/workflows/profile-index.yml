@@ -1,0 +1,41 @@
+name: Profile index
+
+# Keep src/profiles/index.json in sync with the profile tree. Whenever a profile
+# JSON is added or removed under src/profiles/, regenerate the index and commit
+# the result back to the branch.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/profiles/**"
+  workflow_dispatch:
+
+# Needed to push the regenerated index back to the branch.
+permissions:
+  contents: write
+
+# Serialise runs so two pushes can't race on the committed index.
+concurrency:
+  group: profile-index
+  cancel-in-progress: false
+
+jobs:
+  update-index:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Regenerate profile index
+        run: maint/gen-profile-index.sh
+
+      - name: Commit index if it changed
+        run: |
+          if git diff --quiet -- src/profiles/index.json; then
+            echo "index.json already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/profiles/index.json
+          git commit -m "knit profile: sync src/profiles/index.json"
+          git push

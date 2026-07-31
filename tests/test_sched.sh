@@ -17,6 +17,16 @@ teardown() {
     knit_test_db_teardown
 }
 
+# Configure the experiment's profile the way bootstrap does: store the resolved
+# JSON under __profile_json__ (run-time field reads go through it) plus the label
+# under __profile__ (the gate). The JSON is read from the in-repo profile store.
+_use_profile() {
+    local name="$1" f
+    f="$(find "${BATS_TEST_DIRNAME}/../src/profiles" -name "${name}.json" | head -1)"
+    _knit_metadata_store --key "__profile__" --value "${name}"
+    _knit_metadata_store --key "__profile_json__" --value "$(cat "${f}")"
+}
+
 # ---------- _knit_uuidv7 ----------
 
 @test "_knit_uuidv7 produces a value of the uuid type" {
@@ -294,14 +304,14 @@ teardown() {
 }
 
 @test "resolve falls back to the profile when no metadata" {
-    _knit_metadata_store --key "__profile__" --value "polaris"
+    _use_profile polaris
     declare -A r
     _knit_sched_resolve r
     [ "${r[queue]}" = "prod" ]
 }
 
 @test "resolve prefers metadata over the profile" {
-    _knit_metadata_store --key "__profile__" --value "polaris"
+    _use_profile polaris
     _knit_metadata_store --key "__default_queue__" --value "metaqueue"
     declare -A r
     _knit_sched_resolve r
@@ -324,14 +334,14 @@ teardown() {
 }
 
 @test "resolve derives cpus-per-node from the profile hardware" {
-    _knit_metadata_store --key "__profile__" --value "polaris"
+    _use_profile polaris
     declare -A r
     _knit_sched_resolve r
     [ "${r[cpus-per-node]}" = "32" ]
 }
 
 @test "resolve prefers __node_ncpus__ metadata for cpus-per-node" {
-    _knit_metadata_store --key "__profile__" --value "polaris"
+    _use_profile polaris
     _knit_metadata_store --key "__node_ncpus__" --value "64"
     declare -A r
     _knit_sched_resolve r
@@ -347,7 +357,7 @@ teardown() {
 # ---------- _knit_sched_resolve : specific options ----------
 
 @test "resolve derives walltime from the resolved queue's profile cap" {
-    _knit_metadata_store --key "__profile__" --value "polaris"
+    _use_profile polaris
     declare -A r
     # No explicit queue -> profile default queue "prod" (max_walltime 24:00:00)
     _knit_sched_resolve r
@@ -355,7 +365,7 @@ teardown() {
 }
 
 @test "resolve derives walltime from an explicitly chosen queue's cap" {
-    _knit_metadata_store --key "__profile__" --value "polaris"
+    _use_profile polaris
     declare -A r
     _knit_sched_resolve r --queue debug
     [ "${r[walltime]}" = "01:00:00" ]
@@ -383,7 +393,7 @@ teardown() {
 }
 
 @test "resolve captures site scheduler args from the profile" {
-    _knit_metadata_store --key "__profile__" --value "polaris"
+    _use_profile polaris
     declare -A r
     _knit_sched_resolve r
     [ "${r[extra-args]}" = "-l filesystems=home:eagle" ]
@@ -398,7 +408,7 @@ teardown() {
 # ---------- _knit_sched_validate_caps ----------
 
 @test "validate_caps fatals when walltime exceeds the queue cap" {
-    _knit_metadata_store --key "__profile__" --value "polaris"
+    _use_profile polaris
     declare -A r
     r[queue]="debug"       # polaris debug: max_walltime 01:00:00, max_nodes 2
     r[walltime]="02:00:00"
@@ -409,7 +419,7 @@ teardown() {
 }
 
 @test "validate_caps passes when walltime is within the queue cap" {
-    _knit_metadata_store --key "__profile__" --value "polaris"
+    _use_profile polaris
     declare -A r
     r[queue]="debug"
     r[walltime]="00:30:00"
@@ -419,7 +429,7 @@ teardown() {
 }
 
 @test "validate_caps fatals when nodes exceed the queue cap" {
-    _knit_metadata_store --key "__profile__" --value "polaris"
+    _use_profile polaris
     declare -A r
     r[queue]="debug"
     r[walltime]="00:10:00"
@@ -430,7 +440,7 @@ teardown() {
 }
 
 @test "validate_caps passes when nodes are within the queue cap" {
-    _knit_metadata_store --key "__profile__" --value "polaris"
+    _use_profile polaris
     declare -A r
     r[queue]="debug"
     r[walltime]="00:10:00"
@@ -449,7 +459,7 @@ teardown() {
 }
 
 @test "validate_caps is a no-op for a queue that declares no caps" {
-    _knit_metadata_store --key "__profile__" --value "polaris"
+    _use_profile polaris
     declare -A r
     r[queue]="nosuchqueue"
     r[walltime]="99:00:00"
