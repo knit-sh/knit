@@ -204,5 +204,41 @@ RUN chmod +x /entrypoint-server.sh \
              /entrypoint-mom.sh \
              /configure-server.sh
 
+# ---------------------------------------------------------------------------
+# Lmod + a second MPI for the knit platform/module integration tests
+#
+# The system MPI here is the packaged MPICH in /usr/lib64/mpich, on PATH. OpenMPI
+# is the "other" implementation, built from source into /opt/openmpi, deliberately
+# OFF PATH and exposed only through an Lmod module. This lets the platform/profile
+# tests exercise module loading and MPI selection with no per-run build. See
+# tests/integration/experiments/12_platform_modules onward.
+#
+# These layers are appended after the base install so a local rebuild reuses the
+# cached OpenPBS/MPICH layers; editing them still changes the image content hash
+# (lib/image-tag.sh), which forces a republish from CI.
+# ---------------------------------------------------------------------------
+ARG OPENMPI_VERSION=4.1.6
+
+RUN dnf -y install Lmod && dnf clean all
+
+RUN cd /tmp && \
+    wget -q "https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-${OPENMPI_VERSION}.tar.bz2" && \
+    tar xf openmpi-${OPENMPI_VERSION}.tar.bz2 && \
+    cd openmpi-${OPENMPI_VERSION} && \
+    # OpenMPI drives its own launcher (mpirun over SSH) rather than the PBS
+    # integration, so PMIx is not needed here; Fortran is disabled to keep the
+    # build small.
+    ./configure --prefix=/opt/openmpi --disable-mpi-fortran && \
+    make -j$(nproc) && \
+    make install && \
+    cd /tmp && \
+    rm -rf openmpi-${OPENMPI_VERSION} openmpi-${OPENMPI_VERSION}.tar.bz2
+
+# Lmod modulefiles (auto-discovered: /usr/share/modulefiles is on the default
+# MODULEPATH) and the admin profile resolved by `knit bootstrap --profile pbs`.
+COPY conf/modulefiles/knit-marker.lua /usr/share/modulefiles/knit-marker.lua
+COPY conf/modulefiles/openmpi.lua     /usr/share/modulefiles/openmpi.lua
+COPY conf/knit/pbs.json               /etc/knit/profiles/pbs.json
+
 # Default command (overridden by each service in docker-compose.yml)
 CMD ["/bin/bash"]

@@ -191,4 +191,40 @@ ENV SLURM_CONF=/etc/slurm/slurm.conf
 ENV PATH="/usr/local/bin:$PATH"
 ENV LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
 
+# ---------------------------------------------------------------------------
+# 10. Lmod + a second MPI for the knit platform/module integration tests
+#
+# The system MPI here is the source-built OpenMPI in /usr/local, on PATH. MPICH
+# is the "other" implementation, built from source into /opt/mpich, deliberately
+# OFF PATH and exposed only through an Lmod module. This lets the platform/
+# profile tests exercise module loading and MPI selection with no per-run build.
+# See tests/integration/experiments/12_platform_modules onward.
+#
+# These layers are appended after the base install so a local rebuild reuses the
+# cached Slurm/OpenMPI layers; editing them still changes the image content hash
+# (lib/image-tag.sh), which forces a republish from CI.
+# ---------------------------------------------------------------------------
+ARG MPICH_VERSION=4.2.3
+
+RUN dnf -y install Lmod && dnf clean all
+
+RUN cd /tmp && \
+    wget -q "https://www.mpich.org/static/downloads/${MPICH_VERSION}/mpich-${MPICH_VERSION}.tar.gz" && \
+    tar xf mpich-${MPICH_VERSION}.tar.gz && \
+    cd mpich-${MPICH_VERSION} && \
+    # ch3:sock is the most portable device inside containers (plain TCP, no
+    # shared-memory/hwloc assumptions); Fortran is disabled to keep the build
+    # small and avoid a gfortran dependency.
+    ./configure --prefix=/opt/mpich --with-device=ch3:sock --disable-fortran && \
+    make -j$(nproc) && \
+    make install && \
+    cd /tmp && \
+    rm -rf mpich-${MPICH_VERSION} mpich-${MPICH_VERSION}.tar.gz
+
+# Lmod modulefiles (auto-discovered: /usr/share/modulefiles is on the default
+# MODULEPATH) and the admin profile resolved by `knit bootstrap --profile slurm`.
+COPY conf/modulefiles/knit-marker.lua /usr/share/modulefiles/knit-marker.lua
+COPY conf/modulefiles/mpich.lua       /usr/share/modulefiles/mpich.lua
+COPY conf/knit/slurm.json             /etc/knit/profiles/slurm.json
+
 WORKDIR /home/hpcuser

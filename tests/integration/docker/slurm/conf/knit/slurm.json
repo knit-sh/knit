@@ -1,0 +1,13 @@
+{
+    "description": "knit integration Slurm cluster — mpiA=OpenMPI (system, on PATH), mpiB=MPICH (module).",
+    "scheduler": {
+        "type": "slurm",
+        "command": "sbatch"
+    },
+    "launcher": {
+        "type": "mpich",
+        "command": "mpiexec"
+    },
+    "module_init": "/etc/profile.d/modules.sh",
+    "modules": ["knit-marker", "mpich"]
+}

@@ -1,0 +1,13 @@
+{
+    "description": "knit integration PBS cluster — mpiA=MPICH (system, on PATH), mpiB=OpenMPI (module).",
+    "scheduler": {
+        "type": "pbs",
+        "command": "qsub"
+    },
+    "launcher": {
+        "type": "openmpi",
+        "command": "mpirun"
+    },
+    "module_init": "/etc/profile.d/modules.sh",
+    "modules": ["knit-marker", "openmpi"]
+}
