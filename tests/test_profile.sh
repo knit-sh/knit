@@ -189,14 +189,99 @@ _stub_http_fail() {
     [ "${out}" = $'anl/aurora\nanl/improv\nornl/frontier' ]
 }
 
-@test "knit_list_profiles fetches and sorts the index" {
+@test "knit_list_profiles fetches, sorts and marks the repo index" {
     _stub_http_ok '["ornl/frontier","anl/improv","anl/aurora"]'
     run knit_list_profiles
     [ "$status" -eq 0 ]
-    [ "${lines[0]}" = "anl/aurora" ]
-    [ "${lines[1]}" = "anl/improv" ]
-    [ "${lines[2]}" = "ornl/frontier" ]
+    [[ "${lines[0]}" == "anl/aurora"* ]]
+    [[ "${lines[0]}" == *"github"* ]]
+    [[ "${lines[1]}" == "anl/improv"* ]]
+    [[ "${lines[2]}" == "ornl/frontier"* ]]
     [[ "$(cat "${_KNIT_TEST_TMPDIR}/last_url")" == *"/src/profiles/index.json" ]]
+}
+
+@test "_knit_profile_admin_names lists /etc/knit profiles by relative path" {
+    mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/anl" "${_KNIT_PROFILE_ADMIN_DIR}/site"
+    printf '%s' "${_SAMPLE_PROFILE}" > "${_KNIT_PROFILE_ADMIN_DIR}/anl/improv.json"
+    printf '%s' "${_SAMPLE_PROFILE}" > "${_KNIT_PROFILE_ADMIN_DIR}/site/local.json"
+    local names
+    _knit_profile_admin_names names
+    [ "${names}" = $'anl/improv\nsite/local' ]
+}
+
+@test "_knit_profile_admin_names is empty when the admin dir is absent" {
+    _KNIT_PROFILE_ADMIN_DIR="${_KNIT_TEST_TMPDIR}/absent"
+    local names="unset"
+    _knit_profile_admin_names names
+    [ -z "${names}" ]
+}
+
+@test "knit_list_profiles unions the repo index and the admin store" {
+    _stub_http_ok '["anl/improv","ornl/frontier"]'
+    mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/site"
+    printf '%s' "${_SAMPLE_PROFILE}" > "${_KNIT_PROFILE_ADMIN_DIR}/site/local.json"
+    run knit_list_profiles
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"anl/improv"* ]]
+    [[ "$output" == *"ornl/frontier"* ]]
+    [[ "$output" == *"site/local"* ]]
+    # The admin-only entry is marked as admin, not github.
+    [[ "$output" == *"site/local"*"admin"* ]]
+}
+
+@test "knit_list_profiles marks an admin profile as shadowing the repo" {
+    _stub_http_ok '["anl/improv","ornl/frontier"]'
+    mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/anl"
+    printf '%s' "${_SAMPLE_PROFILE}" > "${_KNIT_PROFILE_ADMIN_DIR}/anl/improv.json"
+    run knit_list_profiles
+    [ "$status" -eq 0 ]
+    # anl/improv is in both -> shadowing; appears exactly once.
+    [ "$(printf '%s\n' "$output" | grep -c '^anl/improv ')" -eq 1 ]
+    [[ "$output" == *"anl/improv"*"admin (shadows github)"* ]]
+}
+
+@test "knit_list_profiles still lists admin profiles when the index is unreachable" {
+    _stub_http_fail
+    mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/site"
+    printf '%s' "${_SAMPLE_PROFILE}" > "${_KNIT_PROFILE_ADMIN_DIR}/site/local.json"
+    run knit_list_profiles
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"site/local"*"admin"* ]]
+}
+
+# ---------- profile show ----------
+
+@test "profile show prints the frozen profile of a bootstrapped experiment" {
+    _knit_metadata_store --key "__profile_json__" \
+        --value '{"scheduler":{"type":"slurm"}}'
+    run _knit_profile_show
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'"scheduler"'* ]]
+    [[ "$output" == *'"slurm"'* ]]
+}
+
+@test "profile show fatals when bootstrapped without a profile" {
+    run _knit_profile_show
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"without a profile"* ]]
+}
+
+@test "profile show resolves and prints a spec when not bootstrapped" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/absent-knit"
+    local f="${_KNIT_TEST_TMPDIR}/mymachine.json"
+    printf '%s' "${_SAMPLE_PROFILE}" > "${f}"
+    run _knit_profile_show --profile "${f}"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'"openmpi"'* ]]
+}
+
+@test "profile show requires a spec when not bootstrapped" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/absent-knit"
+    run _knit_profile_show
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"profile spec is required"* ]]
 }
 
 # ---------- _knit_render_platform_files : platform.sh ----------

@@ -205,22 +205,72 @@ _knit_profile_parse_index() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_profile_admin_names()
+#
+# List the admin-provided profiles under _KNIT_PROFILE_ADMIN_DIR as
+# "<namespace>/<machine>" names (the path relative to the admin directory, minus
+# the .json suffix), one per line. Empty when the directory is absent.
+#
+# @param __knit_ret1 Name of the variable to hold the newline-separated names.
+# ------------------------------------------------------------------------------
+_knit_profile_admin_names() {
+    local -n __knit_ret1=$1
+    __knit_ret1=""
+    [[ -d "${_KNIT_PROFILE_ADMIN_DIR}" ]] || return 0
+    local f name out=""
+    while IFS= read -r f; do
+        [[ -n "${f}" ]] || continue
+        name="${f#"${_KNIT_PROFILE_ADMIN_DIR}"/}"
+        out+="${name%.json}"$'\n'
+    done < <(find "${_KNIT_PROFILE_ADMIN_DIR}" -type f -name '*.json' 2>/dev/null | sort)
+    __knit_ret1="${out%$'\n'}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_list_profiles()
 #
-# Print the name of each profile served by the in-repo store, one per line, in
-# sorted order. Fetches the committed index at the running knit version.
+# Print the union of the profiles known to knit, one per line in sorted order,
+# each marked with its source: the committed in-repo index (fetched at the
+# running knit version) and the admin store under _KNIT_PROFILE_ADMIN_DIR. An
+# admin profile that shares a name with a repo one shadows it (§4.5) and is
+# marked accordingly. The repo index is fetched best-effort so an offline,
+# admin-only machine still lists its own profiles.
 # ------------------------------------------------------------------------------
 knit_list_profiles() {
-    local url body list
+    local github="" admin=""
+
+    local url body
     url="$(_knit_profile_github_url "index" "${KNIT_VERSION}")"
     # The index lives at src/profiles/index.json; reuse the profile URL builder
     # by passing "index" as the path.
-    if ! _knit_profile_http_get body "${url}"; then
-        knit_error "%s" "Could not fetch the profile index from ${url} (HTTP ${_KNIT_PROFILE_LAST_HTTP:-error})."
-        return 1
+    if _knit_profile_http_get body "${url}"; then
+        _knit_profile_parse_index github "${body}"
+    else
+        knit_warning "%s" "Could not fetch the profile index from ${url} (HTTP ${_KNIT_PROFILE_LAST_HTTP:-error}); listing admin profiles only."
     fi
-    _knit_profile_parse_index list "${body}"
-    printf '%s\n' "${list}" | sort
+    _knit_profile_admin_names admin
+
+    local -A is_github=() is_admin=()
+    local n
+    while IFS= read -r n; do [[ -n "${n}" ]] && is_github["${n}"]=1; done <<< "${github}"
+    while IFS= read -r n; do [[ -n "${n}" ]] && is_admin["${n}"]=1; done <<< "${admin}"
+
+    local all
+    all="$(printf '%s\n%s\n' "${github}" "${admin}" | grep -v '^$' | sort -u)"
+    [[ -z "${all}" ]] && return 0
+
+    local label
+    while IFS= read -r n; do
+        [[ -n "${n}" ]] || continue
+        if [[ -n "${is_admin[${n}]:-}" && -n "${is_github[${n}]:-}" ]]; then
+            label="admin (shadows github)"
+        elif [[ -n "${is_admin[${n}]:-}" ]]; then
+            label="admin"
+        else
+            label="github"
+        fi
+        printf '%-30s %s\n' "${n}" "${label}"
+    done <<< "${all}"
 }
 
 # ------------------------------------------------------------------------------
