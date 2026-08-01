@@ -1,5 +1,5 @@
 {
-    "description": "knit integration Slurm cluster — mpiA=OpenMPI (system, on PATH), mpiB=MPICH (module).",
+    "description": "knit integration Slurm cluster — system MPI is OpenMPI (on PATH); MPICH is provided off PATH via the 'mpich' module.",
     "scheduler": {
         "type": "slurm",
         "command": "sbatch"

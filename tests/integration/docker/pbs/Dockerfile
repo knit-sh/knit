@@ -219,7 +219,9 @@ RUN chmod +x /entrypoint-server.sh \
 # ---------------------------------------------------------------------------
 ARG OPENMPI_VERSION=4.1.6
 
-RUN dnf -y install Lmod && dnf clean all
+# bzip2 is needed to extract the OpenMPI .tar.bz2 (the base PBS image ships gzip
+# but not bzip2, unlike the Slurm image).
+RUN dnf -y install Lmod bzip2 && dnf clean all
 
 RUN cd /tmp && \
     wget -q "https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-${OPENMPI_VERSION}.tar.bz2" && \

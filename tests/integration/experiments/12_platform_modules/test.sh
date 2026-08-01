@@ -52,11 +52,12 @@ cd "${WORKDIR}"
 ./experiment.sh bootstrap --project "integration-test-12" --profile "${PROFILE}"
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
-# The profile was resolved from /etc/knit/profiles/<cluster>.json.
+# The profile was resolved from the admin store; __profile__ records the resolved
+# path (not the short spec passed to --profile).
 check_sqlite ".knit/knit.db" \
     "SELECT value FROM metadata WHERE key='__profile__';" \
-    "${PROFILE}" \
-    "bootstrap recorded the resolved profile spec"
+    "/etc/knit/profiles/${PROFILE}.json" \
+    "bootstrap recorded the resolved admin profile path"
 
 # --------------------------------------------------------------------------
 # platform.sh: module-init source line + one module load of the profile modules.

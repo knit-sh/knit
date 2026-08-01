@@ -1,5 +1,5 @@
 {
-    "description": "knit integration PBS cluster — mpiA=MPICH (system, on PATH), mpiB=OpenMPI (module).",
+    "description": "knit integration PBS cluster — system MPI is MPICH (on PATH); OpenMPI is provided off PATH via the 'openmpi' module.",
     "scheduler": {
         "type": "pbs",
         "command": "qsub"
