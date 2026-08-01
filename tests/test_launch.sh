@@ -13,49 +13,54 @@ teardown() {
 
 @test "_knit_launch_backend prefers an explicit override" {
     _knit_metadata_get()    { local -n __r=$1; __r='openmpi'; }
-    _knit_detect_launcher() { printf 'mpich\n'; }
     local out
-    _knit_launch_backend out slurm
+    KNIT_PROVIDED_LAUNCHER=mpich _knit_launch_backend out slurm
     [ "$out" = "slurm" ]
 }
 
-@test "_knit_launch_backend uses metadata when no override" {
+@test "_knit_launch_backend uses the concrete metadata when no override" {
     _knit_metadata_get()    { local -n __r=$1; __r='openmpi'; }
-    _knit_detect_launcher() { printf 'mpich\n'; }
     local out
     _knit_launch_backend out
     [ "$out" = "openmpi" ]
 }
 
-@test "_knit_launch_backend falls back to detection when metadata is empty" {
+@test "_knit_launch_backend uses KNIT_PROVIDED_LAUNCHER when metadata is empty" {
     _knit_metadata_get()    { local -n __r=$1; __r=''; }
-    _knit_detect_launcher() { printf 'mpich\n'; }
     local out
-    _knit_launch_backend out
+    KNIT_PROVIDED_LAUNCHER=mpich _knit_launch_backend out
     [ "$out" = "mpich" ]
 }
 
-@test "_knit_launch_backend passes an autodetected pals through unchanged" {
-    _knit_metadata_get()    { local -n __r=$1; __r=''; }
-    _knit_detect_launcher() { printf 'pals\n'; }
-    local out
-    _knit_launch_backend out
-    [ "$out" = "pals" ]
-}
-
-@test "_knit_launch_backend maps detection's <unknown> to none" {
-    _knit_metadata_get()    { local -n __r=$1; __r=''; }
-    _knit_detect_launcher() { printf '<unknown>\n'; }
-    local out
-    _knit_launch_backend out
-    [ "$out" = "none" ]
-}
-
-@test "_knit_launch_backend maps a <unknown> metadata value to none" {
+@test "_knit_launch_backend skips a <unknown> metadata so the setup contract wins" {
     _knit_metadata_get()    { local -n __r=$1; __r='<unknown>'; }
     local out
-    _knit_launch_backend out
+    KNIT_PROVIDED_LAUNCHER=openmpi _knit_launch_backend out
+    [ "$out" = "openmpi" ]
+}
+
+@test "_knit_launch_backend falls back to none when nothing is configured" {
+    _knit_metadata_get()    { local -n __r=$1; __r=''; }
+    local out
+    KNIT_PROVIDED_LAUNCHER='' _knit_launch_backend out
     [ "$out" = "none" ]
+}
+
+@test "_knit_launch_backend maps a <unknown> metadata value to none with no contract" {
+    _knit_metadata_get()    { local -n __r=$1; __r='<unknown>'; }
+    local out
+    KNIT_PROVIDED_LAUNCHER='' _knit_launch_backend out
+    [ "$out" = "none" ]
+}
+
+@test "_knit_launch_backend does not call _knit_detect_launcher at run time" {
+    _knit_metadata_get()    { local -n __r=$1; __r=''; }
+    # Fail loudly if run-time detection is (re)introduced.
+    _knit_detect_launcher() { printf 'SHOULD_NOT_BE_CALLED\n'; }
+    local out
+    KNIT_PROVIDED_LAUNCHER='' _knit_launch_backend out
+    [ "$out" = "none" ]
+    [ "$out" != "SHOULD_NOT_BE_CALLED" ]
 }
 
 # ---------- _knit_launch_bind_value: normalized binding vocabulary ----------

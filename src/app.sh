@@ -134,11 +134,14 @@ _knit_run() {
     _knit_set_row_id "${uuid}"
     knit_output "app" "${app_name}"
 
-    # Resolve the launcher backend (per-run --launcher override -> metadata
-    # __launcher__ -> live detection, with the no-launcher case mapping to none).
-    local launcher_override backend
+    # Resolve the launcher backend (per-run --launcher override -> concrete
+    # __launcher__ metadata -> a providing setup's KNIT_PROVIDED_LAUNCHER, with
+    # the no-launcher case mapping to none). The resolved backend overwrites the
+    # runs row's as-requested "launcher" column below, alongside the resolved
+    # placement.
+    local launcher_override resolved_backend
     launcher_override=$(knit_get_parameter "launcher" "$@") || launcher_override=""
-    _knit_launch_backend backend "${launcher_override}"
+    _knit_launch_backend resolved_backend "${launcher_override}"
 
     # Build the exact command that will run: the launcher argv (the launcher plus
     # the translated placement flags) followed by the per-rank worker re-entry.
@@ -146,7 +149,7 @@ _knit_run() {
     # resolved command can be recorded in the runs table and logged before it is
     # issued (building it twice is cheap and keeps the exec path unchanged).
     local -a launch_argv=()
-    _knit_launch_cmdline "${backend}" launch_opts launch_argv
+    _knit_launch_cmdline "${resolved_backend}" launch_opts launch_argv
     launch_argv+=("${KNIT_SCRIPT_PATH}" _run -- "${app_name}" "${app_args[@]}")
     local native_cmd
     native_cmd=$(_knit_str_render_cmd launch_argv)
@@ -154,16 +157,18 @@ _knit_run() {
 
     # Persist the runs row now, before launching, so even a failed launch leaves a
     # trace. The row first records the placement options as requested; then the
-    # placement columns are overwritten with the resolved values (a bare
-    # `knit run -- app` requests nothing, but the row must record what actually
-    # ran). The native command is recorded as resolved above. The automatic
-    # post-invocation recording is idempotent and will not duplicate this row.
+    # placement columns and the launcher are overwritten with the resolved values
+    # (a bare `knit run -- app` requests nothing, but the row must record what
+    # actually ran). The native command is recorded as resolved above. The
+    # automatic post-invocation recording is idempotent and will not duplicate
+    # this row.
     _knit_record_row_now "$@"
     if _knit_is_bootstrapped; then
         _knit_db_update_row "${_KNIT_RUNS_TABLE}" "${uuid}" \
             "procs=${launch_opts["procs"]}" \
             "procs-per-node=${launch_opts["procs-per-node"]}" \
-            "hostnames=${launch_opts["hostnames"]}"
+            "hostnames=${launch_opts["hostnames"]}" \
+            "launcher=${resolved_backend}"
     fi
 
     # Log the resolved command before issuing it, then launch the per-rank worker
@@ -184,7 +189,7 @@ _knit_run() {
         export KNIT_RUN_ID="${uuid}"
         export KNIT_SOURCE_ID="${uuid}"
         export KNIT_SOURCE_COMMAND=run
-        _knit_launch_exec "${backend}" launch_opts -- \
+        _knit_launch_exec "${resolved_backend}" launch_opts -- \
             "${KNIT_SCRIPT_PATH}" _run -- "${app_name}" "${app_args[@]}"
     )
 }

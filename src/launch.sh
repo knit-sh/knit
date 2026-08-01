@@ -85,30 +85,37 @@ _knit_launch_bind_value() {
 #
 # Resolve which launcher backend to use, by precedence:
 #
-#   per-run --launcher argument -> metadata __launcher__ -> _knit_detect_launcher
+#   per-run --launcher  ->  concrete __launcher__ metadata  ->
+#   KNIT_PROVIDED_LAUNCHER (a setup's frozen contract)  ->  none
 #
-# The MPI-native launchers (openmpi/mpich/pals) are the only ones autodetection
-# yields; the scheduler-integrated launchers (slurm/srun, the PBS mpiexec
-# wrapper) are selected only via an explicit --launcher or the __launcher__
-# metadata, never auto-picked. When nothing is configured and no launcher is
-# detected, detection reports "<unknown>" and this maps to the "none" backend:
-# the app runs as a single rank-0 process. This mirrors how _knit_sched_backend
+# Every launcher value is frozen ahead of the run — no run-time detection. The
+# __launcher__ metadata is the launcher integrated into the machine, resolved
+# once at bootstrap from the profile or bootstrap-time detection; it is preferred
+# over a setup's contract because a site's launcher cooperates with the resource
+# manager as intended (§3 of the design). A "<unknown>" __launcher__ (no MPI at
+# bootstrap, no profile) is skipped so a providing setup's frozen
+# KNIT_PROVIDED_LAUNCHER — set by knit_provides_launcher when the setup built its
+# own MPI — is used instead. When nothing is configured, the "none" backend runs
+# the app as a single rank-0 process. This mirrors how _knit_sched_backend
 # degrades an undetected scheduler to the local background-process backend.
 # Returns one of "none", "openmpi", "mpich", "pals", "slurm", "pbs".
 #
 # @param __knit_ret Name of the variable to hold the resolved backend name.
 # @param override Optional explicit launcher name (a per-run --launcher value);
-#                 empty to fall back to metadata then detection.
+#                 empty to fall back to the metadata then the setup contract.
 # ------------------------------------------------------------------------------
 _knit_launch_backend() {
     local -n __knit_ret=$1
-    local __backend="$2"
-    [[ -z "${__backend}" ]] && _knit_metadata_get __backend "__launcher__"
-    [[ -z "${__backend}" ]] && __backend="$(_knit_detect_launcher)"
-    # Detection's "<unknown>" (no MPI launcher present), or an __launcher__
-    # seeded with it at bootstrap, means the no-launcher case -> none.
-    [[ "${__backend}" == "<unknown>" ]] && __backend="none"
-    __knit_ret="${__backend}"
+    local backend="$2"
+    if [[ -z "${backend}" ]]; then
+        _knit_metadata_get backend "__launcher__"
+        # A "<unknown>" __launcher__ (no machine launcher) is skipped so the
+        # setup contract below can supply one.
+        [[ "${backend}" == "<unknown>" ]] && backend=""
+    fi
+    [[ -z "${backend}" ]] && backend="${KNIT_PROVIDED_LAUNCHER:-}"
+    [[ -z "${backend}" ]] && backend="none"
+    __knit_ret="${backend}"
 }
 
 # ------------------------------------------------------------------------------

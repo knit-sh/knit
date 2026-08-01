@@ -49,10 +49,11 @@ _stub_dispatch() {
     _knit_invoke_command run --procs 4 --hostnames nodeA,nodeB -- myapp --n 5
 
     # The row id is the run UUID; app is the launched app; the placement columns
-    # hold the RESOLVED values (procs 4 over 2 hosts => 2 per node).
+    # hold the RESOLVED values (procs 4 over 2 hosts => 2 per node); launcher is
+    # the resolved backend (the stub resolves "none").
     run sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT id, app, procs, procs_per_node, hostnames FROM runs;"
-    [ "$output" = "aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa|myapp|4|2|nodeA,nodeB" ]
+        "SELECT id, app, procs, procs_per_node, hostnames, launcher FROM runs;"
+    [ "$output" = "aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa|myapp|4|2|nodeA,nodeB|none" ]
 }
 
 @test "dispatcher overwrites empty as-requested placement with resolved values" {

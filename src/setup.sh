@@ -626,3 +626,89 @@ knit_with_spack_specs() {
     # shellcheck disable=SC2119 # intentional stdin form: manifest fed via here-string
     knit_with_spack_env <<< "${yaml}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_setup_provides_launcher_after_cb()
+#
+# After-callback installed by knit_provides_launcher, registered *after* the
+# generic _knit_setup_after_cb (and any Spack re-activation block) so it appends
+# to an already-written .activate.sh. It runs in the setup's own process, right
+# after the body built and PATH-prepended its MPI, so the launcher is present on
+# PATH by construction. It clears the detection cache, detects the launcher once
+# against the active PATH, and freezes the concrete result by appending
+# `export KNIT_PROVIDED_LAUNCHER=<impl>` to .activate.sh — the contract read by
+# the launcher precedence (_knit_launch_backend). The value is also recorded as
+# provenance via the __mpi_launcher__ output.
+#
+# If detection finds no launcher ("<unknown>") the setup declared it may provide
+# one but built none reachable on PATH: fatal here (an early, clear failure)
+# rather than a silent degrade to the "none" backend later.
+#
+# Trailing arguments are the setup's runtime arguments and are ignored.
+# ------------------------------------------------------------------------------
+_knit_setup_provides_launcher_after_cb() {
+    local activate="${KNIT_SETUP_PREFIX}/.activate.sh"
+    # Detect against the now-active PATH; clear the cache so a stale bootstrap-time
+    # detection does not leak in.
+    _KNIT_DETECTED_LAUNCHER=""
+    local impl
+    impl="$(_knit_detect_launcher)"
+    if [[ "${impl}" == "<unknown>" ]]; then
+        knit_fatal "knit_provides_launcher: no MPI launcher found on PATH after the setup built. Ensure the setup installs an MPI whose mpirun/mpiexec is on PATH (e.g. knit_with_spack_specs \"mpi\")."
+    fi
+    {
+        printf '\n# Launcher contract (added by knit_provides_launcher)\n'
+        printf 'export KNIT_PROVIDED_LAUNCHER=%q\n' "${impl}"
+    } >> "${activate}"
+    knit_output "__mpi_launcher__" "${impl}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_provides_launcher()
+#
+# Declare that the setup currently being registered may supply an MPI launcher on
+# a machine that has none. Must be called between knit_register_setup and
+# knit_done, at most once per setup. A bare directive (the only form for now):
+# it means "this setup may provide a launcher where the machine offers one of its
+# own" — it sits *below* a concrete machine launcher (__launcher__) in the
+# precedence, so a profile's launcher still wins (see _knit_launch_backend). A
+# deliberate override is future work.
+#
+# The launcher is detected once at setup-build time (not at run time) by the
+# after-callback and frozen into the setup's .activate.sh as
+# KNIT_PROVIDED_LAUNCHER; it is recorded as the __mpi_launcher__ provenance output
+# (a column in the setup's table). Setups are the only valid target: wrappers and
+# non-setup commands are rejected.
+#
+# Example:
+# ```
+# knit_register_setup "juliaenv" _juliaenv "Build against MPI."
+# knit_with_spack_specs "cmake" "mpi"
+# knit_provides_launcher            # may launch where the machine has no MPI
+# _juliaenv() { ... }
+# knit_done
+# ```
+# ------------------------------------------------------------------------------
+knit_provides_launcher() {
+    # Setup-only. This also rejects wrappers (a wrapper is never a "setup:*"
+    # command) and any use outside a knit_register* / knit_done pair.
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]] \
+    || [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" != setup:* ]]; then
+        knit_fatal "knit_provides_launcher is valid only for setups; it must be called between knit_register_setup and knit_done."
+    fi
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local marker_var="_KNIT_CMD_${cmd}_launcher"
+    if [[ -n "${!marker_var:-}" ]]; then
+        knit_fatal "knit_provides_launcher may be called at most once per setup."
+    fi
+    printf -v "${marker_var}" '%s' '1'
+
+    _knit_run_after _knit_setup_provides_launcher_after_cb
+
+    knit_with_output "__mpi_launcher__:string" "" \
+        "The MPI launcher (openmpi/mpich/pals) this setup detected and froze."
+
+    # shellcheck disable=SC2178 # nameref to the command's notes array
+    local -n notes_ref="_KNIT_CMD_${cmd}_notes"
+    notes_ref+=("Provides an MPI launcher where the machine has none (knit_provides_launcher).")
+}
