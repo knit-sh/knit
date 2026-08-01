@@ -87,13 +87,24 @@ _knit_submit() {
         knit_fatal "Unknown job \"${job_name}\"."
     fi
 
-    # Enforce the job's setup requirement (knit_with_setup). A job that declares
-    # a setup type must be given a --setup built by that type; a job that
-    # declares none makes --setup optional. The requirement is stored in the
-    # generic per-command marker set by knit_with_setup.
-    local required_marker
-    required_marker="_KNIT_CMD_$(_knit_command_mangle "submit:${job_name}")_setup"
+    # Enforce the job's setup requirement (knit_with_setup / knit_without_setup).
+    # A job that declares a setup type must be given a --setup built by that type.
+    # A job that declares neither directive adopts the builtin "default" setup
+    # implicitly, so it runs in a setup and inherits the platform environment with
+    # no boilerplate; knit_without_setup opts out and runs with no setup. The
+    # markers are the generic per-command markers set by those decorators.
+    local mangled
+    mangled="$(_knit_command_mangle "submit:${job_name}")"
+    local required_marker="_KNIT_CMD_${mangled}_setup"
+    local no_setup_marker="_KNIT_CMD_${mangled}_no_setup"
     local required_setup="${!required_marker:-}"
+    local opted_out="${!no_setup_marker:-}"
+
+    if [[ -z "${required_setup}" && -z "${opted_out}" ]]; then
+        required_setup="default"
+        [[ -z "${setup_path}" ]] && setup_path="$(_knit_default_setup_path)"
+    fi
+
     if [[ -n "${required_setup}" && -z "${setup_path}" ]]; then
         knit_fatal "Job \"${job_name}\" requires a --setup of type \"${required_setup}\"."
     fi
@@ -115,8 +126,7 @@ _knit_submit() {
     fi
 
     # Validate args for the job subcommand (knit_fatal on bad args)
-    local subcmd
-    subcmd=$(_knit_command_mangle "submit:${job_name}")
+    local subcmd="${mangled}"
     _knit_check_command_arguments "${subcmd}" "${job_args[@]}"
 
     # Create the job directory with a time-ordered uuidv7 name: under the setup

@@ -67,8 +67,10 @@ _use_profile() {
 @test "_knit_submit creates <setup>/jobs/<uuid> directory" {
     local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
     mkdir -p "${setup_dir}"
+    printf 'mcenv\n' > "${setup_dir}/.setup.type"
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_with_setup "mcenv"
     knit_done
 
     # _knit_submit records its jobs row before dispatching, so the table
@@ -91,8 +93,10 @@ _use_profile() {
 @test "_knit_submit job directory name is a valid uuid" {
     local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
     mkdir -p "${setup_dir}"
+    printf 'mcenv\n' > "${setup_dir}/.setup.type"
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_with_setup "mcenv"
     knit_done
 
     # _knit_submit records its jobs row before dispatching, so the table
@@ -117,6 +121,7 @@ _use_profile() {
     # absolute even when --setup is given as a relative path.
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_with_setup "mcenv"
     knit_done
     _knit_db_setup_table "submit" "jobs"
 
@@ -124,6 +129,7 @@ _use_profile() {
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     knit_pushd "${_KNIT_TEST_TMPDIR}"
     mkdir -p relsetup
+    printf 'mcenv\n' > relsetup/.setup.type
     _knit_submit --setup ./relsetup -- myjob
     knit_popd
 
@@ -142,11 +148,13 @@ _use_profile() {
     # can see the variables the setup exported.
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_with_setup "mcenv"
     knit_done
     _knit_db_setup_table "submit" "jobs"
 
     local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
     mkdir -p "${setup_dir}"
+    printf 'mcenv\n' > "${setup_dir}/.setup.type"
 
     _KNIT_EXECUTING_COMMAND=("submit")
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
@@ -166,6 +174,7 @@ _use_profile() {
 @test "_knit_submit does not add a source line for a setup-less job" {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
     knit_done
     _knit_db_setup_table "submit" "jobs"
 
@@ -248,6 +257,7 @@ _use_profile() {
 @test "_knit_submit runs a setup-less job under jobs/<uuid> without --setup" {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
     knit_done
     _knit_db_setup_table "submit" "jobs"
 
@@ -268,6 +278,7 @@ _use_profile() {
 @test "_knit_submit records the resolved scheduler command in native_cmd" {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
     knit_done
     _knit_db_setup_table "submit" "jobs"
 
@@ -284,6 +295,71 @@ _use_profile() {
 
     run sqlite3 "${_KNIT_DATABASE}" "SELECT native_cmd FROM jobs;"
     [[ "$output" == "sbatch "*"/.job.sh" ]]
+}
+
+# ---------- _knit_submit : default setup adoption ----------
+
+# Materialize a minimal builtin "default" setup at the default path so a
+# neither-directive job can adopt it (a real one is instantiated by bootstrap).
+_seed_default_setup() {
+    _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/.knit"
+    local d="${_KNIT_PREFIX}/default"
+    mkdir -p "${d}"
+    printf 'default\n' > "${d}/.setup.type"
+    printf 'deadbeef-dead-7ead-8ead-deaddeaddead\n' > "${d}/.setup.id"
+    printf '#!/usr/bin/env bash\n' > "${d}/.activate.sh"
+}
+
+@test "_knit_submit adopts the default setup for a job with neither directive" {
+    _seed_default_setup
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    # Stub dispatch so no real scheduler/background job runs; the batch script we
+    # inspect is written before dispatch.
+    _knit_sched_backend() { local -n __r=$1; __r='slurm'; }
+    _knit_sched_submit() { printf '12345\n'; }
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+    _knit_submit -- myjob
+
+    # The job directory lands under the default setup, and the batch script
+    # exports and sources the default setup's .activate.sh.
+    local jobscript
+    jobscript=$(find "${_KNIT_PREFIX}/default/jobs" -name .job.sh -type f | head -1)
+    [[ -n "${jobscript}" ]]
+    grep -q "^export KNIT_SETUP_PREFIX=${_KNIT_PREFIX}/default$" "${jobscript}"
+    grep -q "^source ${_KNIT_PREFIX}/default/.activate.sh$" "${jobscript}"
+}
+
+@test "_knit_submit does not adopt the default setup with knit_without_setup" {
+    _seed_default_setup
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    # Stub dispatch so no real scheduler/background job runs.
+    _knit_sched_backend() { local -n __r=$1; __r='slurm'; }
+    _knit_sched_submit() { printf '12345\n'; }
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+    knit_pushd "${_KNIT_TEST_TMPDIR}"
+    _knit_submit -- myjob
+    knit_popd
+
+    # No setup adopted: the job runs under jobs/<uuid> in the experiment dir and
+    # its batch script carries no setup prefix at all.
+    [ ! -d "${_KNIT_PREFIX}/default/jobs" ]
+    local jobscript
+    jobscript=$(find "${_KNIT_TEST_TMPDIR}/jobs" -name .job.sh -type f | head -1)
+    [[ -n "${jobscript}" ]]
+    ! grep -q "KNIT_SETUP_PREFIX" "${jobscript}"
 }
 
 # ---------- _knit_sched_resolve : precedence ----------

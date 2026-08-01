@@ -454,6 +454,115 @@ teardown() {
     [[ "${_acbs[*]}" == *"_knit_setup_dep_after_cb"* ]]
 }
 
+# ---------- knit_without_setup ----------
+
+@test "knit_without_setup on a job sets the no_setup marker" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
+    knit_done
+    [ -n "${_KNIT_CMD_submit__1__myjob_no_setup:-}" ]
+}
+
+@test "knit_without_setup is a no-op on a plain command (no marker)" {
+    _test_fn() { :; }
+    knit_register "_test_fn" "plaincmd" "A plain command."
+    run knit_without_setup
+    [ "$status" -eq 0 ]
+    knit_without_setup
+    knit_done
+    [ ! -v _KNIT_CMD_plaincmd_no_setup ]
+}
+
+@test "knit_without_setup is rejected on a setup command" {
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    run knit_without_setup
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"cannot be used on a setup"* ]]
+    knit_done
+}
+
+@test "knit_without_setup is rejected on a wrapper" {
+    _wrap_fn() { :; }
+    knit_register_wrapper "mywrap" "_wrap_fn" "A wrapper."
+    run knit_without_setup
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"wrapper"* ]]
+    knit_done
+}
+
+@test "knit_without_setup after knit_with_setup is mutually exclusive" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_with_setup "mcenv"
+    run knit_without_setup
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"mutually exclusive"* ]]
+    knit_done
+}
+
+@test "knit_with_setup after knit_without_setup is mutually exclusive" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
+    run knit_with_setup "mcenv"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"mutually exclusive"* ]]
+    knit_done
+}
+
+# ---------- builtin "default" setup ----------
+
+@test "_knit_default_setup_path is default under _KNIT_PREFIX" {
+    [ "$(_knit_default_setup_path)" = "${_KNIT_PREFIX}/default" ]
+}
+
+@test "_knit_setup_default_after_cb writes a platform-only .activate.sh (no env dump)" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/def"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    export _KNIT_TEST_CANARY="canary"
+    _knit_setup_default_after_cb
+    local activate="${KNIT_SETUP_PREFIX}/.activate.sh"
+    [ -x "${activate}" ]
+    # The default setup carries no environment dump: unlike the generic after-cb
+    # it must not re-export the ambient shell environment.
+    ! grep -q '_KNIT_TEST_CANARY' "${activate}"
+}
+
+@test "_knit_setup_default_after_cb inlines platform.sh when present" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/def"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    printf 'export PLATFORM_SEEDED=1\n' > "${_KNIT_PREFIX}/platform.sh"
+    _knit_setup_default_after_cb
+    grep -Fq 'Platform activation (inlined' "${KNIT_SETUP_PREFIX}/.activate.sh"
+    grep -q 'PLATFORM_SEEDED' "${KNIT_SETUP_PREFIX}/.activate.sh"
+}
+
+@test "_knit_setup instantiates the builtin default setup" {
+    local newdir="${_KNIT_TEST_TMPDIR}/default"
+    export _KNIT_TEST_CANARY="canary"
+    _knit_setup --path "${newdir}" -- default
+    [ "$(cat "${newdir}/.setup.type")" = "default" ]
+    # Platform-only: no ambient environment dump.
+    ! grep -q '_KNIT_TEST_CANARY' "${newdir}/.activate.sh"
+    # The setup body recorded a row and its id was written to .setup.id.
+    [ -f "${newdir}/.setup.id" ]
+    [ "$(cat "${newdir}/.setup.id")" \
+        = "$(sqlite3 "${_KNIT_DATABASE}" 'SELECT id FROM "setup:default";')" ]
+}
+
+@test "_knit_setup_dep_resolve_path falls back to the default path" {
+    unset KNIT_SETUP_PREFIX
+    [ "$(_knit_setup_dep_resolve_path "default")" \
+        = "${_KNIT_PREFIX}/default" ]
+}
+
+@test "_knit_setup_dep_resolve_path returns empty for a non-default type" {
+    unset KNIT_SETUP_PREFIX
+    [ -z "$(_knit_setup_dep_resolve_path "mcenv")" ]
+}
+
 # ---------- used_by edges ----------
 
 # Build a fake setup directory holding the markers a real `knit setup` writes.

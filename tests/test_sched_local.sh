@@ -167,10 +167,12 @@ teardown() {
 
     local setup="${_KNIT_TEST_TMPDIR}/setup"
     mkdir -p "${setup}"
+    printf 'mcenv\n' > "${setup}/.setup.type"
     KNIT_SCRIPT_PATH="/fake/exp.sh"
 
     _submit_myjob_fn() { :; }
     knit_register_job "myjob" _submit_myjob_fn "test job"
+    knit_with_setup "mcenv"
     knit_done
 
     # Ensure the jobs table exists so the eager submission record lands

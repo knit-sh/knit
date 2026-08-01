@@ -273,6 +273,15 @@ _knit_bootstrap() {
     knit metadata store --key "__node_ngpus__"             --value "${node_ngpus}"
     knit metadata store --key "__default_nodefile__"       --value "${default_nodefile}"
 
+    # Auto-instantiate the builtin "default" setup so a job that declares no setup
+    # still runs inside one and inherits the platform environment. It is a normal
+    # setup in the DB and provenance graph (row and .setup.id recorded like any
+    # other), but carries only the platform activation — empty when there is no
+    # profile. Run in a subshell so its exported KNIT_SETUP_PREFIX does not leak
+    # into the rest of bootstrap.
+    knit_trace "Instantiating the default setup..."
+    ( knit setup --path "$(_knit_default_setup_path)" -- default )
+
     # AI provider config: written only when an API-key env var name is supplied
     # (the one required field of a usable config). Overwrite is on since bootstrap
     # is writing fresh metadata.
