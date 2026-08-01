@@ -53,6 +53,32 @@ teardown() {
     [ "$out" = "none" ]
 }
 
+@test "_knit_launch_backend skips a none metadata so the setup contract wins" {
+    # An explicit __launcher__ of "none" (the machine declares it offers no
+    # integrated launcher) is skipped so a providing setup can supply one.
+    _knit_metadata_get()    { local -n __r=$1; __r='none'; }
+    local out
+    KNIT_PROVIDED_LAUNCHER=mpich _knit_launch_backend out
+    [ "$out" = "mpich" ]
+}
+
+@test "_knit_launch_backend maps a none metadata value to none with no contract" {
+    _knit_metadata_get()    { local -n __r=$1; __r='none'; }
+    local out
+    KNIT_PROVIDED_LAUNCHER='' _knit_launch_backend out
+    [ "$out" = "none" ]
+}
+
+@test "_knit_launch_backend honours a run-time --launcher none as the terminal backend" {
+    # Tier 1 (the override argument) is the opposite of the tier-2 metadata: an
+    # explicit run-time "none" is the terminal none backend and must NOT fall
+    # through to a setup contract.
+    _knit_metadata_get()    { local -n __r=$1; __r='openmpi'; }
+    local out
+    KNIT_PROVIDED_LAUNCHER=mpich _knit_launch_backend out none
+    [ "$out" = "none" ]
+}
+
 @test "_knit_launch_backend does not call _knit_detect_launcher at run time" {
     _knit_metadata_get()    { local -n __r=$1; __r=''; }
     # Fail loudly if run-time detection is (re)introduced.

@@ -258,3 +258,63 @@ _setup_knitgraph_decision() {
     grep -q "^jq:" "${calls}"
     grep -q "^knitgraph:" "${calls}"
 }
+
+# ---------- bootstrap --launcher none (explicit "no launcher", §8.1) ----------
+
+# Stub the heavy provisioning/detection steps and capture metadata writes so the
+# launcher-resolution wiring can run without a real DB or network. Detection is
+# stubbed to record if it is consulted, so a test can assert it was NOT.
+_bootstrap_launcher_stubs() {
+    local calls="$1" meta="$2"
+    : > "${calls}"; : > "${meta}"
+    eval '_knit_bootstrap_sqlite() { :; }'
+    eval '_knit_bootstrap_jq() { :; }'
+    eval '_knit_bootstrap_knitgraph() { :; }'
+    eval '_knit_bootstrap_need_spack() { return 1; }'
+    eval '_knit_detect_job_manager() { printf "local"; }'
+    eval '_knit_detect_node_ncpus() { printf "1"; }'
+    # Fail loudly if detection is consulted for an explicit launcher choice.
+    eval '_knit_detect_launcher() { printf "detected\n" >> "'"${calls}"'"; printf "openmpi"; }'
+    # Capture only the metadata-store writes.
+    eval 'knit() { if [ "$1" = metadata ] && [ "$2" = store ]; then printf "%s\n" "$*" >> "'"${meta}"'"; fi; }'
+}
+
+@test "bootstrap --launcher none freezes __launcher__=none without detection" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+
+    run _knit_bootstrap --scheduler local --launcher none
+    [ "$status" -eq 0 ]
+
+    # __launcher__ frozen to the explicit "none"...
+    grep -q -- '--key __launcher__ --value none' "${meta}"
+    # ...and bootstrap-time detection was never consulted.
+    [ ! -s "${calls}" ]
+}
+
+@test "bootstrap with a none-launcher profile freezes __launcher__=none without detection" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+
+    # A resolved profile whose launcher.type is "none": it must flow through the
+    # profile-as-default path to __launcher__ = none, skipping detection.
+    eval '_knit_resolve_profile() { local -n __j=$1 __l=$2; __j="{}"; __l="testprof"; }'
+    eval '_knit_render_platform_files() { :; }'
+    eval '_knit_load_profile() {
+        _KNIT_PROFILE_SCHEDULER_TYPE=""
+        _KNIT_PROFILE_LAUNCHER_TYPE="none"
+        _KNIT_PROFILE_SCHEDULER_DEFAULT_QUEUE=""
+        _KNIT_PROFILE_SCHEDULER_DEFAULT_ARGS=""
+        _KNIT_PROFILE_LAUNCHER_DEFAULT_ARGS=""
+        _KNIT_PROFILE_CORES_PER_NODE=""
+        _KNIT_PROFILE_GPUS_PER_NODE=""
+    }'
+
+    # --launcher auto is what the CLI expansion layer injects as the declared
+    # default before the body runs; the profile's "none" then supersedes it.
+    run _knit_bootstrap --scheduler local --launcher auto --profile testprof
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __launcher__ --value none' "${meta}"
+    [ ! -s "${calls}" ]
+}

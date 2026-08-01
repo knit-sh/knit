@@ -92,12 +92,17 @@ _knit_launch_bind_value() {
 # __launcher__ metadata is the launcher integrated into the machine, resolved
 # once at bootstrap from the profile or bootstrap-time detection; it is preferred
 # over a setup's contract because a site's launcher cooperates with the resource
-# manager as intended (§3 of the design). A "<unknown>" __launcher__ (no MPI at
-# bootstrap, no profile) is skipped so a providing setup's frozen
-# KNIT_PROVIDED_LAUNCHER — set by knit_provides_launcher when the setup built its
-# own MPI — is used instead. When nothing is configured, the "none" backend runs
-# the app as a single rank-0 process. This mirrors how _knit_sched_backend
-# degrades an undetected scheduler to the local background-process backend.
+# manager as intended (§3 of the design). A "<unknown>" __launcher__ (detection
+# found no MPI at bootstrap, no profile) or an explicit "none" (the machine was
+# told it offers no integrated launcher, via `bootstrap --launcher none` or a
+# profile launcher.type of "none") is skipped so a providing setup's frozen
+# KNIT_PROVIDED_LAUNCHER — set by knit_provides_launcher when the setup built or
+# module-loaded its own MPI — is used instead. When nothing is configured, the
+# "none" backend runs the app as a single rank-0 process. This mirrors how
+# _knit_sched_backend degrades an undetected scheduler to the local
+# background-process backend. Note that a run-time --launcher of "none" (the
+# override argument, tier 1) is the opposite: an explicit, terminal choice of the
+# "none" backend that does NOT fall through to a setup contract.
 # Returns one of "none", "openmpi", "mpich", "pals", "slurm", "pbs".
 #
 # @param __knit_ret Name of the variable to hold the resolved backend name.
@@ -109,9 +114,10 @@ _knit_launch_backend() {
     local backend="$2"
     if [[ -z "${backend}" ]]; then
         _knit_metadata_get backend "__launcher__"
-        # A "<unknown>" __launcher__ (no machine launcher) is skipped so the
+        # A "<unknown>" __launcher__ (detection found no machine launcher) or an
+        # explicit "none" (the machine declares it offers none) is skipped so the
         # setup contract below can supply one.
-        [[ "${backend}" == "<unknown>" ]] && backend=""
+        [[ "${backend}" == "<unknown>" || "${backend}" == "none" ]] && backend=""
     fi
     [[ -z "${backend}" ]] && backend="${KNIT_PROVIDED_LAUNCHER:-}"
     [[ -z "${backend}" ]] && backend="none"

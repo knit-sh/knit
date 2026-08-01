@@ -64,7 +64,7 @@ _knit_bootstrap_on_exit() {
 # ------------------------------------------------------------------------------
 knit_define_enum "__scheduler__" "auto" "slurm" "pbs" "local" "none"
 _knit_is_builtin
-knit_define_enum "__launcher__"  "auto" "openmpi" "mpich" "pals"
+knit_define_enum "__launcher__"  "auto" "openmpi" "mpich" "pals" "none"
 _knit_is_builtin
 knit_register _knit_bootstrap "bootstrap" "Bootstrap the Knit framework."
 _knit_is_builtin
@@ -79,7 +79,7 @@ knit_with_optional "profile:string" "" \
 knit_with_optional "scheduler:__scheduler__" "auto" \
     "Batch job scheduler. One of: auto, slurm, pbs, local, none. With auto the scheduler is detected automatically. Use none for a self-managed cluster (no scheduler); pair it with --default-nodefile."
 knit_with_optional "launcher:__launcher__" "auto" \
-    "MPI launcher. One of: auto, openmpi, mpich, pals. With auto the launcher is detected automatically."
+    "MPI launcher. One of: auto, openmpi, mpich, pals, none. With auto the launcher is detected automatically. Use none to declare the machine offers no integrated launcher, so a setup's knit_provides_launcher supplies one."
 knit_with_optional "account:string" "" \
     "Account/allocation to charge submitted jobs to."
 knit_with_optional "default-walltime:string" "" \
