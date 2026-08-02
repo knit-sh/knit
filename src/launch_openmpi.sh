@@ -30,6 +30,17 @@
 # SSH/none-scheduler cluster needs, where there is no resource manager to supply
 # slots at all.
 #
+# Exception — Open MPI built with PBS TM integration (--with-tm): inside a PBS
+# job Open MPI's tm RAS already knows the allocated nodes and their slot counts,
+# and an explicit --host (with or without slot suffixes) conflicts with it — the
+# mapper rejects the placement ("requested more processes than the ppr ... can
+# support", or "not enough slots"). So when $PBS_NODEFILE is set the --host flag
+# is omitted entirely and the allocation is left to TM; -n / --npernode still
+# control the rank count and per-node distribution. (Slurm's PLM, by contrast,
+# tolerates the redundant --host and needs it to honour a strict host subset, so
+# it is kept there.) A strict host *subset* of a PBS allocation via --hostnames
+# is therefore not expressible to this backend; use MPICH there.
+#
 # Placement is resolved and validated upstream by the run dispatcher; this
 # backend only formats the resolved triple into an argument vector. mpirun
 # forwards the submitting environment to every rank by default, so the ranks
@@ -106,7 +117,10 @@ _knit_launch_openmpi_cmdline() {
     _launch_argv=(mpirun)
     [[ -n "${procs}" ]] && _launch_argv+=(-n "${procs}")
     [[ -n "${ppn}" ]] && _launch_argv+=(--npernode "${ppn}")
-    if [[ -n "${hosts}" ]]; then
+    # Under a PBS allocation, defer host/slot placement to Open MPI's tm RAS: an
+    # explicit --host conflicts with it (see the file header). Elsewhere (Slurm,
+    # or a plain SSH/none cluster) the slot-annotated --host is required.
+    if [[ -n "${hosts}" && -z "${PBS_NODEFILE:-}" ]]; then
         _launch_argv+=(--host \
             "$(_knit_launch_openmpi_host_slots "${hosts}" "${ppn}" "${procs}")")
     fi

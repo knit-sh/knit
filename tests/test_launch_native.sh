@@ -2,6 +2,10 @@
 
 setup() {
     source knit.sh
+    # The openmpi backend omits --host inside a PBS allocation (TM supplies the
+    # node list); ensure a stray PBS_NODEFILE in the runner's environment does
+    # not perturb the default (non-PBS) cmdline assertions below.
+    unset PBS_NODEFILE
 }
 
 # ---------- openmpi: cmdline ----------
@@ -61,6 +65,23 @@ setup() {
     [ "${argv[0]}" = "mpirun" ]
     [ "${argv[1]}" = "--host" ]
     [ "${argv[2]}" = "h3,h7" ]
+}
+
+@test "openmpi cmdline omits --host inside a PBS allocation (TM supplies hosts)" {
+    # Open MPI built --with-tm reads the PBS allocation itself; an explicit
+    # --host conflicts with its tm mapper, so the backend drops it and keeps
+    # only -n / --npernode when $PBS_NODEFILE is set.
+    export PBS_NODEFILE=/tmp/does-not-need-to-exist
+    declare -A opts=([procs]=4 [procs-per-node]=2 [hostnames]="h0,h1")
+    declare -a argv
+    _knit_launch_openmpi_cmdline argv opts
+    unset PBS_NODEFILE
+    [ "${#argv[@]}" -eq 5 ]
+    [ "${argv[0]}" = "mpirun" ]
+    [ "${argv[1]}" = "-n" ]
+    [ "${argv[2]}" = "4" ]
+    [ "${argv[3]}" = "--npernode" ]
+    [ "${argv[4]}" = "2" ]
 }
 
 @test "openmpi cmdline appends launcher-args verbatim" {

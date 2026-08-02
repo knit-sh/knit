@@ -227,10 +227,18 @@ RUN cd /tmp && \
     wget -q "https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-${OPENMPI_VERSION}.tar.bz2" && \
     tar xf openmpi-${OPENMPI_VERSION}.tar.bz2 && \
     cd openmpi-${OPENMPI_VERSION} && \
-    # OpenMPI drives its own launcher (mpirun over SSH) rather than the PBS
-    # integration, so PMIx is not needed here; Fortran is disabled to keep the
-    # build small.
-    ./configure --prefix=/opt/openmpi --disable-mpi-fortran && \
+    # --with-tm integrates OpenMPI with OpenPBS's Task Manager (built into
+    # /opt/pbs): inside a PBS job, mpirun launches orted through TM, which spawns
+    # remote ranks with the job's environment and working directory forwarded
+    # (as Slurm's PLM does on the Slurm image). Without it OpenMPI falls back to
+    # its ssh launcher, which forwards no environment and lands ranks in a stale
+    # CWD, so knit's remote worker cannot find its bootstrap or the setup env.
+    # --enable-orterun-prefix-by-default makes orted resolve by absolute path
+    # (this install is off the system PATH, behind an Lmod module). PMIx/Fortran
+    # are not needed, so Fortran is disabled to keep the build small.
+    ./configure --prefix=/opt/openmpi --disable-mpi-fortran \
+                --with-tm=/opt/pbs \
+                --enable-orterun-prefix-by-default && \
     make -j$(nproc) && \
     make install && \
     cd /tmp && \
