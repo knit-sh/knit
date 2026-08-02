@@ -326,13 +326,26 @@ check_sqlite ".knit/knit.db" \
 # compare to the total distinct non-bootstrap, non-root node ids. Equal ==> the
 # submission's component covers the whole experiment graph (bootstrap forms its
 # own separate subtree and is excluded by name).
+#
+# The builtin "default" setup is auto-instantiated at every bootstrap
+# (setup -> setup:default) but is deliberately unused here — every job adopts the
+# explicit "env" setup — so it is a legitimately separate component. Its two node
+# ids (both endpoints of the setup:default call edge) are excluded from both the
+# reachable walk and the total, the same way bootstrap is.
 reachable=$(${__ASSERT_SQLITE3} .knit/knit.db "
-WITH e(a,b) AS (
+WITH def(id) AS (
+  SELECT source_id FROM __provenance__ WHERE target_name='setup:default'
+  UNION
+  SELECT target_id FROM __provenance__ WHERE target_name='setup:default'
+),
+e(a,b) AS (
   SELECT source_id,target_id FROM __provenance__
     WHERE source_name!='bootstrap' AND target_name!='bootstrap' AND source_id!='' AND target_id!=''
+      AND source_id NOT IN (SELECT id FROM def) AND target_id NOT IN (SELECT id FROM def)
   UNION ALL
   SELECT target_id,source_id FROM __provenance__
     WHERE source_name!='bootstrap' AND target_name!='bootstrap' AND source_id!='' AND target_id!=''
+      AND source_id NOT IN (SELECT id FROM def) AND target_id NOT IN (SELECT id FROM def)
 ),
 reach(id) AS (
   SELECT '${launch_uuid}'
@@ -341,10 +354,15 @@ reach(id) AS (
 )
 SELECT COUNT(*) FROM reach;")
 total_nodes=$(${__ASSERT_SQLITE3} .knit/knit.db "
-SELECT COUNT(*) FROM (
-  SELECT source_id AS id FROM __provenance__ WHERE source_name!='bootstrap' AND target_name!='bootstrap' AND source_id!=''
+WITH def(id) AS (
+  SELECT source_id FROM __provenance__ WHERE target_name='setup:default'
   UNION
-  SELECT target_id FROM __provenance__ WHERE source_name!='bootstrap' AND target_name!='bootstrap' AND target_id!=''
+  SELECT target_id FROM __provenance__ WHERE target_name='setup:default'
+)
+SELECT COUNT(*) FROM (
+  SELECT source_id AS id FROM __provenance__ WHERE source_name!='bootstrap' AND target_name!='bootstrap' AND source_id!='' AND source_id NOT IN (SELECT id FROM def)
+  UNION
+  SELECT target_id FROM __provenance__ WHERE source_name!='bootstrap' AND target_name!='bootstrap' AND target_id!='' AND target_id NOT IN (SELECT id FROM def)
 );")
 check_eq "${reachable}" "${total_nodes}" \
     "the provenance graph is a single connected component (${reachable}/${total_nodes} nodes reachable from a submission)"
