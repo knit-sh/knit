@@ -123,10 +123,24 @@
 #
 #   ./full.sh bootstrap --project pi-demo --spack v0.22.0
 #
-# If your machine has a built-in profile (see step 3), pass it to prepopulate
-# the scheduler, launcher, queue, walltime cap and per-node core count:
+# If knit serves a profile for your machine (see step 3), pass it to prepopulate
+# the scheduler, launcher, queue, walltime cap and per-node core count. A profile
+# spec is a <namespace>/<machine> name served from the knit repo, an admin file
+# under /etc/knit/profiles/, a local *.json file, or a URL:
 #
-#   ./full.sh bootstrap --project pi-demo --profile polaris
+#   ./full.sh bootstrap --project pi-demo --profile anl/polaris
+#
+# When the profile describes the platform environment (modules to load, env vars,
+# external packages), bootstrap also materializes it into sourceable artifacts:
+# ./.knit/platform.sh (module init + `module load` + one `export` per env var)
+# and, for any external packages, ./.knit/packages.yaml (a Spack `packages:`
+# config). Setups source these automatically (step 7), so jobs inherit the
+# platform environment; either file is absent when the profile omits its fields.
+#
+# On a machine that offers no integrated MPI launcher, bootstrap with
+# --launcher none and let a setup supply one instead (see step 10):
+#
+#   ./full.sh bootstrap --project pi-demo --launcher none
 #
 # You can also configure the AI provider here with the --ai-* options (see step
 # 13); e.g. --ai-api-key-env OPENAI_API_KEY --ai-model gpt-4o-mini.
@@ -135,14 +149,34 @@
 # an error. To start over, `rm -rf .knit` first.
 #
 # -----------------------------------------------------------------------------
-# 3. Inspect the built-in machine profiles
+# 3. Machine profiles
 # -----------------------------------------------------------------------------
 #   ./full.sh profile list
-#   ./full.sh profile show polaris
+#   ./full.sh profile show anl/polaris
 #
 # Profiles are curated descriptions of known HPC systems (scheduler type,
-# default queue and its caps, MPI launcher, cores/GPUs per node). `show` prints
-# the profile as JSON.
+# default queue and its caps, MPI launcher, cores/GPUs per node, and the platform
+# modules/env/externals). They are not baked into knit: `bootstrap --profile`
+# downloads the chosen one (treated strictly as data, never executed), and
+# `profile list` prints the union of what is available, each marked with its
+# source:
+#
+#   anl/polaris                    github
+#   mylab/bigmem                   admin
+#
+# A profile spec (for --profile or `profile show`) is resolved in order: a URL;
+# a local file (or any path ending in .json); an admin profile at
+# /etc/knit/profiles/<spec>.json; then the GitHub shorthand
+# <namespace>/<machine>[@<ref>], served from the knit repo at the running knit
+# version by default (or @<tag|branch|commit>, or @latest). An admin file shadows
+# a repo profile of the same name.
+#
+#   ./full.sh profile show anl/polaris@latest       # a specific ref
+#   ./full.sh profile show ./my-machine.json        # a local file
+#   ./full.sh profile show https://example.org/x.json
+#
+# Once bootstrapped, `profile show` (no spec) prints the profile frozen at
+# bootstrap. `show` prints JSON.
 #
 # -----------------------------------------------------------------------------
 # 4. See what bootstrap recorded
@@ -246,8 +280,11 @@
 # by `mcenv`: `--setup` is mandatory and must point at an mcenv setup directory.
 # Point it at a directory built by another setup (or one that knit did not build)
 # and submit refuses up front with a clear type-mismatch error. A job that
-# declares no `knit_with_setup` needs no environment: `--setup` is optional for
-# it and, when omitted, its job directory is created under ./jobs/<uuid> instead.
+# declares no `knit_with_setup` still runs inside a setup: it adopts the builtin
+# `default` setup that bootstrap auto-instantiates (see below), so `--setup` is
+# optional and, when omitted, resolves to that default. A job may opt out with
+# `knit_without_setup` — then it runs with no setup and its job directory is
+# created under ./jobs/<uuid> instead.
 #
 #   --wait blocks until the job finishes. Without it, submit returns immediately
 #   and you poll the state yourself. Other options (see `submit --help`):
@@ -275,6 +312,14 @@
 #
 #   ./full.sh db query --from montecarlo \
 #       --select "id, samples, seed, pi" --header --column
+#
+# The builtin `default` setup: bootstrap always instantiates one under
+# ./.knit/default. It builds nothing — it carries only the platform activation
+# (the ./.knit/platform.sh from a --profile bootstrap, empty otherwise) — and is
+# a normal setup in the DB and provenance graph. It exists so a job with no
+# `knit_with_setup` still inherits the platform environment automatically. A
+# plain (non-job) command never adopts it implicitly, but may require it
+# explicitly with `knit_with_setup "default"`.
 #
 # -----------------------------------------------------------------------------
 # 9. Inspect jobs
@@ -338,6 +383,14 @@
 # allocation:
 #
 #   ./full.sh submit --setup ./env --nodes 2 --wait -- mcparallel --procs 8
+#
+# On a machine bootstrapped with `--launcher none` (step 2), knit takes the MPI
+# launcher from a setup instead of the machine. A setup whose body puts an MPI on
+# PATH (e.g. `module load mpich`) can declare `knit_provides_launcher`: its
+# after-callback detects that MPI and freezes it as the launcher contract in
+# .activate.sh, so any job requiring the setup launches through it — no profile
+# and no machine launcher involved. Declaring it fatals if no MPI is found, so
+# add it only to a setup that actually provides one.
 #
 # The placement is controlled by `knit run`'s options — see their help:
 #
@@ -679,6 +732,22 @@ _mcenv_setup() {
     export MC_SAMPLES="${samples}"
 }
 knit_done
+
+# -----------------------------------------------------------------------------
+# A setup can also SUPPLY the MPI launcher, for a machine bootstrapped with
+# `--launcher none` (guided-tour sections 2 and 10). Such a setup puts an MPI on
+# PATH in its body and declares knit_provides_launcher; its after-callback then
+# freezes the detected launcher into .activate.sh, so any job requiring the setup
+# launches through it. It would look like this:
+#
+#   knit_register_setup "mpienv" _mpienv_setup "Provide MPICH as the launcher."
+#   knit_provides_launcher
+#   _mpienv_setup() { module load mpich; }   # puts mpiexec/mpirun on PATH
+#   knit_done
+#
+# It is left commented out here because knit_provides_launcher fatals when it
+# cannot detect an MPI, which would break this laptop-friendly example.
+# -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
 # montecarlo — a job: run the estimate on a compute node.
