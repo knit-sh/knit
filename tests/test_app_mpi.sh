@@ -1,7 +1,9 @@
 #!/usr/bin/env bats
 
+source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
+
 setup() {
-    source knit.sh
+    knit_test_source_knit
     # The worker tests invoke "run" with no real ".knit/"; stand the pre-bootstrap
     # guard down (as during bootstrap itself) while leaving _knit_is_bootstrapped
     # false, so recording stays a no-op. See test_app.sh for the fuller note.

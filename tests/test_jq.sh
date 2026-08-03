@@ -1,11 +1,13 @@
 #!/usr/bin/env bats
 
+source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
+
 setup() {
     if ! command -v jq &>/dev/null; then
         skip "jq not available in PATH"
     fi
 
-    source knit.sh
+    knit_test_source_knit
 
     # Override the jq executable for testing
     _KNIT_JQ_EXE="jq"

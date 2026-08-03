@@ -1,7 +1,9 @@
 #!/usr/bin/env bats
 
+source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
+
 setup() {
-    source knit.sh
+    knit_test_source_knit
     # These tests exercise "run" internals (routing, launcher exec, provenance
     # export) with stubbed launchers and no real ".knit/". Setting the
     # bootstrapping flag stands the pre-bootstrap guard down (as during bootstrap

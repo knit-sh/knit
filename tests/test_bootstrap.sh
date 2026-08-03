@@ -1,7 +1,9 @@
 #!/usr/bin/env bats
 
+source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
+
 setup() {
-    source knit.sh
+    knit_test_source_knit
 
     # Each test controls _KNIT_PREFIX and _KNIT_IS_BOOTSTRAPPED explicitly.
     # Point _KNIT_PREFIX at a temp path that does not yet exist.

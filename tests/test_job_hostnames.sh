@@ -1,7 +1,9 @@
 #!/usr/bin/env bats
 
+source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
+
 setup() {
-    source knit.sh
+    knit_test_source_knit
 
     _KNIT_TEST_TMPDIR="$(mktemp -d)"
     # Used by the --json cases; guarded per-test on jq availability.

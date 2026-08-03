@@ -1,7 +1,9 @@
 #!/usr/bin/env bats
 
+source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
+
 setup() {
-    source knit.sh
+    knit_test_source_knit
 
     __TEST_TMPDIR="$(mktemp -d)"
     _KNIT_PREFIX="${__TEST_TMPDIR}/fake-knit"

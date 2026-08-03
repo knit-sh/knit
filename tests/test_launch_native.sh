@@ -1,7 +1,9 @@
 #!/usr/bin/env bats
 
+source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
+
 setup() {
-    source knit.sh
+    knit_test_source_knit
     # The openmpi backend omits --host inside a PBS allocation (TM supplies the
     # node list); ensure a stray PBS_NODEFILE in the runner's environment does
     # not perturb the default (non-PBS) cmdline assertions below.

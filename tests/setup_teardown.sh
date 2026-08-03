@@ -28,11 +28,41 @@ knit_test_require_jq() {
     fi
 }
 
+# Source knit.sh with bats's per-command DEBUG trace temporarily disabled.
+#
+# bats runs each test with `set -T` (functrace) and a DEBUG trap that walks the
+# call stack on every command it executes. knit.sh runs on the order of 18,000
+# commands at load time (all the command registration), so leaving the trace
+# active while sourcing it makes `source knit.sh` dominate each test's runtime
+# (~4s instead of ~0.5s). This helper turns off the DEBUG trap and functrace
+# only around the source, then restores both, so failures in the test body
+# still get accurate line and stack-trace reporting.
+knit_test_source_knit() {
+    local _knit_saved_debug_trap _knit_saved_functrace
+    _knit_saved_debug_trap="$(trap -p DEBUG)"
+    case $- in
+        *T*) _knit_saved_functrace=1 ;;
+        *)   _knit_saved_functrace="" ;;
+    esac
+
+    trap - DEBUG
+    set +T
+
+    source knit.sh
+
+    [[ -n "${_knit_saved_functrace}" ]] && set -T
+    # Reinstall bats's DEBUG trap verbatim (a no-op when there was none, e.g.
+    # when a test file is run directly rather than under bats). eval is required
+    # here: `trap -p` emits a ready-to-run `trap -- '...' DEBUG` command and
+    # there is no non-eval way to reinstate a saved trap.
+    eval "${_knit_saved_debug_trap}"
+}
+
 # Source knit.sh, point it at a throwaway sqlite database, and mark the
 # framework as bootstrapped so commands that require a live DB work. Callers
 # that need sqlite3 should invoke knit_test_require_sqlite first.
 knit_test_db_setup() {
-    source knit.sh
+    knit_test_source_knit
 
     # Override the sqlite executable and database path for testing.
     _KNIT_SQLITE_EXE="sqlite3"

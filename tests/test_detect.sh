@@ -1,7 +1,9 @@
 #!/usr/bin/env bats
 
+source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
+
 setup() {
-    source knit.sh
+    knit_test_source_knit
 
     # Satisfy the bootstrap check
     _KNIT_IS_BOOTSTRAPPED="1"
