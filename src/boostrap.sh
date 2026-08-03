@@ -45,6 +45,26 @@ _knit_is_bootstrapped() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_warn_absolute_root()
+#
+# Warn (non-fatal) when a bootstrap path-root option was given an absolute value.
+# Absolute setup/job roots pin the experiment to this machine's filesystem and
+# hurt reproducibility on another machine or by another user; a relative value
+# resolves against the experiment root and stays portable. A no-op for relative
+# values. Factored out of _knit_bootstrap so it can be unit-tested directly.
+#
+# @param label The option name to name in the warning (e.g. "--setup-path").
+# @param value The value the user supplied for that option.
+# ------------------------------------------------------------------------------
+_knit_bootstrap_warn_absolute_root() {
+    local label="$1"
+    local value="$2"
+    if [[ "${value}" == /* ]]; then
+        knit_warning "Absolute ${label} \"${value}\" makes the experiment harder to reproduce on another machine or by another user."
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_on_exit()
 #
 # Clean up on exit if bootstrap did not complete successfully.
@@ -74,6 +94,10 @@ knit_with_optional "spack:string" "" \
 knit_with_optional "spack-packages:string" "" \
     "spack-packages git ref (tag, branch, or commit) to provision. Empty uses the latest release."
 knit_with_optional "project:string" "" "Name of the project to use when submitting jobs."
+knit_with_optional "setup-path:string" "setups" \
+    "Root directory under which setups live. Relative values resolve against the experiment root (portable); an absolute path is used as-is. Default: setups."
+knit_with_optional "job-path:string" "jobs" \
+    "Root directory under which jobs live. Relative values resolve against the experiment root (portable); an absolute path is used as-is. Default: jobs."
 knit_with_optional "profile:string" "" \
     "Machine profile name (e.g. polaris). Prepopulates scheduler, launcher, and hardware defaults."
 knit_with_optional "scheduler:__scheduler__" "auto" \
@@ -118,6 +142,8 @@ knit_with_optional "ai-model:string" "" \
 # ------------------------------------------------------------------------------
 _knit_bootstrap() {
     local project
+    local setup_path_opt
+    local job_path_opt
     local spack_ref
     local spack_packages_ref
     local profile
@@ -137,6 +163,8 @@ _knit_bootstrap() {
     local ai_base_url
     local ai_model
     project="$(knit_get_parameter "project" "$@")"
+    setup_path_opt="$(knit_get_parameter "setup-path" "$@")"
+    job_path_opt="$(knit_get_parameter "job-path" "$@")"
     spack_ref="$(knit_get_parameter "spack" "$@")"
     spack_packages_ref="$(knit_get_parameter "spack-packages" "$@")"
     profile="$(knit_get_parameter "profile" "$@")"
@@ -258,8 +286,17 @@ _knit_bootstrap() {
         knit_warning "The 'none' scheduler was selected without --default-nodefile; jobs will report only the local hostname."
     fi
 
+    # Setup/job roots are stored verbatim (as the user typed them) and resolved
+    # late (see _knit_setup_root / _knit_job_root): a relative value stays
+    # portable, an absolute value is honored as-is. Warn — but do not fail — on an
+    # absolute value, which pins the experiment to this machine's filesystem.
+    _knit_bootstrap_warn_absolute_root "--setup-path" "${setup_path_opt}"
+    _knit_bootstrap_warn_absolute_root "--job-path" "${job_path_opt}"
+
     knit_trace "Writing initial metadata..."
     knit metadata store --key "__project__"                --value "${project}"
+    knit metadata store --key "__setup_path__"             --value "${setup_path_opt}"
+    knit metadata store --key "__job_path__"               --value "${job_path_opt}"
     knit metadata store --key "__account__"                --value "${account}"
     knit metadata store --key "__profile__"                --value "${profile_label}"
     knit metadata store --key "__profile_json__"           --value "${profile_json}"

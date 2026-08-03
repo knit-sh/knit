@@ -231,6 +231,100 @@ knit_register_setup() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_experiment_root()
+#
+# Store the experiment root — the directory that contains .knit — in the
+# caller-named variable. Derived from _KNIT_PREFIX (already absolute) by
+# stripping the trailing "/.knit" component, so it stays correct even after a
+# compute-side cd into a job directory. Uses parameter expansion (no fork).
+#
+# @param __knit_ret Name of the variable to hold the experiment root.
+# ------------------------------------------------------------------------------
+_knit_experiment_root() {
+    local -n __knit_ret=$1
+    __knit_ret="${_KNIT_PREFIX%/*}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_resolve_experiment_path()
+#
+# Resolve a stored path value into an absolute directory and store it in the
+# caller-named variable. An absolute value (starting with "/") is returned
+# unchanged; a relative value is resolved against the experiment root, so an
+# experiment with relative roots stays portable across machines and clones.
+#
+# @param __knit_ret Name of the variable to hold the resolved path.
+# @param stored     The stored path value (as typed at bootstrap).
+# ------------------------------------------------------------------------------
+_knit_resolve_experiment_path() {
+    local -n __knit_ret=$1
+    local stored="$2"
+    if [[ "${stored}" == /* ]]; then
+        __knit_ret="${stored}"
+        return 0
+    fi
+    local root
+    _knit_experiment_root root
+    __knit_ret="${root}/${stored}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_setup_root()
+#
+# Store the resolved setup root — the directory under which setup instances live
+# — in the caller-named variable. Reads the verbatim __setup_path__ from the
+# metadata table (falling back to "setups" when unset, for robustness) and
+# resolves it against the experiment root via _knit_resolve_experiment_path.
+#
+# @param __knit_ret Name of the variable to hold the resolved setup root.
+# ------------------------------------------------------------------------------
+_knit_setup_root() {
+    local -n __knit_ret=$1
+    local stored
+    _knit_metadata_get stored "__setup_path__"
+    [[ -z "${stored}" ]] && stored="setups"
+    local resolved
+    _knit_resolve_experiment_path resolved "${stored}"
+    __knit_ret="${resolved}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_job_root()
+#
+# Store the resolved job root — the directory under which jobs live — in the
+# caller-named variable. Reads the verbatim __job_path__ from the metadata table
+# (falling back to "jobs" when unset, for robustness) and resolves it against
+# the experiment root via _knit_resolve_experiment_path.
+#
+# @param __knit_ret Name of the variable to hold the resolved job root.
+# ------------------------------------------------------------------------------
+_knit_job_root() {
+    local -n __knit_ret=$1
+    local stored
+    _knit_metadata_get stored "__job_path__"
+    [[ -z "${stored}" ]] && stored="jobs"
+    local resolved
+    _knit_resolve_experiment_path resolved "${stored}"
+    __knit_ret="${resolved}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_validate_instance_name()
+#
+# Validate a setup or job instance name. A name must be a single path component:
+# it matches ^[A-Za-z0-9._-]+$ (letters, digits, dot, underscore, hyphen; no
+# slashes). Fatals with guidance on anything else; returns normally on a match.
+#
+# @param name The instance name to validate.
+# ------------------------------------------------------------------------------
+_knit_validate_instance_name() {
+    local name="$1"
+    if [[ ! "${name}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        knit_fatal "Invalid name \"${name}\": names must match ^[A-Za-z0-9._-]+\$ (letters, digits, dot, underscore, hyphen; no slashes)."
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_default_setup_path()
 #
 # Print the directory where bootstrap instantiates the builtin "default" setup.
