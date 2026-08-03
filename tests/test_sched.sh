@@ -335,6 +335,39 @@ _seed_default_setup() {
     grep -q "^source ${_KNIT_PREFIX}/default/.activate.sh$" "${jobscript}"
 }
 
+@test "_knit_submit accepts an explicit non-default --setup for a job with neither directive" {
+    # A job that declares neither knit_with_setup nor knit_without_setup adopts
+    # the default setup only when no --setup is given. Given an explicit --setup,
+    # it has no declared type constraint, so any knit-built setup is accepted (no
+    # type check against "default").
+    local setup_dir="${_KNIT_TEST_TMPDIR}/env"
+    mkdir -p "${setup_dir}"
+    printf 'env\n' > "${setup_dir}/.setup.type"
+    printf '#!/usr/bin/env bash\n' > "${setup_dir}/.activate.sh"
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    # Stub dispatch so no real scheduler/background job runs.
+    _knit_sched_backend() { local -n __r=$1; __r='slurm'; }
+    _knit_sched_submit() { printf '12345\n'; }
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+    run _knit_submit --setup "${setup_dir}" -- myjob
+    [ "$status" -eq 0 ]
+
+    # The job runs in the given env setup, not the default: its batch script
+    # exports and sources that setup, and no default jobs dir is created.
+    [ -d "${setup_dir}/jobs" ]
+    local jobscript
+    jobscript=$(find "${setup_dir}/jobs" -name .job.sh -type f | head -1)
+    [[ -n "${jobscript}" ]]
+    grep -q "^export KNIT_SETUP_PREFIX=${setup_dir}$" "${jobscript}"
+    grep -q "^source ${setup_dir}/.activate.sh$" "${jobscript}"
+}
+
 @test "_knit_submit does not adopt the default setup with knit_without_setup" {
     _seed_default_setup
     _test_job_fn() { :; }

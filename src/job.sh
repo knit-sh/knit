@@ -90,9 +90,12 @@ _knit_submit() {
     # Enforce the job's setup requirement (knit_with_setup / knit_without_setup).
     # A job that declares a setup type must be given a --setup built by that type.
     # A job that declares neither directive adopts the builtin "default" setup
-    # implicitly, so it runs in a setup and inherits the platform environment with
-    # no boilerplate; knit_without_setup opts out and runs with no setup. The
-    # markers are the generic per-command markers set by those decorators.
+    # implicitly *when no --setup is given*, so it runs in a setup and inherits
+    # the platform environment with no boilerplate. When such a job IS given an
+    # explicit --setup, it declared no type constraint, so it accepts whatever was
+    # handed to it (no type enforcement). knit_without_setup opts out and runs
+    # with no setup. The markers are the generic per-command markers set by those
+    # decorators.
     local mangled
     mangled="$(_knit_command_mangle "submit:${job_name}")"
     local required_marker="_KNIT_CMD_${mangled}_setup"
@@ -100,9 +103,9 @@ _knit_submit() {
     local required_setup="${!required_marker:-}"
     local opted_out="${!no_setup_marker:-}"
 
-    if [[ -z "${required_setup}" && -z "${opted_out}" ]]; then
+    if [[ -z "${required_setup}" && -z "${opted_out}" && -z "${setup_path}" ]]; then
         required_setup="default"
-        [[ -z "${setup_path}" ]] && setup_path="$(_knit_default_setup_path)"
+        setup_path="$(_knit_default_setup_path)"
     fi
 
     if [[ -n "${required_setup}" && -z "${setup_path}" ]]; then
