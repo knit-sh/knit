@@ -14,29 +14,34 @@ declare -gA _KNIT_SETUPS
 
 knit_register _knit_setup "setup" "Setup an environment"
 _knit_is_builtin
-knit_with_required "path:path" "Path to the setup"
+knit_with_required "name:string" "Name for the setup instance"
 knit_with_dispatch "setup" "User-provided setup command to execute"
 knit_with_subcommand_title "Setups"
 # ------------------------------------------------------------------------------
 # @fn _knit_setup()
 #
-# Entry point for the `setup` CLI command. Creates a directory at the given
-# path, exports `KNIT_SETUP_PREFIX` to that directory, invokes the named setup
-# subcommand inside it, and saves the resulting environment to
-# `$KNIT_SETUP_PREFIX/.activate.sh`. On success the setup name is also recorded
+# Entry point for the `setup` CLI command. Materializes a setup instance named
+# `--name` under the experiment's setup root (`<setup-root>/<name>`), exports
+# `KNIT_SETUP_PREFIX` to that directory, invokes the named setup subcommand
+# inside it, and saves the resulting environment to
+# `$KNIT_SETUP_PREFIX/.activate.sh`. On success the setup type is also recorded
 # in `$KNIT_SETUP_PREFIX/.setup.type` so `knit submit` can validate a job's
 # knit_with_setup requirement, and the setup body's row id in
 # `$KNIT_SETUP_PREFIX/.setup.id` so a consumer can record a "used_by" edge to it.
 # Removes the directory and fatals on failure.
 #
+# The instance name must be a single path component (validated) and is idempotent
+# by name: re-running with the same name rebuilds the same directory. The name
+# "default" is reserved for the builtin default setup type.
+#
 # Usage:
 # ```
-# ./exp.sh setup --path </path/to/setup> -- <setup-name> [args...]
+# ./exp.sh setup --name <name> -- <setup-type> [args...]
 # ```
 # ------------------------------------------------------------------------------
 _knit_setup() {
-    local path
-    path=$(knit_get_parameter "path" "$@")
+    local name
+    name=$(knit_get_parameter "name" "$@")
 
     # Extract extra args (after --)
     local args=("$@")
@@ -51,9 +56,14 @@ _knit_setup() {
     local setup_name="${extra[0]}"
     local setup_args=("${extra[@]:1}")
 
-    # Check path does not already exist
-    if [[ -e "${path}" ]]; then
-        knit_fatal "Path \"${path}\" already exists."
+    # Validate the instance name (a single path component).
+    _knit_validate_instance_name "${name}"
+
+    # Reserve the name "default": it is allowed only for the builtin "default"
+    # setup type, so bootstrap's own "knit setup --name default -- default" still
+    # works while a user cannot shadow it with an unrelated setup.
+    if [[ "${name}" == "default" && "${setup_name}" != "default" ]]; then
+        knit_fatal "The setup name \"default\" is reserved for the builtin default setup."
     fi
 
     # Check setup name is registered
@@ -65,6 +75,14 @@ _knit_setup() {
     local subcmd
     subcmd=$(_knit_command_mangle "setup:${setup_name}")
     _knit_check_command_arguments "${subcmd}" "${setup_args[@]}"
+
+    # Resolve the instance directory under the experiment's setup root. Idempotent
+    # by name: remove any existing instance of the same name so the setup rebuilds
+    # at its stable location rather than erroring or leaving a stale mix.
+    local setup_root
+    _knit_setup_root setup_root
+    local path="${setup_root}/${name}"
+    rm -rf "${path}"
 
     # Create directory and enter it
     mkdir -p "${path}"
@@ -327,14 +345,17 @@ _knit_validate_instance_name() {
 # ------------------------------------------------------------------------------
 # @fn _knit_default_setup_path()
 #
-# Print the directory where bootstrap instantiates the builtin "default" setup.
-# It lives under the experiment's .knit so it travels with the experiment, and is
-# resolved from _KNIT_PREFIX (already absolute) so the value survives the
+# Print the directory where bootstrap instantiates the builtin "default" setup:
+# `<setup-root>/default`, i.e. the reserved "default" instance under the
+# experiment's setup root (see _knit_setup_root). It travels with the experiment
+# (relative setup roots resolve against the experiment root) and survives the
 # compute-side cd into a job directory. This is the path knit_with_setup "default"
 # and the implicit-default job adoption resolve to when no --setup is given.
 # ------------------------------------------------------------------------------
 _knit_default_setup_path() {
-    printf '%s\n' "${_KNIT_PREFIX}/default"
+    local root
+    _knit_setup_root root
+    printf '%s\n' "${root}/default"
 }
 
 # ------------------------------------------------------------------------------

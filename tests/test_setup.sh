@@ -4,10 +4,15 @@ setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
     knit_test_require_sqlite
     knit_test_db_setup
+    _knit_create_metadata_table
 
     _KNIT_TEST_TMPDIR="$(mktemp -d)"
     _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/.knit"
     mkdir -p "${_KNIT_PREFIX}"
+
+    # Setups resolve under <experiment-root>/setups (the __setup_path__ fallback);
+    # tests reference this root directly.
+    _KNIT_TEST_SETUP_ROOT="${_KNIT_TEST_TMPDIR}/setups"
 }
 
 teardown() {
@@ -32,7 +37,7 @@ teardown() {
     _knit_set_find _KNIT_COMMANDS "setup__1__mysetup"
 }
 
-@test "setup --help shows the parent grammar and the required --path option" {
+@test "setup --help shows the parent grammar and the required --name option" {
     _test_setup_fn() { :; }
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
     knit_with_optional "seed:integer" "1" "Random seed."
@@ -42,7 +47,7 @@ teardown() {
     [[ "$result" == *"setup [OPTIONS] -- mysetup [OPTIONS]"* ]]
     [[ "$result" == *"--seed"* ]]
     [[ "$result" == *"setup options"* ]]
-    [[ "$result" == *"--path"* ]]
+    [[ "$result" == *"--name"* ]]
 }
 
 @test "knit_register_setup creates DB table named setup:<name>" {
@@ -201,18 +206,54 @@ teardown() {
 
 # ---------- _knit_setup ----------
 
-@test "_knit_setup fails if path already exists" {
+@test "_knit_setup maps --name to <setup-root>/<name>" {
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
     _test_setup_fn() { :; }
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
     knit_done
-    local existing="${_KNIT_TEST_TMPDIR}/existing"
-    mkdir -p "${existing}"
-    run _knit_setup --path "${existing}" -- mysetup
+    _knit_setup --name myenv -- mysetup
+    [ -d "${newdir}" ]
+}
+
+@test "_knit_setup rejects an invalid instance name" {
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_done
+    run _knit_setup --name "a/b" -- mysetup
     [ "$status" -ne 0 ]
+    [[ "$output" == *"Invalid name"* ]]
+}
+
+@test "_knit_setup rejects the reserved name default for a non-default type" {
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_done
+    run _knit_setup --name default -- mysetup
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"reserved"* ]]
+}
+
+@test "_knit_setup allows the name default for the builtin default type" {
+    _knit_setup --name default -- default
+    [ -d "${_KNIT_TEST_SETUP_ROOT}/default" ]
+    [ "$(cat "${_KNIT_TEST_SETUP_ROOT}/default/.setup.type")" = "default" ]
+}
+
+@test "_knit_setup rebuilds idempotently when the named instance exists" {
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_done
+    _knit_setup --name myenv -- mysetup
+    # A stale file left inside the instance must be gone after a rebuild.
+    touch "${newdir}/STALE"
+    _knit_setup --name myenv -- mysetup
+    [ -d "${newdir}" ]
+    [ ! -f "${newdir}/STALE" ]
 }
 
 @test "_knit_setup fails if setup name is not registered" {
-    run _knit_setup --path "${_KNIT_TEST_TMPDIR}/newdir" -- unknownsetup
+    run _knit_setup --name newenv -- unknownsetup
     [ "$status" -ne 0 ]
 }
 
@@ -220,92 +261,88 @@ teardown() {
     _test_setup_fn() { :; }
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
     knit_done
-    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/newdir"
-    run _knit_setup --path "${_KNIT_TEST_TMPDIR}/newdir" -- mysetup --unknown-arg foo
+    run _knit_setup --name myenv -- mysetup --unknown-arg foo
     [ "$status" -ne 0 ]
 }
 
 @test "_knit_setup creates the directory on success" {
-    local sentinel="${_KNIT_TEST_TMPDIR}/sentinel"
-    local newdir="${_KNIT_TEST_TMPDIR}/newdir"
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
     _test_setup_fn() { :; }
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
     knit_done
-    export KNIT_SETUP_PREFIX="${newdir}"
-    _knit_setup --path "${newdir}" -- mysetup
+    _knit_setup --name myenv -- mysetup
     [ -d "${newdir}" ]
 }
 
 @test "_knit_setup sets KNIT_SETUP_PREFIX inside the setup function" {
-    local newdir="${_KNIT_TEST_TMPDIR}/newdir"
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
     local prefix_file="${_KNIT_TEST_TMPDIR}/prefix.txt"
     _test_setup_fn() {
         printf '%s' "${KNIT_SETUP_PREFIX}" > "${prefix_file}"
     }
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
     knit_done
-    _knit_setup --path "${newdir}" -- mysetup
+    _knit_setup --name myenv -- mysetup
     local captured
     captured=$(cat "${prefix_file}")
     [ "${captured}" = "${newdir}" ]
 }
 
 @test "_knit_setup actually invokes the setup function" {
-    local newdir="${_KNIT_TEST_TMPDIR}/newdir"
     local sentinel="${_KNIT_TEST_TMPDIR}/sentinel"
     _test_setup_fn() {
         touch "${sentinel}"
     }
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
     knit_done
-    _knit_setup --path "${newdir}" -- mysetup
+    _knit_setup --name myenv -- mysetup
     [ -f "${sentinel}" ]
 }
 
 @test "_knit_setup removes directory when setup function fails" {
-    local newdir="${_KNIT_TEST_TMPDIR}/newdir"
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
     _test_setup_fn() { return 1; }
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
     knit_done
-    run _knit_setup --path "${newdir}" -- mysetup
+    run _knit_setup --name myenv -- mysetup
     [ "$status" -ne 0 ]
     [ ! -d "${newdir}" ]
 }
 
 @test "_knit_setup creates .activate.sh after success" {
-    local newdir="${_KNIT_TEST_TMPDIR}/newdir"
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
     _test_setup_fn() { :; }
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
     knit_done
-    _knit_setup --path "${newdir}" -- mysetup
+    _knit_setup --name myenv -- mysetup
     [ -f "${newdir}/.activate.sh" ]
 }
 
 @test "_knit_setup records the setup type in .setup.type" {
-    local newdir="${_KNIT_TEST_TMPDIR}/newdir"
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
     _test_setup_fn() { :; }
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
     knit_done
-    _knit_setup --path "${newdir}" -- mysetup
+    _knit_setup --name myenv -- mysetup
     [ -f "${newdir}/.setup.type" ]
     [ "$(cat "${newdir}/.setup.type")" = "mysetup" ]
 }
 
 @test "_knit_setup does not write .setup.type when the setup fails" {
-    local newdir="${_KNIT_TEST_TMPDIR}/newdir"
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
     _test_setup_fn() { return 1; }
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
     knit_done
-    run _knit_setup --path "${newdir}" -- mysetup
+    run _knit_setup --name myenv -- mysetup
     [ ! -f "${newdir}/.setup.type" ]
 }
 
 @test "_knit_setup records the setup body's row id in .setup.id" {
-    local newdir="${_KNIT_TEST_TMPDIR}/newdir"
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
     _test_setup_fn() { :; }
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
     knit_done
-    _knit_setup --path "${newdir}" -- mysetup
+    _knit_setup --name myenv -- mysetup
     [ -f "${newdir}/.setup.id" ]
     # The recorded marker matches the id of the row the setup body wrote to its
     # own table, so a consumer can join to that row by id.
@@ -514,8 +551,8 @@ teardown() {
 
 # ---------- builtin "default" setup ----------
 
-@test "_knit_default_setup_path is default under _KNIT_PREFIX" {
-    [ "$(_knit_default_setup_path)" = "${_KNIT_PREFIX}/default" ]
+@test "_knit_default_setup_path is default under the setup root" {
+    [ "$(_knit_default_setup_path)" = "${_KNIT_TEST_SETUP_ROOT}/default" ]
 }
 
 @test "_knit_setup_default_after_cb writes a platform-only .activate.sh (no env dump)" {
@@ -540,9 +577,9 @@ teardown() {
 }
 
 @test "_knit_setup instantiates the builtin default setup" {
-    local newdir="${_KNIT_TEST_TMPDIR}/default"
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/default"
     export _KNIT_TEST_CANARY="canary"
-    _knit_setup --path "${newdir}" -- default
+    _knit_setup --name default -- default
     [ "$(cat "${newdir}/.setup.type")" = "default" ]
     # Platform-only: no ambient environment dump.
     ! grep -q '_KNIT_TEST_CANARY' "${newdir}/.activate.sh"
@@ -555,7 +592,7 @@ teardown() {
 @test "_knit_setup_dep_resolve_path falls back to the default path" {
     unset KNIT_SETUP_PREFIX
     [ "$(_knit_setup_dep_resolve_path "default")" \
-        = "${_KNIT_PREFIX}/default" ]
+        = "${_KNIT_TEST_SETUP_ROOT}/default" ]
 }
 
 @test "_knit_setup_dep_resolve_path returns empty for a non-default type" {

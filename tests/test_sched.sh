@@ -303,7 +303,7 @@ _use_profile() {
 # neither-directive job can adopt it (a real one is instantiated by bootstrap).
 _seed_default_setup() {
     _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/.knit"
-    local d="${_KNIT_PREFIX}/default"
+    local d="${_KNIT_TEST_TMPDIR}/setups/default"
     mkdir -p "${d}"
     printf 'default\n' > "${d}/.setup.type"
     printf 'deadbeef-dead-7ead-8ead-deaddeaddead\n' > "${d}/.setup.id"
@@ -328,11 +328,12 @@ _seed_default_setup() {
 
     # The job directory lands under the default setup, and the batch script
     # exports and sources the default setup's .activate.sh.
+    local defdir="${_KNIT_TEST_TMPDIR}/setups/default"
     local jobscript
-    jobscript=$(find "${_KNIT_PREFIX}/default/jobs" -name .job.sh -type f | head -1)
+    jobscript=$(find "${defdir}/jobs" -name .job.sh -type f | head -1)
     [[ -n "${jobscript}" ]]
-    grep -q "^export KNIT_SETUP_PREFIX=${_KNIT_PREFIX}/default$" "${jobscript}"
-    grep -q "^source ${_KNIT_PREFIX}/default/.activate.sh$" "${jobscript}"
+    grep -q "^export KNIT_SETUP_PREFIX=${defdir}$" "${jobscript}"
+    grep -q "^source ${defdir}/.activate.sh$" "${jobscript}"
 }
 
 @test "_knit_submit accepts an explicit non-default --setup for a job with neither directive" {
@@ -388,7 +389,7 @@ _seed_default_setup() {
 
     # No setup adopted: the job runs under jobs/<uuid> in the experiment dir and
     # its batch script carries no setup prefix at all.
-    [ ! -d "${_KNIT_PREFIX}/default/jobs" ]
+    [ ! -d "${_KNIT_TEST_TMPDIR}/setups/default/jobs" ]
     local jobscript
     jobscript=$(find "${_KNIT_TEST_TMPDIR}/jobs" -name .job.sh -type f | head -1)
     [[ -n "${jobscript}" ]]
