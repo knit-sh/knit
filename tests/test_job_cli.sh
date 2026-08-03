@@ -4,6 +4,10 @@ setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
     knit_test_require_sqlite
     knit_test_db_setup
+    # _knit_job_dir resolves the job root from __job_path__ metadata against the
+    # experiment root, so a metadata table and a pinned prefix are needed.
+    _knit_create_metadata_table
+    _KNIT_PREFIX="/exp/.knit"
 }
 
 teardown() {
@@ -327,16 +331,15 @@ _seed_job() {
 
 # ---------- job dir resolution ----------
 
-@test "job dir resolves under the setup for a job with a setup" {
-    _seed_job "id1" "/s/a" "alpha" "running"
+@test "job dir resolves under the unified job root for a job with a setup" {
+    _seed_job "id1" "myenv" "alpha" "running"
     run _knit_job_dir "id1"
     [ "$status" -eq 0 ]
-    [ "$output" = "/s/a/jobs/id1" ]
+    [ "$output" = "/exp/jobs/id1" ]
 }
 
-@test "job dir resolves under the experiment root for a setup-less job" {
+@test "job dir resolves under the unified job root for a setup-less job" {
     _seed_job "id1" "" "alpha" "running"
-    _KNIT_PREFIX="/exp/.knit"
     run _knit_job_dir "id1"
     [ "$status" -eq 0 ]
     [ "$output" = "/exp/jobs/id1" ]

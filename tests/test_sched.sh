@@ -71,7 +71,7 @@ _use_profile() {
 
 # ---------- _knit_submit job directory creation ----------
 
-@test "_knit_submit creates <setup>/jobs/<uuid> directory" {
+@test "_knit_submit creates <job-root>/<uuid> directory" {
     local setup_dir="${_KNIT_TEST_SETUP_ROOT}/setup"
     mkdir -p "${setup_dir}"
     printf 'mcenv\n' > "${setup_dir}/.setup.type"
@@ -91,9 +91,13 @@ _use_profile() {
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     _knit_submit --setup "setup" -- myjob
 
-    [ -d "${setup_dir}/jobs" ]
+    # The job lands in the unified job root (<experiment-root>/jobs), not under
+    # the setup it uses.
+    local jobs_root="${_KNIT_TEST_TMPDIR}/jobs"
+    [ -d "${jobs_root}" ]
+    [ ! -d "${setup_dir}/jobs" ]
     local count
-    count=$(find "${setup_dir}/jobs" -mindepth 1 -maxdepth 1 -type d | wc -l)
+    count=$(find "${jobs_root}" -mindepth 1 -maxdepth 1 -type d | wc -l)
     [ "${count}" -eq 1 ]
 }
 
@@ -118,8 +122,96 @@ _use_profile() {
     _knit_submit --setup "setup" -- myjob
 
     local name
-    name=$(find "${setup_dir}/jobs" -mindepth 1 -maxdepth 1 -type d -printf '%f\n')
+    name=$(find "${_KNIT_TEST_TMPDIR}/jobs" -mindepth 1 -maxdepth 1 -type d -printf '%f\n')
     knit_type_check "uuid" "${name}"
+}
+
+# ---------- _knit_submit : --name alias ----------
+
+@test "_knit_submit --name creates an alias symlink and records the name" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    # Stub dispatch so no real scheduler/background job runs and stdout carries
+    # only the returned job UUID.
+    _knit_sched_backend() { local -n __r=$1; __r='slurm'; }
+    _knit_sched_submit() { printf '12345\n'; }
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+    local uuid
+    uuid="$(_knit_submit --name nightly -- myjob)"
+
+    local jobs_root="${_KNIT_TEST_TMPDIR}/jobs"
+    # The alias is a symlink under the job root pointing at the uuid directory.
+    [ -L "${jobs_root}/nightly" ]
+    [ "$(readlink "${jobs_root}/nightly")" = "${uuid}" ]
+    [ -d "${jobs_root}/${uuid}" ]
+    [ "$(realpath "${jobs_root}/nightly")" = "$(realpath "${jobs_root}/${uuid}")" ]
+    # The name is recorded in the jobs table.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT name FROM jobs WHERE id='${uuid}';")" = "nightly" ]
+}
+
+@test "_knit_submit without --name records an empty name and creates no alias" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    _knit_sched_backend() { local -n __r=$1; __r='slurm'; }
+    _knit_sched_submit() { printf '12345\n'; }
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+    local uuid
+    uuid="$(_knit_submit -- myjob)"
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT name FROM jobs WHERE id='${uuid}';")" = "" ]
+    # Only the uuid directory exists under the job root; no extra alias entry.
+    local n
+    n=$(find "${_KNIT_TEST_TMPDIR}/jobs" -mindepth 1 -maxdepth 1 | wc -l)
+    [ "${n}" -eq 1 ]
+}
+
+@test "_knit_submit --name fatals on an existing alias" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    _knit_sched_backend() { local -n __r=$1; __r='slurm'; }
+    _knit_sched_submit() { printf '12345\n'; }
+
+    # Pre-create the alias so the requested name collides.
+    mkdir -p "${_KNIT_TEST_TMPDIR}/jobs"
+    ln -s somewhere "${_KNIT_TEST_TMPDIR}/jobs/nightly"
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+    run _knit_submit --name nightly -- myjob
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"already exists"* ]]
+}
+
+@test "_knit_submit --name rejects an invalid alias" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+    run _knit_submit --name "bad/name" -- myjob
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Invalid name"* ]]
 }
 
 @test "_knit_submit bakes absolute paths into the batch script" {
@@ -143,7 +235,7 @@ _use_profile() {
     knit_popd
 
     local jobscript
-    jobscript=$(find "${setup_dir}/jobs" -name .job.sh -type f | head -1)
+    jobscript=$(find "${_KNIT_TEST_TMPDIR}/jobs" -name .job.sh -type f | head -1)
     [[ -n "${jobscript}" ]]
     grep -q "^export KNIT_SETUP_PREFIX=/" "${jobscript}"
     grep -q "^export KNIT_JOB_PREFIX=/" "${jobscript}"
@@ -169,7 +261,7 @@ _use_profile() {
     _knit_submit --setup "setup" -- myjob
 
     local jobscript
-    jobscript=$(find "${setup_dir}/jobs" -name .job.sh -type f | head -1)
+    jobscript=$(find "${_KNIT_TEST_TMPDIR}/jobs" -name .job.sh -type f | head -1)
     [[ -n "${jobscript}" ]]
     # The source line must come before the re-entry (exec) line.
     grep -q "^source ${setup_dir}/.activate.sh$" "${jobscript}"
@@ -214,7 +306,7 @@ _use_profile() {
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     run _knit_submit --setup "setup" -- myjob
     [ "$status" -eq 0 ]
-    [ -d "${setup_dir}/jobs" ]
+    [ -d "${_KNIT_TEST_TMPDIR}/jobs" ]
 }
 
 @test "_knit_submit rejects a setup built by a different type" {
@@ -333,11 +425,11 @@ _seed_default_setup() {
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     _knit_submit -- myjob
 
-    # The job directory lands under the default setup, and the batch script
-    # exports and sources the default setup's .activate.sh.
+    # The job directory lands in the unified job root, and the batch script
+    # exports and sources the adopted default setup's .activate.sh.
     local defdir="${_KNIT_TEST_TMPDIR}/setups/default"
     local jobscript
-    jobscript=$(find "${defdir}/jobs" -name .job.sh -type f | head -1)
+    jobscript=$(find "${_KNIT_TEST_TMPDIR}/jobs" -name .job.sh -type f | head -1)
     [[ -n "${jobscript}" ]]
     grep -q "^export KNIT_SETUP_PREFIX=${defdir}$" "${jobscript}"
     grep -q "^source ${defdir}/.activate.sh$" "${jobscript}"
@@ -367,10 +459,12 @@ _seed_default_setup() {
     [ "$status" -eq 0 ]
 
     # The job runs in the given env setup, not the default: its batch script
-    # exports and sources that setup, and no default jobs dir is created.
-    [ -d "${setup_dir}/jobs" ]
+    # exports and sources that setup. The job dir itself is in the unified job
+    # root, not under the setup.
+    [ -d "${_KNIT_TEST_TMPDIR}/jobs" ]
+    [ ! -d "${setup_dir}/jobs" ]
     local jobscript
-    jobscript=$(find "${setup_dir}/jobs" -name .job.sh -type f | head -1)
+    jobscript=$(find "${_KNIT_TEST_TMPDIR}/jobs" -name .job.sh -type f | head -1)
     [[ -n "${jobscript}" ]]
     grep -q "^export KNIT_SETUP_PREFIX=${setup_dir}$" "${jobscript}"
     grep -q "^source ${setup_dir}/.activate.sh$" "${jobscript}"

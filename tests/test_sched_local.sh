@@ -195,8 +195,10 @@ teardown() {
     local out
     out="$(_knit_submit --setup "setup" --nodes 2 -- myjob)"
 
+    # The job lands in the unified job root (<experiment-root>/jobs), not under
+    # the setup it uses.
     local jobdir
-    jobdir="$(find "${setup}/jobs" -mindepth 1 -maxdepth 1 -type d)"
+    jobdir="$(find "${_KNIT_TEST_TMPDIR}/jobs" -mindepth 1 -maxdepth 1 -type d)"
     [ -n "${jobdir}" ]
 
     # _knit_submit returns the job UUID (the jobdir basename), not the launcher id.

@@ -21,6 +21,12 @@ knit_register _knit_submit "submit" "Submit a job."
 _knit_is_builtin
 knit_with_optional "setup:string" "" \
     "Name of the setup to use (required if the job declares a setup type)."
+# A stable, human-meaningful alias for this job instance under the job root:
+# `knit submit --name <name>` creates a symlink <job-root>/<name> -> <job-root>/
+# <uuid> and records the name in the jobs table. Distinct from --job-name below,
+# which is the scheduler-facing job name (#SBATCH --job-name / #PBS -N).
+knit_with_optional "name:string" "" \
+    "Stable alias for this job (symlinked under the job root; must be unique)."
 # Identity. Empty defaults are the "not set" sentinel: _knit_sched_resolve fills
 # them from bootstrap metadata, the machine profile, or a hard-coded fallback.
 knit_with_optional "job-name:string" "" \
@@ -60,7 +66,8 @@ knit_with_output "native-cmd:string" "" \
 #
 # Usage:
 # ```
-# ./exp.sh submit --setup <setup-name> [sched-args...] -- job-name [args...]
+# ./exp.sh submit [--setup <setup-name>] [--name <alias>] [sched-args...] \
+#     -- job-name [args...]
 # ```
 # ------------------------------------------------------------------------------
 _knit_submit() {
@@ -73,6 +80,15 @@ _knit_submit() {
     local setup_path=""
     if [[ -n "${setup_name}" ]]; then
         _knit_setup_name_to_path setup_path "${setup_name}"
+    fi
+
+    # --name is an optional, stable alias for this job instance. When given it is
+    # validated as a single path component and later symlinked under the job root
+    # (<job-root>/<name> -> <job-root>/<uuid>) and recorded in the jobs table.
+    local job_alias
+    job_alias=$(knit_get_parameter "name" "$@") || job_alias=""
+    if [[ -n "${job_alias}" ]]; then
+        _knit_validate_instance_name "${job_alias}"
     fi
 
     # Extract extra args (after --): the job name and its arguments.
@@ -138,21 +154,41 @@ _knit_submit() {
     local subcmd="${mangled}"
     _knit_check_command_arguments "${subcmd}" "${job_args[@]}"
 
-    # Create the job directory with a time-ordered uuidv7 name: under the setup
-    # (<setup_path>/jobs/<uuid>) when a setup is used, else jobs/<uuid> in the
-    # experiment directory.
+    # Every job lands in one job root, <job-root>/<uuid>, regardless of which
+    # setup (if any) it uses: the generated jobscript references the setup by
+    # absolute path, so the job directory need not nest under it. The job root is
+    # resolved from bootstrap metadata (__job_path__) against the experiment root.
+    local job_root
+    _knit_job_root job_root
+
+    # When --name is given, its alias symlink <job-root>/<name> must be free:
+    # collision is fatal (rather than repointing) because the name is persisted to
+    # the database and must stay stable. Check before creating anything so a
+    # collision leaves no partial job directory behind.
+    local alias_link=""
+    if [[ -n "${job_alias}" ]]; then
+        alias_link="${job_root}/${job_alias}"
+        if [[ -e "${alias_link}" || -L "${alias_link}" ]]; then
+            knit_fatal "Job name \"${job_alias}\" already exists at \"${alias_link}\"."
+        fi
+    fi
+
+    # Create the job directory with a time-ordered uuidv7 name.
     local uuid jobdir
     uuid=$(_knit_uuidv7)
-    if [[ -n "${setup_path}" ]]; then
-        jobdir="${setup_path}/jobs/${uuid}"
-    else
-        jobdir="$(realpath -m "jobs/${uuid}" 2>/dev/null \
-            || printf '%s' "${PWD}/jobs/${uuid}")"
-    fi
+    jobdir="${job_root}/${uuid}"
     mkdir -p "${jobdir}"
 
+    # Create the alias symlink now that the job directory exists. A relative
+    # target keeps the link valid if the job root is later moved as a whole.
+    if [[ -n "${alias_link}" ]]; then
+        ln -s "${uuid}" "${alias_link}"
+    fi
+
     # Record this submission: the recorded row's id is the canonical job
-    # UUID, and the jobs table tracks the job name and lifecycle state.
+    # UUID, and the jobs table tracks the job name and lifecycle state. The
+    # --name alias is recorded automatically as its own "name" column, like the
+    # other submit parameters.
     _knit_set_row_id "${uuid}"
     knit_output "job" "${job_name}"
     knit_output "state" "submitted"

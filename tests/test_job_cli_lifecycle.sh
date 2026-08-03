@@ -4,6 +4,9 @@ setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
     knit_test_require_sqlite
     knit_test_db_setup
+    # _knit_job_dir resolves the job root from __job_path__ metadata against the
+    # experiment root (each test pins _KNIT_PREFIX to its own temp dir).
+    _knit_create_metadata_table
 }
 
 teardown() {
@@ -206,13 +209,16 @@ _seed_job() {
 }
 
 @test "job rm removes a job that used a setup" {
-    local setup
-    setup="$(mktemp -d)"
-    _seed_job "id1" "${setup}" "alpha" "killed"
-    mkdir -p "${setup}/jobs/id1"
+    # A job that used a setup still lives in the unified job root, not under the
+    # setup: the setup column records the name but no longer affects the location.
+    _seed_job "id1" "myenv" "alpha" "killed"
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    mkdir -p "${root}/jobs/id1"
     run _knit_job_rm --id "id1"
     [ "$status" -eq 0 ]
-    [ ! -d "${setup}/jobs/id1" ]
+    [ ! -d "${root}/jobs/id1" ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM jobs WHERE id='id1';")" = "0" ]
 }

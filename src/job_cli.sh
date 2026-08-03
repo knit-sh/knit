@@ -167,24 +167,18 @@ knit_done
 # ------------------------------------------------------------------------------
 # @fn _knit_job_dir()
 #
-# Print the working directory of a job given its UUID. A job that used a setup
-# lives at <setup>/jobs/<id>; a setup-less job lives at <experiment-root>/jobs/
-# <id>, where the root is the .knit prefix with its /.knit suffix removed. The
-# setup is read from the job's jobs-table row.
+# Print the working directory of a job given its UUID. Every job lives in one job
+# root, <job-root>/<id>, regardless of which setup (if any) it used: the job root
+# is resolved from bootstrap metadata (__job_path__) against the experiment root
+# (see _knit_job_root).
 #
 # @param id Job UUID.
 # ------------------------------------------------------------------------------
 _knit_job_dir() {
     local id="$1"
-    local setup esc_id
-    _knit_sql_escape esc_id "${id}"
-    setup="$(_knit_sqlite3 \
-        "SELECT setup FROM jobs WHERE id = '${esc_id}';")"
-    if [[ -n "${setup}" ]]; then
-        printf '%s\n' "${setup}/jobs/${id}"
-    else
-        printf '%s\n' "${_KNIT_PREFIX%/.knit}/jobs/${id}"
-    fi
+    local job_root
+    _knit_job_root job_root
+    printf '%s\n' "${job_root}/${id}"
 }
 
 # ------------------------------------------------------------------------------

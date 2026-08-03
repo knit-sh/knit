@@ -4,6 +4,9 @@ setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
     knit_test_require_sqlite
     knit_test_db_setup
+    # _knit_job_dir resolves the job root from __job_path__ metadata against the
+    # experiment root (each test pins _KNIT_PREFIX to its own temp dir).
+    _knit_create_metadata_table
 }
 
 teardown() {
@@ -135,14 +138,17 @@ _seed_params() {
     [ "$output" = "boom stderr" ]
 }
 
-@test "job show stdout resolves the job dir under the setup" {
-    local setup
-    setup="$(mktemp -d)"
-    _seed_job "abc123" "${setup}" "montecarlo" "completed"
-    mkdir -p "${setup}/jobs/abc123"
-    printf 'from setup\n' > "${setup}/jobs/abc123/.stdout"
+@test "job show stdout resolves the job dir in the unified job root for a job with a setup" {
+    # The setup column records the setup name but no longer affects the job dir:
+    # a job that used a setup still lives at <job-root>/<id>.
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    _seed_job "abc123" "myenv" "montecarlo" "completed"
+    mkdir -p "${root}/jobs/abc123"
+    printf 'from setup\n' > "${root}/jobs/abc123/.stdout"
     run _knit_job_show_stdout --id "abc123"
-    rm -rf "${setup}"
+    rm -rf "${root}"
     [ "$status" -eq 0 ]
     [ "$output" = "from setup" ]
 }
