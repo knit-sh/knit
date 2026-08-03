@@ -381,12 +381,13 @@ teardown() {
 # ---------- _knit_setup_dep_before_cb ----------
 
 @test "_knit_setup_dep_before_cb sources the --setup activate.sh" {
-    local d="${_KNIT_TEST_TMPDIR}/dep"
+    # --setup is a name resolved under the setup root, not a path.
+    local d="${_KNIT_TEST_SETUP_ROOT}/dep"
     mkdir -p "${d}"
     printf 'mcenv\n' > "${d}/.setup.type"
     printf 'export DEP_MARK=hello\n' > "${d}/.activate.sh"
     unset KNIT_SETUP_PREFIX DEP_MARK
-    _knit_setup_dep_before_cb "mcenv" --setup "${d}"
+    _knit_setup_dep_before_cb "mcenv" --setup "dep"
     [ "${DEP_MARK}" = "hello" ]
     [ "${KNIT_SETUP_PREFIX}" = "$(realpath "${d}")" ]
 }
@@ -411,23 +412,23 @@ teardown() {
 
 @test "_knit_setup_dep_before_cb does not clobber an existing KNIT_SETUP_PREFIX" {
     local own="${_KNIT_TEST_TMPDIR}/own"
-    local dep="${_KNIT_TEST_TMPDIR}/dep"
+    local dep="${_KNIT_TEST_SETUP_ROOT}/dep"
     mkdir -p "${own}" "${dep}"
     printf 'mcenv\n' > "${dep}/.setup.type"
     printf 'export DEP_MARK=dep\n' > "${dep}/.activate.sh"
     export KNIT_SETUP_PREFIX="${own}"
-    _knit_setup_dep_before_cb "mcenv" --setup "${dep}"
+    _knit_setup_dep_before_cb "mcenv" --setup "dep"
     [ "${DEP_MARK}" = "dep" ]
     [ "${KNIT_SETUP_PREFIX}" = "${own}" ]
 }
 
 @test "_knit_setup_dep_before_cb rejects a wrong-type --setup" {
-    local d="${_KNIT_TEST_TMPDIR}/dep"
+    local d="${_KNIT_TEST_SETUP_ROOT}/dep"
     mkdir -p "${d}"
     printf 'otherenv\n' > "${d}/.setup.type"
     printf 'export DEP_MARK=x\n' > "${d}/.activate.sh"
     unset KNIT_SETUP_PREFIX
-    run _knit_setup_dep_before_cb "mcenv" --setup "${d}"
+    run _knit_setup_dep_before_cb "mcenv" --setup "dep"
     [ "$status" -ne 0 ]
     [[ "$output" == *"mcenv"* ]]
     [[ "$output" == *"otherenv"* ]]
@@ -600,6 +601,43 @@ teardown() {
     [ -z "$(_knit_setup_dep_resolve_path "mcenv")" ]
 }
 
+@test "_knit_setup_dep_resolve_path resolves --setup as a name under the setup root" {
+    unset KNIT_SETUP_PREFIX
+    [ "$(_knit_setup_dep_resolve_path "mcenv" --setup "myenv")" \
+        = "${_KNIT_TEST_SETUP_ROOT}/myenv" ]
+}
+
+@test "_knit_setup_dep_resolve_path prefers the --setup name over the ambient prefix" {
+    export KNIT_SETUP_PREFIX="/some/ambient"
+    [ "$(_knit_setup_dep_resolve_path "mcenv" --setup "myenv")" \
+        = "${_KNIT_TEST_SETUP_ROOT}/myenv" ]
+}
+
+@test "_knit_setup_dep_resolve_path honors the ambient prefix as-is when no --setup" {
+    export KNIT_SETUP_PREFIX="/some/ambient"
+    [ "$(_knit_setup_dep_resolve_path "mcenv")" = "/some/ambient" ]
+}
+
+@test "_knit_setup_dep_resolve_path rejects an invalid --setup name" {
+    unset KNIT_SETUP_PREFIX
+    run _knit_setup_dep_resolve_path "mcenv" --setup "a/b"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Invalid name"* ]]
+}
+
+@test "_knit_setup_name_to_path maps a name to <setup-root>/<name>" {
+    local out
+    _knit_setup_name_to_path out "myenv"
+    [ "${out}" = "${_KNIT_TEST_SETUP_ROOT}/myenv" ]
+}
+
+@test "_knit_setup_name_to_path rejects an invalid name" {
+    local out
+    run _knit_setup_name_to_path out "bad/name"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Invalid name"* ]]
+}
+
 # ---------- used_by edges ----------
 
 # Build a fake setup directory holding the markers a real `knit setup` writes.
@@ -612,7 +650,7 @@ _seed_setup_dir() {
 }
 
 @test "a consumer with knit_with_setup records a used_by edge to the setup" {
-    local dep="${_KNIT_TEST_TMPDIR}/dep"
+    local dep="${_KNIT_TEST_SETUP_ROOT}/dep"
     _seed_setup_dir "${dep}" "mcenv" "setup-uuid-1"
     _test_fn() { :; }
     knit_register "_test_fn" "plaincmd" "A plain command."
@@ -620,7 +658,7 @@ _seed_setup_dir() {
     knit_with_setup "mcenv"
     knit_done
     unset KNIT_SETUP_PREFIX
-    _knit_invoke_command plaincmd --setup "${dep}"
+    _knit_invoke_command plaincmd --setup "dep"
     # The used_by edge's source is the setup (id from .setup.id, name setup:<type>),
     # its target is the consumer's recorded row, and it has no duration.
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
@@ -631,7 +669,7 @@ _seed_setup_dir() {
 }
 
 @test "a consumer records no used_by edge when the setup has no .setup.id" {
-    local dep="${_KNIT_TEST_TMPDIR}/dep"
+    local dep="${_KNIT_TEST_SETUP_ROOT}/dep"
     _seed_setup_dir "${dep}" "mcenv" ""
     _test_fn() { :; }
     knit_register "_test_fn" "plaincmd" "A plain command."
@@ -639,7 +677,7 @@ _seed_setup_dir() {
     knit_with_setup "mcenv"
     knit_done
     unset KNIT_SETUP_PREFIX
-    _knit_invoke_command plaincmd --setup "${dep}"
+    _knit_invoke_command plaincmd --setup "dep"
     _knit_prov_ensure_table
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" = "0" ]
 }

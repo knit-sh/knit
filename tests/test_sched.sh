@@ -9,6 +9,13 @@ setup() {
     _KNIT_JQ_EXE="jq"
     _KNIT_TEST_TMPDIR="$(mktemp -d)"
 
+    # Pin the experiment root so setups resolve deterministically under
+    # <experiment-root>/setups (the __setup_path__ fallback); --setup values are
+    # names resolved there.
+    _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/.knit"
+    mkdir -p "${_KNIT_PREFIX}"
+    _KNIT_TEST_SETUP_ROOT="${_KNIT_TEST_TMPDIR}/setups"
+
     _knit_create_metadata_table
 }
 
@@ -65,7 +72,7 @@ _use_profile() {
 # ---------- _knit_submit job directory creation ----------
 
 @test "_knit_submit creates <setup>/jobs/<uuid> directory" {
-    local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
+    local setup_dir="${_KNIT_TEST_SETUP_ROOT}/setup"
     mkdir -p "${setup_dir}"
     printf 'mcenv\n' > "${setup_dir}/.setup.type"
     _test_job_fn() { :; }
@@ -82,7 +89,7 @@ _use_profile() {
     # _knit_set_row_id calls require.
     _KNIT_EXECUTING_COMMAND=("submit")
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
-    _knit_submit --setup "${setup_dir}" -- myjob
+    _knit_submit --setup "setup" -- myjob
 
     [ -d "${setup_dir}/jobs" ]
     local count
@@ -91,7 +98,7 @@ _use_profile() {
 }
 
 @test "_knit_submit job directory name is a valid uuid" {
-    local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
+    local setup_dir="${_KNIT_TEST_SETUP_ROOT}/setup"
     mkdir -p "${setup_dir}"
     printf 'mcenv\n' > "${setup_dir}/.setup.type"
     _test_job_fn() { :; }
@@ -108,17 +115,21 @@ _use_profile() {
     # _knit_set_row_id calls require.
     _KNIT_EXECUTING_COMMAND=("submit")
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
-    _knit_submit --setup "${setup_dir}" -- myjob
+    _knit_submit --setup "setup" -- myjob
 
     local name
     name=$(find "${setup_dir}/jobs" -mindepth 1 -maxdepth 1 -type d -printf '%f\n')
     knit_type_check "uuid" "${name}"
 }
 
-@test "_knit_submit absolutizes a relative setup path in the batch script" {
+@test "_knit_submit bakes absolute paths into the batch script" {
     # The generated batch script cd's into the job dir before re-entering the
     # experiment, so KNIT_SETUP_PREFIX / KNIT_JOB_PREFIX / the cd target must be
-    # absolute even when --setup is given as a relative path.
+    # absolute. A --setup name resolves to <setup-root>/<name>, which is always
+    # absolute even when the experiment is entered from a relative directory.
+    local setup_dir="${_KNIT_TEST_SETUP_ROOT}/setup"
+    mkdir -p "${setup_dir}"
+    printf 'mcenv\n' > "${setup_dir}/.setup.type"
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_with_setup "mcenv"
@@ -128,14 +139,11 @@ _use_profile() {
     _KNIT_EXECUTING_COMMAND=("submit")
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     knit_pushd "${_KNIT_TEST_TMPDIR}"
-    mkdir -p relsetup
-    printf 'mcenv\n' > relsetup/.setup.type
-    _knit_submit --setup ./relsetup -- myjob
+    _knit_submit --setup "setup" -- myjob
     knit_popd
 
     local jobscript
-    jobscript=$(find "${_KNIT_TEST_TMPDIR}/relsetup/jobs" \
-        -name .job.sh -type f | head -1)
+    jobscript=$(find "${setup_dir}/jobs" -name .job.sh -type f | head -1)
     [[ -n "${jobscript}" ]]
     grep -q "^export KNIT_SETUP_PREFIX=/" "${jobscript}"
     grep -q "^export KNIT_JOB_PREFIX=/" "${jobscript}"
@@ -152,13 +160,13 @@ _use_profile() {
     knit_done
     _knit_db_setup_table "submit" "jobs"
 
-    local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
+    local setup_dir="${_KNIT_TEST_SETUP_ROOT}/setup"
     mkdir -p "${setup_dir}"
     printf 'mcenv\n' > "${setup_dir}/.setup.type"
 
     _KNIT_EXECUTING_COMMAND=("submit")
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
-    _knit_submit --setup "${setup_dir}" -- myjob
+    _knit_submit --setup "setup" -- myjob
 
     local jobscript
     jobscript=$(find "${setup_dir}/jobs" -name .job.sh -type f | head -1)
@@ -193,7 +201,7 @@ _use_profile() {
 # ---------- _knit_submit : setup requirement (knit_with_setup) ----------
 
 @test "_knit_submit accepts a setup of the required type" {
-    local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
+    local setup_dir="${_KNIT_TEST_SETUP_ROOT}/setup"
     mkdir -p "${setup_dir}"
     printf 'mcenv\n' > "${setup_dir}/.setup.type"
     _test_job_fn() { :; }
@@ -204,13 +212,13 @@ _use_profile() {
 
     _KNIT_EXECUTING_COMMAND=("submit")
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
-    run _knit_submit --setup "${setup_dir}" -- myjob
+    run _knit_submit --setup "setup" -- myjob
     [ "$status" -eq 0 ]
     [ -d "${setup_dir}/jobs" ]
 }
 
 @test "_knit_submit rejects a setup built by a different type" {
-    local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
+    local setup_dir="${_KNIT_TEST_SETUP_ROOT}/setup"
     mkdir -p "${setup_dir}"
     printf 'otherenv\n' > "${setup_dir}/.setup.type"
     _test_job_fn() { :; }
@@ -220,14 +228,14 @@ _use_profile() {
 
     _KNIT_EXECUTING_COMMAND=("submit")
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
-    run _knit_submit --setup "${setup_dir}" -- myjob
+    run _knit_submit --setup "setup" -- myjob
     [ "$status" -ne 0 ]
     [[ "$output" == *"mcenv"* ]]
     [[ "$output" == *"otherenv"* ]]
 }
 
 @test "_knit_submit rejects a setup with no recorded type" {
-    local setup_dir="${_KNIT_TEST_TMPDIR}/setup"
+    local setup_dir="${_KNIT_TEST_SETUP_ROOT}/setup"
     mkdir -p "${setup_dir}"
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
@@ -236,7 +244,7 @@ _use_profile() {
 
     _KNIT_EXECUTING_COMMAND=("submit")
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
-    run _knit_submit --setup "${setup_dir}" -- myjob
+    run _knit_submit --setup "setup" -- myjob
     [ "$status" -ne 0 ]
     [[ "$output" == *"no recorded type"* ]]
 }
@@ -302,8 +310,7 @@ _use_profile() {
 # Materialize a minimal builtin "default" setup at the default path so a
 # neither-directive job can adopt it (a real one is instantiated by bootstrap).
 _seed_default_setup() {
-    _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/.knit"
-    local d="${_KNIT_TEST_TMPDIR}/setups/default"
+    local d="${_KNIT_TEST_SETUP_ROOT}/default"
     mkdir -p "${d}"
     printf 'default\n' > "${d}/.setup.type"
     printf 'deadbeef-dead-7ead-8ead-deaddeaddead\n' > "${d}/.setup.id"
@@ -341,7 +348,7 @@ _seed_default_setup() {
     # the default setup only when no --setup is given. Given an explicit --setup,
     # it has no declared type constraint, so any knit-built setup is accepted (no
     # type check against "default").
-    local setup_dir="${_KNIT_TEST_TMPDIR}/env"
+    local setup_dir="${_KNIT_TEST_SETUP_ROOT}/env"
     mkdir -p "${setup_dir}"
     printf 'env\n' > "${setup_dir}/.setup.type"
     printf '#!/usr/bin/env bash\n' > "${setup_dir}/.activate.sh"
@@ -356,7 +363,7 @@ _seed_default_setup() {
 
     _KNIT_EXECUTING_COMMAND=("submit")
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
-    run _knit_submit --setup "${setup_dir}" -- myjob
+    run _knit_submit --setup "env" -- myjob
     [ "$status" -eq 0 ]
 
     # The job runs in the given env setup, not the default: its batch script

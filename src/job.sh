@@ -19,8 +19,8 @@ _KNIT_JOBS_TABLE="jobs"
 
 knit_register _knit_submit "submit" "Submit a job."
 _knit_is_builtin
-knit_with_optional "setup:path" "" \
-    "Path to the setup to use (required if the job declares a setup type)."
+knit_with_optional "setup:string" "" \
+    "Name of the setup to use (required if the job declares a setup type)."
 # Identity. Empty defaults are the "not set" sentinel: _knit_sched_resolve fills
 # them from bootstrap metadata, the machine profile, or a hard-coded fallback.
 knit_with_optional "job-name:string" "" \
@@ -60,14 +60,20 @@ knit_with_output "native-cmd:string" "" \
 #
 # Usage:
 # ```
-# ./exp.sh submit --setup /path/to/setup [sched-args...] -- job-name [args...]
+# ./exp.sh submit --setup <setup-name> [sched-args...] -- job-name [args...]
 # ```
 # ------------------------------------------------------------------------------
 _knit_submit() {
-    # --setup is optional: it is required only for jobs that declare a setup
+    # --setup is optional and, when given, names a setup instance under the
+    # experiment's setup root (resolved to <setup-root>/<name> via
+    # _knit_setup_name_to_path). It is required only for jobs that declare a setup
     # type (see knit_with_setup), so a missing value is not an error here.
-    local setup_path
-    setup_path=$(knit_get_parameter "setup" "$@") || setup_path=""
+    local setup_name
+    setup_name=$(knit_get_parameter "setup" "$@") || setup_name=""
+    local setup_path=""
+    if [[ -n "${setup_name}" ]]; then
+        _knit_setup_name_to_path setup_path "${setup_name}"
+    fi
 
     # Extract extra args (after --): the job name and its arguments.
     local args=("$@")

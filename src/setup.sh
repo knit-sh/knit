@@ -343,6 +343,27 @@ _knit_validate_instance_name() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_setup_name_to_path()
+#
+# Resolve a setup instance name into its absolute directory under the experiment's
+# setup root: `<setup-root>/<name>` (see _knit_setup_root). The name is validated
+# as a single path component first (fatal otherwise). This is how a --setup value
+# is resolved for jobs, plain commands, and apps: users refer to a setup by the
+# name they gave `knit setup --name`, not by its on-disk path.
+#
+# @param __knit_ret Name of the variable to hold the resolved setup directory.
+# @param name       The setup instance name (as passed to --setup).
+# ------------------------------------------------------------------------------
+_knit_setup_name_to_path() {
+    local -n __knit_ret=$1
+    local name="$2"
+    _knit_validate_instance_name "${name}"
+    local root
+    _knit_setup_root root
+    __knit_ret="${root}/${name}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_default_setup_path()
 #
 # Print the directory where bootstrap instantiates the builtin "default" setup:
@@ -427,11 +448,13 @@ _knit_setup_check_type() {
 # @fn _knit_setup_dep_resolve_path()
 #
 # Resolve the setup directory a knit_with_setup command depends on, by precedence:
-# the command's --setup option, else an already-set KNIT_SETUP_PREFIX (e.g. an app
-# running inside a job inherits the job's setup), else — only when the required
-# type is the builtin "default" — the auto-instantiated default setup path. Prints
-# the resolved path (empty when nothing resolves). Shared by the before- and
-# after-callbacks so they always agree on which directory is referenced.
+# the command's --setup option (a setup instance *name*, resolved to
+# `<setup-root>/<name>` via _knit_setup_name_to_path), else an already-set
+# KNIT_SETUP_PREFIX (an absolute path, e.g. an app running inside a job inherits
+# the job's setup), else — only when the required type is the builtin "default" —
+# the auto-instantiated default setup path. Prints the resolved path (empty when
+# nothing resolves). Shared by the before- and after-callbacks so they always
+# agree on which directory is referenced.
 #
 # @param required Setup type the dependency must have been built by. Remaining
 #                 arguments are the command's own runtime arguments, scanned for
@@ -440,11 +463,16 @@ _knit_setup_check_type() {
 _knit_setup_dep_resolve_path() {
     local required="$1"
     shift
-    local setup_path
-    setup_path=$(knit_get_parameter "setup" "$@") || setup_path=""
-    [[ -z "${setup_path}" ]] && setup_path="${KNIT_SETUP_PREFIX:-}"
-    if [[ -z "${setup_path}" && "${required}" == "default" ]]; then
-        setup_path="$(_knit_default_setup_path)"
+    local setup_name
+    setup_name=$(knit_get_parameter "setup" "$@") || setup_name=""
+    local setup_path=""
+    if [[ -n "${setup_name}" ]]; then
+        _knit_setup_name_to_path setup_path "${setup_name}"
+    else
+        setup_path="${KNIT_SETUP_PREFIX:-}"
+        if [[ -z "${setup_path}" && "${required}" == "default" ]]; then
+            setup_path="$(_knit_default_setup_path)"
+        fi
     fi
     printf '%s\n' "${setup_path}"
 }
@@ -629,8 +657,8 @@ knit_with_setup() {
     # edge (the consumer's row id, the edge target, is resolved only from push
     # time on, so the edge is emitted after the body rather than in the
     # before-callback).
-    knit_with_optional "setup:path" "" \
-        "Path to a setup built by the \"${setup_type}\" setup."
+    knit_with_optional "setup:string" "" \
+        "Name of a setup built by the \"${setup_type}\" setup."
     _knit_run_before _knit_setup_dep_before_cb "${setup_type}"
     _knit_run_after  _knit_setup_dep_after_cb "${setup_type}"
 }

@@ -14,6 +14,12 @@ setup() {
     _KNIT_JQ_EXE="jq"
     _KNIT_TEST_TMPDIR="$(mktemp -d)"
 
+    # Pin the experiment root so a --setup name resolves deterministically under
+    # <experiment-root>/setups (the __setup_path__ fallback).
+    _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/.knit"
+    mkdir -p "${_KNIT_PREFIX}"
+    _KNIT_TEST_SETUP_ROOT="${_KNIT_TEST_TMPDIR}/setups"
+
     # Force the local backend regardless of what scheduler happens to be
     # installed on the test host: detection's "<unknown>" degrades to local.
     _KNIT_DETECTED_JOB_MANAGER="<unknown>"
@@ -165,7 +171,7 @@ teardown() {
     # tests.
     _knit_submit_local() { printf '9999\n'; }
 
-    local setup="${_KNIT_TEST_TMPDIR}/setup"
+    local setup="${_KNIT_TEST_SETUP_ROOT}/setup"
     mkdir -p "${setup}"
     printf 'mcenv\n' > "${setup}/.setup.type"
     KNIT_SCRIPT_PATH="/fake/exp.sh"
@@ -187,7 +193,7 @@ teardown() {
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
 
     local out
-    out="$(_knit_submit --setup "${setup}" --nodes 2 -- myjob)"
+    out="$(_knit_submit --setup "setup" --nodes 2 -- myjob)"
 
     local jobdir
     jobdir="$(find "${setup}/jobs" -mindepth 1 -maxdepth 1 -type d)"

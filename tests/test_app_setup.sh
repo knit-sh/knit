@@ -4,6 +4,7 @@ setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
     knit_test_require_sqlite
     knit_test_db_setup
+    _knit_create_metadata_table
 
     # Start from a clean run/job environment so nothing leaks between tests.
     unset KNIT_JOB_PREFIX KNIT_RUN_ID KNIT_SETUP_PREFIX MC_SEED
@@ -11,15 +12,23 @@ setup() {
     _KNIT_RECORDING_SUPPRESSED=""
     KNIT_SCRIPT_PATH="./exp.sh"
 
-    # A throwaway setup prefix whose .activate.sh must NOT be re-sourced by the
-    # worker (the app inherits the job's already-live, possibly-modified env).
-    KNIT_TEST_SETUP_DIR="$(mktemp -d)"
+    # Pin the experiment root so a --setup name resolves under
+    # <experiment-root>/setups. KNIT_TEST_SETUP_DIR is a setup instance named
+    # KNIT_TEST_SETUP_NAME there: tests reference it by name via --setup, or by
+    # path when standing it up directly as the ambient KNIT_SETUP_PREFIX (whose
+    # .activate.sh must NOT be re-sourced by the worker).
+    _KNIT_TEST_TMPDIR="$(mktemp -d)"
+    _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/.knit"
+    mkdir -p "${_KNIT_PREFIX}"
+    KNIT_TEST_SETUP_NAME="seedenv"
+    KNIT_TEST_SETUP_DIR="${_KNIT_TEST_TMPDIR}/setups/${KNIT_TEST_SETUP_NAME}"
+    mkdir -p "${KNIT_TEST_SETUP_DIR}"
 }
 
 teardown() {
     unset KNIT_JOB_PREFIX KNIT_RUN_ID KNIT_SETUP_PREFIX MC_SEED
     _KNIT_RECORDING_SUPPRESSED=""
-    [[ -n "${KNIT_TEST_SETUP_DIR:-}" ]] && rm -rf "${KNIT_TEST_SETUP_DIR}"
+    [[ -n "${_KNIT_TEST_TMPDIR:-}" ]] && rm -rf "${_KNIT_TEST_TMPDIR}"
     knit_test_db_teardown
 }
 
@@ -116,7 +125,7 @@ _register_seeded_app() {
     export KNIT_RUN_ID="aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"
     unset KNIT_SETUP_PREFIX MC_SEED
 
-    _knit_run_worker -- seeded --setup "${KNIT_TEST_SETUP_DIR}"
+    _knit_run_worker -- seeded --setup "${KNIT_TEST_SETUP_NAME}"
 
     # The before-callback sourced the setup's .activate.sh in this shell.
     [ "${MC_SEED}" = "7" ]
@@ -135,7 +144,7 @@ _register_seeded_app() {
     export KNIT_RUN_ID="aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"
     unset KNIT_SETUP_PREFIX MC_SEED
 
-    run _knit_run_worker -- seeded --setup "${KNIT_TEST_SETUP_DIR}"
+    run _knit_run_worker -- seeded --setup "${KNIT_TEST_SETUP_NAME}"
     [ "$status" -ne 0 ]
     [[ "$output" == *"mcenv"* ]]
     [[ "$output" == *"otherenv"* ]]
