@@ -72,7 +72,7 @@
 # The usage line reflects the real grammar
 # (`submit [OPTIONS] -- montecarlo [OPTIONS]`), and the help shows the
 # job/setup/app's own options, the enclosing `submit`/`setup`/`run` options (such
-# as `--setup` / `--path` / `--procs`), and — for any command declared with
+# as `--setup` / `--name` / `--procs`), and — for any command declared with
 # `knit_with_setup` — the setup type it requires. (`knit_with_setup` works on any
 # command now, not just jobs; a non-job command gains its own `--setup` option.)
 #
@@ -145,8 +145,21 @@
 # You can also configure the AI provider here with the --ai-* options (see step
 # 13); e.g. --ai-api-key-env OPENAI_API_KEY --ai-model gpt-4o-mini.
 #
+# Bootstrap also fixes where setups and jobs live. By default setups go under
+# ./setups and jobs under ./jobs — both relative to the experiment root (the
+# directory holding .knit), so the whole experiment stays relocatable. Override
+# either root with --setup-path / --job-path; an absolute value (e.g. a fast
+# scratch filesystem) is honored as-is but warned about, since it makes the
+# experiment harder to reproduce elsewhere:
+#
+#   ./full.sh bootstrap --project pi-demo --job-path /scratch/$USER/jobs
+#
+# The result is a clean three-way split: ./.knit holds knit's private tooling
+# (database, sqlite, spack), ./setups holds reproducible environments, and ./jobs
+# holds every job's working directory (steps 7–8).
+#
 # Bootstrap is one-shot: re-running it on an already-bootstrapped experiment is
-# an error. To start over, `rm -rf .knit` first.
+# an error. To start over, `rm -rf .knit setups jobs` first.
 #
 # -----------------------------------------------------------------------------
 # 3. Machine profiles
@@ -249,24 +262,29 @@
 # -----------------------------------------------------------------------------
 # 7. Create a setup (a reproducible environment)
 # -----------------------------------------------------------------------------
-#   ./full.sh setup --path ./env -- mcenv --seed 123
+#   ./full.sh setup --name env -- mcenv --seed 123
 #
-# A "setup" builds/prepares an environment in a directory and snapshots the
-# resulting shell environment into <dir>/.activate.sh. Here `mcenv` writes a
-# params file and exports MC_SEED / MC_SAMPLES. Note the `--` : arguments before
-# it configure `setup`; arguments after it are passed to the named setup.
+# A "setup" builds/prepares an environment and snapshots the resulting shell
+# environment into <dir>/.activate.sh. Setups are identified by NAME, not path:
+# `--name env` materializes it at <setup-root>/env — here ./setups/env (see the
+# --setup-path root from step 2). Here `mcenv` writes a params file and exports
+# MC_SEED / MC_SAMPLES. Note the `--` : arguments before it configure `setup`;
+# arguments after it are passed to the named setup.
 #
-#   cat env/.activate.sh        # the captured environment (sourced by jobs)
-#   cat env/params.txt          # written by the setup function
+#   cat setups/env/.activate.sh  # the captured environment (sourced by jobs)
+#   cat setups/env/params.txt    # written by the setup function
 #
-# The setup directory must not already exist; remove it to re-create it.
+# A name is a single path component (matching [A-Za-z0-9._-]); `default` is
+# reserved for the builtin default setup. Re-running `setup --name env -- mcenv`
+# is idempotent — it targets the same ./setups/env directory.
 #
 # -----------------------------------------------------------------------------
 # 8. Submit a job
 # -----------------------------------------------------------------------------
-#   ./full.sh submit --setup ./env --wait -- montecarlo --samples 50000
+#   ./full.sh submit --setup env --wait -- montecarlo --samples 50000
 #
-# `submit` generates a batch script under env/jobs/<uuid>/, submits it to the
+# `submit --setup env` selects the setup by NAME (resolved to ./setups/env).
+# `submit` generates a batch script under jobs/<uuid>/, submits it to the
 # detected scheduler (or runs it as a local background process), and prints the
 # job's UUID. On the compute node the job re-hydrates the setup environment
 # (sourcing .activate.sh, so MC_SEED/MC_SAMPLES are visible) and runs.
@@ -277,25 +295,35 @@
 # override the setup's values.
 #
 # `montecarlo` declares `knit_with_setup mcenv`, so it *requires* a setup built
-# by `mcenv`: `--setup` is mandatory and must point at an mcenv setup directory.
-# Point it at a directory built by another setup (or one that knit did not build)
-# and submit refuses up front with a clear type-mismatch error. A job that
-# declares no `knit_with_setup` still runs inside a setup: it adopts the builtin
-# `default` setup that bootstrap auto-instantiates (see below), so `--setup` is
-# optional and, when omitted, resolves to that default. A job may opt out with
-# `knit_without_setup` — then it runs with no setup and its job directory is
-# created under ./jobs/<uuid> instead.
+# by `mcenv`: `--setup` is mandatory and names an mcenv setup. Name a setup built
+# by another type (or one that knit did not build) and submit refuses up front
+# with a clear type-mismatch error. A job that declares no `knit_with_setup` still
+# runs inside a setup: it adopts the builtin `default` setup that bootstrap
+# auto-instantiates (see below), so `--setup` is optional and, when omitted,
+# resolves to that default. A job may opt out with `knit_without_setup` — then it
+# runs with no setup at all. Either way, the job directory is always ./jobs/<uuid>
+# (the --job-path root from step 2): every job lands in one place regardless of
+# which setup, if any, it uses.
 #
 #   --wait blocks until the job finishes. Without it, submit returns immediately
 #   and you poll the state yourself. Other options (see `submit --help`):
 #   --nodes, --walltime, --queue, --account, --gpus-per-node, --job-name.
 #
+# Give a job a stable alias with --name: it is recorded in the `name` column and
+# creates a convenience symlink jobs/<name> -> jobs/<uuid>. A name is validated
+# like a setup name, and a collision is fatal (names must stay stable because
+# they are persisted). --name is knit's own alias and is distinct from
+# --job-name, the scheduler-facing name (#SBATCH --job-name / #PBS -N):
+#
+#   ./full.sh submit --name nightly --setup env --wait -- montecarlo --samples 50000
+#   ls -l jobs/nightly            # symlink -> the job's <uuid> directory
+#
 # Capture the printed UUID and inspect the job directory:
 #
-#   uuid=$(./full.sh submit --setup ./env --wait -- montecarlo --samples 50000)
-#   cat env/jobs/$uuid/.stdout    # the job's output (pi estimate + host list)
-#   cat env/jobs/$uuid/.job.sh    # the generated batch script
-#   cat env/jobs/$uuid/.job.id    # the scheduler's job id (or local PID)
+#   uuid=$(./full.sh submit --setup env --wait -- montecarlo --samples 50000)
+#   cat jobs/$uuid/.stdout        # the job's output (pi estimate + host list)
+#   cat jobs/$uuid/.job.sh        # the generated batch script
+#   cat jobs/$uuid/.job.id        # the scheduler's job id (or local PID)
 #
 # Every submission is tracked in the `jobs` table, and its lifecycle
 # state advances submitted -> running -> completed (or -> killed if cancelled).
@@ -314,7 +342,7 @@
 #       --select "id, samples, seed, pi" --header --column
 #
 # The builtin `default` setup: bootstrap always instantiates one under
-# ./.knit/default. It builds nothing — it carries only the platform activation
+# ./setups/default. It builds nothing — it carries only the platform activation
 # (the ./.knit/platform.sh from a --profile bootstrap, empty otherwise) — and is
 # a normal setup in the DB and provenance graph. It exists so a job with no
 # `knit_with_setup` still inherits the platform environment automatically. A
@@ -329,7 +357,7 @@
 #
 #   ./full.sh job list                       # id, job, state for all jobs
 #   ./full.sh job list --status running      # only running jobs
-#   ./full.sh job list --setup ./env         # only jobs of this setup
+#   ./full.sh job list --setup env           # only jobs of this setup
 #   ./full.sh job list --no-setup            # only setup-less jobs
 #   ./full.sh job list --types montecarlo    # only jobs of these (comma-sep) types
 #   ./full.sh job list --json                # same listing as a JSON array
@@ -360,7 +388,7 @@
 # -----------------------------------------------------------------------------
 # 10. Launch an MPI application inside a job (knit run)
 # -----------------------------------------------------------------------------
-#   ./full.sh submit --setup ./env --wait -- mcparallel --procs 1
+#   ./full.sh submit --setup env --wait -- mcparallel --procs 1
 #
 # `mcparallel` is a job whose body calls `knit run` to launch the `mcrank` app.
 # `knit run` starts one process ("rank") per slot of the job's allocation, sets
@@ -382,7 +410,7 @@
 # submit with more nodes and a higher --procs to spread ranks across the
 # allocation:
 #
-#   ./full.sh submit --setup ./env --nodes 2 --wait -- mcparallel --procs 8
+#   ./full.sh submit --setup env --nodes 2 --wait -- mcparallel --procs 8
 #
 # On a machine bootstrapped with `--launcher none` (step 2), knit takes the MPI
 # launcher from a setup instead of the machine. A setup whose body puts an MPI on
@@ -440,7 +468,7 @@
 # Better still, a setup can DECLARE the environment it needs and let knit build
 # it. Build the `mclib` setup:
 #
-#   ./full.sh setup --path ./libenv -- mclib
+#   ./full.sh setup --name libenv -- mclib
 #
 # `mclib` is declared with `knit_with_spack_specs "zlib"`: knit writes a minimal
 # spack.yaml, builds and installs that environment as the setup's FIRST step,
@@ -450,7 +478,8 @@
 #   ./full.sh db query --from "setup:mclib" \
 #       --select "id, __spack_yaml__, __spack_lock__" --header --column
 #
-# The activation is baked into libenv/.activate.sh (a `spack env activate` block),
+# The activation is baked into setups/libenv/.activate.sh (a `spack env activate`
+# block),
 # so any job that requires this setup (declared with `knit_with_setup "mclib"`)
 # re-hydrates the Spack environment automatically — exactly like the
 # montecarlo/mcenv flow in steps 7–8, but with Spack-provided packages on the
@@ -547,7 +576,7 @@
 # Submit it (it requires the mcenv setup, so a used_by edge is recorded too),
 # then query the results three ways:
 #
-#   ./full.sh submit --setup ./env --wait -- sweep
+#   ./full.sh submit --setup env --wait -- sweep
 #
 # `knit query catalog` introspects the live database schema. A table owned by a
 # command is annotated with that command (e.g. the `jobs` table is owned by
@@ -594,9 +623,10 @@
 # -----------------------------------------------------------------------------
 # 15. Clean up
 # -----------------------------------------------------------------------------
-#   rm -rf .knit env libenv
+#   rm -rf .knit setups jobs
 #
-# Removes knit's private tooling, the database, and the setup/job directories.
+# Removes knit's private tooling and database (.knit), every setup (setups/), and
+# every job's working directory (jobs/).
 #
 # =============================================================================
 
