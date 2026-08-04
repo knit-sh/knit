@@ -198,8 +198,17 @@ _knit_submit() {
     # the login side, where the setup was resolved and validated; the job's row id
     # is this submission's UUID. Best-effort and gated like other provenance
     # writes (see _knit_setup_record_uses_edge).
+    #
+    # The edge target must be named after the command that owns the submission's
+    # table (the "submit" dispatcher, whose table is "jobs"), NOT the job
+    # subcommand: the row lives in "jobs", and a graph query resolves the node
+    # label through the name<->table map, so a "submit:<job>" name here would
+    # point the edge at the wrong table and make the used_by hop unmatchable.
+    # _KNIT_EXECUTING_COMMAND[-1] is that owning command (mirrors the non-job
+    # after-callback _knit_setup_dep_after_cb).
     if [[ -n "${setup_path}" ]]; then
-        _knit_setup_record_uses_edge "${setup_path}" "${subcmd}" "${uuid}"
+        _knit_setup_record_uses_edge "${setup_path}" \
+            "${_KNIT_EXECUTING_COMMAND[-1]}" "${uuid}"
     fi
 
     # Resolve the submission options (explicit args -> metadata -> profile ->

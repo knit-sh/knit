@@ -313,12 +313,14 @@ check_sqlite ".knit/knit.db" \
     "provenance has the 'run -> run:ranks' call edge (distinct ids)"
 
 # The shared setup's "used_by" edge: source is the setup body's id (read back from
-# .setup.id), target is the submission (jobs.id), with NULL timestamps.
+# .setup.id), target is the submission (jobs.id). The target is named for the
+# command that owns the jobs table ("submit"), not the job subcommand, so its
+# name and id agree on the same table; timestamps are NULL.
 setup_id=$(cat "${WORKDIR}/setups/env/.setup.id")
 check_sqlite ".knit/knit.db" \
     "SELECT source_name, target_name, start_time, end_time FROM __provenance__ WHERE edge_type='used_by' AND source_id='${setup_id}' AND target_id='${launch_uuid}';" \
-    "setup:env|submit:launch||" \
-    "provenance has the 'setup:env -> submit:launch' used_by edge (source_id == .setup.id, NULL times)"
+    "setup:env|submit||" \
+    "provenance has the 'setup:env -> submit' used_by edge (target named for the jobs table, source_id == .setup.id, NULL times)"
 
 # Full-graph connectedness: every non-bootstrap node reachable from one
 # submission. Treat edges as undirected (a call/used_by edge connects its two

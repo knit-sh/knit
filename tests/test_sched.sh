@@ -126,6 +126,38 @@ _use_profile() {
     knit_type_check "uuid" "${name}"
 }
 
+# ---------- _knit_submit : used_by provenance edge ----------
+
+@test "_knit_submit names the used_by edge for the jobs-table command, not the job subcommand" {
+    # Regression guard: the submission row lives in the "jobs" table (owned by the
+    # "submit" command), so the used_by edge's target name must be "submit" — the
+    # jobs-table owner in knit query's name<->table map — not "submit:<job>" (the
+    # body table). If the name and target id name different tables, the
+    # setup -> job hop cannot be matched by knit query graph.
+    local setup_dir="${_KNIT_TEST_SETUP_ROOT}/setup"
+    mkdir -p "${setup_dir}"
+    printf 'mcenv\n' > "${setup_dir}/.setup.type"
+    printf 'setup-uuid-1\n' > "${setup_dir}/.setup.id"
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_with_setup "mcenv"
+    knit_done
+
+    _knit_db_setup_table "submit" "jobs"
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+    _knit_submit --setup "setup" -- myjob
+
+    local uuid
+    uuid=$(find "${_KNIT_TEST_TMPDIR}/jobs" -mindepth 1 -maxdepth 1 -type d -printf '%f\n')
+
+    # Exactly one used_by edge: setup -> submission, named for the jobs table.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT source_id,source_name,target_id,target_name,edge_type FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" \
+        = "setup-uuid-1|setup:mcenv|${uuid}|submit|used_by" ]
+}
+
 # ---------- _knit_submit : --name alias ----------
 
 @test "_knit_submit --name creates an alias symlink and records the name" {

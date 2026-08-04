@@ -66,7 +66,7 @@ check_grep "analyze marker: env-built" "${jobdir}/.stdout" \
 
 # --------------------------------------------------------------------------
 # The recorded shape we will query:
-#   used_by : (setup env) -> (submission = jobs.id, name submit:analyze)
+#   used_by : (setup env) -> (submission = jobs.id, name submit)
 #   call    : (jobs.id, submit) -> (body_id, submit:analyze)
 #   call    : (body_id, submit:analyze) -> (step_id, step)  alias fast/slow
 # --------------------------------------------------------------------------
@@ -86,12 +86,21 @@ check_eq "$(graph_scalar 'MATCH (j:submit)-[:call]->(a:analyze) RETURN j.job')" 
     "query resolves the submit->jobs name map and crosses to the body"
 
 # 2. used_by edge: reach the submission from the setup and return the setup id.
-#    The target keeps its recorded name (submit:analyze) but its columns are not
-#    projected, so only the name predicate applies (no id join to the body).
+#    The edge target is named for the "submit" command that owns the "jobs" table,
+#    so its name and id agree on that table — the hop matches as (:submit).
 # shellcheck disable=SC2016 # backticks are literal Cypher label quotes, not command substitution
-check_eq "$(graph_scalar 'MATCH (s:`setup:env`)-[:used_by]->(a:analyze) RETURN s.id')" \
+check_eq "$(graph_scalar 'MATCH (s:`setup:env`)-[:used_by]->(j:submit) RETURN s.id')" \
     "${setup_id}" \
-    "query traverses the used_by edge from the setup to the job"
+    "query traverses the used_by edge from the setup to the submission"
+
+# 3. Because the fixed edge's name and id both point at the jobs table, the
+#    target's own columns project through the used_by hop — the job name recorded
+#    on the submission. The old mislabelled edge (jobs id, body-table name) could
+#    not do this: the id join to the named table found no row.
+# shellcheck disable=SC2016 # backticks are literal Cypher label quotes, not command substitution
+check_eq "$(graph_scalar 'MATCH (s:`setup:env`)-[:used_by]->(j:submit) RETURN j.job')" \
+    "analyze" \
+    "the used_by target projects jobs columns (name and id agree on the jobs table)"
 
 # 3. knit_as alias, inline relationship-property spelling (knit-graph lowers the
 #    inline {alias:'...'} map to the same predicate as the WHERE form).
