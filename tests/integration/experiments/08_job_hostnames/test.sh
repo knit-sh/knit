@@ -34,8 +34,8 @@ cd "${WORKDIR}"
 ./experiment.sh bootstrap --project "integration-test-08"
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
-./experiment.sh setup --path "${WORKDIR}/env" -- env
-check_file "env/.activate.sh" "setup produced .activate.sh"
+./experiment.sh setup --name env -- env
+check_file "setups/env/.activate.sh" "setup produced .activate.sh"
 
 # --------------------------------------------------------------------------
 # Detect the scheduler so assertions match the backend knit auto-detects.
@@ -51,10 +51,10 @@ fi
 # --------------------------------------------------------------------------
 # Submit across two nodes and block until completion.
 # --------------------------------------------------------------------------
-uuid=$(./experiment.sh submit --setup "${WORKDIR}/env" --nodes 2 --wait -- hosts)
+uuid=$(./experiment.sh submit --setup env --nodes 2 --wait -- hosts)
 
-jobdir=$(find "${WORKDIR}/env/jobs" -mindepth 1 -maxdepth 1 -type d | head -1)
-[[ -n "${jobdir}" ]] || fail "no job directory created under env/jobs"
+jobdir=$(find "${WORKDIR}/jobs" -mindepth 1 -maxdepth 1 -type d | head -1)
+[[ -n "${jobdir}" ]] || fail "no job directory created under jobs"
 check_eq "${uuid}" "$(basename "${jobdir}")" \
     "submit prints the job UUID (the job directory name)"
 

@@ -31,14 +31,14 @@ cd "${WORKDIR}"
 SQLITE="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 export __ASSERT_SQLITE3="${SQLITE}"
 
-./experiment.sh setup --path "${WORKDIR}/env" -- env
-check_file "env/.activate.sh" "setup produced .activate.sh"
+./experiment.sh setup --name env -- env
+check_file "setups/env/.activate.sh" "setup produced .activate.sh"
 
 # --------------------------------------------------------------------------
 # Submit the worker WITHOUT --wait so it runs asynchronously.
 # --------------------------------------------------------------------------
-uuid=$(./experiment.sh submit --setup "${WORKDIR}/env" -- worker)
-jobdir="${WORKDIR}/env/jobs/${uuid}"
+uuid=$(./experiment.sh submit --setup env -- worker)
+jobdir="${WORKDIR}/jobs/${uuid}"
 check_file "${jobdir}/.job.id" "launcher job id recorded"
 
 state_of() {

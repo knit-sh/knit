@@ -44,14 +44,14 @@ check_exec ".knit/knit-graph/bin/knit-graph" \
 # Build the setup, then submit a job that consumes it. --wait blocks until the
 # job has run to completion on a compute node.
 # --------------------------------------------------------------------------
-./experiment.sh setup --path "${WORKDIR}/envdir" -- env
-check_file "envdir/.activate.sh" "setup produced .activate.sh"
-check_file "envdir/.setup.id" "setup recorded its row id in .setup.id"
+./experiment.sh setup --name envdir -- env
+check_file "setups/envdir/.activate.sh" "setup produced .activate.sh"
+check_file "setups/envdir/.setup.id" "setup recorded its row id in .setup.id"
 
-uuid=$(./experiment.sh submit --setup "${WORKDIR}/envdir" --wait -- analyze)
+uuid=$(./experiment.sh submit --setup envdir --wait -- analyze)
 
-jobdir=$(find "${WORKDIR}/envdir/jobs" -mindepth 1 -maxdepth 1 -type d | head -1)
-[[ -n "${jobdir}" ]] || fail "no job directory created under envdir/jobs"
+jobdir=$(find "${WORKDIR}/jobs" -mindepth 1 -maxdepth 1 -type d | head -1)
+[[ -n "${jobdir}" ]] || fail "no job directory created under jobs"
 check_eq "${uuid}" "$(basename "${jobdir}")" \
     "submit prints the job UUID (the job directory name)"
 
@@ -70,7 +70,7 @@ check_grep "analyze marker: env-built" "${jobdir}/.stdout" \
 #   call    : (jobs.id, submit) -> (body_id, submit:analyze)
 #   call    : (body_id, submit:analyze) -> (step_id, step)  alias fast/slow
 # --------------------------------------------------------------------------
-setup_id=$(cat "${WORKDIR}/envdir/.setup.id")
+setup_id=$(cat "${WORKDIR}/setups/envdir/.setup.id")
 
 # graph_scalar <cypher>: run one query and normalise the single scalar result
 # (knit query graph writes results to stdout, logs to stderr; strip any CR).

@@ -45,10 +45,10 @@ check_file ".knit/spack/bin/spack" \
 # Build the Spack-backed setup. knit writes spack.yaml, installs the env, and
 # activates it; the setup body then runs with zlib on the environment.
 # --------------------------------------------------------------------------
-./experiment.sh setup --path "${WORKDIR}/zenv" -- zlibenv
+./experiment.sh setup --name zenv -- zlibenv
 
-check_file "zenv/.activate.sh" "setup produced .activate.sh"
-check_grep "spack env activate" "zenv/.activate.sh" \
+check_file "setups/zenv/.activate.sh" "setup produced .activate.sh"
+check_grep "spack env activate" "setups/zenv/.activate.sh" \
     ".activate.sh re-activates the Spack environment"
 
 # Provenance: the setup row captured the concrete manifest + lockfile. The table
@@ -74,10 +74,10 @@ fi
 # --------------------------------------------------------------------------
 # Submit a job that requires the setup; it must re-hydrate the Spack env.
 # --------------------------------------------------------------------------
-uuid=$(./experiment.sh submit --setup "${WORKDIR}/zenv" --wait -- zcheck)
+uuid=$(./experiment.sh submit --setup zenv --wait -- zcheck)
 
-jobdir=$(find "${WORKDIR}/zenv/jobs" -mindepth 1 -maxdepth 1 -type d | head -1)
-[[ -n "${jobdir}" ]] || fail "no job directory created under zenv/jobs"
+jobdir=$(find "${WORKDIR}/jobs" -mindepth 1 -maxdepth 1 -type d | head -1)
+[[ -n "${jobdir}" ]] || fail "no job directory created under jobs"
 
 check_eq "${uuid}" "$(basename "${jobdir}")" \
     "submit prints the job UUID (the job directory name)"
@@ -104,8 +104,8 @@ check_grep "zlib: found" "${jobdir}/.stdout" \
 #            setup:zlibenv), target = this submission (jobs.id; name
 #            submit:zcheck), with NULL timestamps (a reference, not a call).
 # --------------------------------------------------------------------------
-setup_id=$(cat "${WORKDIR}/zenv/.setup.id")
-check_file "${WORKDIR}/zenv/.setup.id" "setup recorded its row id in .setup.id"
+setup_id=$(cat "${WORKDIR}/setups/zenv/.setup.id")
+check_file "${WORKDIR}/setups/zenv/.setup.id" "setup recorded its row id in .setup.id"
 check_sqlite ".knit/knit.db" \
     "SELECT source_id, source_name, target_id, target_name, start_time, end_time FROM __provenance__ WHERE edge_type='used_by';" \
     "${setup_id}|setup:zlibenv|${uuid}|submit:zcheck||" \

@@ -82,10 +82,10 @@ check_grep "buildable: false" ".knit/packages.yaml" \
 # merges .knit/packages.yaml, and installs. gmake is buildable: false, so a
 # successful install can only mean the external was used.
 # --------------------------------------------------------------------------
-./experiment.sh setup --path "${WORKDIR}/genv" -- makeenv
+./experiment.sh setup --name genv -- makeenv
 
-check_file "genv/.activate.sh" "setup produced .activate.sh"
-ENV_DIR="${WORKDIR}/genv/spack-env"
+check_file "setups/genv/.activate.sh" "setup produced .activate.sh"
+ENV_DIR="${WORKDIR}/setups/genv/spack-env"
 check_file "${ENV_DIR}/spack.lock" "setup concretized the Spack environment"
 
 # --------------------------------------------------------------------------

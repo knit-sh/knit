@@ -5,7 +5,7 @@
 # machine profile whose knit-marker module sets KNIT_MODULE_MARKER (the stand-in
 # for "the platform environment is visible"):
 #
-#   - bootstrap auto-instantiates the default setup under .knit/default, inlining
+#   - bootstrap auto-instantiates the default setup under setups/default, inlining
 #     the platform activation into its .activate.sh and recording a setup row.
 #   - a job declaring NEITHER directive adopts the default setup and sees the
 #     marker on the compute node.
@@ -56,11 +56,11 @@ export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 # Bootstrap materialized the default setup: an .activate.sh inlining the platform
 # activation, a recorded type, and a row in the setup table.
 # --------------------------------------------------------------------------
-check_file ".knit/default/.activate.sh" \
+check_file "setups/default/.activate.sh" \
     "bootstrap materialized the default setup's .activate.sh"
-check_grep "module load knit-marker" ".knit/default/.activate.sh" \
+check_grep "module load knit-marker" "setups/default/.activate.sh" \
     "default setup .activate.sh inlines the platform module load"
-check_grep "^default\$" ".knit/default/.setup.type" \
+check_grep "^default\$" "setups/default/.setup.type" \
     "default setup directory records its type"
 check_sqlite ".knit/knit.db" \
     "SELECT COUNT(*) FROM [setup:default];" \
@@ -69,11 +69,12 @@ check_sqlite ".knit/knit.db" \
 
 # --------------------------------------------------------------------------
 # Case 1: a job that declares no setup adopts the default setup and sees the
-# marker on the compute node. Its job directory lives under the default setup.
+# marker on the compute node. Its job directory lives under the unified jobs
+# root (every job does, regardless of the setup it adopts).
 # --------------------------------------------------------------------------
-./experiment.sh submit --wait -- adopt >/dev/null
-jobdir=$(find "${WORKDIR}/.knit/default/jobs" -mindepth 1 -maxdepth 1 -type d | head -1)
-[[ -n "${jobdir}" ]] || fail "no job directory created under the default setup"
+adopt_uuid=$(./experiment.sh submit --wait -- adopt)
+jobdir="${WORKDIR}/jobs/${adopt_uuid}"
+[[ -d "${jobdir}" ]] || fail "no job directory created for the adopting job"
 for _ in $(seq 1 30); do
     [[ -s "${jobdir}/.stdout" ]] && break
     sleep 1
@@ -84,12 +85,12 @@ check_grep "^marker: loaded\$" "${jobdir}/.stdout" \
 
 # --------------------------------------------------------------------------
 # Case 2: the same body with knit_without_setup runs with no setup. Its job
-# directory lives under jobs/ in the experiment dir (no setup), and it must NOT
-# see the marker.
+# directory lives under the same unified jobs root, and it must NOT see the
+# marker.
 # --------------------------------------------------------------------------
-./experiment.sh submit --wait -- optout >/dev/null
-optdir=$(find "${WORKDIR}/jobs" -mindepth 1 -maxdepth 1 -type d | head -1)
-[[ -n "${optdir}" ]] || fail "no job directory created for the opted-out job"
+optout_uuid=$(./experiment.sh submit --wait -- optout)
+optdir="${WORKDIR}/jobs/${optout_uuid}"
+[[ -d "${optdir}" ]] || fail "no job directory created for the opted-out job"
 for _ in $(seq 1 30); do
     [[ -s "${optdir}/.stdout" ]] && break
     sleep 1

@@ -43,8 +43,8 @@ cd "${WORKDIR}"
 ./experiment.sh bootstrap --project "integration-test-09"
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
-./experiment.sh setup --path "${WORKDIR}/env" -- env
-check_file "env/.activate.sh" "setup produced .activate.sh"
+./experiment.sh setup --name env -- env
+check_file "setups/env/.activate.sh" "setup produced .activate.sh"
 
 # --------------------------------------------------------------------------
 # Detect the scheduler so assertions match the backend knit auto-detects.
@@ -172,10 +172,10 @@ fi
 # Job 1: "launch" — 4 ranks, 2 per node, spread across both allocated nodes,
 # with the auto-detected MPI-native launcher (OpenMPI / MPICH).
 # ==========================================================================
-launch_uuid=$(./experiment.sh submit --setup "${WORKDIR}/env" --nodes 2 --wait \
+launch_uuid=$(./experiment.sh submit --setup env --nodes 2 --wait \
     -- launch --procs 4 --procs-per-node 2)
 
-launch_dir="${WORKDIR}/env/jobs/${launch_uuid}"
+launch_dir="${WORKDIR}/jobs/${launch_uuid}"
 check_dir "${launch_dir}" "launch job directory created"
 check_sqlite ".knit/knit.db" \
     "SELECT state FROM jobs WHERE id='${launch_uuid}';" \
@@ -240,10 +240,10 @@ check_sqlite ".knit/knit.db" \
 # scheduler-integrated launcher (srun on Slurm, PBS mpiexec on PBS), to
 # confirm the explicit --launcher path works end to end on a live cluster.
 # ==========================================================================
-integ_uuid=$(./experiment.sh submit --setup "${WORKDIR}/env" --nodes 2 --wait \
+integ_uuid=$(./experiment.sh submit --setup env --nodes 2 --wait \
     -- launch --launcher "${INTEGRATED_LAUNCHER}" --procs 4 --procs-per-node 2)
 
-integ_dir="${WORKDIR}/env/jobs/${integ_uuid}"
+integ_dir="${WORKDIR}/jobs/${integ_uuid}"
 check_dir "${integ_dir}" "integrated-launcher job directory created"
 check_sqlite ".knit/knit.db" \
     "SELECT state FROM jobs WHERE id='${integ_uuid}';" \
@@ -256,10 +256,10 @@ check_ranks_layout "${integ_dir}/.stdout" 4 2 \
 # ==========================================================================
 # Job 3: "subset" — restrict a 2-rank run to a single allocated host.
 # ==========================================================================
-subset_uuid=$(./experiment.sh submit --setup "${WORKDIR}/env" --nodes 2 --wait \
+subset_uuid=$(./experiment.sh submit --setup env --nodes 2 --wait \
     -- subset)
 
-subset_dir="${WORKDIR}/env/jobs/${subset_uuid}"
+subset_dir="${WORKDIR}/jobs/${subset_uuid}"
 check_dir "${subset_dir}" "subset job directory created"
 
 wait_for_ranks "${subset_dir}/.stdout" 2
@@ -314,7 +314,7 @@ check_sqlite ".knit/knit.db" \
 
 # The shared setup's "used_by" edge: source is the setup body's id (read back from
 # .setup.id), target is the submission (jobs.id), with NULL timestamps.
-setup_id=$(cat "${WORKDIR}/env/.setup.id")
+setup_id=$(cat "${WORKDIR}/setups/env/.setup.id")
 check_sqlite ".knit/knit.db" \
     "SELECT source_name, target_name, start_time, end_time FROM __provenance__ WHERE edge_type='used_by' AND source_id='${setup_id}' AND target_id='${launch_uuid}';" \
     "setup:env|submit:launch||" \

@@ -105,21 +105,21 @@ check_sqlite ".knit/knit.db" \
 # LAPTOP_MPI_MODULE tells the (cluster-agnostic) experiment which module to load.
 # ==========================================================================
 export LAPTOP_MPI_MODULE="${MOD_MPI}"
-./experiment.sh setup --path "${WORKDIR}/lmpi" -- lmpi
+./experiment.sh setup --name lmpi -- lmpi
 
-check_file "lmpi/.activate.sh" "lmpi setup produced .activate.sh"
-check_grep "export KNIT_PROVIDED_LAUNCHER=${MOD_MPI}" "lmpi/.activate.sh" \
+check_file "setups/lmpi/.activate.sh" "lmpi setup produced .activate.sh"
+check_grep "export KNIT_PROVIDED_LAUNCHER=${MOD_MPI}" "setups/lmpi/.activate.sh" \
     "setup froze the module MPI (${MOD_MPI}) as the launcher contract"
-check_grep "${MOD_PREFIX}/bin" "lmpi/.activate.sh" \
+check_grep "${MOD_PREFIX}/bin" "setups/lmpi/.activate.sh" \
     "setup froze the module-modified PATH (${MOD_PREFIX}/bin) into .activate.sh"
 
 # ==========================================================================
 # Submit the job. It requires the lmpi setup; `knit run` resolves the launcher
 # from the frozen KNIT_PROVIDED_LAUNCHER contract and launches 4 ranks.
 # ==========================================================================
-job_uuid=$(./experiment.sh submit --setup "${WORKDIR}/lmpi" --nodes 2 --wait -- laptop)
-jobdir="${WORKDIR}/lmpi/jobs/${job_uuid}"
-check_dir "${jobdir}" "job directory created under the lmpi setup"
+job_uuid=$(./experiment.sh submit --setup lmpi --nodes 2 --wait -- laptop)
+jobdir="${WORKDIR}/jobs/${job_uuid}"
+check_dir "${jobdir}" "job directory created (lmpi setup)"
 
 wait_for_ranks "${jobdir}/.stdout" 4
 check_file "${jobdir}/.stdout" "laptop job stdout captured"

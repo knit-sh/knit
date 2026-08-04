@@ -71,20 +71,20 @@ check_grep "^module load knit-marker ${MPI_MODULE}" ".knit/platform.sh" \
 # --------------------------------------------------------------------------
 # Run the setup; its .activate.sh must inline the platform activation at the top.
 # --------------------------------------------------------------------------
-./experiment.sh setup --path "${WORKDIR}/menv" -- modenv
+./experiment.sh setup --name menv -- modenv
 
-check_file "menv/.activate.sh" "setup produced .activate.sh"
-check_grep "module load knit-marker ${MPI_MODULE}" "menv/.activate.sh" \
+check_file "setups/menv/.activate.sh" "setup produced .activate.sh"
+check_grep "module load knit-marker ${MPI_MODULE}" "setups/menv/.activate.sh" \
     ".activate.sh inlines the platform module load"
 
 # --------------------------------------------------------------------------
 # Submit a job that requires the setup; it re-hydrates .activate.sh (and thus
 # the module environment) on the compute node.
 # --------------------------------------------------------------------------
-uuid=$(./experiment.sh submit --setup "${WORKDIR}/menv" --wait -- modcheck)
+uuid=$(./experiment.sh submit --setup menv --wait -- modcheck)
 
-jobdir=$(find "${WORKDIR}/menv/jobs" -mindepth 1 -maxdepth 1 -type d | head -1)
-[[ -n "${jobdir}" ]] || fail "no job directory created under menv/jobs"
+jobdir=$(find "${WORKDIR}/jobs" -mindepth 1 -maxdepth 1 -type d | head -1)
+[[ -n "${jobdir}" ]] || fail "no job directory created under jobs"
 check_eq "${uuid}" "$(basename "${jobdir}")" \
     "submit prints the job UUID (the job directory name)"
 

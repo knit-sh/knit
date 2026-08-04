@@ -141,8 +141,8 @@ check_sqlite ".knit/knit.db" \
     "mpiA: no-launcher profile detected the system MPI (${SYS_MPI})"
 
 a_uuid=$(./experiment.sh submit --nodes 2 --wait -- run4)
-a_dir="${A}/.knit/default/jobs/${a_uuid}"
-check_dir "${a_dir}" "mpiA: job directory created under the default setup"
+a_dir="${A}/jobs/${a_uuid}"
+check_dir "${a_dir}" "mpiA: job directory created (default setup adopted)"
 check_probe_ranks "${a_dir}/.stdout" "mpiA"
 
 mapfile -t a_fl < <(probe_field "${a_dir}/.stdout" FLAVOR | sort -u)
@@ -180,8 +180,8 @@ check_sqlite ".knit/knit.db" \
     "mpiB: profile selected the module launcher (${MOD_MPI})"
 
 b_uuid=$(./experiment.sh submit --nodes 2 --wait -- run4)
-b_dir="${B}/.knit/default/jobs/${b_uuid}"
-check_dir "${b_dir}" "mpiB: job directory created under the default setup"
+b_dir="${B}/jobs/${b_uuid}"
+check_dir "${b_dir}" "mpiB: job directory created (default setup adopted)"
 check_probe_ranks "${b_dir}/.stdout" "mpiB"
 
 mapfile -t b_fl < <(probe_field "${b_dir}/.stdout" FLAVOR | sort -u)
@@ -225,14 +225,14 @@ check_sqlite ".knit/knit.db" \
 
 # Instantiate the "frozen" setup: knit_provides_launcher detects and freezes the
 # system MPI (nothing built, so its PATH is the login node's system MPI).
-./experiment.sh setup --path "${C}/frozen" -- frozen
-check_file "frozen/.activate.sh" "beats: frozen setup produced .activate.sh"
-check_grep "export KNIT_PROVIDED_LAUNCHER=${SYS_MPI}" "frozen/.activate.sh" \
+./experiment.sh setup --name frozen -- frozen
+check_file "setups/frozen/.activate.sh" "beats: frozen setup produced .activate.sh"
+check_grep "export KNIT_PROVIDED_LAUNCHER=${SYS_MPI}" "setups/frozen/.activate.sh" \
     "beats: setup froze the system MPI (${SYS_MPI}) as the launcher contract"
 
-c_uuid=$(./experiment.sh submit --setup "${C}/frozen" --nodes 2 --wait -- run4frozen)
-c_dir="${C}/frozen/jobs/${c_uuid}"
-check_dir "${c_dir}" "beats: job directory created under the frozen setup"
+c_uuid=$(./experiment.sh submit --setup frozen --nodes 2 --wait -- run4frozen)
+c_dir="${C}/jobs/${c_uuid}"
+check_dir "${c_dir}" "beats: job directory created (frozen setup)"
 check_probe_ranks "${c_dir}/.stdout" "beats"
 
 c_run=$(run_uuid_for_job "${SQC}" "${C}/.knit/knit.db" "${c_uuid}" "run4frozen")
