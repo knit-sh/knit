@@ -244,6 +244,13 @@ RUN cd /tmp && \
     cd /tmp && \
     rm -rf openmpi-${OPENMPI_VERSION} openmpi-${OPENMPI_VERSION}.tar.bz2
 
+# A prebuilt CMake so the demo experiment (examples/demo.sh, exercised by
+# experiments/17_demo_example) can adopt it as a Spack external instead of
+# building CMake from source; xz so Spack can extract .tar.xz sources (libpng,
+# which that demo builds from source). Appended as a late layer so a local
+# rebuild reuses the cached OpenPBS/MPICH/OpenMPI layers above.
+RUN dnf -y install cmake xz && dnf clean all
+
 # Lmod modulefiles (auto-discovered: /usr/share/modulefiles is on the default
 # MODULEPATH) and the admin profile resolved by `knit bootstrap --profile pbs`.
 COPY conf/modulefiles/knit-marker.lua /usr/share/modulefiles/knit-marker.lua

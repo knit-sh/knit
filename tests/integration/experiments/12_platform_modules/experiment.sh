@@ -15,7 +15,7 @@
 # its implementation — mpich on Slurm, openmpi on PBS), so this exercises the
 # knit <-> environment-modules interaction end to end.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description "Platform / environment-modules integration test."
 

@@ -25,7 +25,7 @@
 #   - a job "laptop" that requires the lmpi setup and launches the probe app with
 #     `knit run --procs 4`, exercising the frozen launcher contract end to end.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description \
     "Laptop launcher-contract (knit_provides_launcher, no profile) integration test."

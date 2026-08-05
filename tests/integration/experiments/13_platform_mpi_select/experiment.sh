@@ -22,7 +22,7 @@
 # so the driver can confirm the world size, which MPI's launcher is on PATH, and
 # whether the module's flavor variable was forwarded.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description "knit MPI-selection (profile) integration test experiment."
 

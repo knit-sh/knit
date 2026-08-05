@@ -3,7 +3,7 @@
 # A minimal knit experiment script — sources knit.sh and dispatches to knit().
 # No commands are registered; this experiment only exercises bootstrap.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description "Bootstrap integration test experiment."
 

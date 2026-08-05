@@ -13,7 +13,7 @@
 # auto-provisions the knit-private Spack (the M4 -> M2 wiring) even without an
 # explicit --spack.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description "Spack-backed setup integration test experiment."
 

@@ -17,7 +17,7 @@
 # sqlite), submits the job, then runs real Cypher queries against the recorded
 # provenance.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description "knit query graph end-to-end integration test experiment."
 

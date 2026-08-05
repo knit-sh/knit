@@ -22,7 +22,7 @@
 #     per node across both allocated nodes so the collective crosses the node
 #     boundary.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description "MPI job submission integration test experiment."
 

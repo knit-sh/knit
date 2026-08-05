@@ -26,7 +26,7 @@
 # The rank lines use "RANK=<r> SIZE=<s> LOCAL=<l> HOST=<h> MARKER=<m>" so the
 # driver can parse them field by field.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description "knit run (app launch) integration test experiment."
 

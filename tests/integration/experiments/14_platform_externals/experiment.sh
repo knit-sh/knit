@@ -19,7 +19,7 @@
 # explicit --spack. The profile's externals reach the env because
 # _knit_spack_env_install merges .knit/packages.yaml before concretization.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description \
     "Profile-provided Spack externals integration test experiment."

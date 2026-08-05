@@ -221,6 +221,13 @@ RUN cd /tmp && \
     cd /tmp && \
     rm -rf mpich-${MPICH_VERSION} mpich-${MPICH_VERSION}.tar.gz
 
+# A prebuilt CMake so the demo experiment (examples/demo.sh, exercised by
+# experiments/17_demo_example) can adopt it as a Spack external instead of
+# building CMake from source; xz so Spack can extract .tar.xz sources (libpng,
+# which that demo builds from source). Appended as a late layer so a local
+# rebuild reuses the cached Slurm/OpenMPI/MPICH layers above.
+RUN dnf -y install cmake xz && dnf clean all
+
 # Lmod modulefiles (auto-discovered: /usr/share/modulefiles is on the default
 # MODULEPATH) and the admin profile resolved by `knit bootstrap --profile slurm`.
 COPY conf/modulefiles/knit-marker.lua /usr/share/modulefiles/knit-marker.lua

@@ -38,6 +38,8 @@ trap 'rm -rf "${WORKDIR}"' EXIT
 # the experiment script.
 cp "${SRC}/experiment.sh" "${SRC}/mpi_allreduce.c" "${WORKDIR}/"
 chmod +x "${WORKDIR}/experiment.sh"
+# The experiment uses a bare `source knit.sh`, so knit.sh must sit beside it.
+cp /shared/knit/knit.sh "${WORKDIR}/knit.sh"
 cd "${WORKDIR}"
 
 # Which cluster? The compute-node hostname prefix differs, and it is how we

@@ -22,6 +22,8 @@ trap 'rm -rf "${WORKDIR}"' EXIT
 cp /shared/knit/tests/integration/experiments/06_job_wait/experiment.sh \
     "${WORKDIR}/experiment.sh"
 chmod +x "${WORKDIR}/experiment.sh"
+# The experiment uses a bare `source knit.sh`, so knit.sh must sit beside it.
+cp /shared/knit/knit.sh "${WORKDIR}/knit.sh"
 cd "${WORKDIR}"
 
 # --------------------------------------------------------------------------

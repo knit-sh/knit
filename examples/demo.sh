@@ -131,6 +131,11 @@
 # every job's working directory (jobs/).
 # =============================================================================
 #
+# MAINTAINER NOTE: this script is exercised end to end by the integration test
+# tests/integration/experiments/17_demo_example. Changes here (commands,
+# parameters, recorded columns, or the julia-fractal build) may require updating
+# that test.
+#
 # Run from the directory that contains this script and knit.sh, as
 # ./demo.sh <command> ...
 # -----------------------------------------------------------------------------
@@ -241,8 +246,15 @@ _juliaenv_setup() {
         "${KNIT_SETUP_PREFIX}/src"
     git -C "${KNIT_SETUP_PREFIX}/src" checkout "${ref}"
 
+    # CMAKE_INSTALL_RPATH_USE_LINK_PATH bakes the link-time library directories
+    # (the Spack env's libpng/zlib and the MPI) into the installed binary's
+    # RPATH. Without it, CMake strips the non-toolchain RPATH on install and the
+    # binary cannot find e.g. libpng16.so.16 at run time on a machine that has no
+    # system libpng — and an MPI rank on a remote node cannot rely on
+    # LD_LIBRARY_PATH being forwarded. RPATH makes the binary self-contained.
     cmake -S "${KNIT_SETUP_PREFIX}/src" -B "${KNIT_SETUP_PREFIX}/build" \
-        -DCMAKE_INSTALL_PREFIX="${KNIT_SETUP_PREFIX}"
+        -DCMAKE_INSTALL_PREFIX="${KNIT_SETUP_PREFIX}" \
+        -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON
     cmake --build "${KNIT_SETUP_PREFIX}/build"
     cmake --install "${KNIT_SETUP_PREFIX}/build"
 

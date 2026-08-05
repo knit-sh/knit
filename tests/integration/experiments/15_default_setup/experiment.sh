@@ -20,7 +20,7 @@
 #                     explicitly with knit_with_setup "default"; it resolves to
 #                     the auto-instantiated default setup and sees the marker.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description \
     "Builtin default setup and setup-adoption rules integration test."

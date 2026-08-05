@@ -11,7 +11,7 @@
 # "killed"; the compute-side trap (M8) also records "killed" when it sees the
 # scheduler's signal.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description "job-cancel command integration test experiment."
 

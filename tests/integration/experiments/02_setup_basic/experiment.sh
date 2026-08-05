@@ -5,7 +5,7 @@
 #   1. Writes a greeting file into $KNIT_SETUP_PREFIX
 #   2. Exports MY_GREETING so it ends up in .activate.sh
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description "Basic setup integration test experiment."
 

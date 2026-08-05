@@ -128,6 +128,7 @@ run_uuid_for_job() {
 # Case A — mpiA: minimal profile -> system MPI by detection.
 # ==========================================================================
 A="${WORKDIR}/A"; mkdir -p "${A}"; cp "${EXP}" "${A}/experiment.sh"
+cp /shared/knit/knit.sh "${A}/knit.sh"   # bare `source knit.sh` needs it beside the script
 chmod +x "${A}/experiment.sh"; cd "${A}"
 
 ./experiment.sh bootstrap --project "int-13-mpiA" --profile "${WORKDIR}/mpiA.json"
@@ -168,6 +169,7 @@ check_sqlite ".knit/knit.db" \
 # Case B — mpiB: baked cluster profile -> module MPI.
 # ==========================================================================
 B="${WORKDIR}/B"; mkdir -p "${B}"; cp "${EXP}" "${B}/experiment.sh"
+cp /shared/knit/knit.sh "${B}/knit.sh"   # bare `source knit.sh` needs it beside the script
 chmod +x "${B}/experiment.sh"; cd "${B}"
 
 ./experiment.sh bootstrap --project "int-13-mpiB" --profile "${PROFILE}"
@@ -211,6 +213,7 @@ check_sqlite ".knit/knit.db" \
 # Case C — profile launcher beats a setup's knit_provides_launcher contract.
 # ==========================================================================
 C="${WORKDIR}/C"; mkdir -p "${C}"; cp "${EXP}" "${C}/experiment.sh"
+cp /shared/knit/knit.sh "${C}/knit.sh"   # bare `source knit.sh` needs it beside the script
 chmod +x "${C}/experiment.sh"; cd "${C}"
 
 ./experiment.sh bootstrap --project "int-13-beats" --profile "${WORKDIR}/beats.json"

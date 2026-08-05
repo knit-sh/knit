@@ -10,7 +10,7 @@
 # sends the job a SIGTERM before killing it; knit's compute-side trap records the
 # job as "killed" (M8) before the process dies.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description "Job-kill status-tracking integration test experiment."
 

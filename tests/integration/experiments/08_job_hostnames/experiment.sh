@@ -11,7 +11,7 @@
 # The body prints each form inside "=== <name> ===" markers so the test driver
 # can extract and compare the sections.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description "Job hostname reporting integration test experiment."
 

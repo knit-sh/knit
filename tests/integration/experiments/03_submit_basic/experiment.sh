@@ -10,7 +10,7 @@
 # node the job re-hydrates the setup environment (via the before-callback) and
 # runs its body.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description "Basic job submission integration test experiment."
 

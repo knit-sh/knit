@@ -11,7 +11,7 @@
 # compute-side after-callback has recorded the row as "completed", so `job wait`
 # prints "completed" and exits 0.
 
-source /shared/knit/knit.sh
+source knit.sh
 
 knit_set_program_description "job wait status-blocking integration test experiment."
 
