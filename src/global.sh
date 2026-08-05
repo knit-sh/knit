@@ -27,27 +27,41 @@ _knit_stdout_is_terminal() {
 # ------------------------------------------------------------------------------
 # @fn _knit_terminal_width()
 #
-# Print the width of the terminal (in columns) to standard output, or "0" when
-# the width cannot be used for wrapping — i.e. when standard output is not a
-# terminal or "stty size" yields no usable value. Callers treat a "0" result as
-# "no wrapping". Factored into its own function (mirroring
-# _knit_stdout_is_terminal) so tests can stub it to force a width
+# Set the nameref given as the first argument to the width of the terminal (in
+# columns), or to "0" when the width cannot be used for wrapping — i.e. when
+# standard output is not a terminal or "stty size" yields no usable value.
+# Callers treat a "0" result as "no wrapping". Factored into its own function
+# (mirroring _knit_stdout_is_terminal) so tests can stub it to force a width
 # deterministically.
+#
+# The result is returned by nameref rather than printed for capture with command
+# substitution: the terminal check (_knit_stdout_is_terminal, i.e. "[[ -t 1 ]]")
+# must be evaluated in the caller's context, where file descriptor 1 is the real
+# help destination. A command substitution would replace fd 1 with a pipe and so
+# always report "not a terminal", disabling wrapping even on a real terminal.
+#
+# @param __knit_ret Name of the variable to receive the width (or "0").
 # ------------------------------------------------------------------------------
 _knit_terminal_width() {
+    local -n __knit_ret=$1
     if ! _knit_stdout_is_terminal; then
-        printf '0\n'
+        __knit_ret=0
         return 0
     fi
-    local width
+    # Named to avoid a nameref shadow collision if a caller passes a variable
+    # called "width" as the output argument.
+    local __knit_width
     # Redirect stderr before stdin so that a failure to open /dev/tty (possible
     # when there is no controlling terminal) is suppressed rather than leaking.
-    IFS=' ' read -r _ width < <(stty size 2>/dev/null </dev/tty || printf '')
-    if [[ -z "${width:-}" || ! "${width}" =~ ^[0-9]+$ ]]; then
-        printf '0\n'
+    # "read" returns non-zero on empty input (e.g. when /dev/tty cannot be
+    # opened); that is handled by the guard below, so do not let it propagate.
+    IFS=' ' read -r _ __knit_width \
+        < <(stty size 2>/dev/null </dev/tty || printf '') || true
+    if [[ -z "${__knit_width:-}" || ! "${__knit_width}" =~ ^[0-9]+$ ]]; then
+        __knit_ret=0
         return 0
     fi
-    printf '%s\n' "${width}"
+    __knit_ret="${__knit_width}"
 }
 
 # ------------------------------------------------------------------------------

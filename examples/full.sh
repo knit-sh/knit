@@ -15,7 +15,10 @@
 # provenance edges with `knit_as`, querying the database and its provenance
 # graph with `knit query` (read-only SQL, a schema catalog, and Cypher over the
 # recorded provenance), commands that are usable before bootstrap
-# (`knit_usable_before_bootstrap`), a machine- and human-readable description of
+# (`knit_usable_before_bootstrap`), state-aware `--help` guidance that gates,
+# hides, and highlights commands by the live experiment state (`knit_usable_if` /
+# `knit_hidden_if_not_usable` / `knit_highlight_if`), a machine- and
+# human-readable description of
 # the whole interface with `knit describe`, and natural-language access to the
 # experiment and its recorded runs with `knit ai` (read-only; needs an
 # OpenAI-compatible provider).
@@ -87,7 +90,30 @@
 #   ./full.sh preflight            # runs before bootstrap: checks prerequisites
 #   ./full.sh estimate --samples 1000   # refused: "requires bootstrap"
 #
-# After bootstrap, `--help` lists everything and all commands run normally.
+# After bootstrap, `--help` lists these commands and they run normally — and a
+# command can guide you further still, as a function of the live experiment
+# state. The `analyze` command in this file averages the pi estimates recorded
+# by montecarlo jobs, so it cannot work until at least one such job has
+# completed. It declares that prerequisite with three decorators, each naming a
+# predicate function that knit calls to test the current state:
+#
+#   knit_usable_if <pred> <reason>     refuse to run until <pred> passes
+#   knit_hidden_if_not_usable          hide from `--help` while not usable
+#   knit_highlight_if <pred>           bold in `--help` once <pred> passes
+#
+# So on a freshly bootstrapped experiment `analyze` is absent from `--help`; once
+# a montecarlo job has run it appears — in bold on a color terminal — as the
+# natural next step. Run it too early and it refuses with its reason instead of
+# failing obscurely:
+#
+#   ./full.sh analyze
+#     -> [knit:fatal] Command "analyze" cannot run: no montecarlo job has
+#        completed yet; run 'submit --setup env -- montecarlo' first
+#
+# `--help` also word-wraps long option descriptions under the description column
+# on a wide terminal — try `./full.sh analyze --help`. Piped or redirected help
+# is left on one line, byte-for-byte as before, so scripts and tests are
+# unaffected.
 #
 # -----------------------------------------------------------------------------
 # 2. Bootstrap the experiment
@@ -812,6 +838,64 @@ _montecarlo_job() {
     # knit_job_hostnames reports the nodes the scheduler allocated to this job
     # (deduplicated by default; also supports --json and --raw).
     printf 'ran on hosts: %s\n' "$(knit_job_hostnames --separator ', ')"
+}
+knit_done
+
+# -----------------------------------------------------------------------------
+# analyze — a command guided by the live experiment state.
+#
+# `analyze` averages the pi estimates recorded by montecarlo jobs, so it cannot
+# work until at least one such job has completed. Rather than sit in `--help` and
+# fail when run too early, it declares its prerequisite with the command-guidance
+# decorators. Each takes the NAME of a predicate function that knit calls with
+# the command name; its exit status drives the behavior:
+#
+#   knit_usable_if <pred> <reason>   refuse to run (with <reason>) until <pred>
+#                                    passes — here, until the montecarlo table
+#                                    holds a row;
+#   knit_hidden_if_not_usable        omit the command from a parent's `--help`
+#                                    while it is not usable, so a fresh checkout
+#                                    is not cluttered by a command that cannot
+#                                    work yet;
+#   knit_highlight_if <pred>         bold the command in `--help` (on a color
+#                                    terminal) once <pred> passes, pointing you
+#                                    at the natural next step.
+#
+# The predicate must tolerate being called before bootstrap: `--help` evaluates
+# it on a fresh checkout, where the query below fails and it reports "not usable".
+# One predicate could serve several commands by branching on the command name it
+# receives in $1; this one ignores it.
+#
+# The --digits option carries a deliberately long description to show how
+# `--help` wraps it under the description column on a wide terminal, and leaves
+# it on a single line when output is piped or redirected.
+# -----------------------------------------------------------------------------
+_have_montecarlo_runs() {
+    local n
+    n=$(knit query sql --exec "SELECT count(*) FROM montecarlo;" 2>/dev/null) \
+        || return 1
+    [[ "${n:-0}" -gt 0 ]]
+}
+knit_register analyze "analyze" "Average the pi estimates recorded by montecarlo jobs."
+knit_usable_if _have_montecarlo_runs \
+    "no montecarlo job has completed yet; run 'submit --setup env -- montecarlo' first"
+knit_hidden_if_not_usable
+knit_highlight_if _have_montecarlo_runs
+knit_with_optional "digits:integer" "5" \
+    "number of digits to display after the decimal point when reporting the aggregated estimate and its absolute error against the mathematical constant pi"
+analyze() {
+    local digits
+    digits=$(knit_get_parameter "digits" "$@")
+
+    local count avg
+    count=$(knit query sql --exec "SELECT count(*) FROM montecarlo;")
+    avg=$(knit query sql --exec "SELECT avg(pi) FROM montecarlo;")
+
+    awk -v a="${avg}" -v n="${count}" -v d="${digits}" 'BEGIN {
+        pi = 4 * atan2(1, 1)
+        err = (a > pi ? a - pi : pi - a)
+        printf "mean pi ~= %.*f over %d run(s)  (abs error %.*f)\n", d, a, n, d, err
+    }'
 }
 knit_done
 

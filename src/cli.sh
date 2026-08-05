@@ -1999,7 +1999,7 @@ _knit_print_options_block() {
     # width is known; the helper falls back to today's single-line layout for
     # pipes/redirects and narrow terminals.
     local width
-    width=$(_knit_terminal_width)
+    _knit_terminal_width width
     local indent=$((2 + max_opt_length + 2))
     local head
 
@@ -2180,7 +2180,7 @@ _knit_print_command_usage() {
         # width is known; the head (indent + right-justified name + gap) is a
         # fixed display width, so continuation lines hang at that same column.
         local width
-        width=$(_knit_terminal_width)
+        _knit_terminal_width width
         local sub_indent=$((2 + max_subcommand_len + 3))
         local i
         for ((i=0; i<${#subcommands[@]}; i++)); do

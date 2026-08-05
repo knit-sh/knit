@@ -22,18 +22,18 @@ teardown() {
 
 @test "terminal width is 0 when stdout is not a terminal" {
     _knit_stdout_is_terminal() { return 1; }
-    run _knit_terminal_width
-    [ "$status" -eq 0 ]
-    [ "$output" = "0" ]
+    local w="unset"
+    _knit_terminal_width w
+    [ "$w" = "0" ]
 }
 
 @test "terminal width is 0 when stty yields no usable value" {
     _knit_stdout_is_terminal() { return 0; }
     # A non-numeric "stty size" must be rejected as unusable.
     stty() { printf 'garbage\n'; }
-    run _knit_terminal_width
-    [ "$status" -eq 0 ]
-    [ "$output" = "0" ]
+    local w="unset"
+    _knit_terminal_width w
+    [ "$w" = "0" ]
 }
 
 # ---------- _knit_help_render_entry: single-line fallback ----------
@@ -82,7 +82,7 @@ teardown() {
 # ---------- integration through --help ----------
 
 @test "a long option description wraps under the annotation column on a wide TTY" {
-    _knit_terminal_width() { printf '60\n'; }
+    _knit_terminal_width() { local -n __knit_ret=$1; __knit_ret=60; }
     run _knit_print_command_usage "wr"
     [ "$status" -eq 0 ]
     # --seed <value> is the widest option (14), so max_opt_length is 14 and the
@@ -96,7 +96,7 @@ teardown() {
 }
 
 @test "the same option renders on one line when width is unknown" {
-    _knit_terminal_width() { printf '0\n'; }
+    _knit_terminal_width() { local -n __knit_ret=$1; __knit_ret=0; }
     run _knit_print_command_usage "wr"
     [ "$status" -eq 0 ]
     # Whole description on the single option line (today's layout preserved).
