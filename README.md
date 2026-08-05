@@ -6,8 +6,8 @@
 [![codecov](https://codecov.io/gh/knit-sh/knit/branch/main/graph/badge.svg)](https://codecov.io/gh/knit-sh/knit)
 
 <p align="center">
-<img src="docs/source/_static/knit-logo-light.svg#gh-light-mode-only" height="220" width="210" />
-<img src="docs/source/_static/knit-logo-dark.svg#gh-dark-mode-only" height="220" width="210" />
+<img src="docs/source/_static/knit-logo-light.svg#gh-light-mode-only" />
+<img src="docs/source/_static/knit-logo-dark.svg#gh-dark-mode-only" />
 </p>
 
 Knit is a framework to help write reproducible and portable HPC experiments
