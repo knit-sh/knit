@@ -198,6 +198,16 @@ _knit_run() {
         export KNIT_RUN_ID="${uuid}"
         export KNIT_SOURCE_ID="${uuid}"
         export KNIT_SOURCE_COMMAND=run
+        # Re-enter each rank from the directory holding the experiment script
+        # (and knit.sh) so a bare `source knit.sh` resolves, then have the
+        # framework jump back to the run's cwd once sourcing completes (see
+        # _KNIT_JUMP_TO_DIR). Using $PWD (not KNIT_JOB_PREFIX) preserves "ranks
+        # run where knit run was called" even for a top-level run outside a job.
+        # This is scoped to the launcher subshell, so the job body's cwd is
+        # untouched.
+        export _KNIT_JUMP_TO_DIR="${PWD}"
+        cd "$(dirname "${KNIT_SCRIPT_PATH}")" \
+            || knit_fatal "cannot cd to the experiment script directory"
         _knit_launch_exec "${resolved_backend}" launch_opts -- \
             "${KNIT_SCRIPT_PATH}" _run -- "${app_name}" "${app_args[@]}"
     )
