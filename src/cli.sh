@@ -1860,6 +1860,87 @@ _knit_expand_command_arguments() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_help_render_entry()
+#
+# Render a single "--help" entry (an option row or a subcommand row) with an
+# optional word-wrapped, hanging-indented description:
+#
+#   <head><first words of the description>
+#   <indent spaces><more words>
+#   ...
+#
+# where <head> is the fully-formatted leading column (indentation, the padded
+# option/subcommand name, and — for options — the "[annotation] " prefix) and
+# continuation lines are indented to <indent> columns so the wrapped text forms
+# a clean hanging indent under the description column.
+#
+# Wrapping is applied only when a usable terminal width is known and the
+# continuation column is wide enough; otherwise the entry falls back to a single
+# line ("<head><description>"), byte-for-byte identical to the pre-wrapping
+# output, so piped or redirected help stays unchanged.
+#
+# @param width       Terminal width in columns, or 0 for "no wrapping".
+# @param head        Literal leading text printed before the description on the
+#                    first line (may contain ANSI escape sequences).
+# @param head_len    Display width of <head> (escape bytes excluded), i.e. the
+#                    column at which the first-line description begins.
+# @param indent      Number of spaces used to indent continuation lines.
+# @param description Description text, wrapped at word boundaries.
+# ------------------------------------------------------------------------------
+_knit_help_render_entry() {
+    local width="$1"
+    local head="$2"
+    local head_len="$3"
+    local indent="$4"
+    local description="$5"
+
+    # Minimum description column width below which wrapping carries too few words
+    # per line to be worthwhile; fall back to a single line instead.
+    local min_desc_col=24
+
+    # Fallback: no usable width, or the continuation column would be too narrow.
+    # Reproduces the historical single-line layout exactly.
+    if (( width <= 0 )) || (( width - indent < min_desc_col )); then
+        printf "%s%s\n" "${head}" "${description}"
+        return 0
+    fi
+
+    # Split the description into words, collapsing runs of whitespace.
+    local words
+    read -r -a words <<< "${description}"
+    if (( ${#words[@]} == 0 )); then
+        printf "%s\n" "${head}"
+        return 0
+    fi
+
+    local indent_pad
+    printf -v indent_pad "%*s" "${indent}" ""
+
+    # First line: the head, then as many words as fit within the terminal width.
+    # Continuation lines start at the indent column. At least one word is placed
+    # per line even if it overflows, so a single long word cannot stall.
+    local line="${head}"
+    local col="${head_len}"
+    local first_on_line="true"
+    local word
+    for word in "${words[@]}"; do
+        if [[ "${first_on_line}" == "true" ]]; then
+            line+="${word}"
+            col=$((col + ${#word}))
+            first_on_line="false"
+        elif (( col + 1 + ${#word} <= width )); then
+            line+=" ${word}"
+            col=$((col + 1 + ${#word}))
+        else
+            printf "%s\n" "${line}"
+            line="${indent_pad}${word}"
+            col=$((indent + ${#word}))
+        fi
+    done
+    printf "%s\n" "${line}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_print_options_block()
 #
 # Print the "Options"-style listing for a single command: a titled section with
@@ -1914,8 +1995,18 @@ _knit_print_options_block() {
     local description
     local default
 
+    # Word-wrap descriptions under the annotation column when a usable terminal
+    # width is known; the helper falls back to today's single-line layout for
+    # pipes/redirects and narrow terminals.
+    local width
+    width=$(_knit_terminal_width)
+    local indent=$((2 + max_opt_length + 2))
+    local head
+
     if [[ "${with_help}" == "true" ]]; then
-        printf "  %-${max_opt_length}s  %s\n" "--help" "Print this help message and exit."
+        printf -v head "  %-${max_opt_length}s  " "--help"
+        _knit_help_render_entry "${width}" "${head}" "${#head}" "${indent}" \
+            "Print this help message and exit."
     fi
     while read -r opt; do
         _knit_param_description description "${cmd}" "${opt}"
@@ -1926,7 +2017,8 @@ _knit_print_options_block() {
         if [[ -v "${when_raw_var}" ]]; then
             annotation="required, when: ${!when_raw_var}"
         fi
-        printf "  %-${max_opt_length}s  [%s] %s\n" "${opt2} <value>" "${annotation}" "${description}"
+        printf -v head "  %-${max_opt_length}s  [%s] " "${opt2} <value>" "${annotation}"
+        _knit_help_render_entry "${width}" "${head}" "${#head}" "${indent}" "${description}"
     done < <(_knit_set_iter "${required_args_varname}")
     while read -r opt; do
         _knit_param_description description "${cmd}" "${opt}"
@@ -1938,7 +2030,8 @@ _knit_print_options_block() {
         if [[ -v "${when_raw_var}" ]]; then
             annotation="default: '${default}', when: ${!when_raw_var}"
         fi
-        printf "  %-${max_opt_length}s  [%s] %s\n" "${opt2} <value>" "${annotation}" "${description}"
+        printf -v head "  %-${max_opt_length}s  [%s] " "${opt2} <value>" "${annotation}"
+        _knit_help_render_entry "${width}" "${head}" "${#head}" "${indent}" "${description}"
     done < <(_knit_set_iter "${optional_args_varname}")
     while read -r opt; do
         _knit_param_description description "${cmd}" "${opt}"
@@ -1949,7 +2042,8 @@ _knit_print_options_block() {
         if [[ -v "${when_raw_var}" ]]; then
             annotation="flag, when: ${!when_raw_var}"
         fi
-        printf "  %-${max_opt_length}s  [%s] %s\n" "${opt2}" "${annotation}" "${description}"
+        printf -v head "  %-${max_opt_length}s  [%s] " "${opt2}" "${annotation}"
+        _knit_help_render_entry "${width}" "${head}" "${#head}" "${indent}" "${description}"
     done < <(_knit_set_iter "${flags_args_varname}")
 }
 
@@ -2082,22 +2176,29 @@ _knit_print_command_usage() {
         printf -v hrule "%*s" "${#sub_name}" ""
         hrule="${hrule// /-}"
         printf "\n%s\n%s\n" "${sub_name}" "${hrule}"
+        # Descriptions wrap under the description column when a usable terminal
+        # width is known; the head (indent + right-justified name + gap) is a
+        # fixed display width, so continuation lines hang at that same column.
+        local width
+        width=$(_knit_terminal_width)
+        local sub_indent=$((2 + max_subcommand_len + 3))
         local i
         for ((i=0; i<${#subcommands[@]}; i++)); do
             local description_var="_KNIT_CMD_${subcommands_full[i]}_description"
             local description="${!description_var}"
+            local head
             if [[ "${subcommands_highlight[i]}" == "true" ]]; then
-                # Right-justify on the PLAIN name length (the %*s field width would
+                # Right-justify on the PLAIN name length (a %*s field width would
                 # count the ANSI escape bytes and misalign the column), then emit
-                # the bold name manually.
+                # the bold name manually. The head's display width is unchanged.
                 local pad
                 printf -v pad "%*s" "$((max_subcommand_len - ${#subcommands[i]}))" ""
-                printf "  %s%s%s%s   %s\n" "${pad}" \
-                    "${_KNIT_COLORS[bold]}" "${subcommands[i]}" "${_KNIT_COLORS[reset]}" \
-                    "${description}"
+                head="  ${pad}${_KNIT_COLORS[bold]}${subcommands[i]}${_KNIT_COLORS[reset]}   "
             else
-                printf "  %$((max_subcommand_len))s   %s\n" "${subcommands[i]}" "${description}"
+                printf -v head "  %${max_subcommand_len}s   " "${subcommands[i]}"
             fi
+            _knit_help_render_entry "${width}" "${head}" "${sub_indent}" \
+                "${sub_indent}" "${description}"
         done
     fi
 

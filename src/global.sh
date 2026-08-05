@@ -25,6 +25,32 @@ _knit_stdout_is_terminal() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_terminal_width()
+#
+# Print the width of the terminal (in columns) to standard output, or "0" when
+# the width cannot be used for wrapping — i.e. when standard output is not a
+# terminal or "stty size" yields no usable value. Callers treat a "0" result as
+# "no wrapping". Factored into its own function (mirroring
+# _knit_stdout_is_terminal) so tests can stub it to force a width
+# deterministically.
+# ------------------------------------------------------------------------------
+_knit_terminal_width() {
+    if ! _knit_stdout_is_terminal; then
+        printf '0\n'
+        return 0
+    fi
+    local width
+    # Redirect stderr before stdin so that a failure to open /dev/tty (possible
+    # when there is no controlling terminal) is suppressed rather than leaking.
+    IFS=' ' read -r _ width < <(stty size 2>/dev/null </dev/tty || printf '')
+    if [[ -z "${width:-}" || ! "${width}" =~ ^[0-9]+$ ]]; then
+        printf '0\n'
+        return 0
+    fi
+    printf '%s\n' "${width}"
+}
+
+# ------------------------------------------------------------------------------
 # @var KNIT_SCRIPT_PATH
 #
 # Absolute path of the experiment script that sourced knit.sh. Used when
