@@ -734,6 +734,97 @@ _knit_command_is_usable_before_bootstrap() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_usable_if()
+#
+# Declare that the command currently being registered may be used only when
+# <predicate> returns 0. <predicate> is the name of a user-defined shell function
+# that receives the demangled command name as its single argument and returns 0
+# ("usable") or non-zero ("not usable"). <description> is a human-readable string
+# explaining why the command cannot run; it is shown as a fatal error if the user
+# invokes the command while the predicate is false.
+#
+# Repeatable: multiple calls register multiple predicates. At invocation time the
+# predicates are evaluated in declaration order, stopping at the first that
+# returns non-zero (whose <description> becomes the error message); a command is
+# usable only if all of its predicates pass.
+#
+# The predicate is not called here — only its name and description are recorded.
+# Enforcement happens at invocation time via _knit_command_check_usable. The
+# per-command storage arrays (_usable_pred / _usable_desc) are declared lazily on
+# first use so commands that do not use this decorator pay no registration cost.
+#
+# @param predicate   Name of the predicate function.
+# @param description Message shown if the command is invoked while not usable.
+# ------------------------------------------------------------------------------
+knit_usable_if() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_usable_if should be used after a call to \"knit_register\"."
+    fi
+    if [[ $# -ne 2 ]]; then
+        knit_fatal "knit_usable_if requires a predicate and a description."
+    fi
+    local predicate="$1"
+    local description="$2"
+    knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} usable if \"${predicate}\"."
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local pred_name="_KNIT_CMD_${cmd}_usable_pred"
+    local desc_name="_KNIT_CMD_${cmd}_usable_desc"
+    if [[ ! -v "${pred_name}" ]]; then
+        declare -ga "${pred_name}=()"
+        declare -ga "${desc_name}=()"
+    fi
+    # shellcheck disable=SC2178 # nameref to the command's predicate array
+    local -n pred_ref="${pred_name}"
+    # shellcheck disable=SC2178 # nameref to the command's description array
+    local -n desc_ref="${desc_name}"
+    pred_ref+=("${predicate}")
+    desc_ref+=("${description}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_command_check_usable()
+#
+# Evaluate the usability predicates registered for a command (via knit_usable_if)
+# in declaration order. On the first predicate that returns non-zero, set the
+# reason output (nameref) to that predicate's parallel description and return 1.
+# Return 0 if all predicates pass, or if the command declared none.
+#
+# Each predicate is called as "<predicate> <demangled-cmd>" in the current shell
+# (no subshell fork), so only its exit status is used. A predicate whose function
+# does not exist is fatal: a usability guard that silently vanished would let an
+# unusable command run.
+#
+# @param __knit_ret Name of the variable to receive the failure reason (nameref).
+# @param cmd        Command (mangled name) to check.
+# @return 0 if usable, 1 if a predicate failed (with the reason set).
+# ------------------------------------------------------------------------------
+_knit_command_check_usable() {
+    local -n __knit_ret=$1
+    local cmd="$2"
+    local pred_name="_KNIT_CMD_${cmd}_usable_pred"
+    if [[ ! -v "${pred_name}" ]]; then
+        return 0
+    fi
+    # shellcheck disable=SC2178 # nameref to the command's predicate array
+    local -n pred_ref="${pred_name}"
+    # shellcheck disable=SC2178 # nameref to the command's description array
+    local -n desc_ref="_KNIT_CMD_${cmd}_usable_desc"
+    local demangled="${cmd//__1__/:}"
+    local i predicate
+    for i in "${!pred_ref[@]}"; do
+        predicate="${pred_ref[$i]}"
+        if ! declare -F "${predicate}" >/dev/null 2>&1; then
+            knit_fatal "Command \"${demangled}\" declares usability predicate \"${predicate}\", which is not a defined function."
+        fi
+        if ! "${predicate}" "${demangled}"; then
+            __knit_ret="${desc_ref[$i]}"
+            return 1
+        fi
+    done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_is_builtin()
 #
 # Mark the item currently being defined as a framework builtin. This is called by
