@@ -13,6 +13,18 @@ declare -g KNIT_SCRIPT_NAME
 KNIT_SCRIPT_NAME="$(basename "$0")"
 
 # ------------------------------------------------------------------------------
+# @fn _knit_stdout_is_terminal()
+#
+# Return success when standard output is a terminal. Factored into its own
+# function so callers that colorize or wrap output based on the terminal (e.g.
+# "--help" highlighting and describe) can stub it in tests to force the terminal
+# path on or off deterministically.
+# ------------------------------------------------------------------------------
+_knit_stdout_is_terminal() {
+    [[ -t 1 ]]
+}
+
+# ------------------------------------------------------------------------------
 # @var KNIT_SCRIPT_PATH
 #
 # Absolute path of the experiment script that sourced knit.sh. Used when

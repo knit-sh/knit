@@ -1048,16 +1048,6 @@ _knit_describe_yaml() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_describe_stdout_is_terminal()
-#
-# Return success when standard output is a terminal. Factored into its own
-# function so tests can stub it to force color on or off deterministically.
-# ------------------------------------------------------------------------------
-_knit_describe_stdout_is_terminal() {
-    [[ -t 1 ]]
-}
-
-# ------------------------------------------------------------------------------
 # @fn _knit_describe_default_heading()
 #
 # Print a title or section header for the human-readable format. With color it
@@ -1326,7 +1316,7 @@ _knit_describe_default_command() {
 _knit_describe_default() {
     local no_color use_color
     no_color=$(knit_get_parameter no-color "$@") || no_color="false"
-    if [[ "${no_color}" != "true" ]] && _knit_describe_stdout_is_terminal; then
+    if [[ "${no_color}" != "true" ]] && _knit_stdout_is_terminal; then
         use_color="true"
     else
         use_color="false"

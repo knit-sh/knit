@@ -32,8 +32,8 @@ _register_fixture() {
 
 # Force the color decision deterministically, independent of the test runner's
 # terminal, by stubbing the TTY probe.
-_force_color()    { _knit_describe_stdout_is_terminal() { return 0; }; }
-_force_no_color() { _knit_describe_stdout_is_terminal() { return 1; }; }
+_force_color()    { _knit_stdout_is_terminal() { return 0; }; }
+_force_no_color() { _knit_stdout_is_terminal() { return 1; }; }
 
 # ---------- basic output ----------
 

@@ -965,6 +965,78 @@ _knit_command_hidden() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_highlight_if()
+#
+# Declare that the command currently being registered has its name highlighted
+# (bold) in its parent's "--help" whenever <predicate> returns 0 and the output
+# is a terminal. <predicate> is the name of a user-defined shell function that
+# receives the demangled command name as its single argument and returns 0
+# ("highlight") or non-zero ("plain"). Highlighting is purely cosmetic: it never
+# affects invokability, provenance, or describe.
+#
+# Repeatable: multiple calls register multiple predicates and the command is
+# highlighted if any of them returns 0 (logical OR). The per-command storage
+# array (_highlight_pred) is declared lazily on first use.
+#
+# @param predicate Name of the predicate function.
+# ------------------------------------------------------------------------------
+knit_highlight_if() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_highlight_if should be used after a call to \"knit_register\"."
+    fi
+    if [[ $# -ne 1 ]]; then
+        knit_fatal "knit_highlight_if requires a predicate."
+    fi
+    local predicate="$1"
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} highlighted if \"${predicate}\"."
+    local pred_name="_KNIT_CMD_${cmd}_highlight_pred"
+    if [[ ! -v "${pred_name}" ]]; then
+        declare -ga "${pred_name}=()"
+    fi
+    # shellcheck disable=SC2178 # nameref to the command's highlight-predicate array
+    local -n pred_ref="${pred_name}"
+    pred_ref+=("${predicate}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_command_highlighted()
+#
+# The "--help" highlight test for a command. Return 0 (highlight) if any of the
+# command's dynamic _highlight_pred predicates returns 0; return non-zero (plain)
+# otherwise, including when the command declares no highlight predicates.
+#
+# Each predicate is called as "<predicate> <demangled-cmd>" in the current shell
+# (no fork). A predicate whose function does not exist is a warning (not fatal):
+# highlighting is cosmetic, so a vanished predicate is treated as "no" (do not
+# highlight) and "--help" still renders.
+#
+# @param cmd Command (mangled name) to test.
+# @return 0 if the command name should be highlighted, non-zero otherwise.
+# ------------------------------------------------------------------------------
+_knit_command_highlighted() {
+    local cmd="$1"
+    local pred_name="_KNIT_CMD_${cmd}_highlight_pred"
+    if [[ ! -v "${pred_name}" ]]; then
+        return 1
+    fi
+    # shellcheck disable=SC2178 # nameref to the command's highlight-predicate array
+    local -n pred_ref="${pred_name}"
+    local demangled="${cmd//__1__/:}"
+    local predicate
+    for predicate in "${pred_ref[@]}"; do
+        if ! declare -F "${predicate}" >/dev/null 2>&1; then
+            knit_warning "Command \"${demangled}\" declares highlight predicate \"${predicate}\", which is not a defined function; not highlighting."
+            continue
+        fi
+        if "${predicate}" "${demangled}"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_is_builtin()
 #
 # Mark the item currently being defined as a framework builtin. This is called by
@@ -1954,8 +2026,17 @@ _knit_print_command_usage() {
 
     local subcommands=()
     local subcommands_full=()
+    local subcommands_highlight=()
     local max_subcommand_len=0
     local c
+    # Highlighting is cosmetic and applied only when stdout is a terminal and the
+    # NO_COLOR environment variable is unset (the de-facto standard). When output
+    # is piped or redirected, names are printed plain so scripts and tests are
+    # unaffected.
+    local use_color="false"
+    if [[ -z "${NO_COLOR+x}" ]] && _knit_stdout_is_terminal; then
+        use_color="true"
+    fi
     # The direct children come straight from the tree adjacency, in registration
     # order: the root commands for "__main__", else the command's own list.
     local children_var
@@ -1985,6 +2066,11 @@ _knit_print_command_usage() {
         _knit_command_get_last name "${c}"
         subcommands+=("${name}")
         subcommands_full+=("${c}")
+        local highlight="false"
+        if [[ "${use_color}" == "true" ]] && _knit_command_highlighted "${c}"; then
+            highlight="true"
+        fi
+        subcommands_highlight+=("${highlight}")
         if ((max_subcommand_len < ${#name})); then
             max_subcommand_len=${#name}
         fi
@@ -2000,7 +2086,18 @@ _knit_print_command_usage() {
         for ((i=0; i<${#subcommands[@]}; i++)); do
             local description_var="_KNIT_CMD_${subcommands_full[i]}_description"
             local description="${!description_var}"
-            printf "  %$((max_subcommand_len))s   %s\n" "${subcommands[i]}" "${description}"
+            if [[ "${subcommands_highlight[i]}" == "true" ]]; then
+                # Right-justify on the PLAIN name length (the %*s field width would
+                # count the ANSI escape bytes and misalign the column), then emit
+                # the bold name manually.
+                local pad
+                printf -v pad "%*s" "$((max_subcommand_len - ${#subcommands[i]}))" ""
+                printf "  %s%s%s%s   %s\n" "${pad}" \
+                    "${_KNIT_COLORS[bold]}" "${subcommands[i]}" "${_KNIT_COLORS[reset]}" \
+                    "${description}"
+            else
+                printf "  %$((max_subcommand_len))s   %s\n" "${subcommands[i]}" "${description}"
+            fi
         done
     fi
 
