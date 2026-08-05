@@ -451,10 +451,14 @@ _knit_sched_write_jobscript() {
             # because they are exported.
             printf 'source %q\n' "${setup_path}/.activate.sh"
         fi
-        # Pass the experiment's .knit down: the cd below moves the compute-side
+        # Pass the experiment's .knit down: the jump below moves the compute-side
         # cwd away from the experiment root, so it can no longer be derived.
         printf 'export _KNIT_PREFIX=%q\n' "${_KNIT_PREFIX}"
-        printf 'cd %q\n' "${jobdir}"
+        # Re-enter from the directory holding the experiment script (and knit.sh)
+        # so a bare `source knit.sh` resolves, then have the framework jump to the
+        # job directory once sourcing completes (see _KNIT_JUMP_TO_DIR).
+        printf 'cd %q\n' "$(dirname "${KNIT_SCRIPT_PATH}")"
+        printf 'export _KNIT_JUMP_TO_DIR=%q\n' "${jobdir}"
         printf 'exec %q submit %q' "${KNIT_SCRIPT_PATH}" "${job_name}"
         local arg
         for arg in "${job_args[@]}"; do

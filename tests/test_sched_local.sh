@@ -59,7 +59,10 @@ teardown() {
     grep -Fxq "export KNIT_SOURCE_COMMAND=submit" "${script}"
     grep -Fxq "export KNIT_SETUP_PREFIX=/setups/s1" "${script}"
     grep -Fxq "export _KNIT_PREFIX=${_KNIT_PREFIX}" "${script}"
-    grep -Fxq "cd ${jobdir}" "${script}"
+    # Re-enter from the script's directory (where knit.sh sits) and jump to the
+    # job directory once the framework has been sourced.
+    grep -Fxq "cd /fake" "${script}"
+    grep -Fxq "export _KNIT_JUMP_TO_DIR=${jobdir}" "${script}"
     grep -Fxq "exec /fake/exp.sh submit myjob arg1 arg2" "${script}"
 }
 
