@@ -17,7 +17,6 @@ KNIT_SOURCE = src/global.sh   \
               src/db.sh       \
               src/spack.sh    \
               src/metadata.sh \
-              src/db_cli.sh   \
               src/sched.sh    \
               src/sched_local.sh \
               src/sched_none.sh \
@@ -93,7 +92,7 @@ coverage: $(KNIT_SOURCE)
 		for f in $(KNIT_SOURCE); do echo "source \"\$$__knit_cov_dir/$$f\""; done; \
 	} > $(KNIT_OUTPUT)
 
-DOCS_VENV := .docs-venv
+DOCS_VENV := docs/.venv
 
 # Create the Python virtual environment for building the documentation and
 # install the required packages into it. The stamp file tracks completion so the
@@ -117,6 +116,14 @@ docs: docs-env
 	@echo "Building Sphinx documentation..."
 	$(DOCS_VENV)/bin/sphinx-build -b html docs/source docs/build/html
 	@echo "Done. Open docs/build/html/index.html"
+
+# Exercise every documentation code example (docs/source/_code/*.sh) end to end
+# on the local backend and validate that all literalinclude regions referenced
+# by the Sphinx sources resolve. Kept separate from check-unit: it runs shipped
+# example experiments, not the bats suite.
+.PHONY: check-docs
+check-docs: knit.sh
+	@bash maint/check-docs.sh
 
 .PHONY: docs-clean
 docs-clean:

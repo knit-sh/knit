@@ -5,4 +5,4 @@
 /docs/doxygen/
 /docs/source/api/public.rst
 /docs/source/api/private.rst
-/.docs-venv/
+/docs/.venv/

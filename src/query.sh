@@ -57,20 +57,31 @@ _knit_query_table_alias() {
 # ------------------------------------------------------------------------------
 # @fn _knit_query_annotate_catalog()
 #
-# Filter a knit-graph `--catalog` listing read from standard input, annotating
-# each `table <name>` line whose table has a distinct command-name alias with
-# " (command: <name>)" so users discover both spellings of a label. Every other
-# line (including the `  column <name>` lines and a TABLE.COLUMN validation line)
-# is passed through unchanged.
+# Filter a knit-graph `--catalog` listing read from standard input, annotating it
+# with two things read from the live schema: each `table <name>` line whose table
+# has a distinct command-name alias gains " (command: <name>)" so users discover
+# both spellings of a label, and each `  column <name>` line gains " (<TYPE>)"
+# with the column's SQL storage type. Column types are looked up once per table
+# (through the stubbable _knit_query_column_types helper) as the table line is
+# seen. A TABLE.COLUMN validation line (a single line with no `table `/`  column `
+# prefix) is passed through unchanged.
 # ------------------------------------------------------------------------------
 _knit_query_annotate_catalog() {
-    local line table alias
+    local line table alias col
+    local -A types=()
     while IFS= read -r line; do
         if [[ "${line}" == "table "* ]]; then
             table="${line#table }"
+            _knit_query_column_types types "${table}"
             _knit_query_table_alias alias "${table}"
             if [[ -n "${alias}" ]]; then
                 printf 'table %s (command: %s)\n' "${table}" "${alias}"
+                continue
+            fi
+        elif [[ "${line}" == "  column "* ]]; then
+            col="${line#  column }"
+            if [[ -v types["${col}"] ]]; then
+                printf '  column %s (%s)\n' "${col}" "${types["${col}"]}"
                 continue
             fi
         fi
@@ -185,6 +196,33 @@ _knit_query_graph_output_flags() {
     fi
     [[ -n "${separator}" ]] && __knit_ret+=(-separator "${separator}")
     return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_query_column_types()
+#
+# Fill a caller-named associative array with the column name -> SQL storage type
+# map of a table, read from the live schema via sqlite's `pragma_table_info`. The
+# type is what SQLite records in the schema (e.g. INTEGER, TEXT, REAL), which is
+# the universal source: it also covers framework tables (jobs, runs,
+# __provenance__) whose columns are not user-declared. Factored out so the
+# catalog annotator can enrich each column line and so it is stubbable in unit
+# tests. The array is cleared first; an unknown table simply yields no entries.
+#
+# @param __knit_ret Name of the associative array to fill (name -> type).
+# @param table The table name to introspect.
+# ------------------------------------------------------------------------------
+_knit_query_column_types() {
+    # shellcheck disable=SC2178 # nameref to the caller's associative array
+    local -n __knit_ret=$1
+    local table="$2"
+    __knit_ret=()
+    local name type
+    while IFS='|' read -r name type; do
+        [[ -z "${name}" ]] && continue
+        __knit_ret["${name}"]="${type}"
+    done < <(_knit_sqlite3 \
+        "SELECT name, type FROM pragma_table_info('${table}');" 2>/dev/null)
 }
 
 # ------------------------------------------------------------------------------

@@ -59,12 +59,42 @@ teardown() {
     [ -z "${alias}" ]
 }
 
+# ---------- _knit_query_column_types ----------
+
+@test "column types reads name -> SQL type from the live schema" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE widget(id TEXT, n INTEGER, ratio REAL);"
+    local -A types=()
+    _knit_query_column_types types "widget"
+    [ "${types[id]}" = "TEXT" ]
+    [ "${types[n]}" = "INTEGER" ]
+    [ "${types[ratio]}" = "REAL" ]
+}
+
+@test "column types is empty for an unknown table" {
+    knit_test_require_sqlite
+    local -A types=([stale]="x")
+    _knit_query_column_types types "nosuchtable"
+    [ "${#types[@]}" -eq 0 ]
+}
+
 # ---------- _knit_query_annotate_catalog ----------
 
-@test "annotate catalog appends command aliases and passes columns through" {
+@test "annotate catalog appends command aliases and column types" {
     _KNIT_DB_REGISTERED_TABLES=(
         [jobs]="submit" [montecarlo]="submit:montecarlo" [setup:libs]="setup:libs"
     )
+    # Stub the type lookup so the test controls the schema.
+    _knit_query_column_types() {
+        local -n __knit_ret=$1
+        local table="$2"
+        __knit_ret=()
+        case "${table}" in
+            jobs)       __knit_ret=([id]="TEXT" [state]="TEXT") ;;
+            montecarlo) __knit_ret=([id]="TEXT") ;;
+            setup:libs) __knit_ret=([id]="TEXT") ;;
+        esac
+    }
     run _knit_query_annotate_catalog <<'EOF'
 table jobs
   column id
@@ -76,14 +106,29 @@ table setup:libs
 EOF
     [ "$status" -eq 0 ]
     [[ "${lines[0]}" == "table jobs (command: submit)" ]]
-    [[ "${lines[1]}" == "  column id" ]]
-    [[ "${lines[2]}" == "  column state" ]]
+    [[ "${lines[1]}" == "  column id (TEXT)" ]]
+    [[ "${lines[2]}" == "  column state (TEXT)" ]]
     [[ "${lines[3]}" == "table montecarlo (command: submit:montecarlo)" ]]
+    [[ "${lines[4]}" == "  column id (TEXT)" ]]
     [[ "${lines[5]}" == "table setup:libs" ]]
+    [[ "${lines[6]}" == "  column id (TEXT)" ]]
+}
+
+@test "annotate catalog leaves a column with no known type unchanged" {
+    _KNIT_DB_REGISTERED_TABLES=([jobs]="submit")
+    _knit_query_column_types() { local -n __knit_ret=$1; __knit_ret=(); }
+    run _knit_query_annotate_catalog <<'EOF'
+table jobs
+  column id
+EOF
+    [ "$status" -eq 0 ]
+    [[ "${lines[0]}" == "table jobs (command: submit)" ]]
+    [[ "${lines[1]}" == "  column id" ]]
 }
 
 @test "annotate catalog passes a TABLE.COLUMN validation line through unchanged" {
     _KNIT_DB_REGISTERED_TABLES=([jobs]="submit")
+    _knit_query_column_types() { local -n __knit_ret=$1; __knit_ret=(); }
     run _knit_query_annotate_catalog <<'EOF'
 jobs.state
 EOF

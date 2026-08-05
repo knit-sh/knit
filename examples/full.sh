@@ -273,22 +273,23 @@
 # -----------------------------------------------------------------------------
 # 6. Look inside the database
 # -----------------------------------------------------------------------------
-# `db query` reads the database through knit, so you never touch the bundled
-# sqlite binary or its path directly:
+# `knit query` reads the database through knit, so you never touch the bundled
+# sqlite binary or its path directly. `query sql` runs a read-only SQL statement
+# (any write is rejected):
 #
-#   ./full.sh db query --from estimate \
-#       --select "id, samples, seed, format, pi" --header --column
+#   ./full.sh query sql --format column --header --exec \
+#       "SELECT id, samples, seed, format, pi FROM estimate"
 #
 # Each `estimate` run is one row: its parameters, its declared output (pi), and
-# a time-ordered UUID id. --header/--column format the output; --where,
-# --order-by and --limit cover the common filters, and --sql is an escape hatch
-# for arbitrary statements. `db tables` lists the tables that exist.
+# a time-ordered UUID id. --format picks the output mode (list, column, box, csv,
+# markdown, json, ...) and --header adds a header row. `query catalog` lists
+# every table and, for each, its columns and their SQL types:
 #
-#   ./full.sh db tables
+#   ./full.sh query catalog
 #
-# `knit query` (section 14) adds higher-level querying on top of `db query`:
-# read-only SQL, a schema catalog, and Cypher queries over the provenance graph.
-# Producing plots from the database is still future work.
+# Section 14 covers `knit query` in full: read-only SQL, the schema catalog, and
+# Cypher queries over the provenance graph. Producing plots from the database is
+# still future work.
 #
 # -----------------------------------------------------------------------------
 # 7. Create a setup (a reproducible environment)
@@ -364,13 +365,13 @@
 # scheduler command knit issued to submit the job (e.g. `sbatch .../.job.sh`),
 # also logged at trace level just before it runs:
 #
-#   ./full.sh db query --from jobs \
-#       --select "id, job, state, hostnames, native_cmd" --header --column
+#   ./full.sh query sql --format column --header --exec \
+#       "SELECT id, job, state, hostnames, native_cmd FROM jobs"
 #
 # The job's own output (pi) is recorded in its own table, named after the job:
 #
-#   ./full.sh db query --from montecarlo \
-#       --select "id, samples, seed, pi" --header --column
+#   ./full.sh query sql --format column --header --exec \
+#       "SELECT id, samples, seed, pi FROM montecarlo"
 #
 # The builtin `default` setup: bootstrap always instantiates one under
 # ./setups/default. It builds nothing — it carries only the platform activation
@@ -469,10 +470,10 @@
 # knit issued, also logged at trace level before it runs), and rank 0's output in
 # the app's own table (`mcrank`):
 #
-#   ./full.sh db query --from runs \
-#       --select "id, app, job, procs, hostnames, native_cmd" --header --column
-#   ./full.sh db query --from mcrank \
-#       --select "id, samples, seed, pi" --header --column
+#   ./full.sh query sql --format column --header --exec \
+#       "SELECT id, app, job, procs, hostnames, native_cmd FROM runs"
+#   ./full.sh query sql --format column --header --exec \
+#       "SELECT id, samples, seed, pi FROM mcrank"
 #
 # -----------------------------------------------------------------------------
 # 11. Reproducible environments with Spack
@@ -506,8 +507,8 @@
 # then activates it so the rest of the setup body sees the packages. The concrete
 # spack.yaml and spack.lock are captured into the setup's DB row as provenance:
 #
-#   ./full.sh db query --from "setup:mclib" \
-#       --select "id, __spack_yaml__, __spack_lock__" --header --column
+#   ./full.sh query sql --format column --header --exec \
+#       'SELECT id, __spack_yaml__, __spack_lock__ FROM "setup:mclib"'
 #
 # The activation is baked into setups/libenv/.activate.sh (a `spack env activate`
 # block),
@@ -550,8 +551,8 @@
 # knit can put an LLM in front of your experiment: it answers questions about
 # the interface and the recorded runs by calling knit's own commands. Everything
 # the AI can do is READ-ONLY — the tools it may call (describe, help, metadata
-# show, db query, job show) never modify anything, and any SQL it generates is
-# checked and rejected unless it is a read-only statement.
+# show, read-only SQL, job show) never modify anything, and any SQL it generates
+# is checked and rejected unless it is a read-only statement.
 #
 # First point knit at an OpenAI-compatible provider. knit never stores your API
 # key: you give it the NAME of the environment variable that holds the key, and
@@ -617,10 +618,11 @@
 #   ./full.sh query catalog -- jobs          # just the jobs table
 #
 # `knit query sql` runs a read-only SQL statement through knit's own sqlite (any
-# write is rejected). It is the scriptable sibling of `db query` from step 6:
+# write is rejected). It is the same read-only SQL surface introduced in step 6,
+# here shaped with --format/--header:
 #
-#   ./full.sh query sql --exec \
-#       "SELECT id, samples, pi FROM estimate ORDER BY samples" --header --column
+#   ./full.sh query sql --format column --header --exec \
+#       "SELECT id, samples, pi FROM estimate ORDER BY samples"
 #
 # `knit query graph` runs a Cypher query over the provenance graph, powered by
 # knit-graph (bootstrap built it under ./.knit). A node's label may be written as
