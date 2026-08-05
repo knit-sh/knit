@@ -110,6 +110,11 @@
 #     -> [knit:fatal] Command "analyze" cannot run: no montecarlo job has
 #        completed yet; run 'submit --setup env -- montecarlo' first
 #
+# knit's own builtins use the same mechanism: `bootstrap` is highlighted on a
+# fresh checkout, and `setup` is highlighted once you have bootstrapped but not
+# yet built a setup of your own — so `--help` always points at a sensible next
+# step.
+#
 # `--help` also word-wraps long option descriptions under the description column
 # on a wide terminal — try `./full.sh analyze --help`. Piped or redirected help
 # is left on one line, byte-for-byte as before, so scripts and tests are

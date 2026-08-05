@@ -12,11 +12,41 @@
 # ------------------------------------------------------------------------------
 declare -gA _KNIT_SETUPS
 
+# ------------------------------------------------------------------------------
+# @fn _knit_highlight_if_no_user_setup()
+#
+# Highlight predicate (see knit_highlight_if) for the builtin "setup" command:
+# return 0 ("highlight") when the experiment is bootstrapped but no setup other
+# than the builtin "default" has been instantiated yet, non-zero otherwise. This
+# bolds "setup" in the root "--help" once bootstrap is done — pointing at the
+# natural next step — and leaves it plain as soon as the user has built a setup.
+# Before bootstrap it never highlights (the setup root does not exist yet, and
+# the command is filtered from "--help" anyway).
+#
+# @param cmd The demangled command name (unused; the predicate is state-only).
+# ------------------------------------------------------------------------------
+_knit_highlight_if_no_user_setup() {
+    _knit_is_bootstrapped || return 1
+    local root
+    _knit_setup_root root
+    [[ -d "${root}" ]] || return 0
+    local entry base
+    for entry in "${root}"/*/; do
+        [[ -d "${entry}" ]] || continue
+        base="${entry%/}"
+        base="${base##*/}"
+        [[ "${base}" == "default" ]] && continue
+        return 1
+    done
+    return 0
+}
+
 knit_register _knit_setup "setup" "Setup an environment"
 _knit_is_builtin
 knit_with_required "name:string" "Name for the setup instance"
 knit_with_dispatch "setup" "User-provided setup command to execute"
 knit_with_subcommand_title "Setups"
+knit_highlight_if _knit_highlight_if_no_user_setup
 # ------------------------------------------------------------------------------
 # @fn _knit_setup()
 #
