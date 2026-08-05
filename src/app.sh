@@ -98,6 +98,15 @@ _knit_run() {
     # Validate args for the app subcommand (knit_fatal on bad args).
     local subcmd
     subcmd=$(_knit_command_mangle "run:${app_name}")
+
+    # Usability pre-check (login side): fail fast before launching if the app
+    # declares knit_usable_if predicates that do not hold. The per-rank re-entry
+    # catches this too, but only after the launcher has spawned.
+    local usable_reason=""
+    if ! _knit_command_check_usable usable_reason "${subcmd}"; then
+        knit_fatal "Command \"run:${app_name}\" cannot run: ${usable_reason}"
+    fi
+
     _knit_check_command_arguments "${subcmd}" "${app_args[@]}"
 
     # Resolve placement into the launcher options (procs, procs-per-node,

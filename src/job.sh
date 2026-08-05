@@ -120,6 +120,16 @@ _knit_submit() {
     # decorators.
     local mangled
     mangled="$(_knit_command_mangle "submit:${job_name}")"
+
+    # Usability pre-check (login side): fail fast before creating a job directory
+    # or contacting the scheduler if the job declares knit_usable_if predicates
+    # that do not hold. The compute-side re-entry catches this too, but only after
+    # the job has been scheduled.
+    local usable_reason=""
+    if ! _knit_command_check_usable usable_reason "${mangled}"; then
+        knit_fatal "Command \"submit:${job_name}\" cannot run: ${usable_reason}"
+    fi
+
     local required_marker="_KNIT_CMD_${mangled}_setup"
     local no_setup_marker="_KNIT_CMD_${mangled}_no_setup"
     local required_setup="${!required_marker:-}"

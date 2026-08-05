@@ -74,6 +74,16 @@ _knit_setup() {
     # Validate args for the setup subcommand (knit_fatal on bad args)
     local subcmd
     subcmd=$(_knit_command_mangle "setup:${setup_name}")
+
+    # Usability pre-check (login side): fail fast before creating the instance
+    # directory if the setup declares knit_usable_if predicates that do not hold.
+    # The _knit_invoke_command re-entry below catches this too, but only after the
+    # directory has been created.
+    local usable_reason=""
+    if ! _knit_command_check_usable usable_reason "${subcmd}"; then
+        knit_fatal "Command \"setup:${setup_name}\" cannot run: ${usable_reason}"
+    fi
+
     _knit_check_command_arguments "${subcmd}" "${setup_args[@]}"
 
     # Resolve the instance directory under the experiment's setup root. Idempotent

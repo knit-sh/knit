@@ -2041,6 +2041,17 @@ _knit_invoke_command() {
         && ! _knit_is_bootstrapped; then
         knit_fatal "Command \"${demangled_cmd}\" requires bootstrap. Run \"$0 bootstrap\" first."
     fi
+    # Usability guard: a command may declare knit_usable_if predicates that must
+    # all hold for it to run. Enforced here, after the bootstrap guard and before
+    # the wrapper/normal split, so it covers every invocation path uniformly.
+    # A "--help" invocation is exempt so usage stays introspectable even when the
+    # command cannot currently run.
+    if [[ "${1:-}" != "--help" ]]; then
+        local _knit_usable_reason=""
+        if ! _knit_command_check_usable _knit_usable_reason "${cmd}"; then
+            knit_fatal "Command \"${demangled_cmd}\" cannot run: ${_knit_usable_reason}"
+        fi
+    fi
     # get the name of the corresponding function
     local func_name_var="_KNIT_CMD_${cmd}_function"
     local func="${!func_name_var}"
