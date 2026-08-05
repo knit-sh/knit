@@ -101,14 +101,18 @@ check_grep "zlib: found" "${jobdir}/.stdout" \
 # create). The setup was built by a separate `knit setup` invocation; the job
 # consumes it via --setup. That data dependency is recorded as a "used_by" edge:
 #   source = the setup body (its row id, read back from .setup.id; name
-#            setup:zlibenv), target = this submission (jobs.id; name
-#            submit:zcheck), with NULL timestamps (a reference, not a call).
+#            setup:zlibenv), target = this submission (jobs.id; name submit),
+#            with NULL timestamps (a reference, not a call).
+# The target is named for the "submit" dispatcher that owns the "jobs" table,
+# NOT the job subcommand: the row lives in "jobs", and a graph query resolves
+# the node label through the name<->table map, so a "submit:<job>" name would
+# point the edge at the wrong table and make the used_by hop unmatchable.
 # --------------------------------------------------------------------------
 setup_id=$(cat "${WORKDIR}/setups/zenv/.setup.id")
 check_file "${WORKDIR}/setups/zenv/.setup.id" "setup recorded its row id in .setup.id"
 check_sqlite ".knit/knit.db" \
     "SELECT source_id, source_name, target_id, target_name, start_time, end_time FROM __provenance__ WHERE edge_type='used_by';" \
-    "${setup_id}|setup:zlibenv|${uuid}|submit:zcheck||" \
+    "${setup_id}|setup:zlibenv|${uuid}|submit||" \
     "used_by edge links the setup (source_id == .setup.id) to the job, NULL times"
 
 assert_summary
