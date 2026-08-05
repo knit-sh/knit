@@ -665,10 +665,10 @@
 # -----------------------------------------------------------------------------
 # Implementation
 # -----------------------------------------------------------------------------
-# Source knit.sh relative to THIS script (not the current directory). This
-# matters because `submit` re-enters the experiment from inside a job directory:
-# a bare `source knit.sh` would fail there, so we resolve the path explicitly.
-source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/knit.sh"
+# Source knit.sh. This requires knit.sh to sit next to this script: the re-entry
+# paths (submit, run) arrange for the experiment to be sourced from the script's
+# directory so this bare form resolves even though the body runs elsewhere.
+source knit.sh
 
 knit_set_program_description \
     "A guided tour of knit: estimate pi with Monte-Carlo, locally or as a job."

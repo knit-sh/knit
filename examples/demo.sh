@@ -135,9 +135,10 @@
 # ./demo.sh <command> ...
 # -----------------------------------------------------------------------------
 
-# Source knit.sh relative to THIS script (not the current directory), so the
-# experiment still finds it when re-entered from inside a job directory.
-source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/knit.sh"
+# Source knit.sh. This requires knit.sh to sit next to this script: the re-entry
+# paths (submit, run) arrange for the experiment to be sourced from the script's
+# directory so this bare form resolves even though the body runs elsewhere.
+source knit.sh
 
 knit_set_program_description \
     "A knit demo: render a Julia-set fractal with real MPI, then query the results."
