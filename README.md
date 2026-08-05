@@ -1,11 +1,14 @@
-# knit
-
 [![Tests](https://github.com/knit-sh/knit/actions/workflows/tests.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/tests.yml)
 [![Integration](https://github.com/knit-sh/knit/actions/workflows/integration.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/integration.yml)
 [![ShellCheck](https://github.com/knit-sh/knit/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/shellcheck.yml)
 [![Documentation Check](https://github.com/knit-sh/knit/actions/workflows/doccheck.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/doccheck.yml)
 [![Code Coverage](https://github.com/knit-sh/knit/actions/workflows/codecov.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/codecov.yml)
 [![codecov](https://codecov.io/gh/knit-sh/knit/branch/main/graph/badge.svg)](https://codecov.io/gh/knit-sh/knit)
+
+<p align="center">
+<img src="docs/source/_static/knit-logo-light.svg#gh-light-mode-only" height="220" width="210" />
+<img src="docs/source/_static/knit-logo-dark.svg#gh-dark-mode-only" height="220" width="210" />
+</p>
 
 Knit is a framework to help write reproducible and portable HPC experiments
 
