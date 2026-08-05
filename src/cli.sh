@@ -621,7 +621,15 @@ knit_define_parameter_set() {
 # ------------------------------------------------------------------------------
 # @fn knit_hidden()
 #
-# Mark a command as hidden, i.e. it will not appear in usage help messages.
+# Mark a command as hidden, i.e. it will not appear in usage help messages. This
+# is the static, unconditional hide flag (the "_is_hidden" boolean), also read by
+# _knit_provenance_enabled and describe, and it stands apart from the dynamic
+# knit_hidden_if predicates.
+#
+# knit_hidden and knit_hidden_if are mutually exclusive per command (last-writer
+# wins with a warning): calling knit_hidden after one or more knit_hidden_if
+# statements shadows them, so it emits a warning, sets the static flag, and drops
+# the collected dynamic predicates.
 # ------------------------------------------------------------------------------
 knit_hidden() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
@@ -629,6 +637,11 @@ knit_hidden() {
     fi
     knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as hidden."
     local cmd="${_KNIT_CURRENT_COMMAND}"
+    local hidden_pred_name="_KNIT_CMD_${cmd}_hidden_pred"
+    if [[ -v "${hidden_pred_name}" ]]; then
+        knit_warning "knit_hidden on command \"${_KNIT_CURRENT_COMMAND_DEMANGLED}\" shadows the previous knit_hidden_if statement(s); the dynamic hide predicates are dropped."
+        unset "${hidden_pred_name}"
+    fi
     local cmd_hidden_name="_KNIT_CMD_${cmd}_is_hidden"
     printf -v "${cmd_hidden_name}" '%s' 'true'
 }
@@ -822,6 +835,133 @@ _knit_command_check_usable() {
         fi
     done
     return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_hidden_if()
+#
+# Declare that the command currently being registered is hidden from its parent's
+# "--help" whenever <predicate> returns 0. <predicate> is the name of a
+# user-defined shell function that receives the demangled command name as its
+# single argument and returns 0 ("hide") or non-zero ("show"). Unlike knit_hidden
+# this is a dynamic, "--help"-only hide: the command remains fully invokable and
+# is still visible to _knit_provenance_enabled and describe.
+#
+# Repeatable: multiple calls register multiple predicates and the command is
+# hidden if any of them returns 0 (logical OR).
+#
+# knit_hidden and knit_hidden_if are mutually exclusive per command: if the
+# command is already statically hidden (knit_hidden was called first), the dynamic
+# predicate would be meaningless, so this call emits a warning and is ignored. The
+# per-command storage array (_hidden_pred) is declared lazily on first use.
+#
+# @param predicate Name of the predicate function.
+# ------------------------------------------------------------------------------
+knit_hidden_if() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_hidden_if should be used after a call to \"knit_register\"."
+    fi
+    if [[ $# -ne 1 ]]; then
+        knit_fatal "knit_hidden_if requires a predicate."
+    fi
+    local predicate="$1"
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local is_hidden_name="_KNIT_CMD_${cmd}_is_hidden"
+    if [[ "${!is_hidden_name}" == "true" ]]; then
+        knit_warning "knit_hidden_if on command \"${_KNIT_CURRENT_COMMAND_DEMANGLED}\" is meaningless: the command is already unconditionally hidden by knit_hidden; ignoring."
+        return 0
+    fi
+    knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} hidden if \"${predicate}\"."
+    local pred_name="_KNIT_CMD_${cmd}_hidden_pred"
+    if [[ ! -v "${pred_name}" ]]; then
+        declare -ga "${pred_name}=()"
+    fi
+    # shellcheck disable=SC2178 # nameref to the command's hide-predicate array
+    local -n pred_ref="${pred_name}"
+    pred_ref+=("${predicate}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_hidden_if_not_usable()
+#
+# Shorthand for a knit_hidden_if whose predicate hides the command from "--help"
+# exactly when at least one of its knit_usable_if predicates is false. Takes no
+# arguments. Backed by the internal predicate _knit_hidden_if_not_usable_pred,
+# appended to the command's _hidden_pred array; a command with no knit_usable_if
+# predicates is always usable, hence never hidden by this shorthand.
+#
+# Subject to the same mutual exclusion with knit_hidden as knit_hidden_if.
+# ------------------------------------------------------------------------------
+knit_hidden_if_not_usable() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_hidden_if_not_usable should be used after a call to \"knit_register\"."
+    fi
+    knit_hidden_if _knit_hidden_if_not_usable_pred
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_hidden_if_not_usable_pred()
+#
+# Internal hide predicate backing knit_hidden_if_not_usable. Receives the
+# demangled command name, runs the command's usability check, and inverts it:
+# returns 0 ("hide") when the command is not usable, and non-zero ("show") when it
+# is usable (or declares no usability predicates).
+#
+# @param demangled Demangled command name passed by _knit_command_hidden.
+# @return 0 if the command is not usable (hide it), non-zero otherwise.
+# ------------------------------------------------------------------------------
+_knit_hidden_if_not_usable_pred() {
+    local demangled="$1"
+    local mangled="${demangled//:/__1__}"
+    # shellcheck disable=SC2034 # set by _knit_command_check_usable via nameref
+    local reason
+    if _knit_command_check_usable reason "${mangled}"; then
+        return 1
+    fi
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_command_hidden()
+#
+# The "--help" visibility test for a command. Return 0 (hidden) if the static
+# _is_hidden boolean is true, or if any of the command's dynamic _hidden_pred
+# predicates returns 0; return non-zero (shown) otherwise. Because knit_hidden and
+# knit_hidden_if are mutually exclusive, at most one of the two arms is ever
+# non-trivial for a given command.
+#
+# Each dynamic predicate is called as "<predicate> <demangled-cmd>" in the current
+# shell (no fork). A predicate whose function does not exist is a warning (not
+# fatal): hiding is guidance, not access control, so a vanished predicate is
+# treated as "no" (do not hide) and "--help" still renders.
+#
+# @param cmd Command (mangled name) to test.
+# @return 0 if the command should be hidden from "--help", non-zero otherwise.
+# ------------------------------------------------------------------------------
+_knit_command_hidden() {
+    local cmd="$1"
+    local is_hidden_name="_KNIT_CMD_${cmd}_is_hidden"
+    if [[ "${!is_hidden_name}" == "true" ]]; then
+        return 0
+    fi
+    local pred_name="_KNIT_CMD_${cmd}_hidden_pred"
+    if [[ ! -v "${pred_name}" ]]; then
+        return 1
+    fi
+    # shellcheck disable=SC2178 # nameref to the command's hide-predicate array
+    local -n pred_ref="${pred_name}"
+    local demangled="${cmd//__1__/:}"
+    local predicate
+    for predicate in "${pred_ref[@]}"; do
+        if ! declare -F "${predicate}" >/dev/null 2>&1; then
+            knit_warning "Command \"${demangled}\" declares hide predicate \"${predicate}\", which is not a defined function; not hiding."
+            continue
+        fi
+        if "${predicate}" "${demangled}"; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 # ------------------------------------------------------------------------------
@@ -1834,8 +1974,7 @@ _knit_print_command_usage() {
     local pre_bootstrap="false"
     _knit_is_bootstrapped || pre_bootstrap="true"
     for c in "${children_ref[@]}"; do
-        local hidden_var_name="_KNIT_CMD_${c}_is_hidden"
-        if [[ "${!hidden_var_name}" == "true" ]]; then
+        if _knit_command_hidden "${c}"; then
             continue
         fi
         if [[ "${pre_bootstrap}" == "true" ]] \
