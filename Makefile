@@ -88,7 +88,10 @@ doccheck:
 
 .PHONY: coverage
 coverage: $(KNIT_SOURCE)
-	@{ for f in $(KNIT_SOURCE); do echo "source $$f"; done; } > $(KNIT_OUTPUT)
+	@{ \
+		echo '__knit_cov_dir="$$(cd "$$(dirname "$${BASH_SOURCE[0]}")" && pwd)"'; \
+		for f in $(KNIT_SOURCE); do echo "source \"\$$__knit_cov_dir/$$f\""; done; \
+	} > $(KNIT_OUTPUT)
 
 DOCS_VENV := .docs-venv
 
