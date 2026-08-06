@@ -10,6 +10,11 @@ setup() {
 
     _KNIT_TEST_TMPDIR="$(mktemp -d)"
     _KNIT_SPACK_REQUIRED=""
+    # Point the Spack root at an existing directory so the before-callback's
+    # on-demand provisioning is a no-op (these tests exercise the callback, not
+    # provisioning; see test_spack.sh for _knit_spack_ensure_provisioned).
+    _KNIT_SPACK_ROOT="${_KNIT_TEST_TMPDIR}/spack"
+    mkdir -p "${_KNIT_SPACK_ROOT}"
     _test_setup_fn() { :; }
 }
 

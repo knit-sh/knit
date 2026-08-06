@@ -189,6 +189,35 @@ _stub_provisioning() {
     ! grep -q "SHOULD_NOT_BE_CALLED" "${METALOG}"
 }
 
+# ---------- _knit_spack_ensure_provisioned (on-demand provisioning) ----------
+
+@test "ensure_provisioned is a no-op when spack is already present" {
+    mkdir -p "${_KNIT_SPACK_ROOT}"
+    _knit_bootstrap_spack() { printf 'PROVISIONED\n'; }
+    run _knit_spack_ensure_provisioned
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"PROVISIONED"* ]]
+}
+
+@test "ensure_provisioned provisions the latest release on demand when missing" {
+    # setup() leaves _KNIT_SPACK_ROOT pointing at a non-existent directory.
+    _knit_bootstrap_spack() { printf 'PROVISIONED %s|%s\n' "$1" "$2"; }
+    run _knit_spack_ensure_provisioned
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"downloading it now"* ]]
+    # Called with empty refs, i.e. the latest release, like an empty --spack.
+    [[ "$output" == *"PROVISIONED |"* ]]
+}
+
+@test "ensure_provisioned is fatal (does not provision) when not bootstrapped" {
+    _knit_is_bootstrapped() { return 1; }
+    _knit_bootstrap_spack() { printf 'SHOULD_NOT_RUN\n'; }
+    run _knit_spack_ensure_provisioned
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not bootstrapped"* ]]
+    [[ "$output" != *"SHOULD_NOT_RUN"* ]]
+}
+
 # ---------- knit spack wrapper (_knit_spack_exec) ----------
 
 # Create a fake provisioned Spack whose setup-env.sh bumps a source counter and

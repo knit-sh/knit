@@ -221,6 +221,30 @@ _knit_bootstrap_spack() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_spack_ensure_provisioned()
+#
+# Ensure the knit-private Spack is present, provisioning it on demand when it is
+# absent. Bootstrap provisions Spack only when a Spack-backed setup was declared
+# at bootstrap time (or --spack was given). A setup that gains a knit_with_spack*
+# directive *after* bootstrap would otherwise find no Spack and, since bootstrap
+# cannot be re-run, force the user to delete and recreate .knit by hand. Instead
+# this downloads Spack at first use — the latest release, as an empty --spack
+# would — announced with a knit_info line so the one-time delay is not a mystery.
+#
+# A no-op when Spack is already provisioned. Fatal when the experiment is not
+# bootstrapped: there is no .knit to provision into, and _knit_bootstrap_spack's
+# provenance writes need the metadata table.
+# ------------------------------------------------------------------------------
+_knit_spack_ensure_provisioned() {
+    [[ -d "${_KNIT_SPACK_ROOT}" ]] && return 0
+    if ! _knit_is_bootstrapped; then
+        knit_fatal "Spack is required but the experiment is not bootstrapped. Run 'bootstrap' first."
+    fi
+    knit_info "Spack is required but not provisioned; downloading it now (one-time setup)..."
+    _knit_bootstrap_spack "" ""
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_spack_install()
 #
 # Install the specified specs using spack.

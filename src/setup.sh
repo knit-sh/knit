@@ -748,7 +748,8 @@ knit_without_setup() {
 #
 # Before-callback installed by knit_with_spack_env. Runs as the setup's first
 # step (before-cbs execute in the setup's own shell, so the activated environment
-# persists into the setup body and into the after-callbacks). It materializes the
+# persists into the setup body and into the after-callbacks). It provisions Spack
+# on demand if it is missing (see _knit_spack_ensure_provisioned), materializes the
 # environment manifest to ${KNIT_SETUP_PREFIX}/spack.yaml, builds the Spack
 # environment at ${KNIT_SETUP_PREFIX}/spack-env, and activates it in the current
 # shell so the setup body builds against the installed packages.
@@ -770,6 +771,10 @@ _knit_setup_spack_env_before_cb() {
     # and environment (e.g. an external compiler/MPI). Idempotent with the generic
     # setup before-callback, which also sources it.
     _knit_setup_source_platform
+    # Provision Spack on demand: a setup may have gained this directive after the
+    # experiment was already bootstrapped without Spack, and bootstrap cannot be
+    # re-run.
+    _knit_spack_ensure_provisioned
     if [[ "${mode}" == "file" ]]; then
         cp "${source}" "${yaml}"
     else
