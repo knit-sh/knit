@@ -1,0 +1,12 @@
+/* On the home page the Knit logo (rendered just below) stands in for the page
+   title, so hide the redundant "Knit" heading text. The heading is kept in the
+   document for the browser tab, the sidebar "home" entry, and screen readers
+   (the logo images carry alt="Knit" as well). */
+section#knit > h1 {
+    display: none;
+}
+
+/* Breathing room between the home-page logo and the first paragraph. */
+section#knit > p:first-of-type {
+    margin-top: 2.5rem;
+}

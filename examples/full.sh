@@ -622,7 +622,7 @@
 # `submit`):
 #
 #   ./full.sh query catalog                  # every table and its columns
-#   ./full.sh query catalog -- jobs          # just the jobs table
+#   ./full.sh query catalog --ref jobs       # just the jobs table
 #
 # `knit query sql` runs a read-only SQL statement through knit's own sqlite (any
 # write is rejected). It is the same read-only SQL surface introduced in step 6,

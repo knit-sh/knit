@@ -4,6 +4,50 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 import os
+import re
+
+from pygments.lexers.shell import BashLexer, BashSessionLexer
+from pygments.token import Name, Text
+
+# -- Knit-aware highlighting ---------------------------------------------------
+#
+# Highlight Knit's own API --- the bare word `knit` and any `knit_*` function ---
+# with the shell-builtin style (the same one Bash builtins such as `local` and
+# `export` get), so calls like `knit_register` or `knit run` stand out in code
+# blocks. The regex is anchored so it matches exactly `knit` or
+# `knit_<identifier>` and never a lookalike such as `knitting` (a variable) or
+# `knit-graph` (a separate binary).
+
+_KNIT_RE = re.compile(r"^knit(_[A-Za-z0-9_]+)?$")
+
+
+def _knit_promote(tokens):
+    """Reclassify Knit API words to the shell-builtin token, leaving strings and
+    comments (where `knit_*` names appear as prose) untouched."""
+    for index, token, value in tokens:
+        if (token in Text or token in Name) and _KNIT_RE.match(value):
+            token = Name.Builtin
+        yield index, token, value
+
+
+class KnitBashLexer(BashLexer):
+    """BashLexer that renders the Knit API as shell builtins (code blocks)."""
+
+    name = "KnitBash"
+    aliases = ["bash"]
+
+    def get_tokens_unprocessed(self, text):
+        yield from _knit_promote(super().get_tokens_unprocessed(text))
+
+
+class KnitBashSessionLexer(BashSessionLexer):
+    """Bash session lexer that renders the Knit API as shell builtins (console
+    blocks); its inner command lexer is the Knit-aware one above."""
+
+    name = "KnitConsole"
+    aliases = ["console"]
+    _innerLexerCls = KnitBashLexer
+
 
 # -- Project information ------------------------------------------------------
 
@@ -20,20 +64,26 @@ extensions = [
 templates_path = ["_templates"]
 exclude_patterns = []
 
-pygments_style = 'emacs'
-pygments_dark_style = 'one-dark'
+pygments_style = 'min-light'
+pygments_dark_style = 'min-dark'
 
 # -- Options for HTML output --------------------------------------------------
 
 html_theme = "sphinx_book_theme"
 html_title = "Knit"
 html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 
 html_theme_options = {
     "repository_url": "https://github.com/knit-sh/knit",
     "use_repository_button": True,
     "use_issues_button": True,
     "home_page_in_toc": True,
+    # sphinx-book-theme (via pydata-sphinx-theme) generates its own light/dark
+    # code highlighting from these options and ignores the top-level
+    # pygments_style / pygments_dark_style, so the styles must be set here too.
+    "pygments_light_style": "min-light",
+    "pygments_dark_style": "min-dark",
 }
 
 # -- Breathe (Doxygen integration) --------------------------------------------
@@ -56,3 +106,20 @@ breathe_default_project = "knit"
 breathe_domain_by_extension = {
     "sh": "c",
 }
+
+# -- Setup --------------------------------------------------------------------
+
+
+def _mark_home_page(app, pagename, templatename, context, doctree):
+    # Expose an `is_home` flag to the templates. `_templates/layout.html` uses it
+    # to drop the " — Knit" browser-tab suffix on the root document only (whose
+    # own title is already "Knit"), while every other page keeps "<page> — Knit".
+    context["is_home"] = pagename == app.config.root_doc
+
+
+def setup(app):
+    # Override the built-in `bash` and `console` lexers with the Knit-aware
+    # variants so `knit` / `knit_*` are highlighted as shell builtins everywhere.
+    app.add_lexer("bash", KnitBashLexer)
+    app.add_lexer("console", KnitBashSessionLexer)
+    app.connect("html-page-context", _mark_home_page)

@@ -1,0 +1,13 @@
+{% extends "!layout.html" %}
+
+{# The home page's title is already "Knit", so the theme's default
+   "<title> — Knit" would render "Knit — Knit" in the browser tab. Drop the
+   suffix on the root document only; every other page keeps "<page> — Knit".
+   `is_home` is set from conf.py's html-page-context handler. #}
+{% block htmltitle %}
+  {%- if is_home %}
+    <title>{{ title|striptags|e }}</title>
+  {%- else %}
+    {{ super() }}
+  {%- endif %}
+{% endblock %}

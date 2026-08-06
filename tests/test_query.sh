@@ -153,20 +153,31 @@ EOF
     [[ "${lines[1]}" == "  column id" ]]
 }
 
-@test "query catalog forwards a TABLE reference passed after --" {
+@test "query catalog forwards the --ref TABLE reference" {
     local argfile="${BATS_TEST_TMPDIR}/kg-args"
     _knit_knit_graph() {
         printf '%s\n' "$*" > "${argfile}"
         printf 'table montecarlo\n  column id\n'
     }
-    run knit query catalog -- montecarlo
+    run knit query catalog --ref montecarlo
     [ "$status" -eq 0 ]
     [ "$(cat "${argfile}")" = "--catalog ${_KNIT_DATABASE} montecarlo" ]
 }
 
+@test "query catalog forwards a --ref TABLE.COLUMN reference" {
+    local argfile="${BATS_TEST_TMPDIR}/kg-args"
+    _knit_knit_graph() {
+        printf '%s\n' "$*" > "${argfile}"
+        printf 'montecarlo.pi\n'
+    }
+    run knit query catalog --ref montecarlo.pi
+    [ "$status" -eq 0 ]
+    [ "$(cat "${argfile}")" = "--catalog ${_KNIT_DATABASE} montecarlo.pi" ]
+}
+
 @test "query catalog propagates knit-graph's non-zero exit" {
     _knit_knit_graph() { return 3; }
-    run knit query catalog -- nosuchtable
+    run knit query catalog --ref nosuchtable
     [ "$status" -eq 3 ]
 }
 

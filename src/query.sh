@@ -110,28 +110,27 @@ knit_register _knit_query_catalog "query:catalog" \
     "List the database's tables and columns, or validate a reference."
 _knit_is_builtin
 knit_without_provenance
-knit_with_extra "Optional TABLE or TABLE.COLUMN reference to show or validate."
+knit_with_optional "ref:string" "" \
+    "TABLE or TABLE.COLUMN reference to show or validate (default: list all)."
 # ------------------------------------------------------------------------------
 # @fn _knit_query_catalog()
 #
 # Body of 'query catalog': forward to knit-graph's `--catalog` mode on the
 # experiment database and annotate the listing with command-name aliases. With no
-# extra argument it lists every table and its columns; with a TABLE or
-# TABLE.COLUMN reference (passed after `--`) it shows that table or validates the
-# column, propagating knit-graph's non-zero exit on an unknown reference. Runs on
-# the read-only knit-graph binary; the query itself is not recorded.
+# --ref it lists every table and its columns; with a TABLE or TABLE.COLUMN
+# reference in --ref it shows that table or validates the column, propagating
+# knit-graph's non-zero exit on an unknown reference. Runs on the read-only
+# knit-graph binary; the query itself is not recorded.
 #
-# @param ... A single optional TABLE[.COLUMN] reference after `--`.
+# @param ... The command invocation arguments (an optional --ref TABLE[.COLUMN]).
 # @return The exit status of knit-graph.
 # ------------------------------------------------------------------------------
 _knit_query_catalog() {
-    local args=("$@")
-    local extra_index
-    extra_index=$(knit_extra_index "${args[@]}")
-    local extra=("${args[@]:extra_index}")
+    local ref
+    ref="$(knit_get_parameter "ref" "$@")"
 
     local -a cat_args=(--catalog "${_KNIT_DATABASE}")
-    (( ${#extra[@]} > 0 )) && cat_args+=("${extra[0]}")
+    [[ -n "${ref}" ]] && cat_args+=("${ref}")
 
     local output
     output="$(_knit_knit_graph "${cat_args[@]}")" || return "$?"
