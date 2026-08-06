@@ -444,6 +444,13 @@
 #
 #   ./full.sh submit --setup env --nodes 2 --wait -- mcparallel --procs 8
 #
+# Instead of taking placement as a parameter, a job body can inspect its own
+# allocation: `knit_job_hostnames` lists the allocated hosts (with --separator,
+# --json, --raw, --select) and `knit_job_nodecount` counts the distinct nodes. To
+# launch one rank per node, for example:
+#
+#   knit run --procs "$(knit_job_nodecount)" --procs-per-node 1 -- mcrank
+#
 # On a machine bootstrapped with `--launcher none` (step 2), knit takes the MPI
 # launcher from a setup instead of the machine. A setup whose body puts an MPI on
 # PATH (e.g. `module load mpich`) can declare `knit_provides_launcher`: its

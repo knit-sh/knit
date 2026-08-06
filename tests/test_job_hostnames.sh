@@ -202,6 +202,43 @@ teardown() {
     [[ "${output}" == *"--select must be"* ]]
 }
 
+# ---------- knit_job_nodecount ----------
+
+@test "nodecount counts deduplicated nodes" {
+    _use_fixture
+    run knit_job_nodecount
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "2" ]
+}
+
+@test "nodecount counts each distinct host once regardless of slots" {
+    _use_fixture4
+    run knit_job_nodecount
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "4" ]
+}
+
+@test "nodecount reports 0 for an empty host list" {
+    _knit_sched_hostfile() { :; }
+    run knit_job_nodecount
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "0" ]
+}
+
+@test "nodecount reports 1 outside an allocation (local hostname)" {
+    _knit_sched_backend() { local -n __r=$1; __r='local'; }
+    run knit_job_nodecount
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "1" ]
+}
+
+@test "nodecount rejects unexpected arguments" {
+    _use_fixture
+    run knit_job_nodecount --bogus
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"unexpected argument"* ]]
+}
+
 # ---------- per-backend host sources ----------
 
 @test "pbs hostfile cats \$PBS_NODEFILE" {

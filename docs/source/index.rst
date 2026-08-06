@@ -7,7 +7,8 @@ registering commands with typed parameters, automatic database logging of
 runs, environment/setup management, and Spack integration.
 
 New to Knit? The :doc:`quickstart` writes and runs a one-command experiment in a
-few minutes.
+few minutes, and the :doc:`tutorial/index` grows a single real experiment from a
+plain command into a Spack-backed, MPI-parallel, recorded workload.
 
 The API is split by visibility, following Knit's underscore naming convention:
 names without a leading underscore form the stable :doc:`api/public`, while
@@ -19,6 +20,8 @@ change at any time.
    :caption: Guides
 
    quickstart
+   tutorial/index
+   basic/index
 
 .. toctree::
    :maxdepth: 2

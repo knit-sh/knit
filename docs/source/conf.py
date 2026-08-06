@@ -20,6 +20,9 @@ extensions = [
 templates_path = ["_templates"]
 exclude_patterns = []
 
+pygments_style = 'emacs'
+pygments_dark_style = 'one-dark'
+
 # -- Options for HTML output --------------------------------------------------
 
 html_theme = "sphinx_book_theme"

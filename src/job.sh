@@ -476,6 +476,28 @@ knit_job_hostnames() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_job_nodecount()
+#
+# Print the number of distinct nodes allocated to the current job: the count of
+# deduplicated hostnames reported by knit_job_hostnames (so a host contributing
+# several launchable slots is counted once). Intended to be called inside a job
+# body; outside a scheduler allocation it reports 1 (the local host). A common use
+# is to launch one rank per node: `knit run --procs "$(knit_job_nodecount)"
+# --procs-per-node 1 -- <app>`.
+#
+# Takes no arguments.
+# ------------------------------------------------------------------------------
+knit_job_nodecount() {
+    if (( $# )); then
+        knit_error "knit_job_nodecount: unexpected argument \"%s\"." "$1"
+        return 1
+    fi
+    local -a hosts=()
+    mapfile -t hosts < <(knit_job_hostnames)
+    printf '%s\n' "${#hosts[@]}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_register_job()
 #
 # Register a job, i.e. a subcommand of the "submit" command that executes as a
