@@ -1,0 +1,23 @@
+name: Docs Examples
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches:
+    - main
+
+jobs:
+  check-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y sqlite3 jq
+
+      - name: Build knit.sh
+        run: make
+
+      - name: Run documentation code examples
+        run: make check-docs
