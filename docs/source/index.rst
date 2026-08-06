@@ -19,8 +19,8 @@ repeated, and moved from a laptop to a supercomputer without changing the code.
 Objectives
 ----------
 
-**Simplicity.** Write experiments as plain Bash: register a function as a
-command, declare its typed parameters, and Knit gives you a complete CLI ---
+**Simplicity.** Write experiments as plain Bash: source knit.sh, register a
+function as a command, declare its typed parameters, and Knit gives you a complete CLI ---
 ``--help``, validation, and logging --- for free.
 
 **Reproducibility.** Every invocation is recorded --- its parameters, outputs,
@@ -73,7 +73,7 @@ plain command into a Spack-backed, MPI-parallel, recorded workload.
 
 The API is split by visibility, following Knit's underscore naming convention:
 names without a leading underscore form the stable :doc:`api/public`, while
-names with one or two leading underscores form the :doc:`api/private`, which may
+names with a leading underscore form the :doc:`api/private`, which may
 change at any time.
 
 .. toctree::
