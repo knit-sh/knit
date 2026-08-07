@@ -397,7 +397,6 @@
 #   ./full.sh job status --id $uuid          # just the lifecycle state
 #   ./full.sh job wait   --id $uuid          # block until terminal (non-zero if killed)
 #   ./full.sh job cancel --id $uuid          # stop a running job (marks it killed)
-#   ./full.sh job rm     --id $uuid          # delete a job's dir + row (--force if live)
 #   ./full.sh job resubmit --id $uuid        # re-run reusing the recorded parameters
 #
 # `job show` combines both tables for one job: its submission options and, once

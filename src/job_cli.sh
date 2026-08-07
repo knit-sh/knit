@@ -321,61 +321,6 @@ _knit_job_cancel() {
 knit_done
 
 # ------------------------------------------------------------------------------
-# Remove a job's working directory and its lifecycle row.
-# ------------------------------------------------------------------------------
-knit_register "job:rm" _knit_job_rm "Remove a job's working directory and lifecycle row."
-_knit_is_builtin
-knit_with_required "id:string" "Job UUID."
-knit_with_flag "force" "Remove even if the job is still running."
-# ------------------------------------------------------------------------------
-# @fn _knit_job_rm()
-#
-# Delete a job: remove its working directory (_knit_job_dir) and its row in the
-# jobs table. The per-job <jobname> parameter table is left untouched, since it
-# is shared across every invocation of that job.
-#
-# A job that has not reached a terminal state (completed or killed) is still
-# potentially running; removing its directory out from under it would leave a
-# live process writing into a deleted tree. Such a job is refused unless --force
-# is given, and the message suggests cancelling it first. An unknown id is fatal.
-# ------------------------------------------------------------------------------
-_knit_job_rm() {
-    if ! _knit_is_bootstrapped; then
-        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
-        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
-    fi
-    local id force
-    id=$(knit_get_parameter "id" "$@")
-    force=$(knit_get_parameter "force" "$@") || force="false"
-    local escaped
-    _knit_sql_escape escaped "${id}"
-
-    local state
-    state="$(_knit_sqlite3 "SELECT state FROM jobs WHERE id = '${escaped}';")"
-    if [[ -z "${state}" ]]; then
-        knit_fatal "No job found with id \"${id}\"."
-    fi
-    # A non-terminal job may still be running; refuse to delete it unless forced.
-    case "${state}" in
-        completed|killed) ;;
-        *)
-            if [[ "${force}" != "true" ]]; then
-                knit_fatal "Job \"${id}\" is still ${state}; cancel it first (${KNIT_SCRIPT_NAME} job cancel --id ${id}) or pass --force."
-            fi
-            ;;
-    esac
-
-    # Resolve the directory while the row still exists (the setup path is read
-    # from it), then remove the tree and drop the row.
-    local jobdir
-    jobdir="$(_knit_job_dir "${id}")"
-    rm -rf "${jobdir}"
-    _knit_sqlite3_write "DELETE FROM jobs WHERE id = '${escaped}';"
-    knit_info "Removed job \"${id}\"."
-}
-knit_done
-
-# ------------------------------------------------------------------------------
 # @fn _knit_job_reconstruct_args_from_db_row()
 #
 # Append CLI arguments reconstructing a command's recorded parameters from one

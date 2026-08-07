@@ -716,11 +716,10 @@ On a laptop that script just activates the setup and runs the job in the
 background; on a cluster the very same command shows the ``#SBATCH`` / ``#PBS``
 directives Knit filled in --- which is exactly what the next step introduces.
 
-When a job is no longer wanted, or you want to run it again, three commands close
-the loop: ``job cancel --id <uuid>`` stops a running job, ``job rm --id <uuid>``
-deletes a job's working directory and its lifecycle row (handy for clearing failed
-attempts), and ``job resubmit --id <uuid>`` re-runs a job reusing its recorded
-parameters --- repeating a run without retyping its arguments.
+When a job is no longer wanted, or you want to run it again, two commands close
+the loop: ``job cancel --id <uuid>`` stops a running job, and
+``job resubmit --id <uuid>`` re-runs a job reusing its recorded parameters ---
+repeating a run without retyping its arguments.
 
 **Record notes, with** ``metadata``. Knit keeps a small key/value table for
 experiment-level facts. Store your own and read one back:

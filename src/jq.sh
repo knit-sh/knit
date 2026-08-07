@@ -112,28 +112,3 @@ _knit_download_jq() {
 _knit_jq() {
     "${_KNIT_JQ_EXE}" "$@"
 }
-
-# ------------------------------------------------------------------------------
-# Register the "knit jq" wrapper: forwards every argument verbatim to the
-# knit-private jq. This is a convenience for processing JSON by hand with the
-# same jq that knit uses internally, without having to locate its binary. The
-# central runtime guard refuses it before bootstrap (the binary is provisioned
-# during bootstrap), so no in-body check is needed.
-# ------------------------------------------------------------------------------
-knit_register_wrapper "jq" "_knit_jq_cmd" \
-    "Run the knit-private jq, forwarding all arguments verbatim."
-_knit_is_builtin
-knit_without_provenance
-# ------------------------------------------------------------------------------
-# @fn _knit_jq_cmd()
-#
-# Body of the "knit jq" wrapper command. Forwards all arguments verbatim to the
-# knit-private jq.
-#
-# @param ... Arguments forwarded verbatim to jq (including --help).
-# @return The exit status of jq.
-# ------------------------------------------------------------------------------
-_knit_jq_cmd() {
-    _knit_jq "$@"
-}
-knit_done
