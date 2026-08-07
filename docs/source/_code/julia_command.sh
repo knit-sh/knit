@@ -12,11 +12,12 @@
 # *failing* with "julia-fractal: command not found", which is what motivates the
 # setup introduced in the next step.
 
+# START julia
+#!/usr/bin/env bash
 source knit.sh
 
 knit_set_program_description "Render a Julia-set fractal."
 
-# START julia
 knit_register julia "julia" "Render a Julia-set fractal to a PNG."
 knit_with_optional "width:integer"    "800"    "Image width in pixels."
 knit_with_optional "height:integer"   "600"    "Image height in pixels."
@@ -41,6 +42,6 @@ julia() {
         "${output}" "${colormap}"
 }
 knit_done
-# END julia
 
 knit "$@"
+# END julia
