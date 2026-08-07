@@ -27,10 +27,11 @@ _stub_curl_seq() {
     done
     printf '0' > "${KNIT_T_SEQ}/n"
     curl() {
-        local cfg=""
+        local cfg="" out=""
         while (( $# )); do
             case "$1" in
                 -K) cfg="$2"; shift 2 ;;
+                -o) out="$2"; shift 2 ;;
                 *)  shift ;;
             esac
         done
@@ -40,7 +41,13 @@ _stub_curl_seq() {
         local bf
         bf=$(sed -n 's/^data-binary = "@\(.*\)"$/\1/p' "${cfg}")
         [[ -n "${bf}" ]] && cp "${bf}" "${KNIT_T_SEQ}/body_${n}"
-        cat "${KNIT_T_SEQ}/resp_${n}"
+        # Mirror real curl -o/-w: body to the file, status code to stdout.
+        if [[ -n "${out}" ]]; then
+            cat "${KNIT_T_SEQ}/resp_${n}" > "${out}"
+            printf '200'
+        else
+            cat "${KNIT_T_SEQ}/resp_${n}"
+        fi
     }
 }
 

@@ -330,7 +330,7 @@ only the body changes:
    :language: bash
    :start-after: # START job
    :end-before: # END job
-   :emphasize-lines: 23-24,31-34
+   :emphasize-lines: 21-22,29-32
 
 Two Knit calls are new, both usable from any job body. ``knit_job_hostnames``
 prints the hosts the scheduler allocated to this job (here joined with commas), so
@@ -435,9 +435,18 @@ constants, so each produces a different image --- and the database holds one
 
 .. code-block:: console
 
-   $ ./exp.sh submit --setup mympienv --wait -- julia
-   $ ./exp.sh submit --setup mympienv --wait -- julia --c-re -0.4 --c-im 0.6
-   $ ./exp.sh submit --setup mympienv --wait -- julia --c-re 0.285 --c-im 0.01
+   $ ./exp.sh submit --setup mympienv --wait -- julia --c-re -0.123 --c-im 0.745   # Douady rabbit
+   $ ./exp.sh submit --setup mympienv --wait -- julia --c-re -1.0   --c-im 0.0     # Basilica
+   $ ./exp.sh submit --setup mympienv --wait -- julia --c-re -0.391 --c-im -0.587  # Siegel disk
+   $ ./exp.sh submit --setup mympienv --wait -- julia --c-re 0.285  --c-im 0.535   # period-3 lobe
+   $ ./exp.sh submit --setup mympienv --wait -- julia --c-re -0.7   --c-im 0.0     # San Marco dragon
+   $ ./exp.sh submit --setup mympienv --wait -- julia --c-re -1.25  --c-im 0.0     # period-4 bulb
+   $ ./exp.sh submit --setup mympienv --wait -- julia --c-re -0.1   --c-im 0.651   # near-dendrite (tiny interior)
+
+Each constant sits inside a hyperbolic component of the Mandelbrot set, so its
+Julia set has a genuine black interior for ``inside`` to count --- unlike a
+*dendrite* constant (e.g. ``-0.4 0.6``), whose picture is intricate but has zero
+interior area, so it would record ``inside=0``.
 
 Knit gives you three ways to read those records back.
 
@@ -470,11 +479,15 @@ exactly what was recorded:
 
    $ ./exp.sh query sql --format column --header \
        --exec "SELECT c_re, c_im, inside FROM render ORDER BY inside"
-   c_re   c_im   inside
-   -----  -----  ------
-   -0.4   0.6    142
-   -0.8   0.156  181
-   0.285  0.01   219
+   c_re    c_im    inside
+   ------  ------  ------
+   -0.1    0.651   890
+   -1.25   0.0     34164
+   0.285   0.535   67424
+   -0.123  0.745   69456
+   -1.0    0.0     74800
+   -0.391  -0.587  78043
+   -0.7    0.0     119960
 
 **A packaged fan-in, with your own command.** Reading the same table from a
 command turns an ad-hoc query into a reusable part of the experiment. This
@@ -496,7 +509,7 @@ three renders into one number:
 .. code-block:: console
 
    $ ./exp.sh aggregate
-   Summed inside=542 over 3 render(s).
+   Summed inside=444737 over 7 render(s).
 
 **The provenance graph, with** ``query graph``. ``query sql`` reads columns from
 one table; ``query graph`` follows the *relationships* Knit records between rows
@@ -514,9 +527,13 @@ SQL query would join without knowing the provenance --- and read the metric back
                RETURN job.id, img.c_re, img.inside"
    job.id                                img.c_re  img.inside
    ------------------------------------  --------  ----------
-   018f2a1b-9c3d-7e4f-8a1b-2c3d4e5f6a7b  -0.8      181
-   018f3b2c-0d4e-7f5a-9b2c-3d4e5f6a7b8c  -0.4      142
-   018f4c3d-1e5f-7a6b-0c3d-4e5f6a7b8c9d  0.285     219
+   018f2a1b-9c3d-7e4f-8a1b-2c3d4e5f6a7b  -0.123    69456
+   018f3b2c-0d4e-7f5a-9b2c-3d4e5f6a7b8c  -1.0      74800
+   018f4c3d-1e5f-7a6b-0c3d-4e5f6a7b8c9d  -0.391    78043
+   018f5d4e-2f6a-7b7c-1d4e-5f6a7b8c9dae  0.285     67424
+   018f6e5f-3a7b-7c8d-2e5f-6a7b8c9daebf  -0.7      119960
+   018f7f6a-4b8c-7d9e-3f6a-7b8c9daebfc0  -1.25     34164
+   018f8a7b-5c9d-7eaf-4a7b-8c9daebfc0d1  -0.1      890
 
 The path mirrors how the run actually happened: ``submit`` called the ``julia``
 job, the job's body called ``knit run``, and the run launched the ``render`` app.
@@ -544,8 +561,8 @@ then the ``call`` edges down to each job's run --- one row per run:
 
 Because a ``setup:`` label contains a colon, it is quoted with backticks, and the
 whole ``--exec`` is single-quoted so the shell leaves those backticks alone. Every
-row shares the same ``s.id`` --- the one setup all three jobs consumed --- and
-each carries the placement of a distinct run. Adapt it by changing the setup label
+row shares the same ``s.id`` --- the one setup every job consumed --- and
+each carries the placement of a distinct run (a few are shown here). Adapt it by changing the setup label
 (``setup:<name>``), projecting other columns (any column of the ``runs`` table,
 e.g. ``r.procs_per_node`` or ``r.native_cmd``), or extending the path one more hop
 to the app that recorded the science metric ---
@@ -567,7 +584,7 @@ it reads that variable at call time:
 .. code-block:: console
 
    $ export OPENAI_API_KEY=sk-...
-   $ ./exp.sh ai init --api-key-env OPENAI_API_KEY --model gpt-4o-mini
+   $ ./exp.sh ai init --api-key-env OPENAI_API_KEY --model o4-mini
 
 That records only non-secret configuration (env-var names and defaults) in the
 metadata table. ``--base-url`` defaults to ``https://api.openai.com/v1`` but can
@@ -584,8 +601,9 @@ than guessed:
 .. code-block:: console
 
    $ ./exp.sh ai ask --question "which Julia constant produced the most interior points?"
-   The render with c_re=0.285, c_im=0.01 had the most interior points (inside=219),
-   ahead of c_re=-0.8 (181) and c_re=-0.4 (142).
+   The render with c_re=-0.7, c_im=0.0 (the "San Marco" constant) had the most
+   interior points (inside=119960), ahead of c_re=-0.391 (78043) and c_re=-1.0
+   (74800).
 
 Pass ``--verbose`` to stream each tool call and result to stderr and watch it
 work. Because the tools are read-only, ``ai ask`` can describe and inspect the
@@ -599,12 +617,16 @@ feeds the error back so the model can correct it (up to ``--max-iterations``):
 .. code-block:: console
 
    $ ./exp.sh ai query --format column \
-       --question "each render's constant and inside count, most interior first"
-   c_re   c_im   inside
-   -----  -----  ------
-   0.285  0.01   219
-   -0.8   0.156  181
-   -0.4   0.6    142
+       --question "Show each render's constant and inside count, most interior first"
+   c_re    c_im    inside
+   ------  ------  ------
+   -0.7    0.0     119960
+   -0.391  -0.587  78043
+   -1.0    0.0     74800
+   -0.123  0.745   69456
+   0.285   0.535   67424
+   -1.25   0.0     34164
+   -0.1    0.651   890
 
 When you would rather review the query than trust it blindly, ``--sql-only``
 prints the generated statement without running it --- handy for pasting into
@@ -637,7 +659,7 @@ database or building anything. Narrow it to one command with ``--only``:
 
 .. code-block:: console
 
-   $ ./exp.sh describe --only julia
+   $ ./exp.sh describe --only submit:julia
    julia
    -----
      [job, user]  Render a Julia-set fractal as a submitted job.

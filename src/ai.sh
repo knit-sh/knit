@@ -104,28 +104,33 @@ _knit_ai_resolve_config() {
             "${KNIT_SCRIPT_NAME}"
     fi
 
-    local api_key="${!api_key_env}"
-    if [[ -z "${api_key}" ]]; then
+    # These working locals are __-prefixed on purpose: known callers pass their
+    # output arguments as `api_key` and `base_url`, so a plain local of the same
+    # name would shadow the output nameref (`__knit_ret*`) and silently misdirect
+    # the write back to this function's own local. See the nameref rules in
+    # README/CLAUDE.md.
+    local __knit_api_key="${!api_key_env}"
+    if [[ -z "${__knit_api_key}" ]]; then
         knit_fatal "AI API key environment variable \$%s is empty or unset." \
             "${api_key_env}"
     fi
 
-    local base_url=""
-    [[ -n "${base_url_env}" ]] && base_url="${!base_url_env}"
-    [[ -z "${base_url}" ]] && base_url="${base_url_literal}"
-    [[ -z "${base_url}" ]] && base_url="${_KNIT_AI_DEFAULT_BASE_URL}"
+    local __knit_base_url=""
+    [[ -n "${base_url_env}" ]] && __knit_base_url="${!base_url_env}"
+    [[ -z "${__knit_base_url}" ]] && __knit_base_url="${base_url_literal}"
+    [[ -z "${__knit_base_url}" ]] && __knit_base_url="${_KNIT_AI_DEFAULT_BASE_URL}"
 
-    local model="${model_override}"
-    [[ -z "${model}" && -n "${model_env}" ]] && model="${!model_env}"
-    [[ -z "${model}" ]] && model="${model_literal}"
-    if [[ -z "${model}" ]]; then
+    local __knit_model="${model_override}"
+    [[ -z "${__knit_model}" && -n "${model_env}" ]] && __knit_model="${!model_env}"
+    [[ -z "${__knit_model}" ]] && __knit_model="${model_literal}"
+    if [[ -z "${__knit_model}" ]]; then
         knit_fatal "No AI model configured. Pass --model, set the model env var, or configure a default with \"%s ai init --model <id>\" (or bootstrap --ai-model)." \
             "${KNIT_SCRIPT_NAME}"
     fi
 
-    __knit_ret1="${api_key}"
-    __knit_ret2="${base_url}"
-    __knit_ret3="${model}"
+    __knit_ret1="${__knit_api_key}"
+    __knit_ret2="${__knit_base_url}"
+    __knit_ret3="${__knit_model}"
 }
 
 # ------------------------------------------------------------------------------
@@ -186,22 +191,38 @@ _knit_ai_chat_request() {
     knit_trace "AI request: POST %s (model=%s, Authorization: Bearer <redacted>)" \
         "${url}" "${model}"
 
-    local resp
-    resp=$(curl -s -S -K "${cfg}" 2>>"${_KNIT_TRACE_FILE}")
+    # Capture the response body and HTTP status separately so an HTTP-level
+    # failure can be reported with the server's body inline instead of being
+    # swallowed and surfacing later as a confusing "no message" error.
+    local resp_file http_code
+    resp_file=$(mktemp "${TMPDIR:-/tmp}/knit.ai.resp.XXXXXX")
+    http_code=$(curl -s -S -K "${cfg}" -o "${resp_file}" -w '%{http_code}' \
+        2>>"${_KNIT_TRACE_FILE}")
     local curl_status=$?
-    rm -f "${cfg}" "${body_file}"
+    local resp
+    resp=$(cat "${resp_file}")
+    rm -f "${cfg}" "${body_file}" "${resp_file}"
 
     if (( curl_status != 0 )); then
         knit_fatal "AI request to %s failed (curl exit %d). See %s." \
             "${url}" "${curl_status}" "${_KNIT_TRACE_FILE}"
     fi
 
+    # A structured provider error gets its own message regardless of status code.
     local err
     err=$(printf '%s' "${resp}" | _knit_jq -r '.error.message // empty' 2>/dev/null)
     if [[ -n "${err}" ]]; then
         local etype
         etype=$(printf '%s' "${resp}" | _knit_jq -r '.error.type // "error"' 2>/dev/null)
         knit_fatal "AI provider error (%s): %s" "${etype}" "${err}"
+    fi
+
+    # Any other non-2xx status (e.g. a 404 from a wrong base URL, whose body is
+    # not an OpenAI error object) is reported with the raw body so the cause is
+    # visible without digging through the trace file.
+    if [[ ! "${http_code}" =~ ^2[0-9][0-9]$ ]]; then
+        knit_fatal "AI request to %s returned HTTP %s. Response: %s" \
+            "${url}" "${http_code}" "${resp:0:500}"
     fi
 
     printf '%s\n' "${resp}"
@@ -563,7 +584,8 @@ _knit_ai_loop() {
 
         message=$(printf '%s' "${resp}" | _knit_jq -c '.choices[0].message')
         if [[ -z "${message}" || "${message}" == "null" ]]; then
-            knit_fatal "AI response contained no message."
+            knit_fatal "AI response contained no message. Response: %s" \
+                "${resp:0:500}"
         fi
 
         # Append the assistant message (keeps any tool_calls intact for the
@@ -858,7 +880,8 @@ _knit_ai_query_loop() {
 
         message=$(printf '%s' "${resp}" | _knit_jq -c '.choices[0].message')
         if [[ -z "${message}" || "${message}" == "null" ]]; then
-            knit_fatal "AI response contained no message."
+            knit_fatal "AI response contained no message. Response: %s" \
+                "${resp:0:500}"
         fi
 
         # shellcheck disable=SC2016 # $m/$msg are jq variables, not shell

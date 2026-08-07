@@ -50,7 +50,6 @@ knit_with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant 
 knit_with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
 knit_with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
 knit_with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
-knit_with_optional "output:string"    "fractal.png" "PNG file name, written in the job directory."
 julia() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")
@@ -59,9 +58,8 @@ julia() {
     c_im=$(knit_get_parameter "c-im" "$@")
     max_iter=$(knit_get_parameter "max-iter" "$@")
     colormap=$(knit_get_parameter "colormap" "$@")
-    output=$(knit_get_parameter "output" "$@")
 
-    local png="${KNIT_JOB_PREFIX%/}/${output}"
+    local png="${KNIT_JOB_PREFIX%/}/fractal.png"
 
     # Report where the scheduler placed this job.
     printf 'The job is running on hosts: %s\n' \

@@ -90,6 +90,22 @@ _store_ai() {
     [[ "$output" == *"No AI model configured"* ]]
 }
 
+@test "resolve writes back to caller vars named like the internals (nameref shadow regression)" {
+    _store_ai KNIT_T_KEY "" KNIT_T_MODEL "http://literal/v1" "lit-model"
+    export KNIT_T_KEY="sk-secret" KNIT_T_MODEL="gpt-x"
+
+    # The real callers (ai ask / ai query) pass output arguments literally named
+    # api_key and base_url --- the same names as this function's internal working
+    # locals. If those internals are not __-prefixed, the output nameref is
+    # shadowed and the caller silently gets empty strings (which produced a
+    # "curl: (3) No host part in the URL" failure on every AI request).
+    local api_key base_url resolved_model
+    _knit_ai_resolve_config api_key base_url resolved_model
+    [ "$api_key" = "sk-secret" ]
+    [ "$base_url" = "http://literal/v1" ]
+    [ "$resolved_model" = "gpt-x" ]
+}
+
 # ---------- _knit_ai_chat_request (stubbed curl) ----------
 
 # Stub curl: capture the request body and config file, then emit a canned
@@ -98,11 +114,13 @@ _stub_curl() {
     export KNIT_T_BODY_CAPTURE="${BATS_TEST_TMPDIR}/body.json"
     export KNIT_T_CFG_CAPTURE="${BATS_TEST_TMPDIR}/curl.cfg"
     export KNIT_T_CANNED="$1"
+    export KNIT_T_HTTP_CODE="${2:-200}"
     curl() {
-        local cfg=""
+        local cfg="" out=""
         while (( $# )); do
             case "$1" in
                 -K) cfg="$2"; shift 2 ;;
+                -o) out="$2"; shift 2 ;;
                 *)  shift ;;
             esac
         done
@@ -110,7 +128,13 @@ _stub_curl() {
         local bf
         bf=$(sed -n 's/^data-binary = "@\(.*\)"$/\1/p' "${cfg}")
         [[ -n "${bf}" ]] && cp "${bf}" "${KNIT_T_BODY_CAPTURE}"
-        printf '%s' "${KNIT_T_CANNED}"
+        # Mirror real curl -o/-w: body to the file, status code to stdout.
+        if [[ -n "${out}" ]]; then
+            printf '%s' "${KNIT_T_CANNED}" > "${out}"
+            printf '%s' "${KNIT_T_HTTP_CODE}"
+        else
+            printf '%s' "${KNIT_T_CANNED}"
+        fi
     }
 }
 
@@ -153,6 +177,17 @@ _stub_curl() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"invalid api key"* ]]
     [[ "$output" == *"auth_error"* ]]
+}
+
+@test "chat request surfaces a non-2xx HTTP status with the response body" {
+    # A wrong base URL yields a 404 whose body is not an OpenAI error object;
+    # the status and body must be reported instead of an opaque later failure.
+    _stub_curl '{"detail":"Not Found"}' 404
+
+    run _knit_ai_chat_request "http://host/chat/completions" "sk" "gpt-x" '[{"role":"user","content":"q"}]'
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"HTTP 404"* ]]
+    [[ "$output" == *"Not Found"* ]]
 }
 
 @test "chat request redacts the API key from the trace and argv" {
