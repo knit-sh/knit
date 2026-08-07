@@ -38,31 +38,28 @@ as a queryable graph you can trace after the fact.
 The experimental model
 ----------------------
 
+.. image:: _static/knit-arrow-light.svg
+   :class: only-light
+   :alt: Knit
+   :width: 100%
+
+.. image:: _static/knit-arrow-dark.svg
+   :class: only-dark
+   :alt: Knit
+   :width: 100%
+
 A Knit experiment moves through five stages. Each stage records what it did into
-the database, so a later stage --- and a later reader --- can pick up exactly
-what an earlier one produced::
+a database, so a later stage --- and a later reader --- can pick up exactly
+what an earlier one produced.
 
-    bootstrap  ──►  create .knit/, the SQLite database, and the tools Knit needs
-        │
-        ▼
-    setup      ──►  build a reproducible software environment once (a git build,
-        │           modules, or a Spack environment), to be reused by later stages
-        │
-        ▼
-    submit     ──►  queue a batch job on the scheduler — or run it locally when
-        │           there is no scheduler — recording its state and hosts
-        │
-        ▼
-    run        ──►  launch a parallel (MPI) app across the job's nodes; each
-        │           rank sees where it fits, and rank 0 records the run
-        │
-        ▼
-    analyze    ──►  read every recorded run back out, aggregate the results, and
-                    report — a command you write, on top of what the stages recorded
+* **Bootstrap**: downloads and installs what the Knit framework itself needs (e.g. sqlite3).
+* **Setup**: builds a reproducible software environment (e.g., manual build, Spack environment, modules).
+* **Submit**: queues a batch job on the scheduler or execute it locally, recording its state and hosts.
+* **Run**: launches a parallel (MPI) application across a job's nodes.
+* **Aggregate**: reads output from many jobs to produce publishable results.
 
-The first three stages are always present; ``run`` appears once an experiment
-launches parallel apps, and ``analyze`` is the read-only analysis command you
-write on top of everything the earlier stages recorded.
+The model is a *fan-out* from **bootstrap** to **run** (one bootstrap, multiple setups,
+each used by multiple jobs, each running multiple applications) and a *fan-in* to **aggregate**.
 
 Getting started
 ---------------
