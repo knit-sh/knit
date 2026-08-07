@@ -131,8 +131,8 @@ x  y  total
         <p class="section__lead">
           Knit detects the scheduler and MPI launcher, so the very same
           <code>knit run</code> maps to <code>mpirun</code> on your laptop and to
-          the site launcher (<code>srun</code>, <code>mpiexec</code>) on a
-          cluster. Only the machine changes, never the code.
+          the site launcher (e.g., <code>srun</code>) on a
+          cluster. The machine changes, the code doesn't.
         </p>
         <div class="card card--term">
           <div class="card__head card__head--term" aria-hidden="true">
@@ -151,9 +151,9 @@ x  y  total
       <div class="section__inner">
         <h2 class="section__title">How each result came to be, as a graph</h2>
         <p class="section__lead">
-          Knit records the relationships between rows — which submission called
+          Knit records the relationships between everything — which submission called
           which job, which job launched which run — so you can query the whole
-          lineage with Cypher, joining tables no single SQL query would.
+          lineage with Cypher, making complex provenance queries simple.
         </p>
         <div class="card card--term">
           <div class="card__head card__head--term" aria-hidden="true">
@@ -178,8 +178,7 @@ job.id                                img.c_re  img.inside
         <p class="section__lead">
           Point Knit at any OpenAI-compatible model and ask about your experiment
           in plain English. Answers are grounded in <em>this</em> experiment's
-          recorded runs — and strictly read-only: the model can inspect, never
-          submit or modify.
+          recorded runs. Now you can talk to your script!
         </p>
         <div class="card card--term">
           <div class="card__head card__head--term" aria-hidden="true">
