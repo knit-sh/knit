@@ -118,13 +118,13 @@ _stub_http_fail() {
 
 # ---------- _knit_resolve_profile : GitHub shorthand ----------
 
-@test "resolve shorthand defaults the ref to the knit version" {
+@test "resolve shorthand defaults the ref to the default branch" {
     _stub_http_ok
     local json ref
     _knit_resolve_profile json ref "anl/polaris"
     [ "${json}" = "${_SAMPLE_PROFILE}" ]
-    [[ "${_STUB_URL}" == *"/${KNIT_VERSION}/src/profiles/anl/polaris.json" ]]
-    [ "${ref}" = "anl/polaris@${KNIT_VERSION}" ]
+    [[ "${_STUB_URL}" == *"/${_KNIT_PROFILE_DEFAULT_REF}/src/profiles/anl/polaris.json" ]]
+    [ "${ref}" = "anl/polaris@${_KNIT_PROFILE_DEFAULT_REF}" ]
 }
 
 @test "resolve shorthand honours an explicit @ref" {

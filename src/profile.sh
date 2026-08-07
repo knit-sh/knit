@@ -10,6 +10,17 @@ declare -g _KNIT_PROFILE_REPO
 _KNIT_PROFILE_REPO="knit-sh/knit"
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_PROFILE_DEFAULT_REF
+#
+# Git ref the GitHub shorthand (and the profile index) resolve against when no
+# explicit @ref is given. This is the default branch, not the running knit
+# version tag, because the profile store on the default branch carries the most
+# up-to-date machine profiles.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_PROFILE_DEFAULT_REF
+_KNIT_PROFILE_DEFAULT_REF="main"
+
+# ------------------------------------------------------------------------------
 # Directory of admin-provided (site) profiles, tried before the GitHub store so a
 # machine's own copy wins and resolves offline. Overridable for testing.
 # ------------------------------------------------------------------------------
@@ -108,8 +119,8 @@ _knit_profile_github_url() {
 #   2. local file          <spec> or <spec>.json on disk (the offline story)
 #   3. admin profile       /etc/knit/profiles/<spec>.json
 #   4. GitHub shorthand    <namespace>/<machine>[@<ref>]; bare ref defaults to
-#                          the running knit version, @latest resolves via the
-#                          releases API
+#                          the default branch (most up-to-date profiles),
+#                          @latest resolves via the releases API
 #
 # On success sets the JSON content and the resolved label (a URL, path, or
 # "<namespace>/<machine>@<ref>"). If nothing resolves, fatal with a message
@@ -167,7 +178,7 @@ _knit_resolve_profile() {
         if [[ "${spec}" == *@* ]]; then
             __ref="${spec#*@}"
         else
-            __ref="${KNIT_VERSION}"
+            __ref="${_KNIT_PROFILE_DEFAULT_REF}"
         fi
         [[ "${__ref}" == "latest" ]] && __ref="$(_knit_profile_latest_ref)"
         local url
@@ -230,8 +241,8 @@ _knit_profile_admin_names() {
 # @fn knit_list_profiles()
 #
 # Print the union of the profiles known to knit, one per line in sorted order,
-# each marked with its source: the committed in-repo index (fetched at the
-# running knit version) and the admin store under _KNIT_PROFILE_ADMIN_DIR. An
+# each marked with its source: the committed in-repo index (fetched from the
+# default branch) and the admin store under _KNIT_PROFILE_ADMIN_DIR. An
 # admin profile that shares a name with a repo one shadows it (§4.5) and is
 # marked accordingly. The repo index is fetched best-effort so an offline,
 # admin-only machine still lists its own profiles.
@@ -240,7 +251,7 @@ knit_list_profiles() {
     local github="" admin=""
 
     local url body
-    url="$(_knit_profile_github_url "index" "${KNIT_VERSION}")"
+    url="$(_knit_profile_github_url "index" "${_KNIT_PROFILE_DEFAULT_REF}")"
     # The index lives at src/profiles/index.json; reuse the profile URL builder
     # by passing "index" as the path.
     if _knit_profile_http_get body "${url}"; then
