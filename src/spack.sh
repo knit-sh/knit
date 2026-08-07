@@ -305,18 +305,36 @@ _knit_spack_exec() {
 # concretization, so specs like "mpi"/"hdf5" resolve to the platform's vendor
 # installs. The step is skipped when the file is absent.
 #
+# The install runs directly (its stdout/stderr inherit the caller's terminal) so
+# Spack's own TTY-aware progress output is shown, rather than piped through a
+# frame (which both hid it behind trace level and would defeat Spack's TTY
+# detection). Every step is checked: on failure the function logs a knit_error
+# and returns non-zero (it does NOT knit_fatal) so the setup dispatcher can
+# remove the half-built setup directory and avoid recording it.
+#
 # @param env_dir Directory in which to create the Spack environment.
 # @param yaml    Path to the spack.yaml manifest describing the environment.
+# @return 0 if the environment was created and installed, non-zero otherwise.
 # ------------------------------------------------------------------------------
 _knit_spack_env_install() {
     local env_dir="$1"
     local yaml="$2"
-    _knit_spack_exec env create -d "${env_dir}" "${yaml}"
-    if [[ -f "${_KNIT_PREFIX}/packages.yaml" ]]; then
-        _knit_spack_exec -e "${env_dir}" config add -f "${_KNIT_PREFIX}/packages.yaml"
+    if ! _knit_spack_exec env create -d "${env_dir}" "${yaml}"; then
+        knit_error "Could not create the Spack environment at %s from %s." \
+            "${env_dir}" "${yaml}"
+        return 1
     fi
-    _knit_spack_framed_run "spack: install env" \
-        _knit_spack_exec -e "${env_dir}" install
+    if [[ -f "${_KNIT_PREFIX}/packages.yaml" ]]; then
+        if ! _knit_spack_exec -e "${env_dir}" config add -f "${_KNIT_PREFIX}/packages.yaml"; then
+            knit_error "Could not add platform externals (%s) to the Spack environment at %s." \
+                "${_KNIT_PREFIX}/packages.yaml" "${env_dir}"
+            return 1
+        fi
+    fi
+    if ! _knit_spack_exec -e "${env_dir}" install; then
+        knit_error "Spack failed to install the environment at %s." "${env_dir}"
+        return 1
+    fi
 }
 
 # ------------------------------------------------------------------------------

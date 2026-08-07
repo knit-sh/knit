@@ -228,6 +228,18 @@ EOF
     unset _KNIT_TEST_SPACK_PLATFORM
 }
 
+@test "before callback returns non-zero and does not activate when the install fails" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    _knit_spack_env_install() { return 1; }
+    _knit_spack_exec() { printf '%s\n' "$*" >> "${_KNIT_TEST_TMPDIR}/exec.log"; }
+    run _knit_setup_spack_env_before_cb "stdin" "spack: {}"
+    [ "$status" -ne 0 ]
+    # A failed environment install must not be activated.
+    [ ! -f "${_KNIT_TEST_TMPDIR}/exec.log" ] \
+        || ! grep -q "env activate -d" "${_KNIT_TEST_TMPDIR}/exec.log"
+}
+
 # ---------- _knit_setup_spack_env_after_cb ----------
 
 @test "after callback appends the re-activation block to .activate.sh" {

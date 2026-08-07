@@ -391,6 +391,46 @@ teardown() {
     [ "$body_pos" -lt "$after_pos" ]
 }
 
+@test "_knit_invoke_command aborts the body and returns non-zero when a before-callback fails" {
+    knit_register "ic_bfail" fn_ic_bfail "Test."
+    _ic_before_fail() { return 1; }
+    _knit_run_before _ic_before_fail
+    fn_ic_bfail() { echo "body-ran" > "${BATS_TEST_TMPDIR}/ic_bfail.out"; }
+    knit_done
+    run _knit_invoke_command "ic_bfail"
+    [ "$status" -ne 0 ]
+    # The body must not have run.
+    [ ! -f "${BATS_TEST_TMPDIR}/ic_bfail.out" ]
+}
+
+@test "a failing before-callback skips later before-callbacks" {
+    knit_register "ic_bfail2" fn_ic_bfail2 "Test."
+    _ic_before_fail2() { return 1; }
+    _ic_before_after() { echo "second-ran" > "${BATS_TEST_TMPDIR}/ic_bfail2.out"; }
+    _knit_run_before _ic_before_fail2
+    _knit_run_before _ic_before_after
+    fn_ic_bfail2() { :; }
+    knit_done
+    run _knit_invoke_command "ic_bfail2"
+    [ "$status" -ne 0 ]
+    [ ! -f "${BATS_TEST_TMPDIR}/ic_bfail2.out" ]
+}
+
+@test "_knit_invoke_command does not record a row when a before-callback fails" {
+    knit_register "ic_bfail_rec" fn_ic_bfail_rec "Test."
+    knit_with_table
+    _ic_bfail_rec_before() { return 1; }
+    _knit_run_before _ic_bfail_rec_before
+    fn_ic_bfail_rec() { :; }
+    knit_done
+    run _knit_invoke_command "ic_bfail_rec"
+    [ "$status" -ne 0 ]
+    # The table exists (created before callbacks) but holds no row.
+    local n
+    n=$(sqlite3 "${_KNIT_DATABASE}" "SELECT count(*) FROM 'ic_bfail_rec';")
+    [ "$n" -eq 0 ]
+}
+
 @test "an after-callback can call knit_output and it lands in the recorded row" {
     _ic_after_out() { knit_output "note" "from-after-cb"; }
     knit_register "ic_ocb" fn_ic_ocb "Test."

@@ -273,9 +273,9 @@ EOF
 # ---------- _knit_spack_env_install ----------
 
 @test "spack_env_install creates the env then installs its specs" {
+    # Install runs directly through _knit_spack_exec (no frame), so the whole
+    # env-install writes straight to the terminal.
     _knit_spack_exec() { printf 'exec:%s\n' "$*"; }
-    # Frame stub: drop the title and run the wrapped command.
-    _knit_spack_framed_run() { shift; "$@"; }
     run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
     [ "$status" -eq 0 ]
     [[ "$output" == *"exec:env create -d /tmp/envdir /tmp/spack.yaml"* ]]
@@ -284,7 +284,6 @@ EOF
 
 @test "spack_env_install injects packages.yaml before install when present" {
     _knit_spack_exec() { printf 'exec:%s\n' "$*"; }
-    _knit_spack_framed_run() { shift; "$@"; }
     printf 'packages:\n' > "${_KNIT_PREFIX}/packages.yaml"
     run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
     [ "$status" -eq 0 ]
@@ -298,8 +297,32 @@ EOF
 
 @test "spack_env_install skips packages.yaml injection when absent" {
     _knit_spack_exec() { printf 'exec:%s\n' "$*"; }
-    _knit_spack_framed_run() { shift; "$@"; }
     run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
     [ "$status" -eq 0 ]
     [[ "$output" != *"config add -f"* ]]
+}
+
+@test "spack_env_install returns non-zero when 'env create' fails" {
+    # Fail only the create step; a real Spack would not reach install.
+    _knit_spack_exec() {
+        [[ "$1" == "env" && "$2" == "create" ]] && return 3
+        printf 'exec:%s\n' "$*"
+    }
+    run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
+    [ "$status" -ne 0 ]
+    # It must not proceed to install after a failed create.
+    [[ "$output" != *"install"* ]]
+}
+
+@test "spack_env_install returns non-zero when 'install' fails" {
+    _knit_spack_exec() {
+        if [[ "$*" == *" install" ]]; then
+            return 5
+        fi
+        printf 'exec:%s\n' "$*"
+    }
+    run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
+    [ "$status" -ne 0 ]
+    # The env was still created before the install failure.
+    [[ "$output" == *"exec:env create -d /tmp/envdir /tmp/spack.yaml"* ]]
 }

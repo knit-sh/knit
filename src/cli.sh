@@ -1562,8 +1562,15 @@ _knit_run_before() {
 # with the calling command name (demangled) as context, as well as the list of
 # parameters passed to the command.
 #
+# A before-callback expresses a precondition for running the command (asserting an
+# invocation context, activating a setup, building a Spack environment). If one
+# fails (returns non-zero), the remaining callbacks are skipped and that status is
+# returned so the caller (_knit_invoke_command) can abort the command rather than
+# run its body against an unmet precondition.
+#
 # @param cmd Command (mangled name) for which to execute the before callbacks.
 # @param ... Arguments of the command.
+# @return 0 if all callbacks succeeded, the first non-zero status otherwise.
 # ------------------------------------------------------------------------------
 _knit_execute_before_commands() {
     local cmd="$1"
@@ -1574,10 +1581,16 @@ _knit_execute_before_commands() {
     local cb_list_name="_KNIT_CMD_${cmd}_before_cb"
     # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"
+    local status
     for cb in "${cb_list_ref[@]}"; do
         # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by _knit_run_before
-        eval "${cb} $*"
+        eval "${cb} $*" || {
+            status=$?
+            knit_trace "Before callback failed for ${demangled_cmd} (status ${status})."
+            return "${status}"
+        }
     done
+    return 0
 }
 
 # ------------------------------------------------------------------------------
@@ -2401,7 +2414,11 @@ _knit_invoke_command() {
         if [[ -n "${!table_var:-}" ]] && _knit_is_bootstrapped; then
             _knit_db_setup_table "${cmd}" "${!table_var}"
         fi
-        _knit_execute_before_commands "${cmd}" "$@"
+        # A failing before-callback is an unmet precondition: skip the body and the
+        # recording entirely and propagate the failure (see the normal path below).
+        if ! _knit_execute_before_commands "${cmd}" "$@"; then
+            return 1
+        fi
         declare -gA "_KNIT_CMD_${cmd}_output_value=()"
         unset "_KNIT_CMD_${cmd}_row_id"
         unset "_KNIT_CMD_${cmd}_recorded"
@@ -2452,8 +2469,13 @@ _knit_invoke_command() {
     if [[ -n "${!table_var:-}" ]] && _knit_is_bootstrapped; then
         _knit_db_setup_table "${cmd}" "${!table_var}"
     fi
-    # call the "before" callbacks
-    _knit_execute_before_commands "${cmd}" "${args[@]}"
+    # call the "before" callbacks. A before-callback expresses a precondition
+    # (e.g. a setup's Spack environment must build first); if one fails, do not
+    # run the body or record a row, and propagate the failure so a caller such as
+    # the setup dispatcher can remove the half-built instance.
+    if ! _knit_execute_before_commands "${cmd}" "${args[@]}"; then
+        return 1
+    fi
     # Start each invocation with a clean recording slate (outputs + row id) so a
     # previous invocation in the same process cannot leak stale values.
     declare -gA "_KNIT_CMD_${cmd}_output_value=()"

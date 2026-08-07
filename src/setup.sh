@@ -780,7 +780,14 @@ _knit_setup_spack_env_before_cb() {
     else
         printf '%s\n' "${source}" > "${yaml}"
     fi
-    _knit_spack_env_install "${env_dir}" "${yaml}"
+    # Abort the setup if the environment did not install: returning non-zero here
+    # propagates through _knit_execute_before_commands so the setup body never
+    # runs (it would build against a missing/half-installed environment), and the
+    # setup dispatcher removes the directory without recording it. Do not activate
+    # a broken environment.
+    if ! _knit_spack_env_install "${env_dir}" "${yaml}"; then
+        return 1
+    fi
     # Activate in the setup's own shell so the body sees the packages. The sourced
     # "spack" function (see _knit_spack_exec) performs the activation in-shell.
     _knit_spack_exec env activate -d "${env_dir}"

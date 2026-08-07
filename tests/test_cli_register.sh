@@ -272,6 +272,35 @@ teardown() {
     [ -z "$result" ]
 }
 
+@test "_knit_execute_before_commands returns non-zero when a callback fails" {
+    _eb_fail() { return 1; }
+    knit_register "eb_cmd3" knit_empty "Test."
+    _knit_run_before _eb_fail
+    knit_done
+    run _knit_execute_before_commands "eb_cmd3"
+    [ "$status" -ne 0 ]
+}
+
+@test "_knit_execute_before_commands stops at the first failing callback" {
+    _eb_fail2() { return 1; }
+    _eb_second() { echo "second-ran"; }
+    knit_register "eb_cmd4" knit_empty "Test."
+    _knit_run_before _eb_fail2
+    _knit_run_before _eb_second
+    knit_done
+    run _knit_execute_before_commands "eb_cmd4"
+    [ "$status" -ne 0 ]
+    [[ "$output" != *"second-ran"* ]]
+}
+
+@test "_knit_execute_before_commands returns zero when all callbacks succeed" {
+    knit_register "eb_cmd5" knit_empty "Test."
+    _knit_run_before echo "ok"
+    knit_done
+    run _knit_execute_before_commands "eb_cmd5"
+    [ "$status" -eq 0 ]
+}
+
 @test "_knit_execute_after_commands executes registered callbacks" {
     knit_register "ea_cmd" knit_empty "Test."
     _knit_run_after echo "after_output"
