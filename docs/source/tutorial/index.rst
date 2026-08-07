@@ -15,9 +15,11 @@ single realistic workload.
 
 .. note::
 
-   This tutorial builds and runs real software, so it needs a machine where
-   `Spack <https://spack.io/>`_ can compile packages (and, once MPI is
-   introduced, an MPI toolchain). The code for each step is shown in full and was
+   This tutorial is meant to run on a laptop, with Step 9 moving it to an
+   actual supercomputer. Your laptop does not need MPI. However it needs to
+   be able to run `Spack <https://spack.io/>`_ (i.e. have python), compile C programs
+   (i.e., gcc, make), untar archives (tar) and download from the internet (curl).
+   must be available. The code for each step of this tutorial is shown in full and was
    validated end to end during development; the console output is illustrative.
 
 The program
@@ -99,6 +101,7 @@ commands. Ours builds ``julia-fractal`` from source and installs it.
 A setup is registered with ``knit_register_setup``. This one declares the
 software it needs with ``knit_with_spack_specs`` --- ``cmake`` and ``libpng``
 (no MPI yet; that comes later) --- and its body clones the source, builds it, and
+
 installs it. This setup must come before our earlier definition of the ``julia``
 command:
 
@@ -683,6 +686,7 @@ markdown`` produces a table you can drop into documentation, and
 per-command ``--help`` shows the same options focused on a single command
 (``./exp.sh julia --help``), and the top-level ``./exp.sh --help`` lists the
 entire tree.
+
 
 **Revisit your jobs.** ``job list`` shows every job you have submitted with its
 lifecycle state:
