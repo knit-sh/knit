@@ -16,7 +16,7 @@ _register_fixture() {
         echo "he said \"hi\""
         printf '%s\n' 'a|b'
     }
-    knit_register my_impl "greet" "Say hello to someone."
+    knit_register "greet" my_impl "Say hello to someone."
     knit_with_required "name:string" "Name of the person to greet."
     knit_done
 }

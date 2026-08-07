@@ -208,14 +208,14 @@ teardown() {
 __test_register_cmd() {
     local func="$1" cmd="$2" desc="$3"
     shift 3
-    knit_register "${func}" "${cmd}" "${desc}"
+    knit_register "${cmd}" "${func}" "${desc}"
     "$@"  # extra knit_with_* calls
     knit_with_table
     knit_done
 }
 
 @test "setup table creates table after command registration" {
-    knit_register knit_empty "mycmd" "A test command."
+    knit_register "mycmd" knit_empty "A test command."
     knit_with_table
     knit_done
     local result
@@ -225,7 +225,7 @@ __test_register_cmd() {
 }
 
 @test "setup table creates id as the first column" {
-    knit_register knit_empty "mycmd" "A test command."
+    knit_register "mycmd" knit_empty "A test command."
     knit_with_table
     knit_done
     local first_col
@@ -234,7 +234,7 @@ __test_register_cmd() {
 }
 
 @test "setup table includes required parameter as column" {
-    knit_register knit_empty "mycmd" "A test command."
+    knit_register "mycmd" knit_empty "A test command."
     knit_with_required "count:integer" "A count."
     knit_with_table
     knit_done
@@ -244,7 +244,7 @@ __test_register_cmd() {
 }
 
 @test "setup table includes optional parameter as column" {
-    knit_register knit_empty "mycmd" "A test command."
+    knit_register "mycmd" knit_empty "A test command."
     knit_with_optional "label:string" "default" "A label."
     knit_with_table
     knit_done
@@ -254,7 +254,7 @@ __test_register_cmd() {
 }
 
 @test "setup table includes flag as boolean column" {
-    knit_register knit_empty "mycmd" "A test command."
+    knit_register "mycmd" knit_empty "A test command."
     knit_with_flag "verbose" "Enable verbose output."
     knit_with_table
     knit_done
@@ -266,7 +266,7 @@ __test_register_cmd() {
 }
 
 @test "setup table includes output as column" {
-    knit_register knit_empty "mycmd" "A test command."
+    knit_register "mycmd" knit_empty "A test command."
     knit_with_output "result:real" "0.0" "The result."
     knit_with_table
     knit_done
@@ -276,7 +276,7 @@ __test_register_cmd() {
 }
 
 @test "setup table is a no-op when called again with same schema" {
-    knit_register knit_empty "mycmd" "A test command."
+    knit_register "mycmd" knit_empty "A test command."
     knit_with_required "count:integer" "A count."
     knit_with_table
     knit_done
@@ -290,7 +290,7 @@ __test_register_cmd() {
 
 @test "setup table migrates when a new output is added" {
     # First registration: one required parameter
-    knit_register knit_empty "mycmd" "A test command."
+    knit_register "mycmd" knit_empty "A test command."
     knit_with_required "count:integer" "A count."
     knit_with_table
     knit_done
@@ -318,7 +318,7 @@ __test_register_cmd() {
     _KNIT_PREFIX="/nonexistent/path"
     _KNIT_IS_BOOTSTRAPPING="true"
     # knit_done fires _knit_db_setup_table — must return 0 without creating any table
-    knit_register knit_empty "guarded" "cmd"
+    knit_register "guarded" knit_empty "cmd"
     knit_with_table
     run knit_done
     [ "$status" -eq 0 ]
@@ -334,7 +334,7 @@ __test_register_cmd() {
     _KNIT_IS_BOOTSTRAPPING="false"
     # Table creation is deferred until bootstrap (ensured lazily on first use),
     # so knit_done must succeed without creating a table rather than fataling.
-    knit_register knit_empty "guarded2" "cmd"
+    knit_register "guarded2" knit_empty "cmd"
     knit_with_table
     run knit_done
     [ "$status" -eq 0 ]
@@ -347,7 +347,7 @@ __test_register_cmd() {
 # ---------- _knit_db_record_invocation ----------
 
 @test "invoking a table command records a row with params, flags and outputs" {
-    knit_register _t_rec_fn "reccmd" "Rec."
+    knit_register "reccmd" _t_rec_fn "Rec."
     knit_with_optional "label:string" "def" "A label."
     knit_with_flag "verbose" "Verbose."
     knit_with_output "result:string" "" "The result."
@@ -367,7 +367,7 @@ __test_register_cmd() {
 }
 
 @test "recording uses declared defaults for omitted optionals and unset outputs" {
-    knit_register _t_def_fn "defcmd" "Def."
+    knit_register "defcmd" _t_def_fn "Def."
     knit_with_optional "label:string" "thedefault" "A label."
     knit_with_output "result:string" "noresult" "The result."
     knit_with_table "defs"
@@ -382,7 +382,7 @@ __test_register_cmd() {
 
 @test "invoking a visible command without a table records an edge but no data row" {
     _knit_prov_create_table
-    knit_register _t_nt_fn "ntcmd" "No table."
+    knit_register "ntcmd" _t_nt_fn "No table."
     _t_nt_fn() { :; }
     knit_done
 
@@ -398,7 +398,7 @@ __test_register_cmd() {
 }
 
 @test "recording is skipped when _KNIT_RECORDING_SUPPRESSED is set" {
-    knit_register _t_sup_fn "supcmd" "Sup."
+    knit_register "supcmd" _t_sup_fn "Sup."
     knit_with_optional "label:string" "def" "A label."
     knit_with_table "sups"
     _t_sup_fn() { :; }
@@ -414,7 +414,7 @@ __test_register_cmd() {
 }
 
 @test "recording proceeds when _KNIT_RECORDING_SUPPRESSED is empty (regression)" {
-    knit_register _t_uns_fn "unscmd" "Uns."
+    knit_register "unscmd" _t_uns_fn "Uns."
     knit_with_optional "label:string" "def" "A label."
     knit_with_table "unss"
     _t_uns_fn() { :; }
@@ -428,7 +428,7 @@ __test_register_cmd() {
 }
 
 @test "recording escapes single quotes in values" {
-    knit_register _t_esc_fn "esccmd" "Esc."
+    knit_register "esccmd" _t_esc_fn "Esc."
     knit_with_optional "label:string" "" "A label."
     knit_with_table "escs"
     _t_esc_fn() { :; }
@@ -439,7 +439,7 @@ __test_register_cmd() {
 }
 
 @test "recording honours an explicit row id set with _knit_set_row_id" {
-    knit_register _t_id_fn "idcmd" "Id."
+    knit_register "idcmd" _t_id_fn "Id."
     knit_with_table "ids"
     _t_id_fn() { _knit_set_row_id "11111111-1111-7111-8111-111111111111"; }
     knit_done
@@ -450,7 +450,7 @@ __test_register_cmd() {
 }
 
 @test "recording mints a fresh id, ignoring KNIT_JOB_PREFIX" {
-    knit_register _t_jp_fn "jpcmd" "Jp."
+    knit_register "jpcmd" _t_jp_fn "Jp."
     knit_with_table "jps"
     _t_jp_fn() { :; }
     knit_done
@@ -466,7 +466,7 @@ __test_register_cmd() {
 }
 
 @test "recording mints a fresh id, ignoring KNIT_RUN_ID" {
-    knit_register _t_ri_fn "ricmd" "Ri."
+    knit_register "ricmd" _t_ri_fn "Ri."
     knit_with_table "ris"
     _t_ri_fn() { :; }
     knit_done
@@ -486,7 +486,7 @@ __test_register_cmd() {
 # ---------- _knit_db_record_invocation provenance edge ----------
 
 @test "record row with empty edge type writes only the data row" {
-    knit_register _t_noedge_fn "noedgecmd" "NoEdge."
+    knit_register "noedgecmd" _t_noedge_fn "NoEdge."
     knit_with_table "noedge_t"
     _t_noedge_fn() { :; }
     knit_done
@@ -500,7 +500,7 @@ __test_register_cmd() {
 }
 
 @test "record row writes the data row and a call edge in one transaction" {
-    knit_register _t_edge_fn "edgecmd" "Edge."
+    knit_register "edgecmd" _t_edge_fn "Edge."
     knit_with_optional "label:string" "def" "A label."
     knit_with_table "edges_t"
     _t_edge_fn() { :; }
@@ -523,7 +523,7 @@ __test_register_cmd() {
 }
 
 @test "record row writes a call-site alias onto the edge" {
-    knit_register _t_alias_fn "aliascmd" "Alias."
+    knit_register "aliascmd" _t_alias_fn "Alias."
     knit_with_table "alias_t"
     _t_alias_fn() { :; }
     knit_done
@@ -537,7 +537,7 @@ __test_register_cmd() {
 }
 
 @test "record row rolls back the data row when the edge insert fails" {
-    knit_register _t_atom_fn "atomcmd" "Atom."
+    knit_register "atomcmd" _t_atom_fn "Atom."
     knit_with_table "atoms_t"
     _t_atom_fn() { :; }
     knit_done

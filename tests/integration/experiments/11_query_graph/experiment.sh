@@ -31,7 +31,7 @@ knit_done
 
 # A plain recorded command the job body invokes twice, under distinct aliases.
 # Each invocation records one row in the "step" table and one "call" edge.
-knit_register __step_fn "step" "Record one labelled step."
+knit_register "step" __step_fn "Record one labelled step."
 knit_with_required "label:string" "A label identifying this step."
 knit_with_table
 __step_fn() {

@@ -19,7 +19,7 @@ declare -A _KNIT_APPS
 # ------------------------------------------------------------------------------
 _KNIT_RUNS_TABLE="runs"
 
-knit_register _knit_run "run" "Run an application (MPI launch) inside a job."
+knit_register "run" _knit_run "Run an application (MPI launch) inside a job."
 _knit_is_builtin
 # Placement (all optional). Empty means "not set": _knit_run_resolve_placement
 # fills the missing values from the job's allocation and the per-node core count.
@@ -349,7 +349,7 @@ _knit_run_normalize_mpi_env() {
     export KNIT_MPI_LOCAL_RANK="${OMPI_COMM_WORLD_LOCAL_RANK:-${PMI_LOCAL_RANK:-${SLURM_LOCALID:-${PALS_LOCAL_RANKID:-0}}}}"
 }
 
-knit_register _knit_run_worker "_run" "Per-rank worker for \`knit run\` (internal)."
+knit_register "_run" _knit_run_worker "Per-rank worker for \`knit run\` (internal)."
 _knit_is_builtin
 knit_hidden
 knit_with_extra "The app name and its arguments (after --)."
@@ -459,7 +459,7 @@ knit_register_app() {
     local name="$1"
     local fn="$2"
     local description="$3"
-    knit_register "${fn}" "run:${name}" "${description}"
+    knit_register "run:${name}" "${fn}" "${description}"
     # Record each app's invocations in a table named after the app itself (not
     # the "run:<name>" command name), so the table reads naturally and needs no
     # SQL quoting of the colon.

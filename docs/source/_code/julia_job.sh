@@ -48,7 +48,6 @@ knit_with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant 
 knit_with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
 knit_with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
 knit_with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
-knit_with_optional "output:string"    "fractal.png" "PNG file name, written in the job directory."
 julia() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")
@@ -57,14 +56,13 @@ julia() {
     c_im=$(knit_get_parameter "c-im" "$@")
     max_iter=$(knit_get_parameter "max-iter" "$@")
     colormap=$(knit_get_parameter "colormap" "$@")
-    output=$(knit_get_parameter "output" "$@")
 
     # A submitted job already runs with its working directory set to its own job
-    # directory (exported as KNIT_JOB_PREFIX), so a bare relative "${output}"
+    # directory (exported as KNIT_JOB_PREFIX), so a bare relative output PNG
     # would land there too. We build an absolute path anyway: it is explicit
     # about where the image belongs and stays correct even if the body (or a
     # program it launches) changes directory first.
-    local png="${KNIT_JOB_PREFIX%/}/${output}"
+    local png="${KNIT_JOB_PREFIX%/}/fractal.png"
     julia-fractal "${width}" "${height}" "${c_re}" "${c_im}" "${max_iter}" \
         "${png}" "${colormap}"
 }

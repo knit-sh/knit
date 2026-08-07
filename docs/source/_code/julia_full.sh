@@ -117,7 +117,7 @@ knit_done
 # read-only bookkeeping, so it writes no row or edge of its own. Each
 # `knit run -- render` wrote one row in the `render` table, so a single SELECT
 # sees every image the experiment has produced.
-knit_register aggregate "aggregate" \
+knit_register "aggregate" aggregate \
     "Fan-in: total the inside metric across every recorded render."
 knit_without_provenance
 aggregate() {

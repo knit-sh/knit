@@ -82,7 +82,7 @@ teardown() {
 }
 
 @test "knit_provides_launcher is fatal on a non-setup command" {
-    knit_register _test_setup_fn "plaincmd" "A plain command."
+    knit_register "plaincmd" _test_setup_fn "A plain command."
     run knit_provides_launcher
     [ "$status" -ne 0 ]
     [[ "$output" == *"only for setups"* ]]

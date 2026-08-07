@@ -13,12 +13,12 @@ setup() {
     #   shl_plain  no highlight
     #   shl_bold   highlight predicate returns 0 -> bold
     #   shl_off    highlight predicate returns non-zero -> plain
-    knit_register knit_empty "shl_plain" "A plain command."
+    knit_register "shl_plain" knit_empty "A plain command."
     knit_done
-    knit_register knit_empty "shl_bold" "A bold command."
+    knit_register "shl_bold" knit_empty "A bold command."
     knit_highlight_if _shl_yes
     knit_done
-    knit_register knit_empty "shl_off" "An unhighlighted command."
+    knit_register "shl_off" knit_empty "An unhighlighted command."
     knit_highlight_if _shl_no
     knit_done
 }

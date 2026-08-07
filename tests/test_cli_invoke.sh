@@ -13,14 +13,14 @@ teardown() {
 # ---------- _knit_check_command_arguments ----------
 
 @test "_knit_check_command_arguments passes when all required args are present" {
-    knit_register knit_empty "ca_cmd" "Test."
+    knit_register "ca_cmd" knit_empty "Test."
     knit_with_required "name:string" "A name."
     knit_done
     _knit_check_command_arguments "ca_cmd" "--name" "Alice"
 }
 
 @test "_knit_check_command_arguments fails when required arg is missing" {
-    knit_register knit_empty "ca_cmd2" "Test."
+    knit_register "ca_cmd2" knit_empty "Test."
     knit_with_required "name:string" "A name."
     knit_done
     run _knit_check_command_arguments "ca_cmd2"
@@ -28,28 +28,28 @@ teardown() {
 }
 
 @test "_knit_check_command_arguments fails for unexpected argument" {
-    knit_register knit_empty "ca_cmd3" "Test."
+    knit_register "ca_cmd3" knit_empty "Test."
     knit_done
     run _knit_check_command_arguments "ca_cmd3" "--unknown" "value"
     [ "$status" -eq 1 ]
 }
 
 @test "_knit_check_command_arguments fails for extra args when not declared" {
-    knit_register knit_empty "ca_cmd4" "Test."
+    knit_register "ca_cmd4" knit_empty "Test."
     knit_done
     run _knit_check_command_arguments "ca_cmd4" "--" "extra_arg"
     [ "$status" -eq 1 ]
 }
 
 @test "_knit_check_command_arguments passes with extra args when declared" {
-    knit_register knit_empty "ca_cmd5" "Test."
+    knit_register "ca_cmd5" knit_empty "Test."
     knit_with_extra "Extra arguments."
     knit_done
     _knit_check_command_arguments "ca_cmd5" "--" "extra_arg"
 }
 
 @test "_knit_check_command_arguments accepts flags without values" {
-    knit_register knit_empty "ca_cmd6" "Test."
+    knit_register "ca_cmd6" knit_empty "Test."
     knit_with_flag "verbose" "Verbose mode."
     knit_done
     _knit_check_command_arguments "ca_cmd6" "--verbose"
@@ -58,14 +58,14 @@ teardown() {
 # ---------- _knit_check_command_arguments: type validation ----------
 
 @test "_knit_check_command_arguments accepts a value matching its type" {
-    knit_register knit_empty "ty_ok" "Test."
+    knit_register "ty_ok" knit_empty "Test."
     knit_with_required "count:integer" "A count."
     knit_done
     _knit_check_command_arguments "ty_ok" "--count" "42"
 }
 
 @test "_knit_check_command_arguments rejects an integer value that is not an integer" {
-    knit_register knit_empty "ty_int" "Test."
+    knit_register "ty_int" knit_empty "Test."
     knit_with_required "count:integer" "A count."
     knit_done
     run _knit_check_command_arguments "ty_int" "--count" "abc"
@@ -74,7 +74,7 @@ teardown() {
 }
 
 @test "_knit_check_command_arguments rejects a real value that is not a real" {
-    knit_register knit_empty "ty_real" "Test."
+    knit_register "ty_real" knit_empty "Test."
     knit_with_required "ratio:real" "A ratio."
     knit_done
     run _knit_check_command_arguments "ty_real" "--ratio" "notanumber"
@@ -83,14 +83,14 @@ teardown() {
 }
 
 @test "_knit_check_command_arguments accepts any value for a string parameter" {
-    knit_register knit_empty "ty_str" "Test."
+    knit_register "ty_str" knit_empty "Test."
     knit_with_required "label:string" "A label."
     knit_done
     _knit_check_command_arguments "ty_str" "--label" "1a-b_?"
 }
 
 @test "_knit_check_command_arguments validates the --name=value form" {
-    knit_register knit_empty "ty_inline" "Test."
+    knit_register "ty_inline" knit_empty "Test."
     knit_with_required "count:integer" "A count."
     knit_done
     run _knit_check_command_arguments "ty_inline" "--count=abc"
@@ -99,7 +99,7 @@ teardown() {
 }
 
 @test "_knit_check_command_arguments validates optional parameter values" {
-    knit_register knit_empty "ty_opt" "Test."
+    knit_register "ty_opt" knit_empty "Test."
     knit_with_optional "count:integer" "1" "A count."
     knit_done
     run _knit_check_command_arguments "ty_opt" "--count" "x"
@@ -109,7 +109,7 @@ teardown() {
 
 @test "_knit_check_command_arguments accepts a valid enum value" {
     knit_define_enum "ty_color" "red" "green" "blue"
-    knit_register knit_empty "ty_enum_ok" "Test."
+    knit_register "ty_enum_ok" knit_empty "Test."
     knit_with_required "shade:ty_color" "A color."
     knit_done
     _knit_check_command_arguments "ty_enum_ok" "--shade" "green"
@@ -117,7 +117,7 @@ teardown() {
 
 @test "_knit_check_command_arguments rejects an invalid enum value and lists the choices" {
     knit_define_enum "ty_color2" "red" "green" "blue"
-    knit_register knit_empty "ty_enum_bad" "Test."
+    knit_register "ty_enum_bad" knit_empty "Test."
     knit_with_required "shade:ty_color2" "A color."
     knit_done
     run _knit_check_command_arguments "ty_enum_bad" "--shade" "ultraviolet"
@@ -128,7 +128,7 @@ teardown() {
 }
 
 @test "_knit_invoke_command rejects an ill-typed argument before running the body" {
-    knit_register fn_ty_inv "ty_inv" "Test."
+    knit_register "ty_inv" fn_ty_inv "Test."
     knit_with_required "count:integer" "A count."
     fn_ty_inv() { echo "SHOULD NOT RUN"; }
     knit_done
@@ -140,7 +140,7 @@ teardown() {
 # ---------- _knit_expand_command_arguments ----------
 
 @test "_knit_expand_command_arguments fills in optional defaults" {
-    knit_register knit_empty "expa_cmd" "Test."
+    knit_register "expa_cmd" knit_empty "Test."
     knit_with_optional "count:integer" "10" "A count."
     knit_done
     local -a args
@@ -151,7 +151,7 @@ teardown() {
 }
 
 @test "_knit_expand_command_arguments does not override provided optional" {
-    knit_register knit_empty "expa_cmd2" "Test."
+    knit_register "expa_cmd2" knit_empty "Test."
     knit_with_optional "count:integer" "10" "A count."
     knit_done
     local -a args
@@ -162,7 +162,7 @@ teardown() {
 }
 
 @test "_knit_expand_command_arguments preserves --key=value for knit_get_parameter" {
-    knit_register knit_empty "expa_cmd3" "Test."
+    knit_register "expa_cmd3" knit_empty "Test."
     knit_with_required "name:string" "A name."
     knit_done
     local -a args
@@ -173,7 +173,7 @@ teardown() {
 }
 
 @test "_knit_expand_command_arguments converts present flag to true" {
-    knit_register knit_empty "expa_cmd4" "Test."
+    knit_register "expa_cmd4" knit_empty "Test."
     knit_with_flag "verbose" "Enable verbose."
     knit_done
     local -a args
@@ -187,7 +187,7 @@ teardown() {
     # A flag registered with a hyphen is stored underscored ("no_setup"); the
     # user still writes it with a hyphen. Expansion must insert "true" after the
     # hyphenated token, not only after the underscored form.
-    knit_register knit_empty "expa_cmd4h" "Test."
+    knit_register "expa_cmd4h" knit_empty "Test."
     knit_with_flag "no-setup" "No setup."
     knit_done
     local -a args
@@ -198,7 +198,7 @@ teardown() {
 }
 
 @test "_knit_expand_command_arguments converts absent flag to false" {
-    knit_register knit_empty "expa_cmd5" "Test."
+    knit_register "expa_cmd5" knit_empty "Test."
     knit_with_flag "verbose" "Enable verbose."
     knit_done
     local -a args
@@ -209,7 +209,7 @@ teardown() {
 }
 
 @test "_knit_expand_command_arguments resolves an ENV[...] default from the environment" {
-    knit_register knit_empty "expa_cmd6" "Test."
+    knit_register "expa_cmd6" knit_empty "Test."
     knit_with_optional "seed:integer" "ENV[_KNIT_TEST_SEED]" "A seed."
     knit_done
     export _KNIT_TEST_SEED="7"
@@ -222,7 +222,7 @@ teardown() {
 }
 
 @test "_knit_expand_command_arguments lets an explicit value override an ENV[...] default" {
-    knit_register knit_empty "expa_cmd7" "Test."
+    knit_register "expa_cmd7" knit_empty "Test."
     knit_with_optional "seed:integer" "ENV[_KNIT_TEST_SEED]" "A seed."
     knit_done
     export _KNIT_TEST_SEED="7"
@@ -235,7 +235,7 @@ teardown() {
 }
 
 @test "_knit_expand_command_arguments resolves an unset ENV[...] default to empty" {
-    knit_register knit_empty "expa_cmd8" "Test."
+    knit_register "expa_cmd8" knit_empty "Test."
     knit_with_optional "seed:string" "ENV[_KNIT_TEST_UNSET_SEED]" "A seed."
     knit_done
     unset _KNIT_TEST_UNSET_SEED
@@ -249,7 +249,7 @@ teardown() {
 # ---------- _knit_invoke_command ----------
 
 @test "_knit_invoke_command invokes a registered command with arguments" {
-    knit_register fn_ic "ic_cmd" "Test."
+    knit_register "ic_cmd" fn_ic "Test."
     knit_with_required "name:string" "A name."
     fn_ic() {
         local name
@@ -263,7 +263,7 @@ teardown() {
 }
 
 @test "_knit_invoke_command accepts the --name=value form" {
-    knit_register fn_ic_eq "ic_cmd_eq" "Test."
+    knit_register "ic_cmd_eq" fn_ic_eq "Test."
     knit_with_required "name:string" "A name."
     fn_ic_eq() {
         local name
@@ -277,7 +277,7 @@ teardown() {
 }
 
 @test "_knit_invoke_command rejects an unknown --name=value option" {
-    knit_register knit_empty "ic_cmd_eq_bad" "Test."
+    knit_register "ic_cmd_eq_bad" knit_empty "Test."
     knit_with_required "name:string" "A name."
     knit_done
     run _knit_invoke_command "ic_cmd_eq_bad" "--name=World" "--bogus=x"
@@ -290,7 +290,7 @@ teardown() {
 }
 
 @test "_knit_invoke_command fills optional defaults before invoking" {
-    knit_register fn_ic2 "ic_cmd2" "Test."
+    knit_register "ic_cmd2" fn_ic2 "Test."
     knit_with_optional "count:integer" "7" "A count."
     fn_ic2() {
         local count
@@ -304,9 +304,9 @@ teardown() {
 }
 
 @test "_knit_invoke_command invokes subcommand" {
-    knit_register knit_empty "par2_cmd" "Parent."
+    knit_register "par2_cmd" knit_empty "Parent."
     knit_done
-    knit_register fn_child "par2_cmd:child" "Child."
+    knit_register "par2_cmd:child" fn_child "Child."
     knit_with_required "msg:string" "A message."
     fn_child() {
         local msg
@@ -320,7 +320,7 @@ teardown() {
 }
 
 @test "_knit_invoke_command shows help output with --help" {
-    knit_register knit_empty "ic_cmd3" "A test command for help."
+    knit_register "ic_cmd3" knit_empty "A test command for help."
     knit_with_required "name:string" "A name."
     knit_done
     local result
@@ -331,9 +331,9 @@ teardown() {
 }
 
 @test "help for an ordinary nested command has no -- in its usage line" {
-    knit_register knit_empty "ic_parent" "Parent."
+    knit_register "ic_parent" knit_empty "Parent."
     knit_done
-    knit_register knit_empty "ic_parent:leaf" "Leaf."
+    knit_register "ic_parent:leaf" knit_empty "Leaf."
     knit_with_required "name:string" "A name."
     knit_done
     local result usage_line
@@ -345,7 +345,7 @@ teardown() {
 }
 
 @test "help for a dispatcher shows the -- placeholder in its usage line" {
-    knit_register knit_empty "ic_disp" "A dispatcher."
+    knit_register "ic_disp" knit_empty "A dispatcher."
     knit_with_optional "root-opt:string" "" "A dispatcher option."
     knit_with_dispatch "target" "A target to dispatch to."
     knit_done
@@ -356,11 +356,11 @@ teardown() {
 }
 
 @test "help for a dispatched subcommand shows parent grammar and options" {
-    knit_register knit_empty "ic_disp2" "A dispatcher."
+    knit_register "ic_disp2" knit_empty "A dispatcher."
     knit_with_optional "root-opt:string" "" "A dispatcher option."
     knit_with_dispatch "target" "A target to dispatch to."
     knit_done
-    knit_register knit_empty "ic_disp2:leaf" "A dispatched leaf."
+    knit_register "ic_disp2:leaf" knit_empty "A dispatched leaf."
     knit_with_optional "leaf-opt:string" "" "A leaf option."
     knit_done
     local result
@@ -376,7 +376,7 @@ teardown() {
 }
 
 @test "_knit_invoke_command runs before and after callbacks in order" {
-    knit_register fn_ic4 "ic_cmd4" "Test."
+    knit_register "ic_cmd4" fn_ic4 "Test."
     _knit_run_before echo "before"
     _knit_run_after echo "after"
     fn_ic4() { echo "body"; }
@@ -393,7 +393,7 @@ teardown() {
 
 @test "an after-callback can call knit_output and it lands in the recorded row" {
     _ic_after_out() { knit_output "note" "from-after-cb"; }
-    knit_register fn_ic_ocb "ic_ocb" "Test."
+    knit_register "ic_ocb" fn_ic_ocb "Test."
     knit_with_table
     knit_with_output "note:string" "" "A note."
     _knit_run_after _ic_after_out
@@ -407,7 +407,7 @@ teardown() {
 
 @test "knit_output from an after-callback is type-checked" {
     _ic_after_bad() { knit_output "num" "not-an-int"; }
-    knit_register fn_ic_ocb2 "ic_ocb2" "Test."
+    knit_register "ic_ocb2" fn_ic_ocb2 "Test."
     knit_with_table
     knit_with_output "num:integer" "0" "A number."
     _knit_run_after _ic_after_bad
@@ -420,7 +420,7 @@ teardown() {
 
 @test "knit_output from an after-callback on a suppressed rank is discarded with a warning" {
     _ic_after_sup() { knit_output "note" "should-be-dropped"; }
-    knit_register fn_ic_ocb3 "ic_ocb3" "Test."
+    knit_register "ic_ocb3" fn_ic_ocb3 "Test."
     knit_with_table
     knit_with_output "note:string" "" "A note."
     _knit_run_after _ic_after_sup

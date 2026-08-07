@@ -44,7 +44,7 @@ _juliaenv_setup() {
 knit_done
 # END setup
 
-knit_register julia "julia" "Render a Julia-set fractal to a PNG."
+knit_register "julia" julia "Render a Julia-set fractal to a PNG."
 # START depends
 knit_with_setup "juliaenv"
 # END depends

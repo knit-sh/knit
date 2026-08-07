@@ -18,7 +18,7 @@ source knit.sh
 
 knit_set_program_description "Render a Julia-set fractal."
 
-knit_register julia "julia" "Render a Julia-set fractal to a PNG."
+knit_register "julia" julia "Render a Julia-set fractal to a PNG."
 knit_with_optional "width:integer"    "800"    "Image width in pixels."
 knit_with_optional "height:integer"   "600"    "Image height in pixels."
 knit_with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant c."

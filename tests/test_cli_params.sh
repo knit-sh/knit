@@ -63,32 +63,32 @@ teardown() {
 # ---------- knit_with_required type annotations ----------
 
 @test "knit_with_required accepts name:type syntax" {
-    knit_register knit_empty "test_cmd_1" "A test command."
+    knit_register "test_cmd_1" knit_empty "A test command."
     knit_with_required "count:integer" "A count parameter."
     knit_done
 }
 
 @test "knit_with_required rejects missing type" {
-    knit_register knit_empty "test_cmd_2" "A test command."
+    knit_register "test_cmd_2" knit_empty "A test command."
     run knit_with_required "name" "A name parameter."
     [ "$status" -eq 1 ]
 }
 
 @test "knit_with_required rejects unknown type" {
-    knit_register knit_empty "test_cmd_3" "A test command."
+    knit_register "test_cmd_3" knit_empty "A test command."
     run knit_with_required "count:nosuchtype" "A count parameter."
     [ "$status" -eq 1 ]
 }
 
 @test "knit_with_required accepts alias types" {
-    knit_register knit_empty "test_cmd_4" "A test command."
+    knit_register "test_cmd_4" knit_empty "A test command."
     knit_with_required "count:int" "A count parameter."
     knit_done
 }
 
 @test "knit_with_required accepts enum types" {
     knit_define_enum "color" "red" "green" "blue"
-    knit_register knit_empty "test_cmd_5" "A test command."
+    knit_register "test_cmd_5" knit_empty "A test command."
     knit_with_required "shade:color" "A color parameter."
     knit_done
 }
@@ -96,19 +96,19 @@ teardown() {
 # ---------- knit_with_optional type annotations ----------
 
 @test "knit_with_optional accepts name:type syntax" {
-    knit_register knit_empty "test_cmd_6" "A test command."
+    knit_register "test_cmd_6" knit_empty "A test command."
     knit_with_optional "count:integer" "10" "A count parameter."
     knit_done
 }
 
 @test "knit_with_optional rejects missing type" {
-    knit_register knit_empty "test_cmd_7" "A test command."
+    knit_register "test_cmd_7" knit_empty "A test command."
     run knit_with_optional "name" "world" "A name parameter."
     [ "$status" -eq 1 ]
 }
 
 @test "knit_with_optional rejects unknown type" {
-    knit_register knit_empty "test_cmd_8" "A test command."
+    knit_register "test_cmd_8" knit_empty "A test command."
     run knit_with_optional "count:nosuchtype" "10" "A count parameter."
     [ "$status" -eq 1 ]
 }
@@ -116,20 +116,20 @@ teardown() {
 # ---------- knit_with_output type annotations ----------
 
 @test "knit_with_output accepts name:type syntax" {
-    knit_register knit_empty "out_cmd_1" "A test command."
+    knit_register "out_cmd_1" knit_empty "A test command."
     knit_with_output "result:integer" "0" "The result."
     knit_done
 }
 
 @test "knit_with_output rejects missing type" {
-    knit_register knit_empty "out_cmd_2" "A test command."
+    knit_register "out_cmd_2" knit_empty "A test command."
     run knit_with_output "result" "0" "The result."
     [ "$status" -eq 1 ]
     knit_done
 }
 
 @test "knit_with_output rejects unknown type" {
-    knit_register knit_empty "out_cmd_3" "A test command."
+    knit_register "out_cmd_3" knit_empty "A test command."
     run knit_with_output "result:nosuchtype" "0" "The result."
     [ "$status" -eq 1 ]
     knit_done
@@ -141,14 +141,14 @@ teardown() {
 }
 
 @test "knit_with_output rejects invalid output name" {
-    knit_register knit_empty "out_cmd_4" "A test command."
+    knit_register "out_cmd_4" knit_empty "A test command."
     run knit_with_output "invalid name:string" "x" "Bad name."
     [ "$status" -eq 1 ]
     knit_done
 }
 
 @test "knit_with_output rejects duplicate output name" {
-    knit_register knit_empty "out_cmd_5" "A test command."
+    knit_register "out_cmd_5" knit_empty "A test command."
     knit_with_output "result:integer" "0" "First declaration."
     run knit_with_output "result:integer" "1" "Duplicate."
     [ "$status" -eq 1 ]
@@ -164,7 +164,7 @@ teardown() {
 
 @test "knit_output fails for undeclared output name" {
     ko_fail_fn() { knit_output "undeclared" "1"; }
-    knit_register ko_fail_fn "ko_fail_cmd" "Test."
+    knit_register "ko_fail_cmd" ko_fail_fn "Test."
     knit_with_output "result:integer" "0" "The result."
     knit_done
     run _knit_invoke_command "ko_fail_cmd"
@@ -173,7 +173,7 @@ teardown() {
 
 @test "knit_output fails on type mismatch" {
     ko_type_fn() { knit_output "result" "not_an_integer"; }
-    knit_register ko_type_fn "ko_type_cmd" "Test."
+    knit_register "ko_type_cmd" ko_type_fn "Test."
     knit_with_output "result:integer" "0" "The result."
     knit_done
     run _knit_invoke_command "ko_type_cmd"
@@ -182,7 +182,7 @@ teardown() {
 
 @test "knit_output sets value in output array" {
     ko_set_fn() { knit_output "result" "42"; }
-    knit_register ko_set_fn "ko_set_cmd" "Test."
+    knit_register "ko_set_cmd" ko_set_fn "Test."
     knit_with_output "result:integer" "0" "The result."
     knit_done
     _knit_invoke_command "ko_set_cmd"
@@ -191,7 +191,7 @@ teardown() {
 
 @test "knit_output normalizes hyphen to underscore in name" {
     ko_hyp_fn() { knit_output "my-result" "7"; }
-    knit_register ko_hyp_fn "ko_hyp_cmd" "Test."
+    knit_register "ko_hyp_cmd" ko_hyp_fn "Test."
     knit_with_output "my-result:integer" "0" "The result."
     knit_done
     _knit_invoke_command "ko_hyp_cmd"
@@ -200,7 +200,7 @@ teardown() {
 
 @test "knit_output discards the value when _KNIT_RECORDING_SUPPRESSED is set" {
     ko_sup_fn() { knit_output "result" "42"; }
-    knit_register ko_sup_fn "ko_sup_cmd" "Test."
+    knit_register "ko_sup_cmd" ko_sup_fn "Test."
     knit_with_output "result:integer" "0" "The result."
     knit_done
     # Non-root ranks of a run set this flag; knit_output must discard the value so
@@ -212,7 +212,7 @@ teardown() {
 
 @test "knit_output warns when _KNIT_RECORDING_SUPPRESSED is set" {
     ko_supw_fn() { knit_output "result" "42"; }
-    knit_register ko_supw_fn "ko_supw_cmd" "Test."
+    knit_register "ko_supw_cmd" ko_supw_fn "Test."
     knit_with_output "result:integer" "0" "The result."
     knit_done
     _KNIT_RECORDING_SUPPRESSED="1"
@@ -224,7 +224,7 @@ teardown() {
 
 @test "knit_output records normally when _KNIT_RECORDING_SUPPRESSED is empty (regression)" {
     ko_uns_fn() { knit_output "result" "42"; }
-    knit_register ko_uns_fn "ko_uns_cmd" "Test."
+    knit_register "ko_uns_cmd" ko_uns_fn "Test."
     knit_with_output "result:integer" "0" "The result."
     knit_done
     _KNIT_RECORDING_SUPPRESSED=""
@@ -234,14 +234,14 @@ teardown() {
 
 @test "knit_output nested invocation preserves outer context" {
     ko_inner_fn() { knit_output "inner_out" "inner_val"; }
-    knit_register ko_inner_fn "ko_inner_cmd" "Test."
+    knit_register "ko_inner_cmd" ko_inner_fn "Test."
     knit_with_output "inner_out:string" "" "Inner output."
     knit_done
     ko_outer_fn() {
         _knit_invoke_command "ko_inner_cmd"
         knit_output "outer_out" "outer_val"
     }
-    knit_register ko_outer_fn "ko_outer_cmd" "Test."
+    knit_register "ko_outer_cmd" ko_outer_fn "Test."
     knit_with_output "outer_out:string" "" "Outer output."
     knit_done
     _knit_invoke_command "ko_outer_cmd"
@@ -252,7 +252,7 @@ teardown() {
 # ---------- _knit_output_description / _knit_output_default / _knit_output_type ----------
 
 @test "_knit_output_description returns stored description" {
-    knit_register knit_empty "od_cmd" "Test."
+    knit_register "od_cmd" knit_empty "Test."
     knit_with_output "score:real" "0.0" "The score."
     knit_done
     local result
@@ -261,7 +261,7 @@ teardown() {
 }
 
 @test "_knit_output_default returns stored default value" {
-    knit_register knit_empty "odef_cmd" "Test."
+    knit_register "odef_cmd" knit_empty "Test."
     knit_with_output "count:integer" "42" "A count."
     knit_done
     local result
@@ -270,7 +270,7 @@ teardown() {
 }
 
 @test "_knit_output_type returns stored type" {
-    knit_register knit_empty "ot_cmd" "Test."
+    knit_register "ot_cmd" knit_empty "Test."
     knit_with_output "count:integer" "0" "A count."
     knit_done
     local result

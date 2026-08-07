@@ -13,38 +13,38 @@ teardown() {
 # ---------- knit_register / knit_done ----------
 
 @test "knit_register adds command to registry" {
-    knit_register knit_empty "reg_cmd" "A registered command."
+    knit_register "reg_cmd" knit_empty "A registered command."
     knit_done
     _knit_set_find _KNIT_COMMANDS "reg_cmd"
 }
 
 @test "knit_register fails with invalid character in command name" {
-    run knit_register knit_empty "my cmd" "Bad command."
+    run knit_register "my cmd" knit_empty "Bad command."
     [ "$status" -eq 1 ]
 }
 
 @test "knit_register fails if parent command not registered" {
-    run knit_register knit_empty "parent:child" "Child command."
+    run knit_register "parent:child" knit_empty "Child command."
     [ "$status" -eq 1 ]
 }
 
 @test "knit_register fails if command already registered" {
-    knit_register knit_empty "dup_cmd" "First registration."
+    knit_register "dup_cmd" knit_empty "First registration."
     knit_done
-    run knit_register knit_empty "dup_cmd" "Second registration."
+    run knit_register "dup_cmd" knit_empty "Second registration."
     [ "$status" -eq 1 ]
 }
 
 @test "knit_register allows subcommand when parent is registered" {
-    knit_register knit_empty "par_cmd" "Parent command."
+    knit_register "par_cmd" knit_empty "Parent command."
     knit_done
-    knit_register knit_empty "par_cmd:sub" "Subcommand."
+    knit_register "par_cmd:sub" knit_empty "Subcommand."
     knit_done
     _knit_set_find _KNIT_COMMANDS "par_cmd__1__sub"
 }
 
 @test "knit_done fails if registered function is not defined" {
-    knit_register undefined_fn "undef_cmd" "Test."
+    knit_register "undef_cmd" undefined_fn "Test."
     run knit_done
     [ "$status" -eq 1 ]
 }
@@ -60,7 +60,7 @@ teardown() {
     _KNIT_PDC_CALLED=false
     _pdc_mark_called() { _KNIT_PDC_CALLED=true; }
     pdc_fn_a() { :; }
-    knit_register pdc_fn_a "pdc_a" "Test."
+    knit_register "pdc_a" pdc_fn_a "Test."
     _knit_push_done_cb _pdc_mark_called
     knit_done
     [ "${_KNIT_PDC_CALLED}" = "true" ]
@@ -70,7 +70,7 @@ teardown() {
     declare -ga _KNIT_PDC_ORDER=()
     _pdc_order_append() { _KNIT_PDC_ORDER+=("$1"); }
     pdc_fn_b() { :; }
-    knit_register pdc_fn_b "pdc_b" "Test."
+    knit_register "pdc_b" pdc_fn_b "Test."
     _knit_push_done_cb _pdc_order_append "first"
     _knit_push_done_cb _pdc_order_append "second"
     _knit_push_done_cb _pdc_order_append "third"
@@ -82,7 +82,7 @@ teardown() {
 
 @test "_knit_push_done_cb _KNIT_DONE_CBS is unset after knit_done" {
     pdc_fn_c() { :; }
-    knit_register pdc_fn_c "pdc_c" "Test."
+    knit_register "pdc_c" pdc_fn_c "Test."
     _knit_push_done_cb echo "cb"
     knit_done
     [[ ! -v _KNIT_DONE_CBS ]]
@@ -92,10 +92,10 @@ teardown() {
     _KNIT_PDC_COUNT=0
     _pdc_increment() { _KNIT_PDC_COUNT=$(( _KNIT_PDC_COUNT + 1 )); }
     pdc_fn_d() { :; }
-    knit_register pdc_fn_d "pdc_d" "Test."
+    knit_register "pdc_d" pdc_fn_d "Test."
     _knit_push_done_cb _pdc_increment
     pdc_fn_e() { :; }
-    knit_register pdc_fn_e "pdc_e" "Test."
+    knit_register "pdc_e" pdc_fn_e "Test."
     # implicit knit_done fired for pdc_d: count becomes 1
     knit_done
     # explicit knit_done for pdc_e: no callbacks pushed, count stays 1
@@ -105,7 +105,7 @@ teardown() {
 # ---------- knit_hidden ----------
 
 @test "knit_hidden marks a command as hidden" {
-    knit_register knit_empty "hid_cmd" "A hidden command."
+    knit_register "hid_cmd" knit_empty "A hidden command."
     knit_hidden
     knit_done
     [ "${_KNIT_CMD_hid_cmd_is_hidden}" = "true" ]
@@ -119,7 +119,7 @@ teardown() {
 # ---------- knit_with_subcommand_title ----------
 
 @test "knit_with_subcommand_title sets the subcommand title" {
-    knit_register knit_empty "sct_cmd" "Test."
+    knit_register "sct_cmd" knit_empty "Test."
     knit_with_subcommand_title "My Operations"
     knit_done
     [ "${_KNIT_CMD_sct_cmd_subcommand_title}" = "My Operations" ]
@@ -133,14 +133,14 @@ teardown() {
 # ---------- knit_with_flag ----------
 
 @test "knit_with_flag registers a flag" {
-    knit_register knit_empty "flg_cmd" "Test."
+    knit_register "flg_cmd" knit_empty "Test."
     knit_with_flag "verbose" "Enable verbose output."
     knit_done
     _knit_set_find "_KNIT_CMD_flg_cmd_flags" "verbose"
 }
 
 @test "knit_with_flag normalizes hyphens to underscores" {
-    knit_register knit_empty "flg_cmd2" "Test."
+    knit_register "flg_cmd2" knit_empty "Test."
     knit_with_flag "dry-run" "Dry run mode."
     knit_done
     _knit_set_find "_KNIT_CMD_flg_cmd2_flags" "dry_run"
@@ -152,7 +152,7 @@ teardown() {
 }
 
 @test "knit_with_flag rejects invalid flag name" {
-    knit_register knit_empty "flg_cmd3" "Test."
+    knit_register "flg_cmd3" knit_empty "Test."
     run knit_with_flag "invalid name" "Has a space."
     [ "$status" -eq 1 ]
 }
@@ -160,7 +160,7 @@ teardown() {
 # ---------- knit_with_extra ----------
 
 @test "knit_with_extra stores the extra description" {
-    knit_register knit_empty "ext_cmd" "Test."
+    knit_register "ext_cmd" knit_empty "Test."
     knit_with_extra "Extra arguments passed after --."
     knit_done
     [ "${_KNIT_CMD_ext_cmd_extra}" = "Extra arguments passed after --." ]
@@ -174,14 +174,14 @@ teardown() {
 # ---------- knit_with_dispatch ----------
 
 @test "knit_register initializes an empty dispatch marker" {
-    knit_register knit_empty "disp_init" "Test."
+    knit_register "disp_init" knit_empty "Test."
     knit_done
     [ -v _KNIT_CMD_disp_init_dispatch ]
     [ -z "${_KNIT_CMD_disp_init_dispatch}" ]
 }
 
 @test "knit_with_dispatch stores the placeholder and description" {
-    knit_register knit_empty "disp_cmd" "Test."
+    knit_register "disp_cmd" knit_empty "Test."
     knit_with_dispatch "job" "The job to submit."
     knit_done
     [ "${_KNIT_CMD_disp_cmd_dispatch}" = "job" ]
@@ -189,7 +189,7 @@ teardown() {
 }
 
 @test "knit_with_dispatch defaults the extra description to the placeholder" {
-    knit_register knit_empty "disp_cmd2" "Test."
+    knit_register "disp_cmd2" knit_empty "Test."
     knit_with_dispatch "program"
     knit_done
     [ "${_KNIT_CMD_disp_cmd2_dispatch}" = "program" ]
@@ -209,13 +209,13 @@ teardown() {
 }
 
 @test "knit_with_required rejects invalid parameter name" {
-    knit_register knit_empty "inv_cmd" "Test."
+    knit_register "inv_cmd" knit_empty "Test."
     run knit_with_required "invalid name:string" "A name."
     [ "$status" -eq 1 ]
 }
 
 @test "knit_with_required rejects duplicate parameter name" {
-    knit_register knit_empty "dup_param_cmd" "Test."
+    knit_register "dup_param_cmd" knit_empty "Test."
     knit_with_required "name:string" "First declaration."
     run knit_with_required "name:string" "Duplicate."
     [ "$status" -eq 1 ]
@@ -230,7 +230,7 @@ teardown() {
 # ---------- _knit_run_before / _knit_run_after ----------
 
 @test "_knit_run_before registers a before callback" {
-    knit_register knit_empty "rb_cmd" "Test."
+    knit_register "rb_cmd" knit_empty "Test."
     _knit_run_before echo "before_output"
     knit_done
     [ "${#_KNIT_CMD_rb_cmd_before_cb[@]}" -eq 1 ]
@@ -242,7 +242,7 @@ teardown() {
 }
 
 @test "_knit_run_after registers an after callback" {
-    knit_register knit_empty "ra_cmd" "Test."
+    knit_register "ra_cmd" knit_empty "Test."
     _knit_run_after echo "after_output"
     knit_done
     [ "${#_KNIT_CMD_ra_cmd_after_cb[@]}" -eq 1 ]
@@ -256,7 +256,7 @@ teardown() {
 # ---------- _knit_execute_before_commands / _knit_execute_after_commands ----------
 
 @test "_knit_execute_before_commands executes registered callbacks" {
-    knit_register knit_empty "eb_cmd" "Test."
+    knit_register "eb_cmd" knit_empty "Test."
     _knit_run_before echo "before_output"
     knit_done
     local result
@@ -265,7 +265,7 @@ teardown() {
 }
 
 @test "_knit_execute_before_commands does nothing when no callbacks registered" {
-    knit_register knit_empty "eb_cmd2" "Test."
+    knit_register "eb_cmd2" knit_empty "Test."
     knit_done
     local result
     result=$(_knit_execute_before_commands "eb_cmd2")
@@ -273,7 +273,7 @@ teardown() {
 }
 
 @test "_knit_execute_after_commands executes registered callbacks" {
-    knit_register knit_empty "ea_cmd" "Test."
+    knit_register "ea_cmd" knit_empty "Test."
     _knit_run_after echo "after_output"
     knit_done
     local result
@@ -282,7 +282,7 @@ teardown() {
 }
 
 @test "_knit_execute_after_commands does nothing when no callbacks registered" {
-    knit_register knit_empty "ea_cmd2" "Test."
+    knit_register "ea_cmd2" knit_empty "Test."
     knit_done
     local result
     result=$(_knit_execute_after_commands "ea_cmd2")

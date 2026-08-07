@@ -113,7 +113,7 @@ teardown() {
     # gains a --setup option plus the generic setup marker (see test_setup.sh for
     # the full generic behavior).
     _test_fn() { :; }
-    knit_register "_test_fn" "notajob" "A plain command."
+    knit_register "notajob" "_test_fn" "A plain command."
     knit_with_setup "mcenv"
     knit_done
     [ "${_KNIT_CMD_notajob_setup}" = "mcenv" ]

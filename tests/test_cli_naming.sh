@@ -190,7 +190,7 @@ teardown() {
 # ---------- _knit_param_description / _knit_param_default / _knit_param_type ----------
 
 @test "_knit_param_description returns stored description" {
-    knit_register knit_empty "pd_cmd" "Test."
+    knit_register "pd_cmd" knit_empty "Test."
     knit_with_optional "value:string" "default_val" "My description."
     knit_done
     local result
@@ -199,7 +199,7 @@ teardown() {
 }
 
 @test "_knit_param_default returns stored default value" {
-    knit_register knit_empty "pdef_cmd" "Test."
+    knit_register "pdef_cmd" knit_empty "Test."
     knit_with_optional "count:integer" "42" "A count."
     knit_done
     local result
@@ -208,7 +208,7 @@ teardown() {
 }
 
 @test "_knit_param_type returns stored type" {
-    knit_register knit_empty "pt_cmd" "Test."
+    knit_register "pt_cmd" knit_empty "Test."
     knit_with_required "count:integer" "A count."
     knit_done
     local result

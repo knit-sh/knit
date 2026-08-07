@@ -107,7 +107,7 @@ _render_app() {
 knit_done
 
 # START aggregate
-knit_register aggregate "aggregate" \
+knit_register "aggregate" aggregate \
     "Fan-in: total the inside metric across every recorded render."
 knit_without_provenance
 aggregate() {

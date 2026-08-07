@@ -44,12 +44,12 @@ knit_without_setup
 knit_done
 
 # A plain command does not adopt the default setup implicitly (only jobs do).
-knit_register __report_marker "plaincmd" \
+knit_register "plaincmd" __report_marker \
     "Plain command with no setup declaration (no implicit adoption)."
 knit_done
 
 # A plain command may require the default setup explicitly.
-knit_register __report_marker "withdefault" \
+knit_register "withdefault" __report_marker \
     "Plain command that requires the builtin default setup explicitly."
 knit_with_setup "default"
 knit_done

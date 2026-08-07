@@ -17,7 +17,7 @@ declare -A _KNIT_JOBS
 # ------------------------------------------------------------------------------
 _KNIT_JOBS_TABLE="jobs"
 
-knit_register _knit_submit "submit" "Submit a job."
+knit_register "submit" _knit_submit "Submit a job."
 _knit_is_builtin
 knit_with_optional "setup:string" "" \
     "Name of the setup to use (required if the job declares a setup type)."
@@ -524,7 +524,7 @@ knit_register_job() {
     local name="$1"
     local fn="$2"
     local description="$3"
-    knit_register "${fn}" "submit:${name}" "${description}"
+    knit_register "submit:${name}" "${fn}" "${description}"
     # Record each job's invocations in a table named after the job itself (not
     # the "submit:<name>" command name), so the table reads naturally and needs
     # no SQL quoting of the colon.

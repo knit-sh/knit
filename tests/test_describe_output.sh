@@ -14,7 +14,7 @@ teardown() {
 
 # A small user command so the description has content to write.
 _register_fixture() {
-    knit_register knit_empty "greet" "Say hello to someone."
+    knit_register "greet" knit_empty "Say hello to someone."
     knit_with_required "name:string" "Name of the person to greet."
     knit_done
 }

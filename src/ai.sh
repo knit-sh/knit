@@ -619,7 +619,7 @@ _knit_ai_loop() {
 # they are NOT usable before bootstrap: the central runtime guard refuses them
 # uniformly until the experiment is bootstrapped.
 # ------------------------------------------------------------------------------
-knit_register knit_empty ai "Talk to your experiment in natural language."
+knit_register ai knit_empty "Talk to your experiment in natural language."
 _knit_is_builtin
 knit_without_provenance
 knit_done
@@ -627,7 +627,7 @@ knit_done
 # ------------------------------------------------------------------------------
 # Registration of 'ai init'.
 # ------------------------------------------------------------------------------
-knit_register _knit_ai_init "ai:init" \
+knit_register "ai:init" _knit_ai_init \
     "Configure the AI provider (env-var names and non-secret defaults)."
 _knit_is_builtin
 knit_without_provenance
@@ -666,7 +666,7 @@ knit_done
 # ------------------------------------------------------------------------------
 # Registration of 'ai ask'.
 # ------------------------------------------------------------------------------
-knit_register _knit_ai_ask "ai:ask" \
+knit_register "ai:ask" _knit_ai_ask \
     "Ask a natural-language question about the experiment."
 _knit_is_builtin
 knit_without_provenance
@@ -918,7 +918,7 @@ _knit_is_builtin
 # ------------------------------------------------------------------------------
 # Registration of 'ai query'.
 # ------------------------------------------------------------------------------
-knit_register _knit_ai_query "ai:query" \
+knit_register "ai:query" _knit_ai_query \
     "Answer a question by generating and running a read-only SQL query."
 _knit_is_builtin
 knit_without_provenance

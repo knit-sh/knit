@@ -8,7 +8,7 @@ setup() {
 
     # A command with one optional parameter whose description is long enough to
     # wrap when a wide terminal is forced.
-    knit_register knit_empty "wr" "A wrapping demo command."
+    knit_register "wr" knit_empty "A wrapping demo command."
     knit_with_optional "seed:integer" "0" \
         "the random seed used for the Monte Carlo sampling across all of the ranks"
     knit_done

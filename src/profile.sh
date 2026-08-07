@@ -495,7 +495,7 @@ _knit_render_platform_files() {
 # ------------------------------------------------------------------------------
 # Registration of the profile command group.
 # ------------------------------------------------------------------------------
-knit_register knit_empty profile "List and inspect machine profiles."
+knit_register profile knit_empty "List and inspect machine profiles."
 _knit_is_builtin
 knit_usable_before_bootstrap
 knit_done
@@ -509,7 +509,7 @@ _knit_profile_list() {
     knit_list_profiles
 }
 
-knit_register _knit_profile_list "profile:list" \
+knit_register "profile:list" _knit_profile_list \
     "List the machine profiles served by the knit repository."
 _knit_is_builtin
 knit_usable_before_bootstrap
@@ -547,7 +547,7 @@ _knit_profile_show() {
     printf '%s\n' "${resolved_json}"
 }
 
-knit_register _knit_profile_show "profile:show" \
+knit_register "profile:show" _knit_profile_show \
     "Show a machine profile (the bootstrapped one, or a given spec)."
 _knit_is_builtin
 knit_usable_before_bootstrap

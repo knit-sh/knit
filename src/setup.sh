@@ -41,7 +41,7 @@ _knit_highlight_if_no_user_setup() {
     return 0
 }
 
-knit_register _knit_setup "setup" "Setup an environment"
+knit_register "setup" _knit_setup "Setup an environment"
 _knit_is_builtin
 knit_with_required "name:string" "Name for the setup instance"
 knit_with_dispatch "setup" "User-provided setup command to execute"
@@ -281,7 +281,7 @@ knit_register_setup() {
     local name="$1"
     local fn="$2"
     local description="$3"
-    knit_register "${fn}" "setup:${name}" "${description}"
+    knit_register "setup:${name}" "${fn}" "${description}"
     knit_with_table
     _KNIT_SETUPS["${name}"]=1
     _knit_run_before _knit_setup_before_cb
@@ -448,7 +448,7 @@ _knit_default_setup() { :; }
 # and participates in the DB/provenance graph) but with the platform-only
 # after-callback above rather than the generic environment dump. Bootstrap
 # auto-instantiates it into _knit_default_setup_path.
-knit_register _knit_default_setup "setup:default" \
+knit_register "setup:default" _knit_default_setup \
     "Builtin setup carrying only the platform activation."
 _knit_is_builtin
 knit_with_table

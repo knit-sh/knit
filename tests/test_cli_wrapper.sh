@@ -21,7 +21,7 @@ teardown() {
 }
 
 @test "_knit_command_is_wrapper is false for a regular command" {
-    knit_register knit_empty "regular" "A regular command."
+    knit_register "regular" knit_empty "A regular command."
     knit_done
     run _knit_command_is_wrapper "regular"
     [ "$status" -ne 0 ]
@@ -95,7 +95,7 @@ teardown() {
     wrap_fn() { :; }
     knit_register_wrapper "wrap" "wrap_fn" "A wrapper."
     knit_done
-    knit_register knit_empty "regular" "A regular command."
+    knit_register "regular" knit_empty "A regular command."
     knit_with_optional "n:integer" "1" "A number."
     knit_done
     _knit_set_find "_KNIT_CMD_regular_optional" "n"

@@ -99,7 +99,8 @@ commands. Ours builds ``julia-fractal`` from source and installs it.
 A setup is registered with ``knit_register_setup``. This one declares the
 software it needs with ``knit_with_spack_specs`` --- ``cmake`` and ``libpng``
 (no MPI yet; that comes later) --- and its body clones the source, builds it, and
-installs it:
+installs it. This setup must come before our earlier definition of the ``julia``
+command:
 
 .. literalinclude:: ../_code/julia_setup.sh
    :language: bash
@@ -174,10 +175,12 @@ simply becomes a job.
 The change is one word: register with ``knit_register_job`` instead of
 ``knit_register``. That makes ``julia`` a subcommand of the builtin ``submit``
 command rather than a top-level command. The body is almost the same as before,
-with one addition --- it writes its image under ``KNIT_JOB_PREFIX``:
+with one addition --- it writes its image under ``KNIT_JOB_PREFIX`` (we also
+remove the ``output`` parameter of the command, alway outputing *fractal.png*):
 
 .. literalinclude:: ../_code/julia_job.sh
    :language: bash
+   :emphasize-lines: 1,23,25
    :start-after: # START job
    :end-before: # END job
 

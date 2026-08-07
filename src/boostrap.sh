@@ -100,7 +100,7 @@ knit_define_enum "__scheduler__" "auto" "slurm" "pbs" "local" "none"
 _knit_is_builtin
 knit_define_enum "__launcher__"  "auto" "openmpi" "mpich" "pals" "none"
 _knit_is_builtin
-knit_register _knit_bootstrap "bootstrap" "Bootstrap the Knit framework."
+knit_register "bootstrap" _knit_bootstrap "Bootstrap the Knit framework."
 _knit_is_builtin
 knit_usable_before_bootstrap
 knit_highlight_if _knit_highlight_if_not_bootstrapped

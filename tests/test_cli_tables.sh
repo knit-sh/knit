@@ -13,9 +13,9 @@ teardown() {
 # ---------- knit_with_table ----------
 
 @test "knit_with_table defaults to colon-separated command name" {
-    knit_register knit_empty "foo" "A parent command."
+    knit_register "foo" knit_empty "A parent command."
     knit_done
-    knit_register knit_empty "foo:bar" "A subcommand."
+    knit_register "foo:bar" knit_empty "A subcommand."
     knit_with_table
     knit_done
     local result
@@ -25,7 +25,7 @@ teardown() {
 }
 
 @test "knit_with_table accepts an explicit table name" {
-    knit_register knit_empty "mycmd" "A command."
+    knit_register "mycmd" knit_empty "A command."
     knit_with_table "my_runs"
     knit_done
     local result
@@ -35,7 +35,7 @@ teardown() {
 }
 
 @test "knit_with_table for a simple command defaults to command name" {
-    knit_register knit_empty "solo" "Do something."
+    knit_register "solo" knit_empty "Do something."
     knit_with_table
     knit_done
     local result
@@ -45,11 +45,11 @@ teardown() {
 }
 
 @test "two commands with distinct table names both succeed" {
-    knit_register knit_empty "cmd1" "First command."
+    knit_register "cmd1" knit_empty "First command."
     knit_with_table "table1"
     knit_done
 
-    knit_register knit_empty "cmd2" "Second command."
+    knit_register "cmd2" knit_empty "Second command."
     knit_with_table "table2"
     knit_done
 
@@ -63,11 +63,11 @@ teardown() {
 }
 
 @test "two commands sharing a table name causes a fatal error" {
-    knit_register knit_empty "cmd1" "First command."
+    knit_register "cmd1" knit_empty "First command."
     knit_with_table "shared"
     knit_done
 
-    knit_register knit_empty "cmd2" "Second command."
+    knit_register "cmd2" knit_empty "Second command."
     run knit_with_table "shared"
     [ "$status" -ne 0 ]
 }
@@ -78,7 +78,7 @@ teardown() {
 }
 
 @test "table created by knit_with_table has id as first column" {
-    knit_register knit_empty "mycmd" "A command."
+    knit_register "mycmd" knit_empty "A command."
     knit_with_required "count:integer" "A count."
     knit_with_table
     knit_done
@@ -89,7 +89,7 @@ teardown() {
 }
 
 @test "table contains columns for all params flags and outputs" {
-    knit_register knit_empty "mycmd" "A command."
+    knit_register "mycmd" knit_empty "A command."
     knit_with_required "iters:integer" "Iterations."
     knit_with_optional "label:string" "none" "A label."
     knit_with_flag "verbose" "Verbose mode."
@@ -104,7 +104,7 @@ teardown() {
 
 @test "optional parameter default is used as migration default" {
     # Create the table first with only the id column (simulating old schema)
-    knit_register knit_empty "mycmd" "A command."
+    knit_register "mycmd" knit_empty "A command."
     knit_with_table
     knit_done
     sqlite3 "${_KNIT_DATABASE}" \
@@ -147,7 +147,7 @@ teardown() {
     knit_with_flag "verbose" "Verbose mode."
     knit_done
 
-    knit_register knit_empty "pset_cmd1" "A command."
+    knit_register "pset_cmd1" knit_empty "A command."
     knit_with_parameter_set "shared"
     knit_done
 
@@ -162,7 +162,7 @@ teardown() {
     knit_with_optional "tag:string" "default_tag" "A tag."
     knit_done
 
-    knit_register knit_empty "meta_cmd" "A command."
+    knit_register "meta_cmd" knit_empty "A command."
     knit_with_parameter_set "meta_set"
     knit_done
 
@@ -184,7 +184,7 @@ teardown() {
         captured_nodes=$(knit_get_parameter "nodes" "$@")
         captured_label=$(knit_get_parameter "label" "$@")
     }
-    knit_register run_pset_cmd "run_pset_cmd" "A command."
+    knit_register "run_pset_cmd" run_pset_cmd "A command."
     knit_with_parameter_set "run_params"
     knit_done
 
@@ -201,10 +201,10 @@ teardown() {
     local captured_a captured_b
     cmd_a() { captured_a=$(knit_get_parameter "nodes" "$@"); }
     cmd_b() { captured_b=$(knit_get_parameter "nodes" "$@"); }
-    knit_register cmd_a "cmd_a" "Command A."
+    knit_register "cmd_a" cmd_a "Command A."
     knit_with_parameter_set "shared2"
     knit_done
-    knit_register cmd_b "cmd_b" "Command B."
+    knit_register "cmd_b" cmd_b "Command B."
     knit_with_parameter_set "shared2"
     knit_done
 
@@ -222,7 +222,7 @@ teardown() {
     knit_with_required "walltime:integer" "Walltime in seconds."
     knit_done
 
-    knit_register knit_empty "multi_pset_cmd" "A command."
+    knit_register "multi_pset_cmd" knit_empty "A command."
     knit_with_parameter_set "set_a"
     knit_with_parameter_set "set_b"
     knit_done
@@ -236,7 +236,7 @@ teardown() {
     knit_with_required "nodes:integer" "Node count."
     knit_done
 
-    knit_register knit_empty "mixed_cmd" "A command."
+    knit_register "mixed_cmd" knit_empty "A command."
     knit_with_required "app:string" "Application name."
     knit_with_parameter_set "base_set"
     knit_done
@@ -246,7 +246,7 @@ teardown() {
 }
 
 @test "knit_with_parameter_set fails for undefined set" {
-    knit_register knit_empty "nosuchset_cmd" "A command."
+    knit_register "nosuchset_cmd" knit_empty "A command."
     run knit_with_parameter_set "nonexistent"
     [ "$status" -eq 1 ]
     knit_done
@@ -257,7 +257,7 @@ teardown() {
     knit_with_required "nodes:integer" "Node count."
     knit_done
 
-    knit_register knit_empty "conflict_cmd" "A command."
+    knit_register "conflict_cmd" knit_empty "A command."
     knit_with_required "nodes:integer" "Already declared."
     run knit_with_parameter_set "conflict_set"
     [ "$status" -eq 1 ]
@@ -272,7 +272,7 @@ teardown() {
     knit_with_required "nodes:integer" "Same name."
     knit_done
 
-    knit_register knit_empty "overlap_cmd" "A command."
+    knit_register "overlap_cmd" knit_empty "A command."
     knit_with_parameter_set "overlap_a"
     run knit_with_parameter_set "overlap_b"
     [ "$status" -eq 1 ]
@@ -314,7 +314,7 @@ teardown() {
 }
 
 @test "knit_define_parameter_set auto-calls knit_done if knit_register is open" {
-    knit_register knit_empty "auto_done_cmd" "A command."
+    knit_register "auto_done_cmd" knit_empty "A command."
     knit_define_parameter_set "auto_done_set"
     knit_done
     # Both registrations should have completed without error.
@@ -327,7 +327,7 @@ teardown() {
     knit_with_required "nodes:integer" "Number of nodes."
     knit_done
 
-    knit_register knit_empty "help_pset_cmd" "A command with pset params."
+    knit_register "help_pset_cmd" knit_empty "A command with pset params."
     knit_with_parameter_set "help_set"
     knit_done
 

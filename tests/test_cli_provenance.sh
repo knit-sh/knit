@@ -23,7 +23,7 @@ teardown() {
 # ---------- push-time row-id resolution ----------
 
 @test "a frame's resolved id is visible on the stack while its body runs" {
-    knit_register _p_seen_fn "seencmd" "Seen."
+    knit_register "seencmd" _p_seen_fn "Seen."
     knit_with_table "seens"
     # The body reads the id resolved for its own frame (the top of the stack).
     _p_seen_fn() { __seen_id="${_KNIT_EXECUTING_ROW_ID[-1]}"; }
@@ -42,12 +42,12 @@ teardown() {
 # ---------- distinct ids ----------
 
 @test "a nested child records an id distinct from its parent" {
-    knit_register _p_child_fn "pchild" "Child."
+    knit_register "pchild" _p_child_fn "Child."
     knit_with_table "pchildren"
     _p_child_fn() { :; }
     knit_done
 
-    knit_register _p_parent_fn "pparent" "Parent."
+    knit_register "pparent" _p_parent_fn "Parent."
     knit_with_table "pparents"
     _p_parent_fn() { _knit_invoke_command "pchild"; }
     knit_done
@@ -65,12 +65,12 @@ teardown() {
 # ---------- row-id timing (design §5.2) ----------
 
 @test "a nested child sees its parent's explicit _knit_set_row_id as the parent frame id" {
-    knit_register _p_probe_fn "probecmd" "Probe."
+    knit_register "probecmd" _p_probe_fn "Probe."
     # The parent frame's resolved id is the entry just below this frame's own.
     _p_probe_fn() { __probed_source_id="${_KNIT_EXECUTING_ROW_ID[-2]}"; }
     knit_done
 
-    knit_register _p_top_fn "topcmd" "Top."
+    knit_register "topcmd" _p_top_fn "Top."
     knit_with_table "tops"
     _p_top_fn() {
         _knit_set_row_id "cafe0000-0000-7000-8000-000000000000"
@@ -90,7 +90,7 @@ teardown() {
 # ---------- call edges (M3, design §5.2/§5.6) ----------
 
 @test "a root invocation records a call edge with empty parent columns" {
-    knit_register _p_root_fn "rootcmd" "Root."
+    knit_register "rootcmd" _p_root_fn "Root."
     knit_with_table "roots"
     _p_root_fn() { :; }
     knit_done
@@ -109,12 +109,12 @@ teardown() {
 }
 
 @test "a nested child records a call edge to its parent" {
-    knit_register _p_ce_child_fn "cechild" "Child."
+    knit_register "cechild" _p_ce_child_fn "Child."
     knit_with_table "cechildren"
     _p_ce_child_fn() { :; }
     knit_done
 
-    knit_register _p_ce_parent_fn "ceparent" "Parent."
+    knit_register "ceparent" _p_ce_parent_fn "Parent."
     knit_with_table "ceparents"
     _p_ce_parent_fn() { _knit_invoke_command "cechild"; }
     knit_done
@@ -136,19 +136,19 @@ teardown() {
 }
 
 @test "a hidden intermediate command is transparent (A -> hidden M -> B collapses to A -> B)" {
-    knit_register _p_b_fn "bcmd" "B."
+    knit_register "bcmd" _p_b_fn "B."
     knit_with_table "bs"
     _p_b_fn() { :; }
     knit_done
 
     # A hidden command records nothing and is skipped when its callee resolves a
     # parent, so B's edge points straight at A.
-    knit_register _p_mid_fn "_mid" "Middle."
+    knit_register "_mid" _p_mid_fn "Middle."
     knit_hidden
     _p_mid_fn() { _knit_invoke_command "bcmd"; }
     knit_done
 
-    knit_register _p_a_fn "acmd" "A."
+    knit_register "acmd" _p_a_fn "A."
     knit_with_table "a_rows"
     _p_a_fn() { _knit_invoke_command "_mid"; }
     knit_done
@@ -170,7 +170,7 @@ teardown() {
 }
 
 @test "a call edge records REAL epoch timestamps with end_time >= start_time" {
-    knit_register _p_ts_fn "tscmd" "Ts."
+    knit_register "tscmd" _p_ts_fn "Ts."
     knit_with_table "tss"
     _p_ts_fn() { :; }
     knit_done
@@ -190,7 +190,7 @@ teardown() {
 # ---------- exported parent context (design §5.2 rule 2) ----------
 
 @test "the parent context falls back to the exported env with no in-process parent" {
-    knit_register _p_env_fn "envcmd" "Env."
+    knit_register "envcmd" _p_env_fn "Env."
     knit_with_table "envs"
     _p_env_fn() { :; }
     knit_done
@@ -207,12 +207,12 @@ teardown() {
 }
 
 @test "an in-process parent overrides the exported env" {
-    knit_register _p_ov_child_fn "ovchild" "Child."
+    knit_register "ovchild" _p_ov_child_fn "Child."
     knit_with_table "ovchildren"
     _p_ov_child_fn() { :; }
     knit_done
 
-    knit_register _p_ov_parent_fn "ovparent" "Parent."
+    knit_register "ovparent" _p_ov_parent_fn "Parent."
     knit_with_table "ovparents"
     _p_ov_parent_fn() { _knit_invoke_command "ovchild"; }
     knit_done
@@ -234,7 +234,7 @@ teardown() {
 # ---------- recording policy: with/without marks (M4, design §5.5) ----------
 
 @test "knit_without_provenance on a visible command records no edge but keeps its data row" {
-    knit_register _p_wo_fn "wocmd" "Without."
+    knit_register "wocmd" _p_wo_fn "Without."
     knit_with_table "wos"
     knit_without_provenance
     _p_wo_fn() { :; }
@@ -250,7 +250,7 @@ teardown() {
 }
 
 @test "knit_with_provenance on a hidden command records an edge" {
-    knit_register _p_wh_fn "_whcmd" "With, hidden."
+    knit_register "_whcmd" _p_wh_fn "With, hidden."
     knit_hidden
     knit_with_provenance
     _p_wh_fn() { :; }
@@ -266,19 +266,19 @@ teardown() {
 }
 
 @test "a without command is transparent: its child links to the grandparent" {
-    knit_register _p_gc_fn "gchild" "Grandchild."
+    knit_register "gchild" _p_gc_fn "Grandchild."
     knit_with_table "gchildren"
     _p_gc_fn() { :; }
     knit_done
 
     # A "without" middle command records no edge and is skipped when its callee
     # resolves a parent, so the grandchild's edge points at the top command.
-    knit_register _p_mw_fn "midw" "Middle without."
+    knit_register "midw" _p_mw_fn "Middle without."
     knit_without_provenance
     _p_mw_fn() { _knit_invoke_command "gchild"; }
     knit_done
 
-    knit_register _p_gt_fn "gtop" "Top."
+    knit_register "gtop" _p_gt_fn "Top."
     knit_with_table "gtops"
     _p_gt_fn() { _knit_invoke_command "midw"; }
     knit_done
@@ -301,12 +301,12 @@ teardown() {
 # ---------- recording policy: lexical inheritance (M4, design §5.5) ----------
 
 @test "an unmarked nested command inherits a without mark from its lexical parent" {
-    knit_register _p_par_fn "grp" "Group."
+    knit_register "grp" _p_par_fn "Group."
     knit_without_provenance
     _p_par_fn() { :; }
     knit_done
 
-    knit_register _p_sub_fn "grp:leaf" "Leaf."
+    knit_register "grp:leaf" _p_sub_fn "Leaf."
     knit_with_table "grpleaves"
     _p_sub_fn() { :; }
     knit_done
@@ -321,12 +321,12 @@ teardown() {
 }
 
 @test "an unmarked nested command inherits a with mark from its lexical parent" {
-    knit_register _p_wpar_fn "wgrp" "Group."
+    knit_register "wgrp" _p_wpar_fn "Group."
     knit_with_provenance
     _p_wpar_fn() { :; }
     knit_done
 
-    knit_register _p_wsub_fn "wgrp:_leaf" "Hidden leaf."
+    knit_register "wgrp:_leaf" _p_wsub_fn "Hidden leaf."
     knit_hidden
     _p_wsub_fn() { :; }
     knit_done
@@ -340,12 +340,12 @@ teardown() {
 }
 
 @test "an explicit mark on a nested command overrides the inherited one" {
-    knit_register _p_opar_fn "ogrp" "Group."
+    knit_register "ogrp" _p_opar_fn "Group."
     knit_without_provenance
     _p_opar_fn() { :; }
     knit_done
 
-    knit_register _p_osub_fn "ogrp:leaf" "Leaf with own mark."
+    knit_register "ogrp:leaf" _p_osub_fn "Leaf with own mark."
     knit_with_provenance
     _p_osub_fn() { :; }
     knit_done
@@ -358,17 +358,17 @@ teardown() {
 }
 
 @test "the nearest marked lexical ancestor wins over a farther one" {
-    knit_register _p_np_fn "top" "Top."
+    knit_register "top" _p_np_fn "Top."
     knit_with_provenance
     _p_np_fn() { :; }
     knit_done
 
-    knit_register _p_nm_fn "top:mid" "Mid."
+    knit_register "top:mid" _p_nm_fn "Mid."
     knit_without_provenance
     _p_nm_fn() { :; }
     knit_done
 
-    knit_register _p_nl_fn "top:mid:leaf" "Leaf."
+    knit_register "top:mid:leaf" _p_nl_fn "Leaf."
     _p_nl_fn() { :; }
     knit_done
 
@@ -383,7 +383,7 @@ teardown() {
 # ---------- global kill switch (M4, design §7 D7) ----------
 
 @test "KNIT_DISABLE_RECORDING suppresses both the data row and the edge" {
-    knit_register _p_kill_fn "killcmd" "Kill."
+    knit_register "killcmd" _p_kill_fn "Kill."
     knit_with_table "kills"
     _p_kill_fn() { :; }
     knit_done
@@ -396,7 +396,7 @@ teardown() {
 }
 
 @test "KNIT_DISABLE_RECORDING also suppresses the eager _knit_record_row_now path" {
-    knit_register _p_eager_fn "eagercmd" "Eager."
+    knit_register "eagercmd" _p_eager_fn "Eager."
     knit_with_table "eagers"
     _p_eager_fn() { _knit_record_row_now "$@"; }
     knit_done

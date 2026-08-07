@@ -29,10 +29,10 @@ register below will appear in that same listing.
 Your first command
 ------------------
 
-A command is declared with ``knit_register <fn> <name> <description>`` and closed
-with ``knit_done``; in between go its parameters (none yet). The ``<fn>`` is the
-Bash function Knit calls when the command runs. Here is a command that just
-prints a greeting:
+A command is declared with ``knit_register <name> <fn> <description>`` and closed
+with ``knit_done``; in between go its parameters (none yet). The ``<name>`` is the
+command as typed on the command line, and ``<fn>`` is the Bash function Knit calls
+when the command runs. Here is a command that just prints a greeting:
 
 .. literalinclude:: _code/quickstart.sh
    :language: bash

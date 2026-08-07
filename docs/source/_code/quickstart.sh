@@ -12,7 +12,7 @@ knit_set_program_description "A tiny quickstart experiment."
 # END run
 
 # START hello
-knit_register hello "hello" "Print a greeting."
+knit_register "hello" hello "Print a greeting."
 hello() {
     echo "Hello World"
 }
@@ -20,7 +20,7 @@ knit_done
 # END hello
 
 # START say
-knit_register say "say" "Repeat a message."
+knit_register "say" say "Repeat a message."
 knit_with_required "message:string" "The message to repeat."
 say() {
     local message
@@ -31,7 +31,7 @@ knit_done
 # END say
 
 # START greet
-knit_register greet "greet" "Greet someone by name."
+knit_register "greet" greet "Greet someone by name."
 knit_with_required "name:string" "Who to greet."
 knit_with_optional "title:string" "" "An optional title (Mr, Mrs, Prof., ...)."
 knit_with_flag "capitalize" "Upper-case the whole greeting."
@@ -54,7 +54,7 @@ knit_done
 # END greet
 
 # START scale
-knit_register scale "scale" "Multiply an integer by a factor."
+knit_register "scale" scale "Multiply an integer by a factor."
 knit_with_required "value:integer" "The value to scale."
 knit_with_optional "factor:integer" "2" "The multiplier (defaults to 2)."
 knit_with_output "result:integer" "0" "value * factor."
@@ -69,7 +69,7 @@ knit_done
 # END scale
 
 # START add
-knit_register add "add" "Add two integers and record the run."
+knit_register "add" add "Add two integers and record the run."
 knit_with_required "x:integer" "First value."
 knit_with_required "y:integer" "Second value."
 knit_with_output "total:integer" "0" "x + y."

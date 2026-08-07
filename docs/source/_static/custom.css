@@ -10,3 +10,11 @@ section#knit > h1 {
 section#knit > p:first-of-type {
     margin-top: 2.5rem;
 }
+
+/* The min-light Pygments style sets its emphasized-line (`.hll`) background to a
+   near-transparent pale blue (#E7F3FF52), which is invisible on the white code
+   background, so `:emphasize-lines:` has no visible effect in light mode. Give
+   it a solid, clearly visible tint. Dark mode reads fine and is left alone. */
+html[data-theme="light"] .highlight .hll {
+    background-color: #dbeafe;
+}

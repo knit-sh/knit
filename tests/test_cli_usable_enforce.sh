@@ -19,7 +19,7 @@ _ue_no() { return 1; }
 _ue_body() { : > "${_UE_MARKER}"; }
 
 @test "_knit_invoke_command runs the body of a usable command" {
-    knit_register _ue_body "ue_ok" "A command."
+    knit_register "ue_ok" _ue_body "A command."
     knit_usable_if _ue_yes "needs a widget"
     knit_done
     _knit_invoke_command "ue_ok"
@@ -27,7 +27,7 @@ _ue_body() { : > "${_UE_MARKER}"; }
 }
 
 @test "_knit_invoke_command fatals with the reason when a command is unusable" {
-    knit_register _ue_body "ue_bad" "A command."
+    knit_register "ue_bad" _ue_body "A command."
     knit_usable_if _ue_no "no widget available"
     knit_done
     run _knit_invoke_command "ue_bad"
@@ -36,7 +36,7 @@ _ue_body() { : > "${_UE_MARKER}"; }
 }
 
 @test "_knit_invoke_command does not run the body of an unusable command" {
-    knit_register _ue_body "ue_norun" "A command."
+    knit_register "ue_norun" _ue_body "A command."
     knit_usable_if _ue_no "no widget"
     knit_done
     run _knit_invoke_command "ue_norun"
@@ -45,7 +45,7 @@ _ue_body() { : > "${_UE_MARKER}"; }
 }
 
 @test "_knit_invoke_command exempts --help from the usability guard" {
-    knit_register _ue_body "ue_help" "A command."
+    knit_register "ue_help" _ue_body "A command."
     knit_usable_if _ue_no "no widget"
     knit_done
     run _knit_invoke_command "ue_help" --help
@@ -60,7 +60,7 @@ _ue_body() { : > "${_UE_MARKER}"; }
     # predicate), invoked while not bootstrapped, must report the bootstrap
     # requirement first — proving the bootstrap guard is evaluated before the
     # usability guard.
-    knit_register _ue_body "ue_order" "A command."
+    knit_register "ue_order" _ue_body "A command."
     knit_usable_if _ue_no "no widget"
     knit_done
     local saved_prefix="${_KNIT_PREFIX}"

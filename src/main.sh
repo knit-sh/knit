@@ -7,7 +7,7 @@
 # ------------------------------------------------------------------------------
 declare -gxr KNIT_VERSION=0.1.0
 
-knit_register knit_empty "__main__" \
+knit_register "__main__" knit_empty \
     "/!\\ Please use knit_set_program_description to provide a description here /!\\"
 _knit_is_builtin
 knit_hidden

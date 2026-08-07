@@ -729,7 +729,7 @@ _pi_monte_carlo() {
 # table or use --when: both would silently do nothing before bootstrap. This one
 # just reports whether the host has the tools bootstrap needs.
 # -----------------------------------------------------------------------------
-knit_register preflight "preflight" "Check this machine has what bootstrap needs (usable before bootstrap)."
+knit_register "preflight" preflight "Check this machine has what bootstrap needs (usable before bootstrap)."
 knit_usable_before_bootstrap
 preflight() {
     local ok=0 tool
@@ -753,7 +753,7 @@ knit_done
 # -----------------------------------------------------------------------------
 # estimate — a plain command: quick local pi estimate, recorded in the DB.
 # -----------------------------------------------------------------------------
-knit_register estimate "estimate" "Estimate pi locally with Monte-Carlo."
+knit_register "estimate" estimate "Estimate pi locally with Monte-Carlo."
 knit_with_required "samples:integer"       "Number of random samples to draw."
 knit_with_optional "seed:integer" "42"     "PRNG seed (fixed for reproducibility)."
 knit_with_optional "format:numfmt" "decimal" "Output format: decimal or scientific."
@@ -890,7 +890,7 @@ _have_montecarlo_runs() {
         || return 1
     [[ "${n:-0}" -gt 0 ]]
 }
-knit_register analyze "analyze" "Average the pi estimates recorded by montecarlo jobs."
+knit_register "analyze" analyze "Average the pi estimates recorded by montecarlo jobs."
 knit_usable_if _have_montecarlo_runs \
     "no montecarlo job has completed yet; run 'submit --setup env -- montecarlo' first"
 knit_hidden_if_not_usable

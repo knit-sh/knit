@@ -35,14 +35,14 @@ teardown() {
 # ---------- user commands are not builtin ----------
 
 @test "a freshly registered user command reports non-builtin" {
-    knit_register knit_empty "mycmd" "A user command."
+    knit_register "mycmd" knit_empty "A user command."
     knit_done
     run _knit_command_is_builtin "mycmd"
     [ "$status" -ne 0 ]
 }
 
 @test "knit_register initializes is_builtin to false" {
-    knit_register knit_empty "mycmd" "A user command."
+    knit_register "mycmd" knit_empty "A user command."
     [ "${_KNIT_CMD_mycmd_is_builtin}" = "false" ]
     knit_done
 }
@@ -55,7 +55,7 @@ teardown() {
 # ---------- _knit_is_builtin inside a registration ----------
 
 @test "_knit_is_builtin inside a registration marks the current command" {
-    knit_register knit_empty "mycmd" "A user command."
+    knit_register "mycmd" knit_empty "A user command."
     _knit_is_builtin
     [ "${_KNIT_CMD_mycmd_is_builtin}" = "true" ]
     knit_done

@@ -10,15 +10,15 @@ setup() {
     #       ubbh_pub:sub  (usable)
     #       ubbh_pub:priv (not usable)
     #   ubbh_secret       (not usable, top-level)
-    knit_register knit_empty "ubbh_pub" "A public command."
+    knit_register "ubbh_pub" knit_empty "A public command."
     knit_usable_before_bootstrap
     knit_done
-    knit_register knit_empty "ubbh_pub:sub" "A public subcommand."
+    knit_register "ubbh_pub:sub" knit_empty "A public subcommand."
     knit_usable_before_bootstrap
     knit_done
-    knit_register knit_empty "ubbh_pub:priv" "A private subcommand."
+    knit_register "ubbh_pub:priv" knit_empty "A private subcommand."
     knit_done
-    knit_register knit_empty "ubbh_secret" "A private command."
+    knit_register "ubbh_secret" knit_empty "A private command."
     knit_done
 }
 
@@ -107,7 +107,7 @@ _set_bootstrapped() {
 # ---------- hidden commands never shown ----------
 
 @test "hidden commands are never listed regardless of bootstrap state" {
-    knit_register knit_empty "ubbh_hidden" "A hidden command."
+    knit_register "ubbh_hidden" knit_empty "A hidden command."
     knit_hidden
     knit_done
     _set_bootstrapped

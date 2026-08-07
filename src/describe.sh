@@ -1703,7 +1703,7 @@ knit_define_enum "describe_format" \
     "default" "json" "yaml" "markdown"
 _knit_is_builtin
 
-knit_register _knit_describe "describe" \
+knit_register "describe" _knit_describe \
     "Describe all declared commands and their parameters."
 _knit_is_builtin
 knit_usable_before_bootstrap

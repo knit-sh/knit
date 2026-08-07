@@ -21,7 +21,7 @@ _gn() { return 1; }
 }
 
 @test "knit_highlight_if requires a predicate" {
-    knit_register knit_empty "hl_noarg" "A command."
+    knit_register "hl_noarg" knit_empty "A command."
     run knit_highlight_if
     [ "$status" -eq 1 ]
     [[ "$output" == *"requires a predicate"* ]]
@@ -29,7 +29,7 @@ _gn() { return 1; }
 }
 
 @test "knit_highlight_if declares the _highlight_pred array lazily and appends" {
-    knit_register knit_empty "hl_lazy" "A command."
+    knit_register "hl_lazy" knit_empty "A command."
     [ ! -v _KNIT_CMD_hl_lazy_highlight_pred ]
     knit_highlight_if _gy
     knit_highlight_if _gn
@@ -41,14 +41,14 @@ _gn() { return 1; }
 }
 
 @test "_knit_command_highlighted is true when a predicate highlights" {
-    knit_register knit_empty "hl_on" "A command."
+    knit_register "hl_on" knit_empty "A command."
     knit_highlight_if _gy
     knit_done
     _knit_command_highlighted "hl_on"
 }
 
 @test "_knit_command_highlighted is false when no predicate highlights" {
-    knit_register knit_empty "hl_off" "A command."
+    knit_register "hl_off" knit_empty "A command."
     knit_highlight_if _gn
     knit_done
     run _knit_command_highlighted "hl_off"
@@ -56,7 +56,7 @@ _gn() { return 1; }
 }
 
 @test "_knit_command_highlighted ORs multiple predicates" {
-    knit_register knit_empty "hl_or" "A command."
+    knit_register "hl_or" knit_empty "A command."
     knit_highlight_if _gn
     knit_highlight_if _gy
     knit_done
@@ -64,14 +64,14 @@ _gn() { return 1; }
 }
 
 @test "_knit_command_highlighted is false for a command with no predicates" {
-    knit_register knit_empty "hl_none" "A command."
+    knit_register "hl_none" knit_empty "A command."
     knit_done
     run _knit_command_highlighted "hl_none"
     [ "$status" -ne 0 ]
 }
 
 @test "_knit_command_highlighted warns and does not highlight on a missing predicate" {
-    knit_register knit_empty "hl_missing" "A command."
+    knit_register "hl_missing" knit_empty "A command."
     knit_highlight_if _gn
     knit_done
     # Inject a bogus predicate directly (bypassing the decorator's checks).

@@ -6,10 +6,10 @@ setup() {
     knit_test_db_setup
 
     # A usable and a not-usable ordinary command, plus a not-usable wrapper.
-    knit_register knit_empty "ubbg_usable" "A usable command."
+    knit_register "ubbg_usable" knit_empty "A usable command."
     knit_usable_before_bootstrap
     knit_done
-    knit_register knit_empty "ubbg_gated" "A gated command."
+    knit_register "ubbg_gated" knit_empty "A gated command."
     knit_done
     ubbg_wrap_fn() { printf 'ran\n'; }
     knit_register_wrapper "ubbg_wrap" "ubbg_wrap_fn" "A gated wrapper."

@@ -5,14 +5,14 @@
 # ------------------------------------------------------------------------------
 # Registration of the metadata command.
 # ------------------------------------------------------------------------------
-knit_register knit_empty metadata "Access metadata about the experiment."
+knit_register metadata knit_empty "Access metadata about the experiment."
 _knit_is_builtin
 knit_done
 
 # ------------------------------------------------------------------------------
 # Store a key/value pair in the metadata table of the experiment.
 # ------------------------------------------------------------------------------
-knit_register _knit_metadata_store "metadata:store" "Store a key/value pair of metadata."
+knit_register "metadata:store" _knit_metadata_store "Store a key/value pair of metadata."
 _knit_is_builtin
 knit_with_required "key:string" "Key."
 knit_with_required "value:string" "Value."
@@ -67,7 +67,7 @@ _knit_metadata_get() {
 # ------------------------------------------------------------------------------
 # Load the value associated with a key from the metadata table.
 # ------------------------------------------------------------------------------
-knit_register _knit_metadata_load "metadata:load" "Load the value associated with a key in the metadata."
+knit_register "metadata:load" _knit_metadata_load "Load the value associated with a key in the metadata."
 _knit_is_builtin
 knit_with_required "key:string" "Key."
 # ------------------------------------------------------------------------------
@@ -92,7 +92,7 @@ knit_done
 # ------------------------------------------------------------------------------
 # Show the content of the metadata table of the experiment.
 # ------------------------------------------------------------------------------
-knit_register _knit_metadata_show "metadata:show" "Show all the stored metadata."
+knit_register "metadata:show" _knit_metadata_show "Show all the stored metadata."
 _knit_is_builtin
 # ------------------------------------------------------------------------------
 # @fn _knit_metadata_show()

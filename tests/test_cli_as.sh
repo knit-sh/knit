@@ -21,7 +21,7 @@ teardown() {
 # ---------- alias recording ----------
 
 @test "knit_as records the alias on the delegated call edge" {
-    knit_register _as_c_fn "ascmd" "As cmd."
+    knit_register "ascmd" _as_c_fn "As cmd."
     knit_with_table "as_rows"
     _as_c_fn() { :; }
     knit_done
@@ -33,7 +33,7 @@ teardown() {
 }
 
 @test "a plain invocation leaves the call edge alias NULL" {
-    knit_register _as_plain_fn "plaincmd" "Plain."
+    knit_register "plaincmd" _as_plain_fn "Plain."
     knit_with_table "plain_rows"
     _as_plain_fn() { :; }
     knit_done
@@ -46,7 +46,7 @@ teardown() {
 }
 
 @test "a table-less command records its alias on the standalone edge" {
-    knit_register _as_nt_fn "notablecmd" "No table."
+    knit_register "notablecmd" _as_nt_fn "No table."
     _as_nt_fn() { :; }
     knit_done
 
@@ -58,12 +58,12 @@ teardown() {
 }
 
 @test "the alias lands only on the named call, not the nested edges its body records" {
-    knit_register _as_child_fn "aschild" "Child."
+    knit_register "aschild" _as_child_fn "Child."
     knit_with_table "aschildren"
     _as_child_fn() { :; }
     knit_done
 
-    knit_register _as_parent_fn "asparent" "Parent."
+    knit_register "asparent" _as_parent_fn "Parent."
     knit_with_table "asparents"
     _as_parent_fn() { _knit_invoke_command "aschild"; }
     knit_done
@@ -80,19 +80,19 @@ teardown() {
 }
 
 @test "the same alias may be reused under different parent invocations" {
-    knit_register _as_r_child_fn "rchild" "Child."
+    knit_register "rchild" _as_r_child_fn "Child."
     knit_with_table "rchildren"
     _as_r_child_fn() { :; }
     knit_done
 
     # Two distinct parents each alias a child call "fast": different invocations,
     # so no collision.
-    knit_register _as_r_p1_fn "rp1" "Parent 1."
+    knit_register "rp1" _as_r_p1_fn "Parent 1."
     knit_with_table "rp1s"
     _as_r_p1_fn() { knit_as fast rchild; }
     knit_done
 
-    knit_register _as_r_p2_fn "rp2" "Parent 2."
+    knit_register "rp2" _as_r_p2_fn "Parent 2."
     knit_with_table "rp2s"
     _as_r_p2_fn() { knit_as fast rchild; }
     knit_done
@@ -109,7 +109,7 @@ teardown() {
 # ---------- validation ----------
 
 @test "knit_as rejects an empty alias" {
-    knit_register _as_e_fn "ecmd" "E."
+    knit_register "ecmd" _as_e_fn "E."
     _as_e_fn() { :; }
     knit_done
 
@@ -125,7 +125,7 @@ teardown() {
 }
 
 @test "knit_as rejects an alias that collides with a registered table name" {
-    knit_register _as_col_fn "colcmd" "Collide."
+    knit_register "colcmd" _as_col_fn "Collide."
     knit_with_table "collide_t"
     _as_col_fn() { :; }
     knit_done
@@ -136,7 +136,7 @@ teardown() {
 }
 
 @test "knit_as rejects an alias reused within the same invocation" {
-    knit_register _as_ru_fn "rucmd" "Reuse."
+    knit_register "rucmd" _as_ru_fn "Reuse."
     knit_with_table "ru_rows"
     _as_ru_fn() { :; }
     knit_done

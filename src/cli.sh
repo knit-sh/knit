@@ -423,13 +423,13 @@ _knit_command_get_last() {
 # followed by any number of knit_with_* calls, followed by the declaration of
 # the function to register, then a call to knit_done.
 #
-# @param name Name of the function to register.
 # @param cmd Command (demangled).
+# @param name Name of the function to register.
 # @param description Description of the command.
 # ------------------------------------------------------------------------------
 knit_register() {
-    local name=$1 # e.g. "myfunction"
-    local demangled_cmd="$2"  # e.g. "command:subcommand"
+    local demangled_cmd="$1"  # e.g. "command:subcommand"
+    local name=$2 # e.g. "myfunction"
     if [[ -v _KNIT_CURRENT_COMMAND ]]; then
         knit_done
         knit_warning "You forgot to call \"knit_done\" after registering the previous command."
@@ -563,7 +563,7 @@ knit_register_wrapper() {
     local name="$1"
     local fn="$2"
     local description="$3"
-    knit_register "${fn}" "${name}" "${description}"
+    knit_register "${name}" "${fn}" "${description}"
     printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_is_wrapper" '%s' 'true'
 }
 
@@ -1139,7 +1139,7 @@ knit_with_subcommand_title() {
 #
 # Example:
 # ```
-# knit_register "say_hello" "greet" "Say hello to someone"
+# knit_register "greet" "say_hello" "Say hello to someone"
 # knit_with_required "name:string" "Name of the person to greet"
 # knit_with_required "count:integer" "Number of times to greet"
 # say_hello() {
@@ -1194,7 +1194,7 @@ knit_with_required() {
 #
 # Example:
 # ```
-# knit_register "say_hello" "greet" "Say hello to someone"
+# knit_register "greet" "say_hello" "Say hello to someone"
 # knit_with_optional "name:string" "world" "Name of the person to greet"
 # knit_with_optional "count:integer" "1" "Number of times to greet"
 # say_hello() {
@@ -1255,7 +1255,7 @@ knit_with_optional() {
 #
 # Example:
 # ```
-# knit_register "say_hello" "greet" "Say hello to someone"
+# knit_register "greet" "say_hello" "Say hello to someone"
 # knit_with_flag "capitalize" "Make the output upper-case"
 # say_hello() {
 #    ...
@@ -1494,7 +1494,7 @@ knit_with_dispatch() {
 #
 # Example:
 # ```
-# knit_register my_func "run" "Run an experiment."
+# knit_register "run" my_func "Run an experiment."
 # knit_with_required "count:integer" "Number of iterations."
 # knit_with_table           # uses table name "run"
 # knit_with_table "my_runs" # uses table name "my_runs"

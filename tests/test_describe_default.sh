@@ -12,7 +12,7 @@ setup() {
 _register_fixture() {
     knit_define_enum "color" "red" "green" "blue"
 
-    knit_register knit_empty "greet" "Say hello to someone."
+    knit_register "greet" knit_empty "Say hello to someone."
     knit_with_required "name:string" "Name of the person to greet."
     knit_with_optional "count:integer" "1" "Number of times to greet."
     knit_with_optional "shade:color" "red" "Color of the greeting." \
@@ -22,10 +22,10 @@ _register_fixture() {
     knit_with_table
     knit_done
 
-    knit_register knit_empty "greet:formal" "Greet formally."
+    knit_register "greet:formal" knit_empty "Greet formally."
     knit_done
 
-    knit_register knit_empty "archive" "Archive results."
+    knit_register "archive" knit_empty "Archive results."
     knit_with_extra "Files to archive."
     knit_done
 }

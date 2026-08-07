@@ -159,7 +159,7 @@ knit_set_program_description \
 # curl/tar for bootstrap's provisioning. cmake/mpi/libpng are provided by the
 # setup's Spack environment, so they are not checked here.
 # -----------------------------------------------------------------------------
-knit_register preflight "preflight" "Check this machine has what bootstrap and the setup need (usable before bootstrap)."
+knit_register "preflight" preflight "Check this machine has what bootstrap and the setup need (usable before bootstrap)."
 knit_usable_before_bootstrap
 preflight() {
     local ok=0 tool
@@ -411,7 +411,7 @@ knit_done
 #
 #   ./demo.sh analyze
 # -----------------------------------------------------------------------------
-knit_register _analyze "analyze" "Summarise every render: metric, placement, provenance."
+knit_register "analyze" _analyze "Summarise every render: metric, placement, provenance."
 knit_without_provenance
 _analyze() {
     printf '== schema (catalog) ==\n'

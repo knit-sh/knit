@@ -4,7 +4,7 @@ source knit.sh
 
 knit_set_program_description "Hello World example"
 
-knit_register sum "sum" "Add two numbers."
+knit_register "sum" sum "Add two numbers."
 knit_with_required "x:integer" "First value"
 knit_with_required "y:integer" "Second value"
 sum() {
@@ -14,10 +14,10 @@ sum() {
 }
 knit_done
 
-knit_register knit_empty "say" "Say something."
+knit_register "say" knit_empty "Say something."
 knit_done
 
-knit_register hello "say:hello" "Greet somebody."
+knit_register "say:hello" hello "Greet somebody."
 knit_with_required "the-name:string" "Name of the person to greet."
 knit_with_optional "greeting:string" "Hello" "How to greet them."
 knit_with_flag "prof" "Whether they are a professor."
@@ -37,7 +37,7 @@ hello() {
 }
 knit_done
 
-knit_register bye "say:good_bye" "Greet somebody."
+knit_register "say:good_bye" bye "Greet somebody."
 bye() {
     echo "Good bye"
 }

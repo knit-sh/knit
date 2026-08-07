@@ -13,70 +13,70 @@ teardown() {
 # ---------- --when constraints ----------
 
 @test "--when accepted on knit_with_required" {
-    knit_register knit_empty "when_req_cmd" "A command."
+    knit_register "when_req_cmd" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
 }
 
 @test "--when accepted on knit_with_optional" {
-    knit_register knit_empty "when_opt_cmd" "A command."
+    knit_register "when_opt_cmd" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     knit_with_optional "y:integer" "0" "Y value." --when ".x > 42"
     knit_done
 }
 
 @test "--when accepted on knit_with_flag" {
-    knit_register knit_empty "when_flg_cmd" "A command."
+    knit_register "when_flg_cmd" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     knit_with_flag "verbose" "Verbose mode." --when ".x > 42"
     knit_done
 }
 
 @test "knit_with_required accepts --when=expr form" {
-    knit_register knit_empty "when_req_eq_cmd" "A command."
+    knit_register "when_req_eq_cmd" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     run knit_with_required "y:integer" "Y value." --when=".x > 42"
     [ "$status" -eq 0 ]
 }
 
 @test "knit_with_required rejects an unknown option" {
-    knit_register knit_empty "when_req_bad_cmd" "A command."
+    knit_register "when_req_bad_cmd" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     run knit_with_required "y:integer" "Y value." --bogus x
     [ "$status" -ne 0 ]
 }
 
 @test "knit_with_optional accepts --when=expr form" {
-    knit_register knit_empty "when_opt_eq_cmd" "A command."
+    knit_register "when_opt_eq_cmd" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     run knit_with_optional "y:integer" "0" "Y value." --when=".x > 42"
     [ "$status" -eq 0 ]
 }
 
 @test "knit_with_optional rejects an unknown option" {
-    knit_register knit_empty "when_opt_bad_cmd" "A command."
+    knit_register "when_opt_bad_cmd" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     run knit_with_optional "y:integer" "0" "Y value." --bogus x
     [ "$status" -ne 0 ]
 }
 
 @test "knit_with_flag accepts --when=expr form" {
-    knit_register knit_empty "when_flg_eq_cmd" "A command."
+    knit_register "when_flg_eq_cmd" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     run knit_with_flag "verbose" "Verbose mode." --when=".x > 42"
     [ "$status" -eq 0 ]
 }
 
 @test "knit_with_flag rejects an unknown option" {
-    knit_register knit_empty "when_flg_bad_cmd" "A command."
+    knit_register "when_flg_bad_cmd" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     run knit_with_flag "verbose" "Verbose mode." --bogus x
     [ "$status" -ne 0 ]
 }
 
 @test "--when stores the constraint expression verbatim in metadata variable" {
-    knit_register knit_empty "when_meta_cmd" "A command."
+    knit_register "when_meta_cmd" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
@@ -93,7 +93,7 @@ teardown() {
         captured_x=$(knit_get_parameter "x" "$@")
         captured_y=$(knit_get_parameter "y" "$@")
     }
-    knit_register constrained_cmd "constrained_cmd1" "A command."
+    knit_register "constrained_cmd1" constrained_cmd "A command."
     knit_with_required "x:integer" "X value."
     knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
@@ -107,7 +107,7 @@ teardown() {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
     _KNIT_JQ_EXE="jq"
 
-    knit_register knit_empty "constrained_cmd2" "A command."
+    knit_register "constrained_cmd2" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
@@ -120,7 +120,7 @@ teardown() {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
     _KNIT_JQ_EXE="jq"
 
-    knit_register knit_empty "constrained_cmd3" "A command."
+    knit_register "constrained_cmd3" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
@@ -132,7 +132,7 @@ teardown() {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
     _KNIT_JQ_EXE="jq"
 
-    knit_register knit_empty "constrained_cmd4" "A command."
+    knit_register "constrained_cmd4" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
@@ -145,7 +145,7 @@ teardown() {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
     _KNIT_JQ_EXE="jq"
 
-    knit_register knit_empty "opt_when_cmd1" "A command."
+    knit_register "opt_when_cmd1" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     knit_with_optional "label:string" "none" "A label." --when ".x > 10"
     knit_done
@@ -157,7 +157,7 @@ teardown() {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
     _KNIT_JQ_EXE="jq"
 
-    knit_register knit_empty "opt_when_cmd2" "A command."
+    knit_register "opt_when_cmd2" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     knit_with_optional "label:string" "none" "A label." --when ".x > 10"
     knit_done
@@ -170,7 +170,7 @@ teardown() {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
     _KNIT_JQ_EXE="jq"
 
-    knit_register knit_empty "flag_when_cmd1" "A command."
+    knit_register "flag_when_cmd1" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     knit_with_flag "verbose" "Verbose mode." --when ".x > 10"
     knit_done
@@ -183,7 +183,7 @@ teardown() {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
     _KNIT_JQ_EXE="jq"
 
-    knit_register knit_empty "flag_when_cmd2" "A command."
+    knit_register "flag_when_cmd2" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     knit_with_flag "verbose" "Verbose mode." --when ".x > 10"
     knit_done
@@ -195,7 +195,7 @@ teardown() {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
     _KNIT_JQ_EXE="jq"
 
-    knit_register knit_empty "multi_when_cmd" "A command."
+    knit_register "multi_when_cmd" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     knit_with_required "y:integer" "Y value."
     knit_with_required "z:integer" "Z value." --when ".x > 0 and .y > 0"
@@ -208,7 +208,7 @@ teardown() {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
     _KNIT_JQ_EXE="jq"
 
-    knit_register knit_empty "multi_when_cmd2" "A command."
+    knit_register "multi_when_cmd2" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     knit_with_required "y:integer" "Y value."
     knit_with_required "z:integer" "Z value." --when ".x > 0 and .y > 0"
@@ -221,7 +221,7 @@ teardown() {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
     _KNIT_JQ_EXE="jq"
 
-    knit_register knit_empty "nonbool_when_cmd" "A command."
+    knit_register "nonbool_when_cmd" knit_empty "A command."
     knit_with_required "x:integer" "X value."
     knit_with_required "y:integer" "Y value." --when ".x + 1"
     knit_done
@@ -236,7 +236,7 @@ teardown() {
     knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
 
-    knit_register knit_empty "pset_when_cmd" "A command."
+    knit_register "pset_when_cmd" knit_empty "A command."
     knit_with_parameter_set "when_set"
     knit_done
 
@@ -253,7 +253,7 @@ teardown() {
     knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
 
-    knit_register knit_empty "pset_enforce_cmd" "A command."
+    knit_register "pset_enforce_cmd" knit_empty "A command."
     knit_with_parameter_set "enforced_set"
     knit_done
 
@@ -264,7 +264,7 @@ teardown() {
 # ---------- --when display in --help ----------
 
 @test "help output shows 'when:' annotation for required param with constraint" {
-    knit_register knit_empty "help_when_req" "Help test command."
+    knit_register "help_when_req" knit_empty "Help test command."
     knit_with_required "x:integer" "The X value."
     knit_with_required "y:integer" "The Y value." --when ".x > 42"
     knit_done
@@ -275,7 +275,7 @@ teardown() {
 }
 
 @test "help output shows plain 'required' for required param without constraint" {
-    knit_register knit_empty "help_no_when_req" "Help test command."
+    knit_register "help_no_when_req" knit_empty "Help test command."
     knit_with_required "x:integer" "The X value."
     knit_done
 
@@ -286,7 +286,7 @@ teardown() {
 }
 
 @test "help output shows 'when:' annotation for optional param with constraint" {
-    knit_register knit_empty "help_when_opt" "Help test command."
+    knit_register "help_when_opt" knit_empty "Help test command."
     knit_with_required "x:integer" "The X value."
     knit_with_optional "y:integer" "0" "The Y value." --when ".x > 0"
     knit_done
@@ -297,7 +297,7 @@ teardown() {
 }
 
 @test "help output shows 'when:' annotation for flag with constraint" {
-    knit_register knit_empty "help_when_flag" "Help test command."
+    knit_register "help_when_flag" knit_empty "Help test command."
     knit_with_required "x:integer" "The X value."
     knit_with_flag "verbose" "Verbose output." --when ".x > 0"
     knit_done

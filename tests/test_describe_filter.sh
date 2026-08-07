@@ -11,12 +11,12 @@ setup() {
 # be exercised against both user and builtin commands. Invoked through the real
 # "knit describe" entry point so the CLI framework expands the flags.
 _register_fixture() {
-    knit_register knit_empty "greet" "Say hello to someone."
+    knit_register "greet" knit_empty "Say hello to someone."
     knit_with_optional "count:integer" "1" "Number of times to greet."
     knit_with_output "greeting:string" "" "The produced greeting."
     knit_done
 
-    knit_register knit_empty "greet:formal" "Greet formally."
+    knit_register "greet:formal" knit_empty "Greet formally."
     knit_done
 }
 

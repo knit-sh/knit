@@ -438,7 +438,7 @@ teardown() {
 
 @test "knit_with_setup on a plain command adds a marker, --setup option, and callback" {
     _test_fn() { :; }
-    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_register "plaincmd" "_test_fn" "A plain command."
     knit_with_setup "mcenv"
     knit_done
     [ "${_KNIT_CMD_plaincmd_setup}" = "mcenv" ]
@@ -449,7 +449,7 @@ teardown() {
 
 @test "knit_with_setup on a plain command adds a Requirements help note" {
     _test_fn() { :; }
-    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_register "plaincmd" "_test_fn" "A plain command."
     knit_with_setup "mcenv"
     knit_done
     local -n _notes="_KNIT_CMD_plaincmd_notes"
@@ -476,7 +476,7 @@ teardown() {
 
 @test "knit_with_setup may be called at most once per command" {
     _test_fn() { :; }
-    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_register "plaincmd" "_test_fn" "A plain command."
     knit_with_setup "mcenv"
     run knit_with_setup "other"
     [ "$status" -ne 0 ]
@@ -485,7 +485,7 @@ teardown() {
 
 @test "knit_with_setup on a plain command installs the used_by-edge after-callback" {
     _test_fn() { :; }
-    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_register "plaincmd" "_test_fn" "A plain command."
     knit_with_setup "mcenv"
     knit_done
     local -n _acbs="_KNIT_CMD_plaincmd_after_cb"
@@ -504,7 +504,7 @@ teardown() {
 
 @test "knit_without_setup is a no-op on a plain command (no marker)" {
     _test_fn() { :; }
-    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_register "plaincmd" "_test_fn" "A plain command."
     run knit_without_setup
     [ "$status" -eq 0 ]
     knit_without_setup
@@ -653,7 +653,7 @@ _seed_setup_dir() {
     local dep="${_KNIT_TEST_SETUP_ROOT}/dep"
     _seed_setup_dir "${dep}" "mcenv" "setup-uuid-1"
     _test_fn() { :; }
-    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_register "plaincmd" "_test_fn" "A plain command."
     knit_with_table "plaincmd"
     knit_with_setup "mcenv"
     knit_done
@@ -672,7 +672,7 @@ _seed_setup_dir() {
     local dep="${_KNIT_TEST_SETUP_ROOT}/dep"
     _seed_setup_dir "${dep}" "mcenv" ""
     _test_fn() { :; }
-    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_register "plaincmd" "_test_fn" "A plain command."
     knit_with_table "plaincmd"
     knit_with_setup "mcenv"
     knit_done
@@ -686,7 +686,7 @@ _seed_setup_dir() {
     local dep="${_KNIT_TEST_TMPDIR}/dep"
     _seed_setup_dir "${dep}" "mcenv" "setup-uuid-9"
     _test_fn() { :; }
-    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_register "plaincmd" "_test_fn" "A plain command."
     knit_done
     _knit_setup_record_uses_edge "${dep}" "plaincmd" "target-uuid-9"
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
@@ -698,7 +698,7 @@ _seed_setup_dir() {
     local dep="${_KNIT_TEST_TMPDIR}/dep"
     _seed_setup_dir "${dep}" "mcenv" "setup-uuid-9"
     _test_fn() { :; }
-    knit_register "_test_fn" "plaincmd" "A plain command."
+    knit_register "plaincmd" "_test_fn" "A plain command."
     knit_without_provenance
     knit_done
     _knit_setup_record_uses_edge "${dep}" "plaincmd" "target-uuid-9"

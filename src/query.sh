@@ -97,7 +97,7 @@ _knit_query_annotate_catalog() {
 # experiment is bootstrapped. They are read-only and never recorded (builtins,
 # knit_without_provenance, no knit_with_table).
 # ------------------------------------------------------------------------------
-knit_register knit_empty query \
+knit_register query knit_empty \
     "Query the experiment's provenance database (Cypher or SQL)."
 _knit_is_builtin
 knit_without_provenance
@@ -106,7 +106,7 @@ knit_done
 # ------------------------------------------------------------------------------
 # Registration of 'query catalog'.
 # ------------------------------------------------------------------------------
-knit_register _knit_query_catalog "query:catalog" \
+knit_register "query:catalog" _knit_query_catalog \
     "List the database's tables and columns, or validate a reference."
 _knit_is_builtin
 knit_without_provenance
@@ -239,7 +239,7 @@ _knit_is_builtin
 # ------------------------------------------------------------------------------
 # Registration of 'query graph'.
 # ------------------------------------------------------------------------------
-knit_register _knit_query_graph "query:graph" \
+knit_register "query:graph" _knit_query_graph \
     "Run a read-only Cypher query against the provenance database via knit-graph."
 _knit_is_builtin
 knit_without_provenance
@@ -316,7 +316,7 @@ knit_done
 # ------------------------------------------------------------------------------
 # Registration of 'query sql'.
 # ------------------------------------------------------------------------------
-knit_register _knit_query_sql "query:sql" \
+knit_register "query:sql" _knit_query_sql \
     "Run a read-only SQL query against the provenance database."
 _knit_is_builtin
 knit_without_provenance
