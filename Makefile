@@ -45,6 +45,13 @@ all: knit.sh
 knit.sh: $(KNIT_SOURCE)
 	@echo "Concatenating files into $(KNIT_OUTPUT)..."
 	@cat $(KNIT_SOURCE) > $(KNIT_OUTPUT)
+# Optional version stamp: `make VERSION=1.2.3` rewrites the KNIT_VERSION line in
+# the generated knit.sh. With no VERSION (dev builds, CI, tests) the placeholder
+# committed in src/main.sh is kept. The release workflow passes the git tag here.
+ifneq ($(VERSION),)
+	@sed -i 's|^declare -gxr KNIT_VERSION=.*|declare -gxr KNIT_VERSION=$(VERSION)|' $(KNIT_OUTPUT)
+	@echo "Stamped KNIT_VERSION=$(VERSION)"
+endif
 	@echo "Done. Created $(KNIT_OUTPUT)"
 
 KNIT_TESTS := $(wildcard tests/test_*.sh)

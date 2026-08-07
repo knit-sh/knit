@@ -3,9 +3,12 @@
 ## @file main.sh
 
 # ------------------------------------------------------------------------------
-# Version of the Knit framework.
+# Version of the Knit framework. This committed value is a development
+# placeholder: released artifacts are stamped with the exact git tag at build
+# time (see the knit.sh target in the Makefile), so this file never needs
+# editing when cutting a release.
 # ------------------------------------------------------------------------------
-declare -gxr KNIT_VERSION=0.1.0
+declare -gxr KNIT_VERSION=0.0.0-dev
 
 knit_register "__main__" knit_empty \
     "/!\\ Please use knit_set_program_description to provide a description here /!\\"

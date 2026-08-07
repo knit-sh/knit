@@ -125,7 +125,7 @@ _require_yq() {
 @test "the top-level document carries version, experiment and format_version" {
     run _knit_describe_yaml
     [ "$status" -eq 0 ]
-    [[ "${output}" == *'knit_version: "0.1.0"'* ]]
+    [[ "${output}" == *"knit_version: \"${KNIT_VERSION}\""* ]]
     [[ "${output}" == *$'\nformat_version: 1\n'* ]]
     [[ "${output}" == *'experiment: '* ]]
 }

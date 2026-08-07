@@ -1,0 +1,30 @@
+name: Release
+
+# When a release is published on GitHub, build the single-file knit.sh stamped
+# with the release tag and attach it to the release as a downloadable asset
+# (alongside the auto-generated source archives).
+on:
+  release:
+    types: [published]
+
+# Needed to upload the built asset to the release.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build knit.sh stamped with the release tag
+        # `make clean` first so the concatenation recipe (which applies the
+        # version stamp) always runs, even if a knit.sh were already present.
+        run: |
+          make clean
+          make VERSION="${GITHUB_REF_NAME#v}"
+
+      - name: Attach knit.sh to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" knit.sh --clobber

@@ -40,7 +40,7 @@ _json() {
 @test "top-level document carries version, experiment and format_version" {
     run _knit_describe_json
     [ "$status" -eq 0 ]
-    [ "$(_json "d['knit_version']")" = "0.1.0" ]
+    [ "$(_json "d['knit_version']")" = "${KNIT_VERSION}" ]
     [ "$(_json "d['format_version']")" = "1" ]
     [ "$(_json "'experiment' in d")" = "True" ]
 }
