@@ -125,10 +125,31 @@ docs: docs-env
 check-docs: knit.sh
 	@bash maint/check-docs.sh
 
+# Assemble the full public website into web/build/site: the landing page at the
+# site root and the Sphinx documentation under docs/. This is what gets deployed
+# to knit.sh; open web/build/site/index.html to preview it exactly as served.
+.PHONY: web
+web: docs
+	@echo "Assembling website into web/build/site..."
+	rm -rf web/build/site
+	mkdir -p web/build/site
+	# Copy every top-level entry of web/ except the build directory, following
+	# symlinks (-L) so the logo symlink becomes a real file in the artifact.
+	find web -mindepth 1 -maxdepth 1 ! -name build ! -name README.md \
+		-exec cp -rL {} web/build/site/ \;
+	# Overwrite the copied index.html with one whose code snippets are extracted
+	# from the tested doc samples and highlighted in the brand palette. Uses the
+	# docs venv (built by the `docs` prerequisite) since it ships Pygments.
+	$(DOCS_VENV)/bin/python maint/build-landing.py
+	# The Sphinx documentation is served under /docs.
+	mkdir -p web/build/site/docs
+	cp -r docs/build/html/. web/build/site/docs/
+	@echo "Done. Open web/build/site/index.html"
+
 .PHONY: docs-clean
 docs-clean:
 	@echo "Cleaning documentation..."
-	rm -rf docs/build docs/doxygen
+	rm -rf docs/build docs/doxygen web/build
 	@echo "Done."
 
 .PHONY: clean

@@ -71,6 +71,13 @@ pygments_dark_style = 'min-dark'
 
 html_theme = "sphinx_book_theme"
 html_title = "Knit"
+# Shown at the top of the sidebar (the table-of-contents column) and used as the
+# browser-tab / favicon icon. Paths are relative to this conf.py.
+html_logo = "_static/knit-logo-simple.svg"
+html_favicon = "_static/knit-logo-simple.svg"
+# The documentation is served under /docs of the knit.sh site (the landing page
+# lives at the root); html_baseurl makes canonical links reflect that location.
+html_baseurl = "https://knit.sh/docs/"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 

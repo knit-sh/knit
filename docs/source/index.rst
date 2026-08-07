@@ -1,12 +1,12 @@
 Knit
 ====
 
-.. image:: _static/knit-logo-light.svg
+.. image:: _static/knit-title-light.svg
    :class: only-light
    :alt: Knit
    :width: 100%
 
-.. image:: _static/knit-logo-dark.svg
+.. image:: _static/knit-title-dark.svg
    :class: only-dark
    :alt: Knit
    :width: 100%

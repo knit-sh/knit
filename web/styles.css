@@ -1,0 +1,377 @@
+/* Knit landing page.
+ *
+ * The whole page is built from the logo's own colors (extracted from
+ * knit-logo-dark.svg) so the site and the brand match. Colors are defined once
+ * here as custom properties and reused throughout (buttons, accents, and, in a
+ * later milestone, the code theme). */
+
+:root {
+    /* Brand palette (from knit-logo-dark.svg). */
+    --knit-purple: #9e7fd4;   /* dominant  -> primary accent / builtins   */
+    --knit-coral: #fe8369;    /* secondary -> accents / strings           */
+    --knit-magenta: #b83a83;  /* accent    -> literals                    */
+    --knit-deep: #684675;     /* shadow    -> muted borders / comments    */
+    --knit-white: #ffffff;
+
+    /* Page surfaces. */
+    --knit-bg: #0d1117;             /* near-black canvas suiting the dark logo */
+    --knit-surface: #161b26;       /* cards: a touch lighter than the canvas   */
+    --knit-border: rgba(104, 70, 117, 0.45); /* muted deep-purple hairline     */
+    --knit-fg: #e8e6ef;            /* body text: soft white, not pure #fff     */
+    --knit-fg-muted: #a89fc0;      /* secondary text: dimmed purple-grey       */
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    margin: 0;
+    background-color: var(--knit-bg);
+    color: var(--knit-fg);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+        sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* -- Hero ------------------------------------------------------------------ */
+
+.hero {
+    position: relative;
+    min-height: 100vh;
+    min-height: 100svh; /* avoids the mobile URL-bar jump where supported */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2.5rem;
+    padding: 2rem 1.5rem 6rem;
+    text-align: center;
+}
+
+.hero__logo {
+    width: min(840px, 90vw);
+    height: auto;
+    /* A soft brand-tinted glow so the logo sits on the dark canvas. */
+    filter: drop-shadow(0 12px 40px rgba(158, 127, 212, 0.25));
+}
+
+.hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+}
+
+/* -- Buttons --------------------------------------------------------------- */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6em;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.6rem;
+    border: 2px solid transparent;
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    transition: transform 0.15s ease, background-color 0.15s ease,
+        border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+}
+
+.btn:focus-visible {
+    outline: 3px solid var(--knit-coral);
+    outline-offset: 3px;
+}
+
+.btn .fa-book,
+.btn .fa-github {
+    font-size: 1.05em;
+}
+
+/* Primary: filled brand purple. */
+.btn--primary {
+    background-color: var(--knit-purple);
+    color: #1a1226;
+    border-color: var(--knit-purple);
+}
+
+.btn--primary:hover {
+    background-color: #b199e0;
+    border-color: #b199e0;
+    box-shadow: 0 8px 24px rgba(158, 127, 212, 0.35);
+}
+
+/* Secondary: outlined. */
+.btn--secondary {
+    background-color: transparent;
+    color: var(--knit-fg);
+    border-color: var(--knit-deep);
+}
+
+.btn--secondary:hover {
+    border-color: var(--knit-purple);
+    color: var(--knit-white);
+    box-shadow: 0 8px 24px rgba(104, 70, 117, 0.35);
+}
+
+/* -- Scroll cue ------------------------------------------------------------ */
+
+.hero__scroll-cue {
+    position: absolute;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--knit-fg-muted);
+    font-size: 1.5rem;
+    text-decoration: none;
+    animation: knit-bob 2s ease-in-out infinite;
+    transition: color 0.15s ease;
+}
+
+.hero__scroll-cue:hover {
+    color: var(--knit-coral);
+}
+
+@keyframes knit-bob {
+    0%, 100% { transform: translate(-50%, 0); }
+    50%      { transform: translate(-50%, 8px); }
+}
+
+/* -- Scroll narrative: sections ------------------------------------------- */
+
+.section {
+    padding: clamp(2rem, 6vh, 4.5rem) 1.5rem;
+}
+
+.section:nth-of-type(odd) {
+    /* Alternate a subtly raised band to separate consecutive sections. The first
+       section is odd, so it starts on the lighter shade — distinct from the hero
+       above it. */
+    background-color: rgba(255, 255, 255, 0.015);
+}
+
+.section__inner {
+    max-width: 820px;
+    margin: 0 auto;
+}
+
+.section__title {
+    margin: 0 0 0.75rem;
+    font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+    line-height: 1.2;
+    color: var(--knit-white);
+}
+
+.section__lead {
+    margin: 0 0 2rem;
+    font-size: 1.1rem;
+    color: var(--knit-fg-muted);
+}
+
+/* The five-stage flow diagram (arrow SVG) introducing the model. */
+.section__diagram {
+    margin: 0 0 2rem;
+}
+
+.section__diagram img {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.section--cta {
+    text-align: center;
+}
+
+.section--cta .hero__actions {
+    margin-top: 1.5rem;
+}
+
+/* Inline code inside prose. */
+.section__lead code {
+    padding: 0.1em 0.4em;
+    border-radius: 0.3rem;
+    background-color: rgba(158, 127, 212, 0.14);
+    color: var(--knit-purple);
+    font-size: 0.9em;
+}
+
+/* -- Cards (code snippets and terminal transcripts) ----------------------- */
+
+.card {
+    margin: 1.25rem 0 0;
+    border: 1px solid var(--knit-border);
+    border-radius: 0.7rem;
+    background-color: var(--knit-surface);
+    overflow: hidden;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.card__head {
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--knit-border);
+    background-color: rgba(0, 0, 0, 0.2);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    color: var(--knit-fg-muted);
+}
+
+/* Terminal header: three "traffic light" dots instead of a filename. */
+.card__head--term {
+    display: flex;
+    gap: 0.45rem;
+    align-items: center;
+}
+
+.card__head--term .dot {
+    width: 0.7rem;
+    height: 0.7rem;
+    border-radius: 50%;
+    background-color: var(--knit-deep);
+}
+
+.card__head--term .dot:nth-child(1) { background-color: var(--knit-coral); }
+.card__head--term .dot:nth-child(2) { background-color: var(--knit-purple); }
+.card__head--term .dot:nth-child(3) { background-color: var(--knit-magenta); }
+
+.card__body {
+    margin: 0;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9rem;
+    line-height: 1.55;
+    color: var(--knit-fg);
+    white-space: pre;
+    tab-size: 4;
+}
+
+/* A terminal command line: a colored prompt, not part of the copied text
+   selection start, and a slightly brighter foreground. */
+.card--term .cmd {
+    color: var(--knit-white);
+    font-weight: 600;
+}
+
+.card--term .cmd::before {
+    content: "$ ";
+    color: var(--knit-coral);
+    font-weight: 700;
+}
+
+.card--term .comment {
+    color: var(--knit-fg-muted);
+    font-style: italic;
+}
+
+/* -- Scroll reveal --------------------------------------------------------- */
+
+/* Only hide-then-reveal when JS is present (the `js` class is set inline in the
+   <head>); without JS every section stays visible. */
+.js .reveal {
+    opacity: 0;
+    transform: translateY(28px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+    will-change: opacity, transform;
+}
+
+.js .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+}
+
+/* -- Footer ---------------------------------------------------------------- */
+
+.site-footer {
+    padding: 2rem 1.5rem 3rem;
+    text-align: center;
+    border-top: 1px solid var(--knit-border);
+    color: var(--knit-fg-muted);
+    font-size: 0.9rem;
+}
+
+.site-footer p {
+    margin: 0;
+}
+
+.site-footer a {
+    color: var(--knit-purple);
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+.site-footer a:hover {
+    color: var(--knit-coral);
+    text-decoration: underline;
+}
+
+.site-footer a:focus-visible {
+    outline: 3px solid var(--knit-coral);
+    outline-offset: 3px;
+}
+
+/* -- Small screens --------------------------------------------------------- */
+
+/* The layout is fluid by default (clamp() padding/titles, min() logo, wrapping
+   button row, horizontally scrollable card bodies). These are just comfort
+   tweaks so nothing feels cramped on a phone. */
+@media (max-width: 520px) {
+    .hero {
+        gap: 1.75rem;
+    }
+
+    /* Slightly smaller code so the widest transcript lines need less sideways
+       scrolling on a narrow viewport. */
+    .card__body {
+        font-size: 0.82rem;
+        padding: 0.9rem 1rem;
+    }
+
+    .hero__actions {
+        /* Let the two buttons stack full-width rather than crowd side by side. */
+        width: 100%;
+    }
+
+    .hero__actions .btn {
+        flex: 1 1 100%;
+        justify-content: center;
+    }
+}
+
+/* -- Reduced motion -------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
+    }
+
+    .hero__scroll-cue {
+        animation: none;
+    }
+
+    .btn:hover {
+        transform: none;
+    }
+
+    /* Show revealed content immediately, with no transition. */
+    .js .reveal {
+        opacity: 1;
+        transform: none;
+        transition: none;
+    }
+}
+

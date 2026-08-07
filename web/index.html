@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Knit — Reproducible, portable HPC experiments in Bash</title>
+  <meta name="description"
+        content="Knit is a Bash framework for writing reproducible and portable HPC experiments.">
+  <link rel="icon" type="image/svg+xml" href="knit-logo-simple.svg">
+  <link rel="stylesheet" href="styles.css">
+  <!-- Font Awesome (icons for the buttons and the scroll cue). -->
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+        integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A=="
+        crossorigin="anonymous" referrerpolicy="no-referrer">
+  <!-- Mark that JS is available so the scroll-reveal starts hidden only when it
+       can actually be revealed; without JS the sections stay visible. -->
+  <script>document.documentElement.classList.add('js');</script>
+</head>
+<body>
+  <header class="hero">
+    <img class="hero__logo" src="knit-logo-dark.svg" alt="Knit">
+    <nav class="hero__actions">
+      <a class="btn btn--primary" href="docs/">
+        <i class="fa-solid fa-book" aria-hidden="true"></i>
+        <span>Documentation</span>
+      </a>
+      <a class="btn btn--secondary" href="https://github.com/knit-sh/knit">
+        <i class="fa-brands fa-github" aria-hidden="true"></i>
+        <span>GitHub</span>
+      </a>
+    </nav>
+    <a class="hero__scroll-cue" href="#showcase" aria-label="Scroll down">
+      <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+    </a>
+  </header>
+
+  <main id="showcase">
+    <!-- 1. One sourced file -> a full experiment -->
+    <section class="section reveal">
+      <div class="section__inner">
+        <h2 class="section__title">Fully reproducible, from one sourced file</h2>
+        <p class="section__lead">
+          From bootstrap to analysis, a complete HPC experiment is an ordinary
+          Bash script — and it all begins by sourcing a single file.
+        </p>
+        <figure class="section__diagram">
+          <img src="knit-arrow-dark.svg"
+               alt="Knit's five stages, in order: bootstrap, setup, submit, run, aggregate">
+        </figure>
+        <figure class="card card--code">
+          <figcaption class="card__head">exp.sh</figcaption>
+          <pre class="card__body"><code class="snippet" data-snippet="quickstart.sh:run">source knit.sh
+
+knit_set_program_description "A tiny quickstart experiment."</code></pre>
+        </figure>
+      </div>
+    </section>
+
+    <!-- 2. Simplicity -->
+    <section class="section reveal">
+      <div class="section__inner">
+        <h2 class="section__title">Plain Bash in, a full CLI out</h2>
+        <p class="section__lead">
+          Register a function and Knit gives you <code>--help</code>, typed
+          parameters, validation, and logging — for free.
+        </p>
+        <figure class="card card--code">
+          <figcaption class="card__head">exp.sh</figcaption>
+          <pre class="card__body"><code class="snippet" data-snippet="quickstart.sh:say">knit_register "say" say "Repeat a message."
+knit_with_required "message:string" "The message to repeat."
+say() {
+    local message
+    message="$(knit_get_parameter "message" "$@")"
+    echo "User said '${message}'"
+}
+knit_done</code></pre>
+        </figure>
+        <div class="card card--term">
+          <div class="card__head card__head--term" aria-hidden="true">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          </div>
+          <pre class="card__body"><span class="cmd">./exp.sh say --message "good morning"</span>
+User said 'good morning'</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Reproducibility -->
+    <section class="section reveal">
+      <div class="section__inner">
+        <h2 class="section__title">Every run is recorded</h2>
+        <p class="section__lead">
+          Add <code>knit_with_table</code> and each invocation — its parameters,
+          outputs, and timing — becomes a row you can read straight back with SQL.
+        </p>
+        <figure class="card card--code">
+          <figcaption class="card__head">exp.sh</figcaption>
+          <pre class="card__body"><code class="snippet" data-snippet="quickstart.sh:add">knit_register "add" add "Add two integers and record the run."
+knit_with_required "x:integer" "First value."
+knit_with_required "y:integer" "Second value."
+knit_with_output "total:integer" "0" "x + y."
+knit_with_table
+add() {
+    local x y
+    x="$(knit_get_parameter "x" "$@")"
+    y="$(knit_get_parameter "y" "$@")"
+    knit_output "total" "$((x + y))"
+    printf 'total=%s\n' "$((x + y))"
+}
+knit_done</code></pre>
+        </figure>
+        <div class="card card--term">
+          <div class="card__head card__head--term" aria-hidden="true">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          </div>
+          <pre class="card__body"><span class="cmd">./exp.sh add --x 2 --y 3</span>
+total=5
+<span class="cmd">./exp.sh query sql --format column --header --exec 'SELECT x, y, total FROM "add"'</span>
+x  y  total
+-  -  -----
+2  3  5</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Portability -->
+    <section class="section reveal">
+      <div class="section__inner">
+        <h2 class="section__title">Laptop today, cluster tomorrow — same script</h2>
+        <p class="section__lead">
+          Knit detects the scheduler and MPI launcher, so the very same
+          <code>knit run</code> maps to <code>mpirun</code> on your laptop and to
+          the site launcher (<code>srun</code>, <code>mpiexec</code>) on a
+          cluster. Only the machine changes, never the code.
+        </p>
+        <div class="card card--term">
+          <div class="card__head card__head--term" aria-hidden="true">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          </div>
+          <pre class="card__body"><span class="comment"># On a laptop: 4 ranks via the local MPI launcher</span>
+<span class="cmd">./exp.sh run --procs 4 -- render</span>
+<span class="comment"># On a cluster: identical command, Knit uses the scheduler's launcher</span>
+<span class="cmd">./exp.sh run --procs 512 --procs-per-node 64 -- render</span></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. Provenance -->
+    <section class="section reveal">
+      <div class="section__inner">
+        <h2 class="section__title">How each result came to be, as a graph</h2>
+        <p class="section__lead">
+          Knit records the relationships between rows — which submission called
+          which job, which job launched which run — so you can query the whole
+          lineage with Cypher, joining tables no single SQL query would.
+        </p>
+        <div class="card card--term">
+          <div class="card__head card__head--term" aria-hidden="true">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          </div>
+          <pre class="card__body"><span class="cmd">./exp.sh query graph --format column --header \
+    --exec "MATCH (job:julia)-[:call]->(:run)-[:call]->(img:render)
+            RETURN job.id, img.c_re, img.inside"</span>
+job.id                                img.c_re  img.inside
+------------------------------------  --------  ----------
+018f2a1b-9c3d-7e4f-8a1b-2c3d4e5f6a7b  -0.123    69456
+018f6e5f-3a7b-7c8d-2e5f-6a7b8c9daebf  -0.7      119960
+018f7f6a-4b8c-7d9e-3f6a-7b8c9daebfc0  -1.25     34164</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. Talk to your script (AI) -->
+    <section class="section reveal">
+      <div class="section__inner">
+        <h2 class="section__title">Talk to your script</h2>
+        <p class="section__lead">
+          Point Knit at any OpenAI-compatible model and ask about your experiment
+          in plain English. Answers are grounded in <em>this</em> experiment's
+          recorded runs — and strictly read-only: the model can inspect, never
+          submit or modify.
+        </p>
+        <div class="card card--term">
+          <div class="card__head card__head--term" aria-hidden="true">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          </div>
+          <pre class="card__body"><span class="cmd">./exp.sh ai ask --question "which Julia constant produced the most interior points?"</span>
+The render with c_re=-0.7, c_im=0.0 (the "San Marco" constant) had the most
+interior points (inside=119960), ahead of c_re=-0.391 (78043) and c_re=-1.0
+(74800).</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Closing call to action -->
+    <section class="section section--cta reveal">
+      <div class="section__inner">
+        <h2 class="section__title">Get started</h2>
+        <nav class="hero__actions">
+          <a class="btn btn--primary" href="docs/">
+            <i class="fa-solid fa-book" aria-hidden="true"></i>
+            <span>Documentation</span>
+          </a>
+          <a class="btn btn--secondary" href="https://github.com/knit-sh/knit">
+            <i class="fa-brands fa-github" aria-hidden="true"></i>
+            <span>GitHub</span>
+          </a>
+        </nav>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>&copy; 2024&ndash;2026 Matthieu Dorier &middot;
+      <a href="https://github.com/knit-sh/knit/blob/main/LICENSE">MIT License</a>
+    </p>
+  </footer>
+
+  <script src="main.js" defer></script>
+</body>
+</html>

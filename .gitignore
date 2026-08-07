@@ -6,3 +6,6 @@
 /docs/source/api/public.rst
 /docs/source/api/private.rst
 /docs/.venv/
+
+# Assembled website
+/web/build/
