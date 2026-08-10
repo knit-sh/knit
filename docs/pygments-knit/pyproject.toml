@@ -1,0 +1,22 @@
+# Knit-branded Pygments styles, packaged as a Pygments plugin so the docs build
+# can select them by name (see knit_pygments.py). Installed editable from
+# docs/requirements.txt; consumed by docs/source/conf.py.
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "knit-pygments"
+version = "0.1.0"
+description = "Knit-branded Pygments styles for the Knit documentation."
+requires-python = ">=3.8"
+dependencies = ["pygments>=2.7"]
+
+[tool.setuptools]
+py-modules = ["knit_pygments"]
+
+# Pygments discovers styles registered under this entry-point group via
+# find_plugin_styles(), so get_all_styles()/get_style_by_name() resolve them.
+[project.entry-points."pygments.styles"]
+knit-light = "knit_pygments:KnitLightStyle"
+knit-dark = "knit_pygments:KnitDarkStyle"

@@ -1,0 +1,22 @@
+# Codecov configuration (distinct from the .github/workflows/codecov.yml
+# GitHub Actions workflow).
+#
+# The coverage workflow runs one job per test file, then a single "merge" job
+# combines every file's kcov output and makes ONE Codecov upload. So Codecov
+# receives exactly one report per commit: after_n_builds is 1 and is decoupled
+# from the number of test files (adding or removing a test file never desyncs
+# this value).
+codecov:
+  notify:
+    after_n_builds: 1
+    wait_for_ci: true
+
+# Wait for the single merged upload before computing the coverage status checks.
+coverage:
+  status:
+    project:
+      default:
+        after_n_builds: 1
+    patch:
+      default:
+        after_n_builds: 1

@@ -64,8 +64,8 @@ extensions = [
 templates_path = ["_templates"]
 exclude_patterns = []
 
-pygments_style = 'min-light'
-pygments_dark_style = 'min-dark'
+pygments_style = 'knit-light'
+pygments_dark_style = 'knit-dark'
 
 # -- Options for HTML output --------------------------------------------------
 
@@ -89,8 +89,8 @@ html_theme_options = {
     # sphinx-book-theme (via pydata-sphinx-theme) generates its own light/dark
     # code highlighting from these options and ignores the top-level
     # pygments_style / pygments_dark_style, so the styles must be set here too.
-    "pygments_light_style": "min-light",
-    "pygments_dark_style": "min-dark",
+    "pygments_light_style": "knit-light",
+    "pygments_dark_style": "knit-dark",
 }
 
 # -- Breathe (Doxygen integration) --------------------------------------------
