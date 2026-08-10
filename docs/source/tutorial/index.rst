@@ -777,16 +777,22 @@ what is available:
 
 .. code-block:: console
 
-   $ ./exp.sh profile list
-   anl/aurora                     github
-   anl/improv                     github
-   anl/polaris                    github
-   ornl/frontier                  github
+   $ ./exp.sh profile list --hidden
+     anl/aurora            [github, hidden] ALCF Aurora — Intel Xeon Max, 208 cores + 6× Intel GPU Max per node
+     anl/improv            [github, hidden] LCRC Improv — 2× AMD EPYC 7713, 128 cores per node (CPU-only)
+     anl/polaris           [github, hidden] ALCF Polaris — HPE Cray EX, 32 cores + 4× NVIDIA A100 per node
+     nersc/perlmutter/cpu  [github, hidden] NERSC Perlmutter (CPU nodes) — HPE Cray EX (Slingshot); 2× AMD EPYC 7763, 128 cores
+     nersc/perlmutter/gpu  [github, hidden] NERSC Perlmutter (GPU nodes) — HPE Cray EX (Slingshot); 1× AMD EPYC 7763 (64 cores) + 4× NVIDIA A100
+     ornl/frontier         [github, hidden] ORNL Frontier — HPE Cray EX, 64 cores + 8× AMD MI250X per node
 
-Each line is a profile name and where it came from (``github`` for the ones Knit
-ships; a site can add its own under ``/etc/knit/profiles``, which show up as
-``admin``). Inspect one before you commit to it --- before bootstrap you pass the
-spec explicitly:
+Each line is a profile name, a bracketed tag for where it came from, and the
+profile's one-line description. The tag is ``github`` for the profiles Knit ships;
+a site can add its own under ``/etc/knit/profiles``, which show up as ``admin``.
+Profiles still being validated on their machine ship *hidden* and are left out of
+a plain ``profile list`` --- ``--hidden`` reveals them and tags them ``hidden``,
+which is why every profile above carries that tag. Profile names have two or more
+path segments (``nersc/perlmutter/cpu`` names a specific node type). Inspect one
+before you commit to it --- before bootstrap you pass the spec explicitly:
 
 .. code-block:: console
 
@@ -798,15 +804,18 @@ spec explicitly:
            "command": "qsub",
            "default_queue": "prod",
            "queues": {
-               "prod":  { "max_walltime": "24:00:00", "max_nodes": 496 },
-               "debug": { "max_walltime": "01:00:00", "max_nodes": 2 }
+               "prod":  { "min_nodes": 10, "max_nodes": 496, "min_walltime": "00:05:00", "max_walltime": "24:00:00" },
+               "debug": { "min_nodes": 1,  "max_nodes": 2,   "min_walltime": "00:05:00", "max_walltime": "01:00:00" }
            }
        },
        "launcher": { "type": "pals", "command": "mpiexec" },
        "hardware": { "cores_per_node": 32, "gpus_per_node": 4 }
    }
 
-A profile spec can also be a URL or a path to a local JSON file, so a site or a
+The output is abbreviated here: a full profile also lists the ``modules`` to load
+and a ``spack`` block whose ``externals`` name vendor packages (the system MPI,
+for instance) that a setup's Spack environment reuses instead of rebuilding. A
+profile spec can also be a URL or a path to a local JSON file, so a site or a
 collaborator can hand you one that is not in the Knit repository.
 
 **Bootstrap under the profile.** On the cluster, bootstrap the experiment and
@@ -856,7 +865,10 @@ to do:
 
 ``--nodes 2`` allocates two whole nodes; ``--queue`` and ``--walltime`` override
 the profile's defaults for this one submission (leave them off and the profile's
-``prod`` queue and its cap apply). The account you gave at bootstrap is reused
+``prod`` queue is used, an unset ``--walltime`` defaulting to that queue's
+``max_walltime``). Knit does not enforce a queue's node or walltime limits ---
+the scheduler is the sole authority on those; the profile records them only for
+reference. The account you gave at bootstrap is reused
 automatically, so you do not retype it --- override it per-submit with
 ``--account`` (the allocation charged, ``#PBS -A`` / Slurm ``--account``) or
 ``--project`` (a project tag, ``#PBS -P`` / Slurm ``--wckey``) when you need to.

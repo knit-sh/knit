@@ -195,18 +195,24 @@
 # -----------------------------------------------------------------------------
 # 3. Machine profiles
 # -----------------------------------------------------------------------------
-#   ./full.sh profile list
+#   ./full.sh profile list --hidden
 #   ./full.sh profile show anl/polaris
 #
 # Profiles are curated descriptions of known HPC systems (scheduler type,
-# default queue and its caps, MPI launcher, cores/GPUs per node, and the platform
-# modules/env/externals). They are not baked into knit: `bootstrap --profile`
+# default queue and per-queue limits, MPI launcher, cores/GPUs per node, and the
+# platform modules plus a `spack` block of vendor externals). The limits are
+# informational: knit never enforces a queue's node/walltime bounds — the
+# scheduler does. Profiles are not baked into knit: `bootstrap --profile`
 # downloads the chosen one (treated strictly as data, never executed), and
-# `profile list` prints the union of what is available, each marked with its
-# source:
+# `profile list` prints the union of what is available, each row showing the
+# profile name, a bracketed source tag, and its one-line description:
 #
-#   anl/polaris                    github
-#   mylab/bigmem                   admin
+#   anl/polaris   [github] ALCF Polaris — HPE Cray EX, 32 cores + 4× NVIDIA A100 per node
+#   mylab/bigmem  [admin]  Big-memory partition, 3 TB per node
+#
+# Profiles still being validated on their machine ship hidden and are omitted
+# from a plain `profile list`; `--hidden` reveals them and tags them `hidden`.
+# Profile names have two or more path segments (e.g. nersc/perlmutter/cpu).
 #
 # A profile spec (for --profile or `profile show`) is resolved in order: a URL;
 # a local file (or any path ending in .json); an admin profile at
