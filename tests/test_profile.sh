@@ -201,20 +201,20 @@ _stub_http_fail() {
 # ---------- index parsing / listing ----------
 
 # A repo index in the shipped format: an array of one-line
-# { "name": ..., "description": ... } objects.
+# { "name": ..., "description": ..., "hidden": bool } objects.
 _INDEX_BODY='[
-{ "name": "ornl/frontier", "description": "Frontier machine" },
-{ "name": "anl/improv", "description": "Improv machine" },
-{ "name": "anl/aurora", "description": "Aurora machine" }
+{ "name": "ornl/frontier", "description": "Frontier machine", "hidden": false },
+{ "name": "anl/improv", "description": "Improv machine", "hidden": false },
+{ "name": "anl/aurora", "description": "Aurora machine", "hidden": false }
 ]'
 
-@test "_knit_profile_parse_index extracts name<TAB>description per entry" {
+@test "_knit_profile_parse_index extracts name<TAB>description<TAB>hidden per entry" {
     local out
     _knit_profile_parse_index out '[
-{ "name": "anl/aurora", "description": "Aurora desc" },
-{ "name": "anl/improv", "description": "Improv desc" }
+{ "name": "anl/aurora", "description": "Aurora desc", "hidden": true },
+{ "name": "anl/improv", "description": "Improv desc", "hidden": false }
 ]'
-    [ "${out}" = $'anl/aurora\tAurora desc\nanl/improv\tImprov desc' ]
+    [ "${out}" = $'anl/aurora\tAurora desc\ttrue\nanl/improv\tImprov desc\tfalse' ]
 }
 
 @test "knit_list_profiles fetches, sorts and marks the repo index" {
@@ -230,7 +230,7 @@ _INDEX_BODY='[
 
 @test "knit_list_profiles shows each profile's description" {
     _stub_http_ok '[
-{ "name": "anl/aurora", "description": "ALCF Aurora big machine" }
+{ "name": "anl/aurora", "description": "ALCF Aurora big machine", "hidden": false }
 ]'
     run knit_list_profiles
     [ "$status" -eq 0 ]
@@ -242,7 +242,7 @@ _INDEX_BODY='[
     # shellcheck disable=SC2317 # invoked indirectly by knit_list_profiles
     _knit_terminal_width() { local -n __w=$1; __w=40; }
     _stub_http_ok '[
-{ "name": "anl/aurora", "description": "alpha bravo charlie delta echo foxtrot golf hotel india" }
+{ "name": "anl/aurora", "description": "alpha bravo charlie delta echo foxtrot golf hotel india", "hidden": false }
 ]'
     run knit_list_profiles
     [ "$status" -eq 0 ]
@@ -251,6 +251,22 @@ _INDEX_BODY='[
     # Continuation lines hang-indent (leading spaces) and carry no profile name.
     [[ "${lines[1]}" == "  "* ]]
     [[ "${lines[1]}" != *"anl/aurora"* ]]
+}
+
+@test "knit_list_profiles hides hidden profiles by default and shows them with --hidden" {
+    _stub_http_ok '[
+{ "name": "anl/aurora", "description": "visible", "hidden": false },
+{ "name": "anl/secret", "description": "top secret", "hidden": true }
+]'
+    run knit_list_profiles
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"anl/aurora"* ]]
+    [[ "$output" != *"anl/secret"* ]]
+
+    run knit_list_profiles true
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"anl/aurora"* ]]
+    [[ "$output" == *"anl/secret"*"[github, hidden]"*"top secret"* ]]
 }
 
 @test "_knit_profile_admin_entries lists /etc/knit profiles by relative path" {
@@ -262,13 +278,13 @@ _INDEX_BODY='[
     [ "$(printf '%s\n' "${entries}" | cut -f1)" = $'anl/improv\nsite/local' ]
 }
 
-@test "_knit_profile_admin_entries carries each profile's description" {
+@test "_knit_profile_admin_entries carries each profile's description and hidden flag" {
     mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/site"
     printf '%s' '{"description":"A site profile"}' \
         > "${_KNIT_PROFILE_ADMIN_DIR}/site/local.json"
     local entries
     _knit_profile_admin_entries entries
-    [ "${entries}" = $'site/local\tA site profile' ]
+    [ "${entries}" = $'site/local\tA site profile\tfalse' ]
 }
 
 @test "_knit_profile_admin_entries is empty when the admin dir is absent" {
@@ -278,31 +294,36 @@ _INDEX_BODY='[
     [ -z "${entries}" ]
 }
 
-@test "_knit_profile_admin_entries skips profiles marked _hide" {
+@test "_knit_profile_admin_entries flags profiles marked _hide as hidden" {
     mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/site"
     printf '%s' '{"description":"shown"}' \
         > "${_KNIT_PROFILE_ADMIN_DIR}/site/shown.json"
-    printf '%s' '{"description":"hidden","_hide": true}' \
-        > "${_KNIT_PROFILE_ADMIN_DIR}/site/hidden.json"
+    printf '%s' '{"description":"secret","_hide": true}' \
+        > "${_KNIT_PROFILE_ADMIN_DIR}/site/secret.json"
     local entries
     _knit_profile_admin_entries entries
-    [ "${entries}" = $'site/shown\tshown' ]
+    # Both are listed; the marker distinguishes them (sorted by path).
+    [ "${entries}" = $'site/secret\tsecret\ttrue\nsite/shown\tshown\tfalse' ]
 }
 
-@test "knit_list_profiles omits a hidden admin profile" {
+@test "knit_list_profiles omits a hidden admin profile by default, shows it with --hidden" {
     _stub_http_ok '[]'
     mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/site"
-    printf '%s' '{"description":"hidden","_hide":true}' \
+    printf '%s' '{"description":"secret","_hide":true}' \
         > "${_KNIT_PROFILE_ADMIN_DIR}/site/secret.json"
     run knit_list_profiles
     [ "$status" -eq 0 ]
     [[ "$output" != *"site/secret"* ]]
+
+    run knit_list_profiles true
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"site/secret"*"[admin, hidden]"* ]]
 }
 
 @test "knit_list_profiles unions the repo index and the admin store" {
     _stub_http_ok '[
-{ "name": "anl/improv", "description": "Improv machine" },
-{ "name": "ornl/frontier", "description": "Frontier machine" }
+{ "name": "anl/improv", "description": "Improv machine", "hidden": false },
+{ "name": "ornl/frontier", "description": "Frontier machine", "hidden": false }
 ]'
     mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/site"
     printf '%s' "${_SAMPLE_PROFILE}" > "${_KNIT_PROFILE_ADMIN_DIR}/site/local.json"
@@ -317,8 +338,8 @@ _INDEX_BODY='[
 
 @test "knit_list_profiles marks an admin profile as shadowing the repo" {
     _stub_http_ok '[
-{ "name": "anl/improv", "description": "Improv machine" },
-{ "name": "ornl/frontier", "description": "Frontier machine" }
+{ "name": "anl/improv", "description": "Improv machine", "hidden": false },
+{ "name": "ornl/frontier", "description": "Frontier machine", "hidden": false }
 ]'
     mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/anl"
     printf '%s' "${_SAMPLE_PROFILE}" > "${_KNIT_PROFILE_ADMIN_DIR}/anl/improv.json"
