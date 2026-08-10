@@ -175,54 +175,6 @@ _knit_sched_resolve() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_sched_validate_caps()
-#
-# Fail fast, on the login node, when a resolved request exceeds the caps a
-# machine profile declares for its target queue. This catches over-limit
-# submissions before a batch script is written or handed to the scheduler.
-#
-# Caps come from the profile named by the "__profile__" metadata (nothing is
-# checked when no profile or queue resolves, or when a given queue declares no
-# cap). Walltime is compared in seconds via _knit_walltime_to_seconds; nodes as
-# integers. Either breach is fatal.
-#
-# @param arr_name Name of the resolved-options associative array.
-# ------------------------------------------------------------------------------
-_knit_sched_validate_caps() {
-    # shellcheck disable=SC2178 # nameref to the caller's associative array
-    local -n resolved="$1"
-
-    local profile
-    _knit_metadata_get profile "__profile__"
-    [[ -z "${profile}" ]] && return 0
-
-    local queue="${resolved[queue]}"
-    [[ -z "${queue}" ]] && return 0
-
-    local max_walltime
-    _knit_sched_profile_field max_walltime "${profile}" \
-        ".scheduler.queues.\"${queue}\".max_walltime"
-    if [[ -n "${max_walltime}" ]]; then
-        local req_s cap_s
-        req_s="$(_knit_walltime_to_seconds "${resolved[walltime]}")"
-        cap_s="$(_knit_walltime_to_seconds "${max_walltime}")"
-        if (( req_s > cap_s )); then
-            knit_fatal "Requested walltime ${resolved[walltime]} exceeds the ${max_walltime} limit of queue \"${queue}\"."
-        fi
-    fi
-
-    local max_nodes
-    _knit_sched_profile_field max_nodes "${profile}" \
-        ".scheduler.queues.\"${queue}\".max_nodes"
-    if [[ -n "${max_nodes}" ]]; then
-        local req_nodes="${resolved[nodes]}"
-        if (( req_nodes > max_nodes )); then
-            knit_fatal "Requested ${req_nodes} nodes exceeds the ${max_nodes}-node limit of queue \"${queue}\"."
-        fi
-    fi
-}
-
-# ------------------------------------------------------------------------------
 # @fn _knit_sched_directives()
 #
 # Dispatch to the configured backend's directive generator, printing the batch

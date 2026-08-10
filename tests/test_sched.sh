@@ -648,69 +648,6 @@ _seed_default_setup() {
     [ "${r[wait]}" = "true" ]
 }
 
-# ---------- _knit_sched_validate_caps ----------
-
-@test "validate_caps fatals when walltime exceeds the queue cap" {
-    _use_profile polaris
-    declare -A r
-    r[queue]="debug"       # polaris debug: max_walltime 01:00:00, max_nodes 2
-    r[walltime]="02:00:00"
-    r[nodes]="1"
-    run _knit_sched_validate_caps r
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"exceeds"* ]]
-}
-
-@test "validate_caps passes when walltime is within the queue cap" {
-    _use_profile polaris
-    declare -A r
-    r[queue]="debug"
-    r[walltime]="00:30:00"
-    r[nodes]="1"
-    run _knit_sched_validate_caps r
-    [ "$status" -eq 0 ]
-}
-
-@test "validate_caps fatals when nodes exceed the queue cap" {
-    _use_profile polaris
-    declare -A r
-    r[queue]="debug"
-    r[walltime]="00:10:00"
-    r[nodes]="3"           # debug allows at most 2
-    run _knit_sched_validate_caps r
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"exceeds"* ]]
-}
-
-@test "validate_caps passes when nodes are within the queue cap" {
-    _use_profile polaris
-    declare -A r
-    r[queue]="debug"
-    r[walltime]="00:10:00"
-    r[nodes]="2"
-    run _knit_sched_validate_caps r
-    [ "$status" -eq 0 ]
-}
-
-@test "validate_caps is a no-op when no profile is configured" {
-    declare -A r
-    r[queue]="debug"
-    r[walltime]="99:00:00"
-    r[nodes]="9999"
-    run _knit_sched_validate_caps r
-    [ "$status" -eq 0 ]
-}
-
-@test "validate_caps is a no-op for a queue that declares no caps" {
-    _use_profile polaris
-    declare -A r
-    r[queue]="nosuchqueue"
-    r[walltime]="99:00:00"
-    r[nodes]="9999"
-    run _knit_sched_validate_caps r
-    [ "$status" -eq 0 ]
-}
-
 # ---------- _knit_sched_cancel ----------
 
 @test "_knit_sched_cancel dispatches to the backend cancel primitive" {
