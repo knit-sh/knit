@@ -1,14 +1,15 @@
 {
+    "_hide": true,
     "description": "LCRC Improv — 2× AMD EPYC 7713, 128 cores per node (CPU-only)",
     "scheduler": {
         "type": "pbs",
         "command": "qsub",
         "default_queue": "compute",
         "queues": {
-            "compute":  { "max_walltime": "72:00:00", "max_nodes": 805 },
-            "bigmem":   { "max_walltime": "72:00:00", "max_nodes": 12 },
-            "debug":    { "max_walltime": "01:00:00", "max_nodes": 8 },
-            "backfill": { "max_walltime": "04:00:00", "max_nodes": 825 }
+            "compute":  { "min_nodes": 1, "max_nodes": 805, "max_walltime": "72:00:00" },
+            "bigmem":   { "min_nodes": 1, "max_nodes": 12,  "max_walltime": "72:00:00" },
+            "debug":    { "min_nodes": 1, "max_nodes": 8,   "max_walltime": "01:00:00" },
+            "backfill": { "min_nodes": 1, "max_nodes": 825, "max_walltime": "04:00:00" }
         }
     },
     "launcher": {
@@ -17,5 +18,14 @@
     },
     "hardware": {
         "cores_per_node": 128
-    }
+    },
+    "modules": ["gcc/14.2.0", "xalt/3.0.1", "openmpi/5.0.7/gcc/14.2.0"],
+    "externals": [
+        {
+            "name": "rdma-core",
+            "spec": "rdma-core@52.0",
+            "prefix": "/usr",
+            "buildable": false
+        }
+    ]
 }

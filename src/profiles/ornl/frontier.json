@@ -1,21 +1,37 @@
 {
+    "_hide": true,
     "description": "ORNL Frontier — HPE Cray EX, 64 cores + 8× AMD MI250X per node",
     "scheduler": {
         "type": "slurm",
         "command": "sbatch",
         "default_queue": "batch",
         "queues": {
-            "batch":          { "max_walltime": "24:00:00", "max_nodes": 9408 },
-            "debug":          { "max_walltime": "00:30:00", "max_nodes": 2 },
-            "debug-scaling":  { "max_walltime": "01:00:00", "max_nodes": 115 }
+            "batch":    { "min_nodes": 1, "max_nodes": 9472, "max_walltime": "12:00:00" },
+            "extended": { "min_nodes": 1, "max_nodes": 64,   "max_walltime": "24:00:00" },
+            "debug":    { "min_nodes": 1, "max_nodes": 91,   "max_walltime": "02:00:00" }
         }
     },
     "launcher": {
-        "type": "mpich",
+        "type": "slurm",
         "command": "srun"
     },
     "hardware": {
         "cores_per_node": 64,
         "gpus_per_node": 8
-    }
+    },
+    "modules": ["PrgEnv-gnu"],
+    "externals": [
+        {
+            "name": "cray-mpich",
+            "spec": "cray-mpich@8.1.31",
+            "modules": ["cray-mpich/8.1.31", "libfabric"],
+            "buildable": false
+        },
+        {
+            "name": "libfabric",
+            "spec": "libfabric@1.22.0",
+            "modules": ["libfabric/1.22.0"],
+            "buildable": false
+        }
+    ]
 }

@@ -1,4 +1,5 @@
 {
+    "_hide": true,
     "description": "ALCF Polaris — HPE Cray EX, 32 cores + 4× NVIDIA A100 per node",
     "scheduler": {
         "type": "pbs",
@@ -6,9 +7,10 @@
         "default_queue": "prod",
         "default_args": ["-l filesystems=home:eagle"],
         "queues": {
-            "prod":        { "max_walltime": "24:00:00", "max_nodes": 496 },
-            "debug":       { "max_walltime": "01:00:00", "max_nodes": 2 },
-            "preemptable": { "max_walltime": "72:00:00", "max_nodes": 10 }
+            "debug":         { "min_nodes": 1,  "max_nodes": 2,   "min_walltime": "00:05:00", "max_walltime": "01:00:00" },
+            "debug-scaling": { "min_nodes": 1,  "max_nodes": 10,  "min_walltime": "00:05:00", "max_walltime": "01:00:00" },
+            "prod":          { "min_nodes": 10, "max_nodes": 496, "min_walltime": "00:05:00", "max_walltime": "24:00:00" },
+            "preemptable":   { "min_nodes": 1,  "max_nodes": 10,  "min_walltime": "00:05:00", "max_walltime": "72:00:00" }
         }
     },
     "launcher": {
@@ -18,5 +20,21 @@
     "hardware": {
         "cores_per_node": 32,
         "gpus_per_node": 4
-    }
+    },
+    "modules": ["PrgEnv-gnu/8.6.0"],
+    "externals": [
+        {
+            "name": "cray-mpich",
+            "spec": "cray-mpich@9.0.1",
+            "prefix": "/opt/cray/pe/mpich/9.0.1/ofi/gnu/12.3",
+            "modules": ["PrgEnv-gnu/8.6.0", "libfabric/2.2.0rc1", "cray-mpich/9.0.1"],
+            "buildable": false
+        },
+        {
+            "name": "libfabric",
+            "spec": "libfabric@2.2.0",
+            "modules": ["libfabric/2.2.0rc1"],
+            "buildable": false
+        }
+    ]
 }
