@@ -145,6 +145,23 @@ _stub_http_fail() {
     [ "${ref}" = "anl/polaris@v9.9.9" ]
 }
 
+@test "resolve shorthand accepts a multi-segment path" {
+    _stub_http_ok
+    local json ref
+    _knit_resolve_profile json ref "nersc/perlmutter/cpu"
+    [ "${json}" = "${_SAMPLE_PROFILE}" ]
+    [[ "${_STUB_URL}" == *"/${_KNIT_PROFILE_DEFAULT_REF}/src/profiles/nersc/perlmutter/cpu.json" ]]
+    [ "${ref}" = "nersc/perlmutter/cpu@${_KNIT_PROFILE_DEFAULT_REF}" ]
+}
+
+@test "resolve shorthand accepts a multi-segment path with an @ref" {
+    _stub_http_ok
+    local json ref
+    _knit_resolve_profile json ref "nersc/perlmutter/gpu@v1.2.3"
+    [[ "${_STUB_URL}" == *"/v1.2.3/src/profiles/nersc/perlmutter/gpu.json" ]]
+    [ "${ref}" = "nersc/perlmutter/gpu@v1.2.3" ]
+}
+
 # ---------- _knit_resolve_profile : not found ----------
 
 @test "resolve fatals and enumerates the sources tried" {
@@ -214,6 +231,27 @@ _stub_http_fail() {
     local names="unset"
     _knit_profile_admin_names names
     [ -z "${names}" ]
+}
+
+@test "_knit_profile_admin_names skips profiles marked _hide" {
+    mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/site"
+    printf '%s' '{"description":"shown"}' \
+        > "${_KNIT_PROFILE_ADMIN_DIR}/site/shown.json"
+    printf '%s' '{"description":"hidden","_hide": true}' \
+        > "${_KNIT_PROFILE_ADMIN_DIR}/site/hidden.json"
+    local names
+    _knit_profile_admin_names names
+    [ "${names}" = "site/shown" ]
+}
+
+@test "knit_list_profiles omits a hidden admin profile" {
+    _stub_http_ok '[]'
+    mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/site"
+    printf '%s' '{"description":"hidden","_hide":true}' \
+        > "${_KNIT_PROFILE_ADMIN_DIR}/site/secret.json"
+    run knit_list_profiles
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"site/secret"* ]]
 }
 
 @test "knit_list_profiles unions the repo index and the admin store" {

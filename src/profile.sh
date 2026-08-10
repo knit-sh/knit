@@ -118,13 +118,15 @@ _knit_profile_github_url() {
 #   1. URL                 (http:// or https://) fetched verbatim
 #   2. local file          <spec> or <spec>.json on disk (the offline story)
 #   3. admin profile       /etc/knit/profiles/<spec>.json
-#   4. GitHub shorthand    <namespace>/<machine>[@<ref>]; bare ref defaults to
-#                          the default branch (most up-to-date profiles),
-#                          @latest resolves via the releases API
+#   4. GitHub shorthand    <namespace>/<machine>[/<variant>...][@<ref>]; the
+#                          path may be two or more segments (e.g.
+#                          nersc/perlmutter/cpu). A bare ref defaults to the
+#                          default branch (most up-to-date profiles); @latest
+#                          resolves via the releases API
 #
 # On success sets the JSON content and the resolved label (a URL, path, or
-# "<namespace>/<machine>@<ref>"). If nothing resolves, fatal with a message
-# enumerating every source that was tried.
+# "<path>@<ref>"). If nothing resolves, fatal with a message enumerating every
+# source that was tried.
 #
 # @param __knit_ret1 Name of the variable to hold the resolved JSON content.
 # @param __knit_ret2 Name of the variable to hold the resolved label.
@@ -173,7 +175,7 @@ _knit_resolve_profile() {
     tried+=("not in ${_KNIT_PROFILE_ADMIN_DIR}/")
 
     # 4. GitHub shorthand --------------------------------------------------------
-    if [[ "${spec}" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(@[A-Za-z0-9._/-]+)?$ ]]; then
+    if [[ "${spec}" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)+(@[A-Za-z0-9._/-]+)?$ ]]; then
         local path="${spec%@*}"
         if [[ "${spec}" == *@* ]]; then
             __ref="${spec#*@}"
@@ -190,7 +192,7 @@ _knit_resolve_profile() {
         fi
         tried+=("${url} -> HTTP ${_KNIT_PROFILE_LAST_HTTP:-error}")
     else
-        tried+=("not a <namespace>/<machine>[@<ref>] shorthand")
+        tried+=("not a <namespace>/<machine>[/<variant>...][@<ref>] shorthand")
     fi
 
     local joined
@@ -222,6 +224,10 @@ _knit_profile_parse_index() {
 # "<namespace>/<machine>" names (the path relative to the admin directory, minus
 # the .json suffix), one per line. Empty when the directory is absent.
 #
+# A profile whose JSON sets "_hide": true is skipped, matching the behavior of
+# the generated GitHub index (which excludes hidden profiles). The check is
+# jq-free (a grep for the marker) so listing keeps working before bootstrap.
+#
 # @param __knit_ret1 Name of the variable to hold the newline-separated names.
 # ------------------------------------------------------------------------------
 _knit_profile_admin_names() {
@@ -231,10 +237,25 @@ _knit_profile_admin_names() {
     local f name out=""
     while IFS= read -r f; do
         [[ -n "${f}" ]] || continue
+        _knit_profile_is_hidden "${f}" && continue
         name="${f#"${_KNIT_PROFILE_ADMIN_DIR}"/}"
         out+="${name%.json}"$'\n'
     done < <(find "${_KNIT_PROFILE_ADMIN_DIR}" -type f -name '*.json' 2>/dev/null | sort)
     __knit_ret1="${out%$'\n'}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_profile_is_hidden()
+#
+# Return success when the profile file names its `_hide` field as true. Uses a
+# jq-free grep so it works before bootstrap (jq may be absent), tolerating the
+# usual JSON spacing around the colon.
+#
+# @param file Path to the profile JSON file.
+# ------------------------------------------------------------------------------
+_knit_profile_is_hidden() {
+    local file="$1"
+    grep -Eq '"_hide"[[:space:]]*:[[:space:]]*true' "${file}" 2>/dev/null
 }
 
 # ------------------------------------------------------------------------------

@@ -895,7 +895,7 @@ To run it from scratch:
 
 .. code-block:: console
 
-   $ ./exp.sh bootstrap                      # on a laptop; add --profile <machine> on a cluster
+   $ ./exp.sh bootstrap # on a laptop; add --profile <machine> --allocation <alloc> on a cluster
    $ ./exp.sh setup --name mympienv -- juliaenv
    $ ./exp.sh submit --setup mympienv --wait -- julia --c-re -0.8 --c-im 0.156
    $ ./exp.sh aggregate

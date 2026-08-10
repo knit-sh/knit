@@ -11,9 +11,13 @@
 # .github/workflows/profile-index.yml workflow runs this on every push that
 # touches src/profiles/ and commits the result if it changed.
 #
-# The profile tree is exactly two levels deep (src/profiles/<namespace>/
-# <machine>.json), so index.json itself (a top-level file) is excluded by the
-# mindepth/maxdepth bounds rather than by name.
+# The profile tree is at least two levels deep (src/profiles/<namespace>/
+# <machine>.json, possibly with a further /<variant> segment such as
+# nersc/perlmutter/cpu.json), so index.json itself (a top-level file) is excluded
+# by -mindepth 2 rather than by name; no maxdepth bound is imposed.
+#
+# Profiles whose JSON sets "_hide": true are excluded from the index so they are
+# not advertised by `knit profile list` (they remain resolvable by name).
 #
 set -euo pipefail
 
@@ -21,8 +25,14 @@ cd "$(dirname "$0")/.."
 
 root="src/profiles"
 
-find "${root}" -mindepth 2 -maxdepth 2 -type f -name '*.json' \
-    | sed -e "s#^${root}/##" -e 's#\.json$##' \
-    | LC_ALL=C sort \
+while IFS= read -r f; do
+    [[ -n "${f}" ]] || continue
+    # Skip hidden profiles (jq is available here, in the generator).
+    if [[ "$(jq -r '._hide // false' "${f}")" == "true" ]]; then
+        continue
+    fi
+    name="${f#"${root}/"}"
+    printf '%s\n' "${name%.json}"
+done < <(find "${root}" -mindepth 2 -type f -name '*.json' | LC_ALL=C sort) \
     | jq -R -s 'split("\n") | map(select(length > 0))' \
     > "${root}/index.json"
