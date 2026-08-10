@@ -20,18 +20,20 @@
         "gpus_per_node": 8
     },
     "modules": ["PrgEnv-gnu"],
-    "externals": [
-        {
-            "name": "cray-mpich",
-            "spec": "cray-mpich@8.1.31",
-            "modules": ["cray-mpich/8.1.31", "libfabric"],
-            "buildable": false
-        },
-        {
-            "name": "libfabric",
-            "spec": "libfabric@1.22.0",
-            "modules": ["libfabric/1.22.0"],
-            "buildable": false
-        }
-    ]
+    "spack": {
+        "externals": [
+            {
+                "name": "cray-mpich",
+                "spec": "cray-mpich@8.1.31",
+                "modules": ["cray-mpich/8.1.31", "libfabric"],
+                "buildable": false
+            },
+            {
+                "name": "libfabric",
+                "spec": "libfabric@1.22.0",
+                "modules": ["libfabric/1.22.0"],
+                "buildable": false
+            }
+        ]
+    }
 }

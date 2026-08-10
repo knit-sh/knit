@@ -64,10 +64,12 @@ fi
 cat >"${WORKDIR}/profile.json" <<JSON
 {
     "description": "Demo externals: system CMake and MPI as non-buildable Spack externals.",
-    "externals": [
-        { "name": "cmake", "spec": "cmake@${CMAKE_VER}", "prefix": "${CMAKE_PREFIX}", "buildable": false },
-        { "name": "${MPI_NAME}", "spec": "${MPI_NAME}@${MPI_VER}", "prefix": "${MPI_PREFIX}", "buildable": false }
-    ]
+    "spack": {
+        "externals": [
+            { "name": "cmake", "spec": "cmake@${CMAKE_VER}", "prefix": "${CMAKE_PREFIX}", "buildable": false },
+            { "name": "${MPI_NAME}", "spec": "${MPI_NAME}@${MPI_VER}", "prefix": "${MPI_PREFIX}", "buildable": false }
+        ]
+    }
 }
 JSON
 

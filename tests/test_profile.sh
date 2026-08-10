@@ -398,10 +398,10 @@ _stub_http_fail() {
 # ---------- _knit_render_platform_files : packages.yaml ----------
 
 @test "render writes a packages.yaml block per external" {
-    local json='{"externals":[
+    local json='{"spack":{"externals":[
         {"name":"mpich","spec":"[email protected] %[email protected]",
          "prefix":"/opt/cray/pe/mpich/8.1.28","modules":["cray-mpich/8.1.28"],
-         "buildable":false}]}'
+         "buildable":false}]}}'
     _knit_render_platform_files "${json}"
 
     local f="${_KNIT_PREFIX}/packages.yaml"
@@ -416,7 +416,7 @@ _stub_http_fail() {
 }
 
 @test "render defaults buildable to true when omitted" {
-    _knit_render_platform_files '{"externals":[{"name":"hdf5","spec":"[email protected]"}]}'
+    _knit_render_platform_files '{"spack":{"externals":[{"name":"hdf5","spec":"[email protected]"}]}}'
     grep -Fqx "    buildable: true" "${_KNIT_PREFIX}/packages.yaml"
 }
 

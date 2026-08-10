@@ -475,10 +475,12 @@ _knit_render_platform_sh() {
 # ------------------------------------------------------------------------------
 # @fn _knit_render_packages_yaml()
 #
-# Render the profile's `externals` (§6.2) to a Spack config fragment: a single
-# top-level `packages:` map with one entry per external name, each carrying its
-# externals list (spec, optional prefix, optional modules) and `buildable`
-# (default true). The file is left absent when the profile has no `externals`.
+# Render the profile's `spack.externals` (§6.2) to a Spack config fragment: a
+# single top-level `packages:` map with one entry per external name, each
+# carrying its externals list (spec, optional prefix, optional modules) and
+# `buildable` (default true). The externals live under a `spack` object so other
+# package managers can have their own sibling section later. The file is left
+# absent when the profile declares no Spack externals.
 #
 # @param json    The resolved profile JSON content.
 # @param outfile Path of the packages.yaml file to write.
@@ -488,14 +490,14 @@ _knit_render_packages_yaml() {
     local outfile="$2"
 
     local count
-    count="$(printf '%s' "${json}" | _knit_jq -r '(.externals // []) | length')"
+    count="$(printf '%s' "${json}" | _knit_jq -r '(.spack.externals // []) | length')"
     if [[ "${count}" == "0" ]]; then
         return 0
     fi
 
     printf '%s' "${json}" | _knit_jq -r '
         "packages:",
-        ( .externals | group_by(.name)[] |
+        ( .spack.externals | group_by(.name)[] |
           "  " + .[0].name + ":",
           "    externals:",
           ( .[] |

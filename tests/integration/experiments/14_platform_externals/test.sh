@@ -50,9 +50,11 @@ MAKE_VER=$(make --version | sed -n '1s/.*Make \([0-9][0-9.]*\).*/\1/p')
 cat >"${WORKDIR}/ext.json" <<JSON
 {
     "description": "Profile providing the system make (gmake) as a non-buildable Spack external.",
-    "externals": [
-        { "name": "gmake", "spec": "gmake@${MAKE_VER}", "prefix": "${MAKE_PREFIX}", "buildable": false }
-    ]
+    "spack": {
+        "externals": [
+            { "name": "gmake", "spec": "gmake@${MAKE_VER}", "prefix": "${MAKE_PREFIX}", "buildable": false }
+        ]
+    }
 }
 JSON
 
