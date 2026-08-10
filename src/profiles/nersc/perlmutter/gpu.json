@@ -1,0 +1,40 @@
+{
+    "_hide": true,
+    "description": "NERSC Perlmutter (GPU nodes) — HPE Cray EX (Slingshot); 1× AMD EPYC 7763 (64 cores) + 4× NVIDIA A100",
+    "scheduler": {
+        "type": "slurm",
+        "command": "sbatch",
+        "default_queue": "regular",
+        "default_args": ["-C gpu"],
+        "queues": {
+            "regular": { "min_nodes": 1,                  "max_walltime": "48:00:00" },
+            "debug":   { "min_nodes": 1, "max_nodes": 8,  "max_walltime": "00:30:00" },
+            "preempt": { "min_nodes": 1, "max_nodes": 128, "min_walltime": "02:00:00", "max_walltime": "48:00:00" }
+        }
+    },
+    "launcher": {
+        "type": "slurm",
+        "command": "srun"
+    },
+    "hardware": {
+        "cores_per_node": 64,
+        "gpus_per_node": 4
+    },
+    "modules": ["PrgEnv-gnu"],
+    "spack": {
+        "externals": [
+            {
+                "name": "cray-mpich",
+                "spec": "cray-mpich@8.1.30",
+                "modules": ["cray-mpich/8.1.30"],
+                "buildable": false
+            },
+            {
+                "name": "libfabric",
+                "spec": "libfabric@1.22.0",
+                "modules": ["libfabric/1.22.0"],
+                "buildable": false
+            }
+        ]
+    }
+}
