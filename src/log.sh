@@ -205,8 +205,14 @@ knit_critical() {
 # ------------------------------------------------------------------------------
 knit_fatal() {
     _knit_log fatal "$@"
-    _knit_ensure_trace_file
-    _knit_log fatal "More info may be found in %s" "$_KNIT_TRACE_FILE"
+    # Only point at the trace file when it actually holds captured output. A
+    # purely internal (logic) fatal writes nothing there, so the old
+    # unconditional pointer — which also force-created the file — sent users to an
+    # empty file. Subprocess failures create and fill it before fataling, so the
+    # pointer still shows for the cases where it helps.
+    if [[ -n "${_KNIT_TRACE_FILE}" && -s "${_KNIT_TRACE_FILE}" ]]; then
+        _knit_log fatal "More info may be found in %s" "${_KNIT_TRACE_FILE}"
+    fi
     exit 1
 }
 

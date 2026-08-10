@@ -159,6 +159,24 @@ setup() {
     [[ "$output" == *"boom"* ]]
 }
 
+@test "knit_fatal does not point at the trace file for a pure logic fatal" {
+    # No captured subprocess output, so no "More info" pointer (and no empty
+    # trace file created just to be referenced).
+    run bash -c 'source knit.sh; knit_fatal "boom" 2>&1'
+    [ "$status" -eq 1 ]
+    [[ "$output" != *"More info may be found"* ]]
+}
+
+@test "knit_fatal points at the trace file when it holds captured output" {
+    run bash -c '
+        source knit.sh
+        _knit_ensure_trace_file
+        printf "captured stderr\n" > "${_KNIT_TRACE_FILE}"
+        knit_fatal "boom" 2>&1'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"More info may be found"* ]]
+}
+
 # --- KNIT_LOG_LEVEL validation on source ---
 
 @test "default KNIT_LOG_LEVEL is info" {

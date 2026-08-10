@@ -163,12 +163,45 @@ _arm_cmd() {
     [ "${got}" = "openmpi" ]
 }
 
-@test "the after callback is fatal when no launcher is found, writing nothing" {
+# Store a machine __launcher__ value, as bootstrap would from the profile.
+_set_machine_launcher() {
+    _knit_create_metadata_table
+    local esc
+    _knit_sql_escape esc "$1"
+    _knit_sqlite3_write "INSERT OR REPLACE INTO metadata (key, value) VALUES ('__launcher__', '${esc}');"
+}
+
+@test "the after callback is fatal when no launcher is found and the machine has none" {
     _seed_activate
+    _set_machine_launcher "<unknown>"
     _knit_detect_launcher() { printf '<unknown>\n'; }
     run _knit_setup_provides_launcher_after_cb
     [ "$status" -ne 0 ]
     [[ "$output" == *"no MPI launcher found"* ]]
     # Nothing is appended to .activate.sh on the fatal path.
     ! grep -q 'KNIT_PROVIDED_LAUNCHER' "${KNIT_SETUP_PREFIX}/.activate.sh"
+}
+
+@test "the after callback does not fatal when the machine provides its own launcher" {
+    _seed_activate
+    _arm_cmd
+    # A profile launcher (e.g. PALS on a Cray) wins over the setup contract, so a
+    # setup that builds against an MPI without an mpiexec/mpirun on PATH must not
+    # abort here.
+    _set_machine_launcher "pals"
+    _knit_detect_launcher() { printf '<unknown>\n'; }
+    run _knit_setup_provides_launcher_after_cb
+    [ "$status" -eq 0 ]
+    # No contract is frozen (the machine launcher is used instead)...
+    ! grep -q 'KNIT_PROVIDED_LAUNCHER' "${KNIT_SETUP_PREFIX}/.activate.sh"
+}
+
+@test "the after callback records <unknown> provenance when the machine launcher wins" {
+    _seed_activate
+    _arm_cmd
+    _set_machine_launcher "pals"
+    _knit_detect_launcher() { printf '<unknown>\n'; }
+    _knit_setup_provides_launcher_after_cb
+    local -n _out_ref="_KNIT_CMD_${_ARMED_CMD}_output_value"
+    [ "${_out_ref[__mpi_launcher__]}" = "<unknown>" ]
 }

@@ -981,8 +981,20 @@ knit_with_spack_specs() {
 # provenance via the __mpi_launcher__ output.
 #
 # If detection finds no launcher ("<unknown>") the setup declared it may provide
-# one but built none reachable on PATH: fatal here (an early, clear failure)
-# rather than a silent degrade to the "none" backend later.
+# one but built none reachable on PATH. Whether that is fatal depends on the
+# machine: knit_provides_launcher means only "I may supply a launcher where the
+# machine has none", and the machine's own launcher (the profile's __launcher__)
+# wins over the setup's contract in _knit_launch_backend. So:
+#   - When the machine has a concrete launcher (e.g. PALS on a Cray, whose
+#     mpiexec comes from a launcher module, not from the MPI the setup builds
+#     against), the setup's contract is subordinate and unused; a failed
+#     detection is expected and harmless. Skip the contract, record <unknown>
+#     provenance, and continue — a portable setup that unconditionally declares
+#     knit_provides_launcher is correct here (the profile wins).
+#   - When the machine has no launcher (a laptop; __launcher__ is <unknown>,
+#     "none", or unset), the setup's contract is the only possible source, so a
+#     failed detection is fatal — an early, clear failure rather than a silent
+#     degrade to the "none" backend at run time.
 #
 # Trailing arguments are the setup's runtime arguments and are ignored.
 # ------------------------------------------------------------------------------
@@ -994,7 +1006,17 @@ _knit_setup_provides_launcher_after_cb() {
     local impl
     impl="$(_knit_detect_launcher)"
     if [[ "${impl}" == "<unknown>" ]]; then
-        knit_fatal "knit_provides_launcher: no MPI launcher found on PATH after the setup built. Ensure the setup installs an MPI whose mpirun/mpiexec is on PATH (e.g. knit_with_spack_specs \"mpi\")."
+        # Mirror the tier-2 skip in _knit_launch_backend: a concrete machine
+        # launcher wins over the setup contract, so the setup providing none is
+        # only a problem when the machine itself offers none.
+        local machine
+        _knit_metadata_get machine "__launcher__"
+        if [[ -z "${machine}" || "${machine}" == "<unknown>" || "${machine}" == "none" ]]; then
+            knit_fatal "knit_provides_launcher: no MPI launcher found on PATH after the setup built. Ensure the setup installs an MPI whose mpirun/mpiexec is on PATH (e.g. knit_with_spack_specs \"mpi\")."
+        fi
+        knit_debug "knit_provides_launcher: no launcher found on PATH after the setup built; the machine's \"%s\" launcher will be used instead." "${machine}"
+        knit_output "__mpi_launcher__" "<unknown>"
+        return 0
     fi
     {
         printf '\n# Launcher contract (added by knit_provides_launcher)\n'
