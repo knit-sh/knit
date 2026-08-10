@@ -74,6 +74,50 @@ _stub_http_fail() {
     [[ "$output" == *"HTTP 404"* ]]
 }
 
+# ---------- real network primitive (curl stubbed, not the function) ----------
+# These drive the real _knit_profile_http_get / _knit_resolve_profile with only
+# curl replaced, so they catch a nameref-shadow collision the _stub_http_ok
+# function stub (which uses its own nameref name) would mask: the caller passing
+# an output variable whose name matches the callee's internal "local" silently
+# swallows the body (HTTP 200, empty result).
+
+# Stub curl to emit "<body>\n<code>" the way `curl -w '\n%{http_code}'` does.
+# The values are baked into globals (not _stub_curl locals) so the redefined
+# curl does not accidentally read a same-named local from its dynamic-scope
+# caller (e.g. a caller variable literally named "body").
+_stub_curl() {
+    _STUB_CURL_BODY="${1:-${_SAMPLE_PROFILE}}"
+    _STUB_CURL_CODE="${2:-200}"
+    # shellcheck disable=SC2317 # invoked indirectly after redefinition
+    curl() { printf '%s\n%s' "${_STUB_CURL_BODY}" "${_STUB_CURL_CODE}"; }
+}
+
+@test "real http_get returns the fetched body into the caller variable" {
+    _stub_curl "${_SAMPLE_PROFILE}" 200
+    local body
+    _knit_profile_http_get body "https://example.com/x.json"
+    [ "${body}" = "${_SAMPLE_PROFILE}" ]
+    [ "${_KNIT_PROFILE_LAST_HTTP}" = "200" ]
+}
+
+@test "real resolve populates json for a URL spec (no nameref shadow)" {
+    _stub_curl "${_SAMPLE_PROFILE}" 200
+    local json ref
+    _knit_resolve_profile json ref "https://example.com/x.json"
+    [ -n "${json}" ]
+    [ "${json}" = "${_SAMPLE_PROFILE}" ]
+    [ "${ref}" = "https://example.com/x.json" ]
+}
+
+@test "real resolve populates json for a GitHub shorthand (no nameref shadow)" {
+    _stub_curl "${_SAMPLE_PROFILE}" 200
+    local json ref
+    _knit_resolve_profile json ref "anl/polaris"
+    [ -n "${json}" ]
+    [ "${json}" = "${_SAMPLE_PROFILE}" ]
+    [ "${ref}" = "anl/polaris@main" ]
+}
+
 # ---------- _knit_resolve_profile : local file ----------
 
 @test "resolve reads an existing local file" {

@@ -136,16 +136,19 @@ _knit_resolve_profile() {
     local -n __knit_ret1=$1
     local -n __knit_ret2=$2
     local spec="$3"
-    # __ref and __body keep the underscore prefix: __body is passed down as
-    # _knit_profile_http_get's output nameref, and __ref would otherwise shadow
-    # __knit_ret2 when a caller passes an output variable literally named "ref".
-    local __ref __body
+    # __ref keeps the underscore prefix so it cannot shadow __knit_ret2 when a
+    # caller passes an output variable literally named "ref". body, by contrast,
+    # is a plain name on purpose: it is passed as _knit_profile_http_get's output
+    # nameref, so it MUST NOT match that function's own "local __body" — a
+    # same-named local there would shadow the nameref and silently swallow the
+    # fetched body (leaving HTTP 200 but an empty result).
+    local __ref body
     local -a tried=()
 
     # 1. URL ---------------------------------------------------------------------
     if [[ "${spec}" == http://* || "${spec}" == https://* ]]; then
-        if _knit_profile_http_get __body "${spec}"; then
-            __knit_ret1="${__body}"
+        if _knit_profile_http_get body "${spec}"; then
+            __knit_ret1="${body}"
             __knit_ret2="${spec}"
             return 0
         fi
@@ -185,8 +188,8 @@ _knit_resolve_profile() {
         [[ "${__ref}" == "latest" ]] && __ref="$(_knit_profile_latest_ref)"
         local url
         url="$(_knit_profile_github_url "${path}" "${__ref}")"
-        if _knit_profile_http_get __body "${url}"; then
-            __knit_ret1="${__body}"
+        if _knit_profile_http_get body "${url}"; then
+            __knit_ret1="${body}"
             __knit_ret2="${path}@${__ref}"
             return 0
         fi
