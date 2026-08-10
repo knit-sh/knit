@@ -232,6 +232,58 @@ _use_profile() {
     [[ "$output" == *"already exists"* ]]
 }
 
+# ---------- _knit_submit : rejected submission leaves no trace ----------
+
+@test "_knit_submit removes the job when the scheduler rejects the submission" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    _knit_sched_backend() { local -n __r=$1; __r='slurm'; }
+    # Simulate the scheduler rejecting the submission (e.g. qsub queue limits).
+    _knit_sched_submit() { return 1; }
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+    run _knit_submit -- myjob
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not recorded"* ]]
+
+    # The eagerly-recorded jobs row is gone...
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT count(*) FROM jobs;")" = "0" ]
+    # ...and so is the job directory (the job root remains but is empty).
+    local n=0
+    [ -d "${_KNIT_TEST_TMPDIR}/jobs" ] \
+        && n=$(find "${_KNIT_TEST_TMPDIR}/jobs" -mindepth 1 -maxdepth 1 | wc -l)
+    [ "${n}" -eq 0 ]
+}
+
+@test "_knit_submit removes the --name alias when the submission is rejected" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    _knit_sched_backend() { local -n __r=$1; __r='slurm'; }
+    _knit_sched_submit() { return 1; }
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+    run _knit_submit --name nightly -- myjob
+    [ "$status" -ne 0 ]
+
+    # Neither the alias symlink nor the job directory survives.
+    [ ! -L "${_KNIT_TEST_TMPDIR}/jobs/nightly" ]
+    [ ! -e "${_KNIT_TEST_TMPDIR}/jobs/nightly" ]
+    local n=0
+    [ -d "${_KNIT_TEST_TMPDIR}/jobs" ] \
+        && n=$(find "${_KNIT_TEST_TMPDIR}/jobs" -mindepth 1 -maxdepth 1 | wc -l)
+    [ "${n}" -eq 0 ]
+}
+
 @test "_knit_submit --name rejects an invalid alias" {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."

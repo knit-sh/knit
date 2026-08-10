@@ -13,7 +13,9 @@ declare -A _KNIT_JOBS
 # ------------------------------------------------------------------------------
 # Name of the table recording every job and its lifecycle state. The row id is
 # the job UUID; the "state" column moves submitted -> running -> completed, or
-# -> killed when the scheduler terminates a job before it finishes.
+# -> killed when the scheduler terminates a job before it finishes. A submission
+# the scheduler rejects never becomes a job and leaves no row at all (see
+# _knit_submit_cleanup_rejected).
 # ------------------------------------------------------------------------------
 _KNIT_JOBS_TABLE="jobs"
 
@@ -53,7 +55,7 @@ knit_with_subcommand_title "Jobs"
 # UUID (set in _knit_submit); these outputs track the job and its state.
 knit_with_table "${_KNIT_JOBS_TABLE}"
 knit_with_output "job:string" "" "Name of the submitted job (the token after --)."
-knit_with_output "state:string" "submitted" "Lifecycle state of the submitted job."
+knit_with_output "state:string" "submitted" "Lifecycle state of the submitted job (submitted, running, completed, or killed)."
 knit_with_output "hostnames:string" "" \
     "Comma-separated deduplicated nodes the job ran on (recorded at start)."
 knit_with_output "native-cmd:string" "" \
@@ -267,8 +269,29 @@ _knit_submit() {
 
     # Log the resolved command before issuing it, then submit.
     knit_trace "Submitting job \"${job_name}\": ${native_cmd}"
-    local jobid
-    jobid="$(_knit_sched_submit "${backend}" opts "${script}" "${jobdir}")"
+    local jobid submit_status=0
+    jobid="$(_knit_sched_submit "${backend}" opts "${script}" "${jobdir}")" \
+        || submit_status=$?
+    if (( submit_status != 0 )); then
+        # The submission command exited non-zero. If the row is still "submitted"
+        # the scheduler rejected the request (queue/resource limits, bad account,
+        # ...) and the job never ran: it never became a job, so leave no trace of
+        # it — delete the eagerly-recorded row and its provenance edge, remove the
+        # job directory (and any --name alias), and abort. (A blocking --wait job
+        # that was accepted but exited non-zero has already been moved to a
+        # terminal state by the compute side; that state is left untouched,
+        # preserving the existing behaviour for that case.)
+        local cur_state uuid_esc
+        _knit_sql_escape uuid_esc "${uuid}"
+        cur_state="$(_knit_sqlite3 \
+            "SELECT state FROM ${_KNIT_JOBS_TABLE} WHERE id='${uuid_esc}';" \
+            2>/dev/null)" || cur_state=""
+        if [[ -z "${cur_state}" || "${cur_state}" == "submitted" ]]; then
+            _knit_submit_cleanup_rejected "${uuid}" "${jobdir}" "${alias_link}"
+            knit_fatal "Job submission failed for \"%s\": the scheduler rejected the request (%s). The job was not recorded." \
+                "${job_name}" "${native_cmd}"
+        fi
+    fi
 
     # Record the implementation-dependent launcher id in .job.id. The full
     # submission record lives in the "jobs" table (see M10/M11 recording).
@@ -279,6 +302,45 @@ _knit_submit() {
     printf '%s\n' "${uuid}"
 }
 knit_done
+
+# ------------------------------------------------------------------------------
+# @fn _knit_submit_cleanup_rejected()
+#
+# Undo the eager bookkeeping of a submission the scheduler rejected, so a job
+# that never ran leaves no trace. knit submit records the jobs row (and, for a
+# job with a setup, a "used_by" provenance edge) and creates the job directory
+# before dispatching, because a blocking --wait job needs the row to exist so the
+# compute side can transition it. When the submission command itself fails, none
+# of that should survive: this removes the jobs row, any provenance edge pointing
+# at it, the --name alias symlink (if any), and the job directory. Each step is
+# best-effort (the provenance table may not exist for a setup-less job).
+#
+# @param uuid       The submission's job UUID (its row id and edge target_id).
+# @param jobdir     The job directory to remove.
+# @param alias_link Path to the --name alias symlink, or empty when none.
+# ------------------------------------------------------------------------------
+_knit_submit_cleanup_rejected() {
+    local uuid="$1"
+    local jobdir="$2"
+    local alias_link="$3"
+
+    local uuid_esc jobs_ident id_ident
+    _knit_sql_escape uuid_esc "${uuid}"
+    _knit_db_sql_ident jobs_ident "${_KNIT_JOBS_TABLE}"
+    _knit_db_sql_ident id_ident "id"
+    _knit_sqlite3_write \
+        "DELETE FROM ${jobs_ident} WHERE ${id_ident}='${uuid_esc}';" \
+        2>/dev/null || true
+    # Remove any provenance edge (e.g. a setup's "used_by") pointing at this
+    # never-run submission. The table is absent for a setup-less job, hence the
+    # tolerated failure.
+    _knit_sqlite3_write \
+        "DELETE FROM ${_KNIT_PROV_TABLE} WHERE target_id='${uuid_esc}';" \
+        2>/dev/null || true
+
+    [[ -n "${alias_link}" && -L "${alias_link}" ]] && rm -f "${alias_link}"
+    rm -rf "${jobdir}"
+}
 
 # ------------------------------------------------------------------------------
 # @fn _knit_job_set_state()
