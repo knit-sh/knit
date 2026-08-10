@@ -173,8 +173,16 @@ knit_done
 _knit_setup_source_platform() {
     local platform="${_KNIT_PREFIX}/platform.sh"
     if [[ -f "${platform}" ]]; then
+        # Sourcing runs the profile's module init and `module load`, which for
+        # Lmod / Environment Modules print informational chatter ("Lmod is
+        # automatically replacing ...", "the following have been reloaded ...")
+        # to stderr. Redirect the sourcing's output to the trace file so it does
+        # not pollute the user's terminal; the exports still take effect in this
+        # shell (redirecting a `source` does not affect the shell's environment),
+        # and any genuine module failure is preserved in the trace file.
+        _knit_ensure_trace_file
         # shellcheck disable=SC1090 # dynamic, generated at bootstrap
-        source "${platform}"
+        source "${platform}" >> "${_KNIT_TRACE_FILE}" 2>&1
     fi
 }
 
