@@ -242,7 +242,7 @@ _knit_bootstrap() {
         knit_trace "Resolving profile ${profile}..."
         _knit_resolve_profile profile_json profile_label "${profile}"
         _knit_load_profile "${profile_json}"
-        # Materialize the platform artifacts (.knit/platform.sh, packages.yaml)
+        # Materialize the platform artifacts (.knit/platform.sh, spack-config.json)
         # from the resolved profile; either is absent when its fields are omitted.
         _knit_render_platform_files "${profile_json}"
         default_queue="${_KNIT_PROFILE_SCHEDULER_DEFAULT_QUEUE}"

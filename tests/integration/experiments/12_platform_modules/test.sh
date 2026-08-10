@@ -49,7 +49,8 @@ cd "${WORKDIR}"
 
 # --------------------------------------------------------------------------
 # Bootstrap with the baked admin profile. This materializes .knit/platform.sh
-# (and .knit/packages.yaml only if the profile had externals — it does not).
+# (and .knit/spack-config.json only if the profile had a `spack` object — it does
+# not).
 # --------------------------------------------------------------------------
 ./experiment.sh bootstrap --project "integration-test-12" --profile "${PROFILE}"
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"

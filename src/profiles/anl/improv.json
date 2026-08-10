@@ -21,13 +21,28 @@
     },
     "modules": ["gcc/14.2.0", "xalt/3.0.1", "openmpi/5.0.7/gcc/14.2.0"],
     "spack": {
-        "externals": [
-            {
-                "name": "rdma-core",
-                "spec": "rdma-core@52.0",
-                "prefix": "/usr",
+        "packages": {
+            "rdma-core": {
+                "externals": [
+                    {
+                        "spec": "rdma-core@52.0",
+                        "prefix": "/usr"
+                    }
+                ],
                 "buildable": false
+            },
+            "openmpi": {
+                "externals": [
+                    {
+                        "spec": "openmpi@5.0.7",
+                        "modules": ["openmpi/5.0.7/gcc/14.2.0"]
+                    }
+                ],
+                "buildable": false
+            },
+            "mpi": {
+                "require": ["openmpi"]
             }
-        ]
+        }
     }
 }

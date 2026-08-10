@@ -467,32 +467,35 @@ _INDEX_BODY='[
     [ ! -f "${_KNIT_PREFIX}/platform.sh" ]
 }
 
-# ---------- _knit_render_platform_files : packages.yaml ----------
+# ---------- _knit_render_platform_files : spack-config.json ----------
 
-@test "render writes a packages.yaml block per external" {
-    local json='{"spack":{"externals":[
-        {"name":"mpich","spec":"[email protected] %[email protected]",
-         "prefix":"/opt/cray/pe/mpich/8.1.28","modules":["cray-mpich/8.1.28"],
-         "buildable":false}]}}'
+@test "render writes spack-config.json wrapping the spack object verbatim" {
+    local json='{"spack":{
+        "packages":{
+            "cray-mpich":{"externals":[{"spec":"cray-mpich@9.0.1","prefix":"/opt/cray"}],"buildable":false},
+            "mpi":{"require":["cray-mpich"]}
+        },
+        "concretizer":{"reuse":true}
+    }}'
     _knit_render_platform_files "${json}"
 
-    local f="${_KNIT_PREFIX}/packages.yaml"
+    local f="${_KNIT_PREFIX}/spack-config.json"
     [ -f "${f}" ]
-    grep -Fqx "packages:" "${f}"
-    grep -Fqx "  mpich:" "${f}"
-    grep -Fqx "    externals:" "${f}"
-    grep -Fqx '    - spec: "[email protected] %[email protected]"' "${f}"
-    grep -Fqx "      prefix: /opt/cray/pe/mpich/8.1.28" "${f}"
-    grep -Fqx "      modules: [cray-mpich/8.1.28]" "${f}"
-    grep -Fqx "    buildable: false" "${f}"
+    # A single file wrapped under a top-level `spack` key (env-manifest form).
+    [ "$(jq -r 'keys[]' "${f}")" = "spack" ]
+    # Every section and its content is passed through verbatim.
+    [ "$(jq -r '.spack.packages.mpi.require[0]' "${f}")" = "cray-mpich" ]
+    [ "$(jq -r '.spack.packages["cray-mpich"].buildable' "${f}")" = "false" ]
+    [ "$(jq -r '.spack.packages["cray-mpich"].externals[0].spec' "${f}")" = "cray-mpich@9.0.1" ]
+    [ "$(jq -r '.spack.concretizer.reuse' "${f}")" = "true" ]
 }
 
-@test "render defaults buildable to true when omitted" {
-    _knit_render_platform_files '{"spack":{"externals":[{"name":"hdf5","spec":"[email protected]"}]}}'
-    grep -Fqx "    buildable: true" "${_KNIT_PREFIX}/packages.yaml"
-}
-
-@test "render leaves packages.yaml absent when no externals" {
+@test "render leaves spack-config.json absent when no spack object" {
     _knit_render_platform_files '{"modules":["cmake"],"module_init":"/dev/null"}'
-    [ ! -f "${_KNIT_PREFIX}/packages.yaml" ]
+    [ ! -f "${_KNIT_PREFIX}/spack-config.json" ]
+}
+
+@test "render writes nothing for an empty spack object" {
+    _knit_render_platform_files '{"spack":{}}'
+    [ ! -f "${_KNIT_PREFIX}/spack-config.json" ]
 }

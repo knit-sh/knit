@@ -11,9 +11,9 @@
 #
 #   - a shipped profile declares the system `make` (gmake) as an external with
 #     buildable: false, pointed at its real prefix. Bootstrap --profile renders
-#     it into .knit/packages.yaml.
+#     it into .knit/spack-config.json.
 #   - a setup declares knit_with_spack_specs "gmake"; knit creates the Spack env,
-#     merges .knit/packages.yaml, and installs. Because gmake is buildable: false,
+#     merges .knit/spack-config.json, and installs. Because gmake is buildable: false,
 #     Spack *cannot* build it — a successful install therefore proves it resolved
 #     to the external. The install tree is checked to contain no built gmake, and
 #     the concretization is confirmed to point at the external prefix.
@@ -51,9 +51,14 @@ cat >"${WORKDIR}/ext.json" <<JSON
 {
     "description": "Profile providing the system make (gmake) as a non-buildable Spack external.",
     "spack": {
-        "externals": [
-            { "name": "gmake", "spec": "gmake@${MAKE_VER}", "prefix": "${MAKE_PREFIX}", "buildable": false }
-        ]
+        "packages": {
+            "gmake": {
+                "externals": [
+                    { "spec": "gmake@${MAKE_VER}", "prefix": "${MAKE_PREFIX}" }
+                ],
+                "buildable": false
+            }
+        }
     }
 }
 JSON
@@ -71,19 +76,20 @@ check_file ".knit/spack/bin/spack" \
     "bootstrap auto-provisioned the private Spack (setup requires it)"
 
 # --------------------------------------------------------------------------
-# The profile's externals rendered into .knit/packages.yaml.
+# The profile's Spack config rendered into .knit/spack-config.json (the profile's
+# `spack` object wrapped under a top-level `spack` key).
 # --------------------------------------------------------------------------
-check_file ".knit/packages.yaml" "bootstrap rendered the profile externals"
-check_grep "^  gmake:" ".knit/packages.yaml" \
-    "packages.yaml has the gmake external entry"
-check_grep "prefix: ${MAKE_PREFIX}\$" ".knit/packages.yaml" \
-    "packages.yaml records the external prefix"
-check_grep "buildable: false" ".knit/packages.yaml" \
-    "packages.yaml marks gmake non-buildable"
+check_file ".knit/spack-config.json" "bootstrap rendered the profile Spack config"
+check_grep "\"gmake\":" ".knit/spack-config.json" \
+    "spack-config.json has the gmake external entry"
+check_grep "\"prefix\": \"${MAKE_PREFIX}\"" ".knit/spack-config.json" \
+    "spack-config.json records the external prefix"
+check_grep "\"buildable\": false" ".knit/spack-config.json" \
+    "spack-config.json marks gmake non-buildable"
 
 # --------------------------------------------------------------------------
 # Build the Spack-backed setup. knit writes spack.yaml for the "gmake" spec,
-# merges .knit/packages.yaml, and installs. gmake is buildable: false, so a
+# merges .knit/spack-config.json, and installs. gmake is buildable: false, so a
 # successful install can only mean the external was used.
 # --------------------------------------------------------------------------
 ./experiment.sh setup --name genv -- makeenv

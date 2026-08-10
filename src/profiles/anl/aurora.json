@@ -26,19 +26,28 @@
         "cray-libpals/1.8.0"
     ],
     "spack": {
-        "externals": [
-            {
-                "name": "mpich",
-                "spec": "mpich@5.0.0",
-                "prefix": "/opt/aurora/26.26.0/spack/unified/1.1.1/install/linux-x86_64/mpich-5.0.0.aurora_test.3c70a61-hlkigtk/",
+        "packages": {
+            "mpich": {
+                "externals": [
+                    {
+                        "spec": "mpich@5.0.0",
+                        "prefix": "/opt/aurora/26.26.0/spack/unified/1.1.1/install/linux-x86_64/mpich-5.0.0.aurora_test.3c70a61-hlkigtk/"
+                    }
+                ],
                 "buildable": false
             },
-            {
-                "name": "libfabric",
-                "spec": "libfabric@1.22.0",
-                "prefix": "/opt/cray/libfabric/1.22.0/",
+            "libfabric": {
+                "externals": [
+                    {
+                        "spec": "libfabric@1.22.0",
+                        "prefix": "/opt/cray/libfabric/1.22.0/"
+                    }
+                ],
                 "buildable": false
+            },
+            "mpi": {
+                "require": ["mpich"]
             }
-        ]
+        }
     }
 }

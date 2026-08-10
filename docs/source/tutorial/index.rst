@@ -813,10 +813,14 @@ before you commit to it --- before bootstrap you pass the spec explicitly:
    }
 
 The output is abbreviated here: a full profile also lists the ``modules`` to load
-and a ``spack`` block whose ``externals`` name vendor packages (the system MPI,
-for instance) that a setup's Spack environment reuses instead of rebuilding. A
-profile spec can also be a URL or a path to a local JSON file, so a site or a
-collaborator can hand you one that is not in the Knit repository.
+and a ``spack`` block carrying Spack configuration. Typically that is a
+``packages`` section naming vendor packages (the system MPI, for instance) as
+non-buildable externals and requiring the ``mpi`` virtual to resolve to them, so
+a setup's Spack environment reuses the vendor build instead of recompiling it.
+The ``spack`` block is handed to Spack verbatim, so it may hold any Spack config
+section (``packages``, ``mirrors`` for an air-gapped mirror, ``concretizer``,
+...). A profile spec can also be a URL or a path to a local JSON file, so a site
+or a collaborator can hand you one that is not in the Knit repository.
 
 **Bootstrap under the profile.** On the cluster, bootstrap the experiment and
 point it at the profile. This freezes the profile's facts into the experiment's

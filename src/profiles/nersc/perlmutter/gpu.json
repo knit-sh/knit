@@ -22,19 +22,28 @@
     },
     "modules": ["PrgEnv-gnu"],
     "spack": {
-        "externals": [
-            {
-                "name": "cray-mpich",
-                "spec": "cray-mpich@8.1.30",
-                "modules": ["cray-mpich/8.1.30"],
+        "packages": {
+            "cray-mpich": {
+                "externals": [
+                    {
+                        "spec": "cray-mpich@8.1.30",
+                        "modules": ["cray-mpich/8.1.30"]
+                    }
+                ],
                 "buildable": false
             },
-            {
-                "name": "libfabric",
-                "spec": "libfabric@1.22.0",
-                "modules": ["libfabric/1.22.0"],
+            "libfabric": {
+                "externals": [
+                    {
+                        "spec": "libfabric@1.22.0",
+                        "modules": ["libfabric/1.22.0"]
+                    }
+                ],
                 "buildable": false
+            },
+            "mpi": {
+                "require": ["cray-mpich"]
             }
-        ]
+        }
     }
 }

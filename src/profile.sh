@@ -550,57 +550,48 @@ _knit_render_platform_sh() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_render_packages_yaml()
+# @fn _knit_render_spack_config()
 #
-# Render the profile's `spack.externals` (§6.2) to a Spack config fragment: a
-# single top-level `packages:` map with one entry per external name, each
-# carrying its externals list (spec, optional prefix, optional modules) and
-# `buildable` (default true). The externals live under a `spack` object so other
-# package managers can have their own sibling section later. The file is left
-# absent when the profile declares no Spack externals.
+# Render the profile's `spack` object as a single Spack environment-config
+# fragment. The keys under `spack` are Spack config section names (`packages`,
+# `mirrors`, `concretizer`, `config`, `compilers`, ...) and each value is that
+# section's content exactly as it appears under the corresponding top-level key
+# in a Spack config file. Knit does not interpret the contents: it writes the
+# whole object back wrapped under a top-level `spack` key, i.e. `{ "spack":
+# <value> }`, which is the Spack environment-manifest form. Because JSON is a
+# subset of YAML, Spack ingests the file directly: it is `spack config add`ed
+# into the environment (always `-e <env>`) at env-install time, where the `spack`
+# wrapper lets a single file carry every section at once. Nothing is written when
+# the profile declares no `spack` object (or an empty one).
 #
 # @param json    The resolved profile JSON content.
-# @param outfile Path of the packages.yaml file to write.
+# @param outfile Path of the spack-config file to write.
 # ------------------------------------------------------------------------------
-_knit_render_packages_yaml() {
+_knit_render_spack_config() {
     local json="$1"
     local outfile="$2"
 
     local count
-    count="$(printf '%s' "${json}" | _knit_jq -r '(.spack.externals // []) | length')"
-    if [[ "${count}" == "0" ]]; then
-        return 0
-    fi
+    count="$(printf '%s' "${json}" | _knit_jq -r '(.spack // {}) | length')"
+    [[ "${count}" == "0" ]] && return 0
 
-    printf '%s' "${json}" | _knit_jq -r '
-        "packages:",
-        ( .spack.externals | group_by(.name)[] |
-          "  " + .[0].name + ":",
-          "    externals:",
-          ( .[] |
-            "    - spec: \"" + .spec + "\"",
-            ( if .prefix then "      prefix: " + .prefix else empty end),
-            ( if .modules then "      modules: [" + (.modules | join(", ")) + "]" else empty end)
-          ),
-          "    buildable: " + ((.[0] | if has("buildable") then .buildable else true end) | tostring)
-        )
-    ' > "${outfile}"
+    printf '%s' "${json}" | _knit_jq '{ spack: .spack }' > "${outfile}"
 }
 
 # ------------------------------------------------------------------------------
 # @fn _knit_render_platform_files()
 #
 # Materialize the profile's platform artifacts under _KNIT_PREFIX:
-# platform.sh (modules + environment, §5.3) and packages.yaml (externals,
-# §6.2). Either file is left absent when the profile omits the corresponding
-# fields. Called by bootstrap after the profile is resolved.
+# platform.sh (modules + environment) and spack-config.json (the profile's
+# `spack` object). Either file is left absent when the profile omits the
+# corresponding fields. Called by bootstrap after the profile is resolved.
 #
 # @param json The resolved profile JSON content.
 # ------------------------------------------------------------------------------
 _knit_render_platform_files() {
     local json="$1"
-    _knit_render_platform_sh   "${json}" "${_KNIT_PREFIX}/platform.sh"
-    _knit_render_packages_yaml "${json}" "${_KNIT_PREFIX}/packages.yaml"
+    _knit_render_platform_sh  "${json}" "${_KNIT_PREFIX}/platform.sh"
+    _knit_render_spack_config "${json}" "${_KNIT_PREFIX}/spack-config.json"
 }
 
 # ------------------------------------------------------------------------------

@@ -282,12 +282,12 @@ EOF
     [[ "$output" == *"exec:-e /tmp/envdir install"* ]]
 }
 
-@test "spack_env_install injects packages.yaml before install when present" {
+@test "spack_env_install adds spack-config.json before install when present" {
     _knit_spack_exec() { printf 'exec:%s\n' "$*"; }
-    printf 'packages:\n' > "${_KNIT_PREFIX}/packages.yaml"
+    printf '{"spack":{"packages":{}}}\n' > "${_KNIT_PREFIX}/spack-config.json"
     run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"exec:-e /tmp/envdir config add -f ${_KNIT_PREFIX}/packages.yaml"* ]]
+    [[ "$output" == *"exec:-e /tmp/envdir config add -f ${_KNIT_PREFIX}/spack-config.json"* ]]
     # config add must precede install.
     local add_line install_line
     add_line="$(printf '%s\n' "$output" | grep -n 'config add -f' | head -1 | cut -d: -f1)"
@@ -295,11 +295,23 @@ EOF
     [ "${add_line}" -lt "${install_line}" ]
 }
 
-@test "spack_env_install skips packages.yaml injection when absent" {
+@test "spack_env_install skips config injection when absent" {
     _knit_spack_exec() { printf 'exec:%s\n' "$*"; }
     run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
     [ "$status" -eq 0 ]
     [[ "$output" != *"config add -f"* ]]
+}
+
+@test "spack_env_install returns non-zero when the config add fails" {
+    printf '{"spack":{"packages":{}}}\n' > "${_KNIT_PREFIX}/spack-config.json"
+    _knit_spack_exec() {
+        [[ "$*" == *"config add -f"* ]] && return 4
+        printf 'exec:%s\n' "$*"
+    }
+    run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
+    [ "$status" -ne 0 ]
+    # It must not proceed to install after a failed config add.
+    [[ "$output" != *"install"* ]]
 }
 
 @test "spack_env_install returns non-zero when 'env create' fails" {

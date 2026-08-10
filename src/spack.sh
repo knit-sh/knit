@@ -300,10 +300,12 @@ _knit_spack_exec() {
 # _knit_spack_exec, so the knit-private Spack is used and setup-env.sh is sourced
 # at most once per process. The (long-running) install is framed.
 #
-# When the platform declares externals, "${_KNIT_PREFIX}/packages.yaml" exists;
-# it is merged into the environment with "spack config add -f" before
+# When the profile declares Spack config, "${_KNIT_PREFIX}/spack-config.json"
+# exists (the profile's `spack` object wrapped under a top-level `spack` key); it
+# is merged into the environment with "spack config add -f" before
 # concretization, so specs like "mpi"/"hdf5" resolve to the platform's vendor
-# installs. The step is skipped when the file is absent.
+# installs and provider preferences apply. The step is skipped when the file is
+# absent.
 #
 # The install runs directly (its stdout/stderr inherit the caller's terminal) so
 # Spack's own TTY-aware progress output is shown, rather than piped through a
@@ -324,10 +326,11 @@ _knit_spack_env_install() {
             "${env_dir}" "${yaml}"
         return 1
     fi
-    if [[ -f "${_KNIT_PREFIX}/packages.yaml" ]]; then
-        if ! _knit_spack_exec -e "${env_dir}" config add -f "${_KNIT_PREFIX}/packages.yaml"; then
-            knit_error "Could not add platform externals (%s) to the Spack environment at %s." \
-                "${_KNIT_PREFIX}/packages.yaml" "${env_dir}"
+    local cfg="${_KNIT_PREFIX}/spack-config.json"
+    if [[ -f "${cfg}" ]]; then
+        if ! _knit_spack_exec -e "${env_dir}" config add -f "${cfg}"; then
+            knit_error "Could not add Spack config (%s) to the Spack environment at %s." \
+                "${cfg}" "${env_dir}"
             return 1
         fi
     fi

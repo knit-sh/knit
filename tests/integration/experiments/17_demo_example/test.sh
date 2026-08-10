@@ -65,10 +65,20 @@ cat >"${WORKDIR}/profile.json" <<JSON
 {
     "description": "Demo externals: system CMake and MPI as non-buildable Spack externals.",
     "spack": {
-        "externals": [
-            { "name": "cmake", "spec": "cmake@${CMAKE_VER}", "prefix": "${CMAKE_PREFIX}", "buildable": false },
-            { "name": "${MPI_NAME}", "spec": "${MPI_NAME}@${MPI_VER}", "prefix": "${MPI_PREFIX}", "buildable": false }
-        ]
+        "packages": {
+            "cmake": {
+                "externals": [
+                    { "spec": "cmake@${CMAKE_VER}", "prefix": "${CMAKE_PREFIX}" }
+                ],
+                "buildable": false
+            },
+            "${MPI_NAME}": {
+                "externals": [
+                    { "spec": "${MPI_NAME}@${MPI_VER}", "prefix": "${MPI_PREFIX}" }
+                ],
+                "buildable": false
+            }
+        }
     }
 }
 JSON
@@ -86,8 +96,8 @@ JSON
 ./demo.sh bootstrap --project "integration-test-17" --profile "${WORKDIR}/profile.json"
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
-check_grep "^  cmake:" ".knit/packages.yaml" "profile externals rendered (cmake)"
-check_grep "^  ${MPI_NAME}:" ".knit/packages.yaml" "profile externals rendered (${MPI_NAME})"
+check_grep "\"cmake\":" ".knit/spack-config.json" "profile externals rendered (cmake)"
+check_grep "\"${MPI_NAME}\":" ".knit/spack-config.json" "profile externals rendered (${MPI_NAME})"
 
 # --------------------------------------------------------------------------
 # 3. setup juliaenv — Spack env (cmake+mpi external, libpng built), then

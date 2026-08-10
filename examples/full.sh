@@ -200,9 +200,11 @@
 #
 # Profiles are curated descriptions of known HPC systems (scheduler type,
 # default queue and per-queue limits, MPI launcher, cores/GPUs per node, and the
-# platform modules plus a `spack` block of vendor externals). The limits are
-# informational: knit never enforces a queue's node/walltime bounds — the
-# scheduler does. Profiles are not baked into knit: `bootstrap --profile`
+# platform modules plus a `spack` block of Spack config — typically a `packages`
+# section naming vendor packages as non-buildable externals and requiring the
+# `mpi` virtual to resolve to them; the block is passed to Spack verbatim, so it
+# can carry any Spack config section). The limits are informational: knit never
+# enforces a queue's node/walltime bounds — the scheduler does. Profiles are not baked into knit: `bootstrap --profile`
 # downloads the chosen one (treated strictly as data, never executed), and
 # `profile list` prints the union of what is available, each row showing the
 # profile name, a bracketed source tag, and its one-line description:
