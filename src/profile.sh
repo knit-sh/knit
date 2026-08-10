@@ -203,9 +203,12 @@ _knit_resolve_profile() {
 # ------------------------------------------------------------------------------
 # @fn _knit_profile_parse_index()
 #
-# Parse a profile index (a JSON array of "<namespace>/<machine>" strings) into
-# one entry per line. Uses a jq-free extraction of quoted tokens so it works
-# before bootstrap, when jq is not yet available.
+# Parse a profile index into one "<name><TAB><description>" line per entry. The
+# index is a JSON array of one-line objects, e.g.
+# `{ "name": "anl/aurora", "description": "..." }` (see gen-profile-index.sh).
+# Extraction is jq-free (a single sed) so it works before bootstrap, when jq is
+# not yet available; it relies on neither field containing a literal '"', which
+# the generator guarantees for shipped descriptions.
 #
 # @param __knit_ret1 Name of the variable to hold the newline-separated list.
 # @param body        The index.json content.
@@ -213,35 +216,59 @@ _knit_resolve_profile() {
 _knit_profile_parse_index() {
     local -n __knit_ret1=$1
     local body="$2"
-    __knit_ret1="$(printf '%s' "${body}" \
-        | grep -oE '"[^"]+"' | sed 's/^"//; s/"$//')"
+    local tab=$'\t'
+    __knit_ret1="$(printf '%s' "${body}" | sed -n -E \
+        "s/.*\"name\"[[:space:]]*:[[:space:]]*\"([^\"]*)\".*\"description\"[[:space:]]*:[[:space:]]*\"([^\"]*)\".*/\\1${tab}\\2/p")"
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_profile_admin_names()
+# @fn _knit_profile_admin_entries()
 #
 # List the admin-provided profiles under _KNIT_PROFILE_ADMIN_DIR as
-# "<namespace>/<machine>" names (the path relative to the admin directory, minus
-# the .json suffix), one per line. Empty when the directory is absent.
+# "<name><TAB><description>" lines, one per profile, where <name> is the path
+# relative to the admin directory minus the .json suffix. Empty when the
+# directory is absent.
 #
 # A profile whose JSON sets "_hide": true is skipped, matching the behavior of
-# the generated GitHub index (which excludes hidden profiles). The check is
-# jq-free (a grep for the marker) so listing keeps working before bootstrap.
+# the generated GitHub index (which excludes hidden profiles). Both the hidden
+# check and the description read are jq-free (a grep/sed for the marker) so
+# listing keeps working before bootstrap.
 #
-# @param __knit_ret1 Name of the variable to hold the newline-separated names.
+# @param __knit_ret1 Name of the variable to hold the newline-separated entries.
 # ------------------------------------------------------------------------------
-_knit_profile_admin_names() {
+_knit_profile_admin_entries() {
     local -n __knit_ret1=$1
     __knit_ret1=""
     [[ -d "${_KNIT_PROFILE_ADMIN_DIR}" ]] || return 0
-    local f name out=""
+    local f name desc out=""
+    local tab=$'\t'
     while IFS= read -r f; do
         [[ -n "${f}" ]] || continue
         _knit_profile_is_hidden "${f}" && continue
         name="${f#"${_KNIT_PROFILE_ADMIN_DIR}"/}"
-        out+="${name%.json}"$'\n'
+        _knit_profile_file_description desc "${f}"
+        out+="${name%.json}${tab}${desc}"$'\n'
     done < <(find "${_KNIT_PROFILE_ADMIN_DIR}" -type f -name '*.json' 2>/dev/null | sort)
     __knit_ret1="${out%$'\n'}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_profile_file_description()
+#
+# Extract a profile file's `description` field jq-free, so `knit profile list`
+# can show it before bootstrap (jq may be absent). Uses a sed for the first
+# `"description": "..."` occurrence; relies on the value containing no literal
+# '"'. The result is empty when the field is absent.
+#
+# @param __knit_ret1 Name of the variable to hold the description.
+# @param file        Path to the profile JSON file.
+# ------------------------------------------------------------------------------
+_knit_profile_file_description() {
+    local -n __knit_ret1=$1
+    local file="$2"
+    __knit_ret1="$(sed -n -E \
+        's/.*"description"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' \
+        "${file}" 2>/dev/null | head -1)"
 }
 
 # ------------------------------------------------------------------------------
@@ -262,11 +289,17 @@ _knit_profile_is_hidden() {
 # @fn knit_list_profiles()
 #
 # Print the union of the profiles known to knit, one per line in sorted order,
-# each marked with its source: the committed in-repo index (fetched from the
-# default branch) and the admin store under _KNIT_PROFILE_ADMIN_DIR. An
+# laid out like a command's parameters in "--help": a name column, a "[source]"
+# annotation, then the profile's description word-wrapped with a hanging indent
+# under the annotation column. The source is the committed in-repo index (fetched
+# from the default branch) or the admin store under _KNIT_PROFILE_ADMIN_DIR; an
 # admin profile that shares a name with a repo one shadows it (§4.5) and is
-# marked accordingly. The repo index is fetched best-effort so an offline,
-# admin-only machine still lists its own profiles.
+# marked accordingly (its description wins). The repo index is fetched
+# best-effort so an offline, admin-only machine still lists its own profiles.
+#
+# Wrapping reuses _knit_terminal_width / _knit_help_render_entry (the same
+# helpers "--help" uses), so alignment, wrap-around, and the pipe/redirect
+# single-line fallback all match option listings.
 # ------------------------------------------------------------------------------
 knit_list_profiles() {
     local github="" admin=""
@@ -280,18 +313,40 @@ knit_list_profiles() {
     else
         knit_warning "%s" "Could not fetch the profile index from ${url} (HTTP ${_KNIT_PROFILE_LAST_HTTP:-error}); listing admin profiles only."
     fi
-    _knit_profile_admin_names admin
+    _knit_profile_admin_entries admin
 
-    local -A is_github=() is_admin=()
-    local n
-    while IFS= read -r n; do [[ -n "${n}" ]] && is_github["${n}"]=1; done <<< "${github}"
-    while IFS= read -r n; do [[ -n "${n}" ]] && is_admin["${n}"]=1; done <<< "${admin}"
+    # Both lists are "<name><TAB><description>" lines. Build name -> source and
+    # name -> description maps; an admin entry overrides a github description of
+    # the same name (the admin profile is the effective one when it shadows).
+    local -A is_github=() is_admin=() descr=()
+    local name d
+    while IFS=$'\t' read -r name d; do
+        [[ -n "${name}" ]] || continue
+        is_github["${name}"]=1
+        descr["${name}"]="${d}"
+    done <<< "${github}"
+    while IFS=$'\t' read -r name d; do
+        [[ -n "${name}" ]] || continue
+        is_admin["${name}"]=1
+        descr["${name}"]="${d}"
+    done <<< "${admin}"
 
     local all
-    all="$(printf '%s\n%s\n' "${github}" "${admin}" | grep -v '^$' | sort -u)"
+    all="$(printf '%s\n' "${!is_github[@]}" "${!is_admin[@]}" | grep -v '^$' | sort -u)"
     [[ -z "${all}" ]] && return 0
 
-    local label
+    # Name-column width, so annotations and descriptions align across rows.
+    local max_name=0 n
+    while IFS= read -r n; do
+        [[ -n "${n}" ]] || continue
+        (( ${#n} > max_name )) && max_name=${#n}
+    done <<< "${all}"
+
+    local width
+    _knit_terminal_width width
+    local indent=$((2 + max_name + 2))
+
+    local label head
     while IFS= read -r n; do
         [[ -n "${n}" ]] || continue
         if [[ -n "${is_admin[${n}]:-}" && -n "${is_github[${n}]:-}" ]]; then
@@ -301,7 +356,9 @@ knit_list_profiles() {
         else
             label="github"
         fi
-        printf '%-30s %s\n' "${n}" "${label}"
+        printf -v head "  %-${max_name}s  [%s] " "${n}" "${label}"
+        _knit_help_render_entry "${width}" "${head}" "${#head}" "${indent}" \
+            "${descr[${n}]:-}"
     done <<< "${all}"
 }
 

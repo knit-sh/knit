@@ -200,48 +200,93 @@ _stub_http_fail() {
 
 # ---------- index parsing / listing ----------
 
-@test "_knit_profile_parse_index extracts one entry per line" {
+# A repo index in the shipped format: an array of one-line
+# { "name": ..., "description": ... } objects.
+_INDEX_BODY='[
+{ "name": "ornl/frontier", "description": "Frontier machine" },
+{ "name": "anl/improv", "description": "Improv machine" },
+{ "name": "anl/aurora", "description": "Aurora machine" }
+]'
+
+@test "_knit_profile_parse_index extracts name<TAB>description per entry" {
     local out
-    _knit_profile_parse_index out '["anl/aurora","anl/improv","ornl/frontier"]'
-    [ "${out}" = $'anl/aurora\nanl/improv\nornl/frontier' ]
+    _knit_profile_parse_index out '[
+{ "name": "anl/aurora", "description": "Aurora desc" },
+{ "name": "anl/improv", "description": "Improv desc" }
+]'
+    [ "${out}" = $'anl/aurora\tAurora desc\nanl/improv\tImprov desc' ]
 }
 
 @test "knit_list_profiles fetches, sorts and marks the repo index" {
-    _stub_http_ok '["ornl/frontier","anl/improv","anl/aurora"]'
+    _stub_http_ok "${_INDEX_BODY}"
     run knit_list_profiles
     [ "$status" -eq 0 ]
-    [[ "${lines[0]}" == "anl/aurora"* ]]
-    [[ "${lines[0]}" == *"github"* ]]
-    [[ "${lines[1]}" == "anl/improv"* ]]
-    [[ "${lines[2]}" == "ornl/frontier"* ]]
+    [[ "${lines[0]}" == *"anl/aurora"* ]]
+    [[ "${lines[0]}" == *"[github]"* ]]
+    [[ "${lines[1]}" == *"anl/improv"* ]]
+    [[ "${lines[2]}" == *"ornl/frontier"* ]]
     [[ "$(cat "${_KNIT_TEST_TMPDIR}/last_url")" == *"/src/profiles/index.json" ]]
 }
 
-@test "_knit_profile_admin_names lists /etc/knit profiles by relative path" {
+@test "knit_list_profiles shows each profile's description" {
+    _stub_http_ok '[
+{ "name": "anl/aurora", "description": "ALCF Aurora big machine" }
+]'
+    run knit_list_profiles
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"anl/aurora"*"[github]"*"ALCF Aurora big machine"* ]]
+}
+
+@test "knit_list_profiles word-wraps a long description under a narrow width" {
+    # Force a usable-but-narrow terminal width so wrapping engages.
+    # shellcheck disable=SC2317 # invoked indirectly by knit_list_profiles
+    _knit_terminal_width() { local -n __w=$1; __w=40; }
+    _stub_http_ok '[
+{ "name": "anl/aurora", "description": "alpha bravo charlie delta echo foxtrot golf hotel india" }
+]'
+    run knit_list_profiles
+    [ "$status" -eq 0 ]
+    # The description wrapped onto more than one line.
+    [ "${#lines[@]}" -gt 1 ]
+    # Continuation lines hang-indent (leading spaces) and carry no profile name.
+    [[ "${lines[1]}" == "  "* ]]
+    [[ "${lines[1]}" != *"anl/aurora"* ]]
+}
+
+@test "_knit_profile_admin_entries lists /etc/knit profiles by relative path" {
     mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/anl" "${_KNIT_PROFILE_ADMIN_DIR}/site"
     printf '%s' "${_SAMPLE_PROFILE}" > "${_KNIT_PROFILE_ADMIN_DIR}/anl/improv.json"
     printf '%s' "${_SAMPLE_PROFILE}" > "${_KNIT_PROFILE_ADMIN_DIR}/site/local.json"
-    local names
-    _knit_profile_admin_names names
-    [ "${names}" = $'anl/improv\nsite/local' ]
+    local entries
+    _knit_profile_admin_entries entries
+    [ "$(printf '%s\n' "${entries}" | cut -f1)" = $'anl/improv\nsite/local' ]
 }
 
-@test "_knit_profile_admin_names is empty when the admin dir is absent" {
+@test "_knit_profile_admin_entries carries each profile's description" {
+    mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/site"
+    printf '%s' '{"description":"A site profile"}' \
+        > "${_KNIT_PROFILE_ADMIN_DIR}/site/local.json"
+    local entries
+    _knit_profile_admin_entries entries
+    [ "${entries}" = $'site/local\tA site profile' ]
+}
+
+@test "_knit_profile_admin_entries is empty when the admin dir is absent" {
     _KNIT_PROFILE_ADMIN_DIR="${_KNIT_TEST_TMPDIR}/absent"
-    local names="unset"
-    _knit_profile_admin_names names
-    [ -z "${names}" ]
+    local entries="unset"
+    _knit_profile_admin_entries entries
+    [ -z "${entries}" ]
 }
 
-@test "_knit_profile_admin_names skips profiles marked _hide" {
+@test "_knit_profile_admin_entries skips profiles marked _hide" {
     mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/site"
     printf '%s' '{"description":"shown"}' \
         > "${_KNIT_PROFILE_ADMIN_DIR}/site/shown.json"
     printf '%s' '{"description":"hidden","_hide": true}' \
         > "${_KNIT_PROFILE_ADMIN_DIR}/site/hidden.json"
-    local names
-    _knit_profile_admin_names names
-    [ "${names}" = "site/shown" ]
+    local entries
+    _knit_profile_admin_entries entries
+    [ "${entries}" = $'site/shown\tshown' ]
 }
 
 @test "knit_list_profiles omits a hidden admin profile" {
@@ -255,7 +300,10 @@ _stub_http_fail() {
 }
 
 @test "knit_list_profiles unions the repo index and the admin store" {
-    _stub_http_ok '["anl/improv","ornl/frontier"]'
+    _stub_http_ok '[
+{ "name": "anl/improv", "description": "Improv machine" },
+{ "name": "ornl/frontier", "description": "Frontier machine" }
+]'
     mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/site"
     printf '%s' "${_SAMPLE_PROFILE}" > "${_KNIT_PROFILE_ADMIN_DIR}/site/local.json"
     run knit_list_profiles
@@ -268,13 +316,16 @@ _stub_http_fail() {
 }
 
 @test "knit_list_profiles marks an admin profile as shadowing the repo" {
-    _stub_http_ok '["anl/improv","ornl/frontier"]'
+    _stub_http_ok '[
+{ "name": "anl/improv", "description": "Improv machine" },
+{ "name": "ornl/frontier", "description": "Frontier machine" }
+]'
     mkdir -p "${_KNIT_PROFILE_ADMIN_DIR}/anl"
     printf '%s' "${_SAMPLE_PROFILE}" > "${_KNIT_PROFILE_ADMIN_DIR}/anl/improv.json"
     run knit_list_profiles
     [ "$status" -eq 0 ]
     # anl/improv is in both -> shadowing; appears exactly once.
-    [ "$(printf '%s\n' "$output" | grep -c '^anl/improv ')" -eq 1 ]
+    [ "$(printf '%s\n' "$output" | grep -c 'anl/improv')" -eq 1 ]
     [[ "$output" == *"anl/improv"*"admin (shadows github)"* ]]
 }
 
