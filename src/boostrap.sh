@@ -203,7 +203,7 @@ _knit_bootstrap() {
     if [ -d "${_KNIT_PREFIX}" ]; then
         knit_fatal "Knit is already bootstrapped."
     fi
-    knit_trace "Creating ${_KNIT_PREFIX} directory"
+    knit_info "Creating ${_KNIT_PREFIX} directory"
     _knit_ensure_trace_file
     mkdir "${_KNIT_PREFIX}" > "${_KNIT_TRACE_FILE}" 2>&1
     trap _knit_bootstrap_on_exit EXIT
@@ -212,19 +212,19 @@ _knit_bootstrap() {
     # development files. _knit_bootstrap_sqlite uses the system sqlite only when
     # those dev files are usable and otherwise builds from source, recording the
     # prefix knit-graph must build against in _KNIT_SQLITE_PREFIX.
-    knit_trace "Bootstrapping sqlite..."
+    knit_info "Bootstrapping sqlite..."
     _knit_bootstrap_sqlite "${ignore_system_sqlite}"
 
-    knit_trace "Bootstrapping jq..."
+    knit_info "Bootstrapping jq..."
     _knit_bootstrap_jq "${ignore_system_jq}"
 
-    knit_trace "Bootstrapping knit-graph..."
+    knit_info "Bootstrapping knit-graph..."
     _knit_bootstrap_knitgraph "${knitgraph_version}" "${knitgraph_url}"
 
     # Provision Spack after sqlite/jq: resolving the latest release needs jq, and
     # recording provenance metadata needs the (sqlite-backed) metadata table.
     if _knit_bootstrap_need_spack "${spack_ref}" "${spack_packages_ref}"; then
-        knit_trace "Bootstrapping spack..."
+        knit_info "Bootstrapping spack..."
         _knit_bootstrap_spack "${spack_ref}" "${spack_packages_ref}"
     fi
 
@@ -239,7 +239,7 @@ _knit_bootstrap() {
     local profile_json=""
     local profile_label=""
     if [[ -n "${profile}" ]]; then
-        knit_trace "Resolving profile ${profile}..."
+        knit_info "Resolving profile ${profile}..."
         _knit_resolve_profile profile_json profile_label "${profile}"
         _knit_load_profile "${profile_json}"
         # Materialize the platform artifacts (.knit/platform.sh, spack-config.json)
@@ -331,14 +331,14 @@ _knit_bootstrap() {
     # other), but carries only the platform activation — empty when there is no
     # profile. Run in a subshell so its exported KNIT_SETUP_PREFIX does not leak
     # into the rest of bootstrap.
-    knit_trace "Instantiating the default setup..."
+    knit_info "Instantiating the default setup..."
     ( knit setup --name default -- default )
 
     # AI provider config: written only when an API-key env var name is supplied
     # (the one required field of a usable config). Overwrite is on since bootstrap
     # is writing fresh metadata.
     if [[ -n "${ai_api_key_env}" ]]; then
-        knit_trace "Writing AI provider metadata..."
+        knit_info "Writing AI provider metadata..."
         _knit_ai_store_config "${ai_api_key_env}" "${ai_base_url_env}" \
             "${ai_model_env}" "${ai_base_url}" "${ai_model}" "true"
     fi

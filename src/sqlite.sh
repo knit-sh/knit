@@ -90,11 +90,12 @@ _knit_bootstrap_sqlite() {
         ln -s "${system_sqlite}" "${_KNIT_SQLITE_EXE}"
         _KNIT_SQLITE_PREFIX=""
     else
+        knit_info "Building sqlite3 from source.."
         _knit_build_sqlite
         _KNIT_SQLITE_PREFIX="${_KNIT_PREFIX}/sqlite"
     fi
 
-    knit_trace "Creating database and tables..."
+    knit_info "Creating database and tables..."
     _knit_create_metadata_table
     _knit_prov_create_table
 }
@@ -107,7 +108,7 @@ _knit_bootstrap_sqlite() {
 _knit_build_sqlite() {
     knit_pushd "${_KNIT_PREFIX}"
 
-    knit_trace "Downloading sqlite source..."
+    knit_info "Downloading sqlite source..."
     if ! _knit_sqlite_framed_run "sqlite: download" \
             curl -L -O "${_KNIT_SQLITE_SOURCE_URL}" ; then
         knit_fatal "Could not download sqlite sources. See ${_KNIT_TRACE_FILE} for more information."
