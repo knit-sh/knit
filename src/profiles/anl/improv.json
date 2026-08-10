@@ -6,10 +6,10 @@
         "command": "qsub",
         "default_queue": "compute",
         "queues": {
-            "compute":  { "min_nodes": 1, "max_nodes": 805, "max_walltime": "72:00:00" },
-            "bigmem":   { "min_nodes": 1, "max_nodes": 12,  "max_walltime": "72:00:00" },
-            "debug":    { "min_nodes": 1, "max_nodes": 8,   "max_walltime": "01:00:00" },
-            "backfill": { "min_nodes": 1, "max_nodes": 825, "max_walltime": "04:00:00" }
+            "compute":  { "min_nodes": 1, "max_nodes": 805, "max_walltime": "72:00:00", "default_walltime": "01:00:00" },
+            "bigmem":   { "min_nodes": 1, "max_nodes": 12,  "max_walltime": "72:00:00", "default_walltime": "01:00:00" },
+            "debug":    { "min_nodes": 1, "max_nodes": 8,   "max_walltime": "01:00:00", "default_walltime": "01:00:00" },
+            "backfill": { "min_nodes": 1, "max_nodes": 825, "max_walltime": "04:00:00", "default_walltime": "01:00:00" }
         }
     },
     "launcher": {

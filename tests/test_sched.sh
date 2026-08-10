@@ -284,6 +284,62 @@ _use_profile() {
     [ "${n}" -eq 0 ]
 }
 
+# ---------- _knit_submit : defaulted-walltime warning ----------
+
+@test "_knit_submit warns on a batch backend when the walltime is defaulted" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    _knit_sched_backend() { local -n __r=$1; __r='pbs'; }
+    _knit_sched_submit() { printf '12345\n'; }
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+    # No profile/metadata/--walltime -> the one-hour fallback is defaulted.
+    run _knit_submit -- myjob
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"No --walltime given"* ]]
+    [[ "$output" == *"01:00:00"* ]]
+}
+
+@test "_knit_submit does not warn when --walltime is given" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    _knit_sched_backend() { local -n __r=$1; __r='pbs'; }
+    _knit_sched_submit() { printf '12345\n'; }
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+    run _knit_submit --walltime 00:20:00 -- myjob
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"No --walltime given"* ]]
+}
+
+@test "_knit_submit does not warn about walltime on the local backend" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_without_setup
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    # Walltime is only a soft-kill convenience for local/none, so no warning.
+    _knit_sched_backend() { local -n __r=$1; __r='local'; }
+    _knit_sched_submit() { printf '12345\n'; }
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+    run _knit_submit -- myjob
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"No --walltime given"* ]]
+}
+
 @test "_knit_submit --name rejects an invalid alias" {
     _test_job_fn() { :; }
     knit_register_job "myjob" "_test_job_fn" "A test job."
@@ -651,19 +707,60 @@ _seed_default_setup() {
 
 # ---------- _knit_sched_resolve : specific options ----------
 
-@test "resolve derives walltime from the resolved queue's profile cap" {
+@test "resolve derives walltime from the resolved queue's profile default" {
     _use_profile polaris
     declare -A r
-    # No explicit queue -> profile default queue "prod" (max_walltime 24:00:00)
+    # No explicit queue -> profile default queue "prod": its default_walltime is
+    # one hour, NOT the 24:00:00 cap.
     _knit_sched_resolve r
-    [ "${r[walltime]}" = "24:00:00" ]
+    [ "${r[walltime]}" = "01:00:00" ]
+    [ "${r[walltime-defaulted]}" = "true" ]
 }
 
-@test "resolve derives walltime from an explicitly chosen queue's cap" {
+@test "resolve derives walltime from an explicitly chosen queue's default" {
     _use_profile polaris
     declare -A r
+    # debug's default_walltime is 01:00:00; the point is that the *selected*
+    # queue drives it (not the default queue), so --queue debug never inherits
+    # prod's larger limit.
     _knit_sched_resolve r --queue debug
     [ "${r[walltime]}" = "01:00:00" ]
+    [ "${r[walltime-defaulted]}" = "true" ]
+}
+
+@test "resolve uses --walltime verbatim and marks it not defaulted" {
+    _use_profile polaris
+    declare -A r
+    _knit_sched_resolve r --walltime 00:15:00
+    [ "${r[walltime]}" = "00:15:00" ]
+    [ "${r[walltime-defaulted]}" = "false" ]
+}
+
+@test "resolve prefers __default_walltime__ metadata and marks it not defaulted" {
+    _use_profile polaris
+    _knit_metadata_store --key "__default_walltime__" --value "03:00:00"
+    declare -A r
+    _knit_sched_resolve r
+    [ "${r[walltime]}" = "03:00:00" ]
+    [ "${r[walltime-defaulted]}" = "false" ]
+}
+
+@test "resolve falls back to the queue's max_walltime when it has no default" {
+    # A profile predating default_walltime: only max_walltime is present.
+    _knit_metadata_store --key "__profile__" --value "legacy"
+    _knit_metadata_store --key "__profile_json__" --value \
+        '{"scheduler":{"default_queue":"big","queues":{"big":{"max_walltime":"06:00:00"}}}}'
+    declare -A r
+    _knit_sched_resolve r
+    [ "${r[walltime]}" = "06:00:00" ]
+    [ "${r[walltime-defaulted]}" = "true" ]
+}
+
+@test "resolve falls back to one hour and marks defaulted when nothing is set" {
+    declare -A r
+    _knit_sched_resolve r
+    [ "${r[walltime]}" = "01:00:00" ]
+    [ "${r[walltime-defaulted]}" = "true" ]
 }
 
 @test "resolve job-name defaults to the experiment script name" {

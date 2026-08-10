@@ -804,8 +804,8 @@ before you commit to it --- before bootstrap you pass the spec explicitly:
            "command": "qsub",
            "default_queue": "prod",
            "queues": {
-               "prod":  { "min_nodes": 10, "max_nodes": 496, "min_walltime": "00:05:00", "max_walltime": "24:00:00" },
-               "debug": { "min_nodes": 1,  "max_nodes": 2,   "min_walltime": "00:05:00", "max_walltime": "01:00:00" }
+               "prod":  { "min_nodes": 10, "max_nodes": 496, "min_walltime": "00:05:00", "max_walltime": "24:00:00", "default_walltime": "01:00:00" },
+               "debug": { "min_nodes": 1,  "max_nodes": 2,   "min_walltime": "00:05:00", "max_walltime": "01:00:00", "default_walltime": "01:00:00" }
            }
        },
        "launcher": { "type": "pals", "command": "mpiexec" },
@@ -869,10 +869,13 @@ to do:
 
 ``--nodes 2`` allocates two whole nodes; ``--queue`` and ``--walltime`` override
 the profile's defaults for this one submission (leave them off and the profile's
-``prod`` queue is used, an unset ``--walltime`` defaulting to that queue's
-``max_walltime``). Knit does not enforce a queue's node or walltime limits ---
-the scheduler is the sole authority on those; the profile records them only for
-reference. The account you gave at bootstrap is reused
+``prod`` queue is used, and an unset ``--walltime`` falls back to the *selected*
+queue's ``default_walltime`` --- a modest limit, not the queue's ``max_walltime``
+cap --- so switching queues never carries one queue's ceiling onto another). When
+the walltime is defaulted this way on a batch scheduler, Knit warns and suggests
+passing ``--walltime`` explicitly. Knit does not enforce a queue's node or
+walltime limits --- the scheduler is the sole authority on those; the profile
+records them only for reference. The account you gave at bootstrap is reused
 automatically, so you do not retype it --- override it per-submit with
 ``--account`` (the allocation charged, ``#PBS -A`` / Slurm ``--account``) or
 ``--project`` (a project tag, ``#PBS -P`` / Slurm ``--wckey``) when you need to.

@@ -236,6 +236,17 @@ _knit_submit() {
     local backend
     _knit_sched_backend backend
 
+    # When the walltime was defaulted (no --walltime, no project default), warn so
+    # the user knows a limit was chosen for them and can set it explicitly. Only
+    # for batch schedulers where walltime is a hard, queue-checked limit: for the
+    # local/none backends it is just a soft kill convenience, so a default there
+    # is unremarkable.
+    if [[ "${opts["walltime-defaulted"]}" == "true" \
+          && ( "${backend}" == "slurm" || "${backend}" == "pbs" ) ]]; then
+        knit_warning "No --walltime given; defaulting to \"%s\" for queue \"%s\". Pass --walltime HH:MM:SS to set it explicitly." \
+            "${opts["walltime"]}" "${opts["queue"]}"
+    fi
+
     # Generate the batch script. The generated script exports
     # KNIT_JOB_PREFIX/KNIT_SETUP_PREFIX, cd's into the job directory, then calls
     # `path/to/exp.sh submit <job-name> [args...]` on the compute node.

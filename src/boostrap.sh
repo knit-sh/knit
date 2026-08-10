@@ -122,7 +122,7 @@ knit_with_optional "launcher:__launcher__" "auto" \
 knit_with_optional "account:string" "" \
     "Account/allocation to charge submitted jobs to."
 knit_with_optional "default-walltime:string" "" \
-    "Default job wall-clock limit as HH:MM:SS (default: the profile's default-queue cap)."
+    "Project-wide default job wall-clock limit as HH:MM:SS. Empty (the default) lets each submission fall back to the selected queue's profile default_walltime."
 knit_with_optional "default-cpus-per-node:string" "" \
     "Cores per node for whole-node allocation (default: profile hardware, else live detection)."
 knit_with_optional "default-nodefile:string" "" \
@@ -271,13 +271,14 @@ _knit_bootstrap() {
         launcher="$(_knit_detect_launcher)"
     fi
 
-    # Default walltime: explicit flag, else the profile's default-queue cap. Read
-    # from the in-memory profile JSON: __profile_json__ metadata is not written
-    # until below, so _knit_sched_profile_field would find nothing here.
-    if [[ -z "${default_walltime}" && -n "${profile_json}" && -n "${default_queue}" ]]; then
-        default_walltime="$(printf '%s' "${profile_json}" \
-            | _knit_jq -r ".scheduler.queues.\"${default_queue}\".max_walltime // empty")"
-    fi
+    # Default walltime is left empty unless the user set it with the flag. It is
+    # deliberately NOT auto-filled from the default queue's cap: that froze one
+    # queue's (often 24h) limit as a queue-agnostic default, so a later
+    # `--queue debug` inherited it and the scheduler rejected the oversized
+    # request. Walltime is instead resolved per selected queue at submit time
+    # (see _knit_sched_resolve), which reads each queue's default_walltime from
+    # the profile. An explicit --default-walltime remains an honored project-wide
+    # default with no per-queue second-guessing.
 
     # Per-node core count precedence: explicit flag -> profile -> live detection.
     if [[ -n "${cpus_flag}" ]]; then

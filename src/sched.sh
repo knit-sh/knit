@@ -100,7 +100,9 @@ _knit_sched_profile_field() {
 #
 # The array is keyed by canonical option name (job-name, account, project,
 # queue, nodes, cpus-per-node, walltime, gpus-per-node, wait) plus "extra-args"
-# for the site-mandatory scheduler arguments captured at bootstrap. The per-node
+# for the site-mandatory scheduler arguments captured at bootstrap, and
+# "walltime-defaulted" ("true"/"false") recording whether the walltime was
+# chosen by knit rather than requested (so the submit path can warn). The per-node
 # core count (cpus-per-node) is derived rather than requested (knit allocates
 # whole nodes). Job stdout/stderr are fixed to <job-dir>/.stdout and
 # <job-dir>/.stderr by the backend, so they are not resolved here.
@@ -153,15 +155,41 @@ _knit_sched_resolve() {
     [[ -z "${v}" ]] && v="0"
     resolved["gpus-per-node"]="${v}"
 
-    # Walltime falls back to the resolved queue's profile cap, then to one hour.
+    # Walltime is resolved queue-aware, and we record whether the value was
+    # picked by knit rather than requested (walltime-defaulted). Precedence:
+    #   1. --walltime CLI argument               (explicit; not defaulted)
+    #   2. __default_walltime__ metadata          (explicit; the project-wide
+    #      default the user set with `bootstrap --default-walltime`; not defaulted)
+    #   3. the selected queue's default_walltime  (profile; defaulted)
+    #   4. the selected queue's max_walltime      (profile; defaulted; a safety
+    #      fallback for profiles that predate default_walltime — the value is
+    #      still valid for the queue)
+    #   5. one hour                                (defaulted)
+    # Note: __default_walltime__ is queue-agnostic on purpose; when it is set the
+    # user has chosen a single project default, so knit does not second-guess it
+    # per queue. It is only populated when the bootstrap flag was given (knit no
+    # longer auto-fills it from the default queue's cap).
+    local defaulted="false"
     v="$(knit_get_parameter "walltime" "${cli[@]}")" || v=""
-    [[ -z "${v}" ]] && _knit_metadata_get v "__default_walltime__"
+    if [[ -z "${v}" ]]; then
+        _knit_metadata_get v "__default_walltime__"
+    fi
+    if [[ -z "${v}" && -n "${resolved["queue"]}" ]]; then
+        _knit_sched_profile_field v "${profile}" \
+            ".scheduler.queues.\"${resolved["queue"]}\".default_walltime"
+        defaulted="true"
+    fi
     if [[ -z "${v}" && -n "${resolved["queue"]}" ]]; then
         _knit_sched_profile_field v "${profile}" \
             ".scheduler.queues.\"${resolved["queue"]}\".max_walltime"
+        defaulted="true"
     fi
-    [[ -z "${v}" ]] && v="01:00:00"
+    if [[ -z "${v}" ]]; then
+        v="01:00:00"
+        defaulted="true"
+    fi
     resolved["walltime"]="${v}"
+    resolved["walltime-defaulted"]="${defaulted}"
 
     # Behaviour -----------------------------------------------------------------
     v="$(knit_get_parameter "wait" "${cli[@]}")" || v="false"

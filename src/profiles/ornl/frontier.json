@@ -6,9 +6,9 @@
         "command": "sbatch",
         "default_queue": "batch",
         "queues": {
-            "batch":    { "min_nodes": 1, "max_nodes": 9472, "max_walltime": "12:00:00" },
-            "extended": { "min_nodes": 1, "max_nodes": 64,   "max_walltime": "24:00:00" },
-            "debug":    { "min_nodes": 1, "max_nodes": 91,   "max_walltime": "02:00:00" }
+            "batch":    { "min_nodes": 1, "max_nodes": 9472, "max_walltime": "12:00:00", "default_walltime": "01:00:00" },
+            "extended": { "min_nodes": 1, "max_nodes": 64,   "max_walltime": "24:00:00", "default_walltime": "01:00:00" },
+            "debug":    { "min_nodes": 1, "max_nodes": 91,   "max_walltime": "02:00:00", "default_walltime": "01:00:00" }
         }
     },
     "launcher": {

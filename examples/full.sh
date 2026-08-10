@@ -155,7 +155,8 @@
 #   ./full.sh bootstrap --project pi-demo --spack v0.22.0
 #
 # If knit serves a profile for your machine (see step 3), pass it to prepopulate
-# the scheduler, launcher, queue, walltime cap and per-node core count. A profile
+# the scheduler, launcher, queue, per-queue walltime defaults and per-node core
+# count. A profile
 # spec is a <namespace>/<machine> name served from the knit repo, an admin file
 # under /etc/knit/profiles/, a local *.json file, or a URL:
 #

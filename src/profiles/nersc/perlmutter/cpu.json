@@ -7,9 +7,9 @@
         "default_queue": "regular",
         "default_args": ["-C cpu"],
         "queues": {
-            "regular": { "min_nodes": 1,                  "max_walltime": "48:00:00" },
-            "debug":   { "min_nodes": 1, "max_nodes": 8,  "max_walltime": "00:30:00" },
-            "preempt": { "min_nodes": 1, "max_nodes": 128, "min_walltime": "02:00:00", "max_walltime": "48:00:00" }
+            "regular": { "min_nodes": 1,                  "max_walltime": "48:00:00", "default_walltime": "01:00:00" },
+            "debug":   { "min_nodes": 1, "max_nodes": 8,  "max_walltime": "00:30:00", "default_walltime": "00:30:00" },
+            "preempt": { "min_nodes": 1, "max_nodes": 128, "min_walltime": "02:00:00", "max_walltime": "48:00:00", "default_walltime": "02:00:00" }
         }
     },
     "launcher": {

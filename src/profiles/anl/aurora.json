@@ -6,9 +6,9 @@
         "command": "qsub",
         "default_queue": "prod",
         "queues": {
-            "debug":         { "min_nodes": 1,   "max_nodes": 2,     "min_walltime": "00:05:00", "max_walltime": "01:00:00" },
-            "debug-scaling": { "min_nodes": 2,   "max_nodes": 256,   "min_walltime": "00:05:00", "max_walltime": "01:00:00" },
-            "prod":          { "min_nodes": 256, "max_nodes": 10624, "min_walltime": "00:05:00", "max_walltime": "24:00:00" }
+            "debug":         { "min_nodes": 1,   "max_nodes": 2,     "min_walltime": "00:05:00", "max_walltime": "01:00:00", "default_walltime": "01:00:00" },
+            "debug-scaling": { "min_nodes": 2,   "max_nodes": 256,   "min_walltime": "00:05:00", "max_walltime": "01:00:00", "default_walltime": "01:00:00" },
+            "prod":          { "min_nodes": 256, "max_nodes": 10624, "min_walltime": "00:05:00", "max_walltime": "24:00:00", "default_walltime": "01:00:00" }
         }
     },
     "launcher": {
