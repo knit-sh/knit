@@ -14,6 +14,11 @@ title = "Commands"
 summary = "Registering commands, subcommands, and dispatchers."
 
 [[category]]
+slug = "parameters"
+title = "Parameters"
+summary = "Declaring parameters, flags, extras, and reusable parameter sets."
+
+[[category]]
 slug = "setup"
 title = "Setup"
 summary = "Defining and provisioning software environments."
