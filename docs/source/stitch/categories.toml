@@ -62,3 +62,8 @@ summary = "Selecting a machine profile at bootstrap and reading its scheduler, l
 slug = "metadata"
 title = "Metadata"
 summary = "Storing and reading experiment-wide key/value metadata in the metadata table."
+
+[[category]]
+slug = "query"
+title = "Query"
+summary = "Discovering the schema and querying the provenance database with Cypher or read-only SQL."
