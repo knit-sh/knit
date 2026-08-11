@@ -26,12 +26,14 @@ the API pages produced by gen-doc-api.py.
 """
 import glob
 import os
+import re
 import sys
 import tomllib
 import xml.etree.ElementTree as ET
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.dirname(HERE)
+SRC_DIR = os.path.join(ROOT, "src")
 STITCH_DIR = os.path.join(ROOT, "docs", "source", "stitch")
 RECIPES_DIR = os.path.join(STITCH_DIR, "recipes")
 CATEGORIES_TOML = os.path.join(STITCH_DIR, "categories.toml")
@@ -56,8 +58,18 @@ def load_categories():
 
 
 def load_known_symbols():
-    """Return the set of Knit function/variable names from the Doxygen XML, or
-    ``None`` if the XML has not been generated (so the ``apis`` check is skipped).
+    """Return the set of names an ``apis:`` entry may reference, or ``None`` when
+    the Doxygen XML has not been generated (so the ``apis`` check is skipped).
+
+    The set is the union of two sources:
+
+    * Knit function/variable names from the Doxygen XML (the same source
+      gen-doc-api.py reads) --- e.g. ``knit_register_setup``, ``KNIT_SETUP_PREFIX``.
+    * Built-in command names registered in ``src/*.sh`` --- e.g. ``bootstrap``,
+      ``metadata store``. Command-oriented recipes (Bootstrap, Query, AI, ...)
+      show terminal invocations rather than shell API, so their ``apis:`` line
+      cites the command; recognising it here keeps the soft check meaningful for
+      those recipes too.
     """
     if not os.path.isdir(XML_DIR):
         return None
@@ -69,7 +81,35 @@ def load_known_symbols():
                 name = member.findtext("name")
                 if name:
                     names.add(name)
+    names |= load_known_commands()
     return names
+
+
+def load_known_commands():
+    """Return the set of built-in command names registered in ``src/*.sh``.
+
+    Each ``knit_register`` / ``knit_register_wrapper`` declares a command whose
+    name may be nested with colons (``metadata:store``). Both the colon form and
+    the space form a user actually types (``metadata store``) are returned, so an
+    ``apis:`` entry may use either. Private commands (a ``_`` prefix on any
+    segment, e.g. ``__main__`` or ``_run``) are omitted.
+    """
+    pattern = re.compile(
+        r'^\s*knit_register(?:_wrapper)?\s+'
+        r'(?:"([^"]+)"|([A-Za-z0-9_:.-]+))')
+    commands = set()
+    for path in glob.glob(os.path.join(SRC_DIR, "*.sh")):
+        with open(path) as handle:
+            for line in handle:
+                match = pattern.match(line)
+                if not match:
+                    continue
+                name = match.group(1) or match.group(2)
+                if any(seg.startswith("_") for seg in name.split(":")):
+                    continue
+                commands.add(name)
+                commands.add(name.replace(":", " "))
+    return commands
 
 
 def parse_metadata(path):

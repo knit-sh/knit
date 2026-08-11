@@ -4,6 +4,11 @@ explanation and a code snippet; browse by category below.
 """
 
 [[category]]
+slug = "bootstrap"
+title = "Bootstrap"
+summary = "Initializing an experiment with knit bootstrap."
+
+[[category]]
 slug = "setup"
 title = "Setup"
 summary = "Defining and provisioning software environments."
