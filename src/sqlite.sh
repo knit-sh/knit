@@ -85,12 +85,12 @@ _knit_bootstrap_sqlite() {
     fi
 
     if [[ -n "${system_sqlite}" ]] && _knit_detect_sqlite_dev; then
-        knit_info "Using system sqlite3 at ${system_sqlite} (symlinked)."
+        knit_info "Using system sqlite at ${system_sqlite} (symlinked)."
         mkdir -p "$(dirname "${_KNIT_SQLITE_EXE}")"
         ln -s "${system_sqlite}" "${_KNIT_SQLITE_EXE}"
         _KNIT_SQLITE_PREFIX=""
     else
-        knit_info "Building sqlite3 from source.."
+        knit_info "Building sqlite from source.."
         _knit_build_sqlite
         _KNIT_SQLITE_PREFIX="${_KNIT_PREFIX}/sqlite"
     fi
@@ -108,7 +108,7 @@ _knit_bootstrap_sqlite() {
 _knit_build_sqlite() {
     knit_pushd "${_KNIT_PREFIX}"
 
-    knit_info "Downloading sqlite source..."
+    knit_trace "Downloading sqlite source..."
     if ! _knit_sqlite_framed_run "sqlite: download" \
             curl -L -O "${_KNIT_SQLITE_SOURCE_URL}" ; then
         knit_fatal "Could not download sqlite sources. See ${_KNIT_TRACE_FILE} for more information."
