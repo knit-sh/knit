@@ -32,3 +32,8 @@ summary = "Defining and provisioning software environments."
 slug = "spack"
 title = "Spack"
 summary = "Working with Spack environments and package specs."
+
+[[category]]
+slug = "jobs"
+title = "Jobs"
+summary = "Submitting jobs to the scheduler and tracking their lifecycle."

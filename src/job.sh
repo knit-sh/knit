@@ -22,6 +22,20 @@ declare -A _KNIT_JOBS
 declare -g _KNIT_JOBS_TABLE
 _KNIT_JOBS_TABLE="jobs"
 
+# ------------------------------------------------------------------------------
+# @var KNIT_JOB_PREFIX
+#
+# Public environment variable exported into a running job's environment: the
+# absolute path of the job's own working directory, <job-root>/<uuid>. It is set
+# by the generated job script (see _knit_sched_write_jobscript), which also makes
+# it the process working directory, so a job body may either read it explicitly
+# (e.g. to build an absolute output path) or rely on relative paths landing in it.
+# It is unset outside a running job (on the login/submit side). The basename of
+# this path is the job UUID, which is how compute-side callbacks recover their own
+# row id in the jobs table.
+# ------------------------------------------------------------------------------
+declare -g KNIT_JOB_PREFIX
+
 knit_register "submit" _knit_submit "Submit a job."
 _knit_is_builtin
 knit_with_optional "setup:string" "" \
