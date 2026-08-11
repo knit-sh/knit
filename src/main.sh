@@ -44,6 +44,8 @@ knit() {
 # the body should actually run in. When it is unset (the normal top-level
 # invocation) nothing happens: the feature is fully inert for ordinary runs.
 # ------------------------------------------------------------------------------
+declare -gx _KNIT_JUMP_TO_DIR
+
 if [[ -n "${_KNIT_JUMP_TO_DIR:-}" ]]; then
     # Unset first so a stale exported value cannot make an unrelated child that
     # sources knit.sh cd unexpectedly; each re-entry sets it fresh.

@@ -3,23 +3,35 @@
 ## @file sqlite.sh
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_SQLITE_SOURCE_NAME
+#
 # Name of the SQLite source archive.
 # ------------------------------------------------------------------------------
+declare -g _KNIT_SQLITE_SOURCE_NAME
 _KNIT_SQLITE_SOURCE_NAME="sqlite-autoconf-3480000"
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_SQLITE_SOURCE_URL
+#
 # URL to download the SQLite source archive.
 # ------------------------------------------------------------------------------
+declare -g _KNIT_SQLITE_SOURCE_URL
 _KNIT_SQLITE_SOURCE_URL="https://www.sqlite.org/2025/${_KNIT_SQLITE_SOURCE_NAME}.tar.gz"
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_SQLITE_EXE
+#
 # Path to the SQLite executable.
 # ------------------------------------------------------------------------------
+declare -g _KNIT_SQLITE_EXE
 _KNIT_SQLITE_EXE="${_KNIT_PREFIX}/sqlite/bin/sqlite3"
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_DATABASE
+#
 # Path to the Knit database file.
 # ------------------------------------------------------------------------------
+declare -g _KNIT_DATABASE
 _KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
 
 # ------------------------------------------------------------------------------

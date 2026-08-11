@@ -3,13 +3,18 @@
 ## @file sched.sh
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_SCHED_KILL_WARNING_SEC
+#
 # Seconds before the walltime limit at which a scheduler is asked to warn the
 # job (Slurm --signal). The warning lets the job record itself as "killed"
 # before it is hard-killed (see _knit_job_killed_trap).
 # ------------------------------------------------------------------------------
+declare -g _KNIT_SCHED_KILL_WARNING_SEC
 _KNIT_SCHED_KILL_WARNING_SEC="60"
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_SCHED_POLL_INTERVAL
+#
 # Seconds between polls when a backend has to wait for a job by polling its
 # scheduler (Slurm squeue, PBS qstat — neither offers a reliable blocking
 # "wait for completion" primitive). Overridable, chiefly so tests can drive the

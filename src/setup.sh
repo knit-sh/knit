@@ -450,7 +450,9 @@ _knit_setup_default_after_cb() {
 # to carry the platform activation (inlined into .activate.sh by
 # _knit_setup_default_after_cb) to jobs that declare no setup of their own.
 # ------------------------------------------------------------------------------
-_knit_default_setup() { :; }
+_knit_default_setup() {
+    :
+}
 
 # The builtin "default" setup is registered like a user setup (so it has a table
 # and participates in the DB/provenance graph) but with the platform-only

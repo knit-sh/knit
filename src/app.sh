@@ -11,12 +11,15 @@
 declare -A _KNIT_APPS
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_RUNS_TABLE
+#
 # Name of the table recording every run: the app launched, the requested
 # placement, and the launcher. The row id is the run's own UUID. The parent job
 # and the rank-0 per-app row are linked through the provenance graph — the
 # "submit:<job> -> run" and "run -> run:<app>" call edges — not through a stored
 # column or a shared id (each mints its own distinct UUID).
 # ------------------------------------------------------------------------------
+declare -g _KNIT_RUNS_TABLE
 _KNIT_RUNS_TABLE="runs"
 
 knit_register "run" _knit_run "Run an application (MPI launch) inside a job."
@@ -204,8 +207,9 @@ _knit_run() {
         # _KNIT_JUMP_TO_DIR). Using $PWD (not KNIT_JOB_PREFIX) preserves "ranks
         # run where knit run was called" even for a top-level run outside a job.
         # This is scoped to the launcher subshell, so the job body's cwd is
-        # untouched.
-        export _KNIT_JUMP_TO_DIR="${PWD}"
+        # untouched. _KNIT_JUMP_TO_DIR is declared -gx in main.sh, so this plain
+        # assignment is already exported (no export keyword needed here).
+        _KNIT_JUMP_TO_DIR="${PWD}"
         cd "$(dirname "${KNIT_SCRIPT_PATH}")" \
             || knit_fatal "cannot cd to the experiment script directory"
         _knit_launch_exec "${resolved_backend}" launch_opts -- \
