@@ -67,3 +67,8 @@ summary = "Storing and reading experiment-wide key/value metadata in the metadat
 slug = "query"
 title = "Query"
 summary = "Discovering the schema and querying the provenance database with Cypher or read-only SQL."
+
+[[category]]
+slug = "ai"
+title = "AI"
+summary = "Configuring an AI provider and asking natural-language questions about the experiment."
