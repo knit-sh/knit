@@ -79,7 +79,7 @@ change at any time.
 
    quickstart
    tutorial/index
-   basic/index
+   stitch/index
 
 .. toctree::
    :maxdepth: 1

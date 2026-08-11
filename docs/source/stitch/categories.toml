@@ -1,0 +1,14 @@
+intro = """
+Short, self-contained recipes for common Knit tasks. Each recipe is a small
+explanation and a code snippet; browse by category below.
+"""
+
+[[category]]
+slug = "setup"
+title = "Setup"
+summary = "Defining and provisioning software environments."
+
+[[category]]
+slug = "spack"
+title = "Spack"
+summary = "Working with Spack environments and package specs."

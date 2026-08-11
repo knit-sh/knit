@@ -8,6 +8,11 @@
 # in that file. This guarantees a documentation snippet can never silently
 # vanish or be renamed out from under the prose that shows it.
 #
+# Include paths are resolved the way Sphinx resolves them: a leading `/` is
+# relative to the documentation source root (so the Stitch Guide recipe
+# fragments, which are inlined into pages in a different directory, can use an
+# unambiguous `/_code/...` path); any other path is relative to the .rst file.
+#
 # Run standalone or via `make check-docs`.
 # ----------------------------------------------------------------------------
 set -uo pipefail
@@ -32,7 +37,11 @@ while IFS= read -r rst; do
         if [[ "${line}" =~ ^[[:space:]]*\.\.[[:space:]]+literalinclude::[[:space:]]*(.+)$ ]]; then
             inc_path="${BASH_REMATCH[1]}"
             inc_path="${inc_path%"${inc_path##*[![:space:]]}"}"   # rtrim
-            target="${rst_dir}/${inc_path}"
+            if [[ "${inc_path}" == /* ]]; then
+                target="${DOCS_ROOT%/}/${inc_path#/}"    # source-root-relative
+            else
+                target="${rst_dir}/${inc_path}"          # .rst-file-relative
+            fi
             if [[ ! -f "${target}" ]]; then
                 echo "${rst}: literalinclude target not found: ${inc_path}"
                 errors=$((errors + 1))

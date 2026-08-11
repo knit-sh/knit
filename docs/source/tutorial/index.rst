@@ -396,7 +396,7 @@ rank.
    ``height``, ``c-re``, …), because the job forwards them to the app. Rather than
    repeat the declarations, you can define them once as a **parameter set** and
    import it into both commands with ``knit_with_parameter_set``. Parameter sets
-   are covered in :doc:`Basic Usage <../basic/index>`.
+   are covered in :doc:`the Stitch Guide <../stitch/index>`.
 
 Submitting is **exactly as before** --- ``julia`` is still the job, so the
 ``submit`` grammar is unchanged. On a laptop the job runs on one node, so
@@ -545,7 +545,7 @@ whole chain --- for example, following the ``used_by`` edge back to the setup a
 render's job consumed --- rather than only what lives in a single table.
 
 The provenance model, ``knit query`` in full, and analysis commands are covered
-in :doc:`Basic Usage <../basic/index>`. Knit's experimental model fans out from
+in :doc:`the Stitch Guide <../stitch/index>`. Knit's experimental model fans out from
 a single bootstrap to multiple setups, each used by multiple jobs, each potentially
 running one or more apps, before a fan-in command aggregates the result to, for
 instance, produce figures. That entire lineage is a single path in Cypher:
@@ -643,7 +643,7 @@ prints the generated statement without running it --- handy for pasting into
 
 Both commands need a configured provider and a reachable key; without one they
 stop with a clear message pointing you back to ``ai init``. Provider setup,
-scope, and limits are covered in :doc:`Basic Usage <../basic/index>`.
+scope, and limits are covered in :doc:`the Stitch Guide <../stitch/index>`.
 
 Step 8 --- inspect and manage what you have built
 -------------------------------------------------
@@ -898,7 +898,7 @@ anywhere.
 That completes the tutorial. You have built a portable, self-provisioning,
 fully-recorded HPC experiment from an empty directory. To go deeper on any piece
 --- the recording and provenance model, setups and Spack, parallel placement,
-querying, or the AI tools --- continue to :doc:`Basic Usage <../basic/index>`.
+querying, or the AI tools --- continue to :doc:`the Stitch Guide <../stitch/index>`.
 
 The complete experiment
 -----------------------

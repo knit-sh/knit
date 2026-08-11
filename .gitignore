@@ -5,6 +5,8 @@
 /docs/doxygen/
 /docs/source/api/public.rst
 /docs/source/api/private.rst
+/docs/source/stitch/index.rst
+/docs/source/stitch/_categories/
 /docs/.venv/
 
 # Assembled website

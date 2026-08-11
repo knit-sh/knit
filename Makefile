@@ -120,6 +120,8 @@ docs: docs-env
 	doxygen Doxyfile
 	@echo "Generating Public/Private API pages..."
 	python3 maint/gen-doc-api.py
+	@echo "Generating Stitch Guide pages..."
+	python3 maint/gen-stitch-guide.py
 	@echo "Building Sphinx documentation..."
 	$(DOCS_VENV)/bin/sphinx-build -b html docs/source docs/build/html
 	@echo "Done. Open docs/build/html/index.html"

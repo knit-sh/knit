@@ -63,7 +63,10 @@ extensions = [
 ]
 
 templates_path = ["_templates"]
-exclude_patterns = []
+# Stitch Guide recipe fragments (docs/source/stitch/recipes/) are heading-less
+# and inlined into the generated per-category pages via `.. include::`; exclude
+# them so Sphinx does not also build each as a standalone (orphan) document.
+exclude_patterns = ["stitch/recipes/**"]
 
 # -- sphinx-copybutton --------------------------------------------------------
 #
