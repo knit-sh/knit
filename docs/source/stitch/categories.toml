@@ -42,3 +42,13 @@ summary = "Submitting jobs to the scheduler and tracking their lifecycle."
 slug = "apps"
 title = "Apps"
 summary = "Launching MPI applications across a job's allocation with knit run."
+
+[[category]]
+slug = "recording"
+title = "Recording"
+summary = "Recording command invocations, their parameters, and their outputs in per-command tables."
+
+[[category]]
+slug = "provenance"
+title = "Provenance"
+summary = "Linking recorded rows across tables through the __provenance__ graph of call and used_by edges."
