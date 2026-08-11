@@ -9,6 +9,11 @@ title = "Bootstrap"
 summary = "Initializing an experiment with knit bootstrap."
 
 [[category]]
+slug = "commands"
+title = "Commands"
+summary = "Registering commands, subcommands, and dispatchers."
+
+[[category]]
 slug = "setup"
 title = "Setup"
 summary = "Defining and provisioning software environments."
