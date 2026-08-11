@@ -294,6 +294,70 @@ _bootstrap_launcher_stubs() {
     [ ! -s "${calls}" ]
 }
 
+@test "bootstrap falls back to srun when no MPI-native launcher is detected under slurm" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+    # No MPI-native launcher on PATH.
+    eval '_knit_detect_launcher() { printf "<unknown>"; }'
+
+    run _knit_bootstrap --scheduler slurm --launcher auto
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __launcher__ --value slurm' "${meta}"
+}
+
+@test "bootstrap falls back to the PBS launcher when no MPI-native launcher is detected under pbs" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+    eval '_knit_detect_launcher() { printf "<unknown>"; }'
+
+    run _knit_bootstrap --scheduler pbs --launcher auto
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __launcher__ --value pbs' "${meta}"
+}
+
+@test "bootstrap prefers a detected MPI-native launcher over the scheduler fallback" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+    # An MPI-native launcher IS present, so the fallback must not fire.
+    eval '_knit_detect_launcher() { printf "openmpi"; }'
+
+    run _knit_bootstrap --scheduler slurm --launcher auto
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __launcher__ --value openmpi' "${meta}"
+}
+
+@test "bootstrap does not fall back to a scheduler launcher without a batch scheduler" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+    eval '_knit_detect_launcher() { printf "<unknown>"; }'
+
+    # local scheduler => no scheduler-integrated launcher to fall back to.
+    run _knit_bootstrap --scheduler local --launcher auto
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __launcher__ --value <unknown>' "${meta}"
+}
+
+@test "bootstrap __launcher__ enum accepts every documented launcher" {
+    # The bootstrap --launcher help advertises these values; the enum must accept
+    # each one, including the scheduler-integrated slurm and pbs backends that are
+    # only ever selected explicitly (never auto-detected).
+    local v
+    for v in auto openmpi mpich pals slurm pbs none; do
+        knit_type_check "__launcher__" "${v}"
+    done
+}
+
+@test "bootstrap __scheduler__ enum accepts every documented scheduler" {
+    local v
+    for v in auto slurm pbs local none; do
+        knit_type_check "__scheduler__" "${v}"
+    done
+}
+
 @test "bootstrap with a none-launcher profile freezes __launcher__=none without detection" {
     local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
     _bootstrap_launcher_stubs "${calls}" "${meta}"
