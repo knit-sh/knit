@@ -19,6 +19,11 @@ title = "Parameters"
 summary = "Declaring parameters, flags, extras, and reusable parameter sets."
 
 [[category]]
+slug = "types"
+title = "Types"
+summary = "Annotating parameters with types and defining enums."
+
+[[category]]
 slug = "setup"
 title = "Setup"
 summary = "Defining and provisioning software environments."
