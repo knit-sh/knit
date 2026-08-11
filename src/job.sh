@@ -11,12 +11,15 @@
 declare -A _KNIT_JOBS
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_JOBS_TABLE
+#
 # Name of the table recording every job and its lifecycle state. The row id is
 # the job UUID; the "state" column moves submitted -> running -> completed, or
 # -> killed when the scheduler terminates a job before it finishes. A submission
 # the scheduler rejects never becomes a job and leaves no row at all (see
 # _knit_submit_cleanup_rejected).
 # ------------------------------------------------------------------------------
+declare -g _KNIT_JOBS_TABLE
 _KNIT_JOBS_TABLE="jobs"
 
 knit_register "submit" _knit_submit "Submit a job."
