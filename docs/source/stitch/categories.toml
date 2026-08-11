@@ -72,3 +72,13 @@ summary = "Discovering the schema and querying the provenance database with Cyph
 slug = "ai"
 title = "AI"
 summary = "Configuring an AI provider and asking natural-language questions about the experiment."
+
+[[category]]
+slug = "logging"
+title = "Logging & output"
+summary = "Emitting messages at the right level and framing a long-running command's output."
+
+[[category]]
+slug = "introspection"
+title = "Introspection"
+summary = "Inspecting the declared command tree with knit describe."

@@ -3,6 +3,8 @@
 ## @file log.sh
 
 # ------------------------------------------------------------------------------
+# @var KNIT_LOG_LEVEL
+#
 # Log level. Valid values: trace, debug, info, warning, error, critical.
 # ------------------------------------------------------------------------------
 declare -x KNIT_LOG_LEVEL
