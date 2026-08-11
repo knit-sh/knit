@@ -37,3 +37,8 @@ summary = "Working with Spack environments and package specs."
 slug = "jobs"
 title = "Jobs"
 summary = "Submitting jobs to the scheduler and tracking their lifecycle."
+
+[[category]]
+slug = "apps"
+title = "Apps"
+summary = "Launching MPI applications across a job's allocation with knit run."
