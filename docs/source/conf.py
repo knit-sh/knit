@@ -59,10 +59,23 @@ author = "Matthieu Dorier"
 
 extensions = [
     "breathe",
+    "sphinx_copybutton",
 ]
 
 templates_path = ["_templates"]
 exclude_patterns = []
+
+# -- sphinx-copybutton --------------------------------------------------------
+#
+# Console blocks (`code-block:: console`) use a "$ " prompt with command output
+# interleaved. Strip the prompt on copy and, since the prompt is present, copy
+# only the prompted command lines --- never the surrounding output
+# (copybutton_only_copy_prompt_lines defaults to True). Multi-line commands are
+# written with a trailing "\", so keep those continuation lines when copying.
+# Code blocks without a prompt (e.g. `bash` snippets) are copied verbatim.
+copybutton_prompt_text = r"\$ "
+copybutton_prompt_is_regexp = True
+copybutton_line_continuation_character = "\\"
 
 pygments_style = 'knit-light'
 pygments_dark_style = 'knit-dark'
