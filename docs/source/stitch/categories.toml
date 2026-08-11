@@ -52,3 +52,13 @@ summary = "Recording command invocations, their parameters, and their outputs in
 slug = "provenance"
 title = "Provenance"
 summary = "Linking recorded rows across tables through the __provenance__ graph of call and used_by edges."
+
+[[category]]
+slug = "profiles"
+title = "Profiles"
+summary = "Selecting a machine profile at bootstrap and reading its scheduler, launcher, and hardware fields."
+
+[[category]]
+slug = "metadata"
+title = "Metadata"
+summary = "Storing and reading experiment-wide key/value metadata in the metadata table."
