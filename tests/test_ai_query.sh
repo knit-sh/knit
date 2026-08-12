@@ -190,6 +190,30 @@ _sql_resp() {
     [ "$status" -ne 0 ]
 }
 
+@test "ai query --format accepts a query_format-only value (tabs)" {
+    _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
+    export KNIT_T_KEY="sk-secret"
+    _stub_curl_seq "$(_sql_resp 'SELECT name FROM t ORDER BY n')"
+
+    # "tabs" is in query_format but was not in the retired sqlite_format enum.
+    run knit ai query --question "list names" --format tabs
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alice"* ]]
+    [[ "$output" == *"bob"* ]]
+}
+
+@test "ai query --format defaults to box" {
+    _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
+    export KNIT_T_KEY="sk-secret"
+    _stub_curl_seq "$(_sql_resp 'SELECT name FROM t ORDER BY n')"
+
+    # The box mode draws a Unicode-boxed table around the result.
+    run knit ai query --question "list names"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"│"* ]]
+    [[ "$output" == *"alice"* ]]
+}
+
 # ---------- system prompt ----------
 
 @test "query system prompt seeds the schema and a one-statement instruction" {

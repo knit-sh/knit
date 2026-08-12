@@ -225,16 +225,10 @@ _knit_query_column_types() {
 }
 
 # ------------------------------------------------------------------------------
-# Registration of the query_format enum shared by 'query graph' and 'query sql'.
-#
-# The values are the output modes both backends understand (knit-graph's
-# `-<mode>` flags and sqlite3's `.mode` names); `list` is the script-friendly
-# default.
+# The query_format enum (shared by 'ai query', 'query graph', and 'query sql') is
+# defined in src/ai.sh, which loads before this file, so its type resolves when
+# the `format:query_format` parameters below are declared.
 # ------------------------------------------------------------------------------
-knit_define_enum "query_format" \
-    "list" "json" "box" "csv" "markdown" "table" "line" "html" \
-    "ascii" "column" "tabs"
-_knit_is_builtin
 
 # ------------------------------------------------------------------------------
 # Registration of 'query graph'.

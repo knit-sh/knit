@@ -735,7 +735,7 @@ knit_done
 # ------------------------------------------------------------------------------
 # @fn _knit_ai_query_mode_args()
 #
-# Translate an `ai query --format` value (a `sqlite_format` enum value) plus the
+# Translate an `ai query --format` value (a `query_format` enum value) plus the
 # `--no-header`/`--separator` options into the sequence of sqlite3 `-cmd ".mode
 # …"` arguments that select the requested output mode, filled into the caller's
 # array by nameref. The enum values map 1:1 onto sqlite3 `.mode` names, so no
@@ -743,7 +743,7 @@ knit_done
 # off by `--no-header`; a non-empty separator overrides the mode default.
 #
 # @param __knit_ret Name of the array variable to fill with the sqlite3 args.
-# @param format The sqlite_format enum value (e.g. "box", "csv").
+# @param format The query_format enum value (e.g. "box", "csv").
 # @param no_header "true" to omit column headers.
 # @param separator Optional column separator for csv/list modes.
 # ------------------------------------------------------------------------------
@@ -844,7 +844,7 @@ EOF
 # @param max_iterations Cap on generate→run→fix rounds.
 # @param verbose "true" to stream each generated SQL and any error to stderr.
 # @param sql_only "true" to print the generated SQL and return without running.
-# @param format The sqlite_format enum value for the output mode.
+# @param format The query_format enum value for the output mode.
 # @param no_header "true" to omit column headers.
 # @param separator Optional column separator for csv/list modes.
 # @return 0 on a successful (or --sql-only) run; fatals on hitting the cap.
@@ -932,10 +932,19 @@ _knit_ai_query_loop() {
 }
 
 # ------------------------------------------------------------------------------
-# Registration of the sqlite_format enum for 'ai query --format'.
+# Registration of the query_format enum shared by 'ai query', 'query graph', and
+# 'query sql'.
+#
+# The values are the output modes both backends understand (knit-graph's
+# `-<mode>` flags and sqlite3's `.mode` names); `box` is the human-facing default
+# for 'ai query' while 'query' defaults to `list`. It is defined here, the
+# earliest-loading file that uses it, so the `format:query_format` parameter
+# declarations in this file and in src/query.sh both resolve the type at
+# registration time.
 # ------------------------------------------------------------------------------
-knit_define_enum "sqlite_format" \
-    "box" "column" "csv" "json" "line" "list" "markdown" "table" "html"
+knit_define_enum "query_format" \
+    "list" "json" "box" "csv" "markdown" "table" "line" "html" \
+    "ascii" "column" "tabs"
 _knit_is_builtin
 
 # ------------------------------------------------------------------------------
@@ -947,8 +956,8 @@ _knit_is_builtin
 knit_without_provenance
 knit_with_required "question:string" \
     "The natural-language question to answer."
-knit_with_optional "format:sqlite_format" "box" \
-    "sqlite3 output mode: box, column, csv, json, line, list, markdown, table, html."
+knit_with_optional "format:query_format" "box" \
+    "Output mode: box, column, csv, json, line, list, markdown, table, html, ascii, tabs."
 knit_with_flag "no-header" \
     "Omit column headers (tabular/CSV modes)."
 knit_with_optional "separator:string" "" \
