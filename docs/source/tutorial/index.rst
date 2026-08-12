@@ -777,21 +777,17 @@ what is available:
 
 .. code-block:: console
 
-   $ ./exp.sh profile list --hidden
-     anl/aurora            [github, hidden] ALCF Aurora — Intel Xeon Max, 208 cores + 6× Intel GPU Max per node
-     anl/improv            [github, hidden] LCRC Improv — 2× AMD EPYC 7713, 128 cores per node (CPU-only)
-     anl/polaris           [github, hidden] ALCF Polaris — HPE Cray EX, 32 cores + 4× NVIDIA A100 per node
-     nersc/perlmutter/cpu  [github, hidden] NERSC Perlmutter (CPU nodes) — HPE Cray EX (Slingshot); 2× AMD EPYC 7763, 128 cores
-     nersc/perlmutter/gpu  [github, hidden] NERSC Perlmutter (GPU nodes) — HPE Cray EX (Slingshot); 1× AMD EPYC 7763 (64 cores) + 4× NVIDIA A100
-     ornl/frontier         [github, hidden] ORNL Frontier — HPE Cray EX, 64 cores + 8× AMD MI250X per node
+   $ ./exp.sh profile list
+     anl/aurora   [github] ALCF Aurora — Intel Xeon Max, 208 cores + 6× Intel GPU Max per node
+     anl/improv   [github] LCRC Improv — 2× AMD EPYC 7713, 128 cores per node (CPU-only)
+     anl/polaris  [github] ALCF Polaris — HPE Cray EX, 32 cores + 4× NVIDIA A100 per node
 
 Each line is a profile name, a bracketed tag for where it came from, and the
 profile's one-line description. The tag is ``github`` for the profiles Knit ships;
 a site can add its own under ``/etc/knit/profiles``, which show up as ``admin``.
 Profiles still being validated on their machine ship *hidden* and are left out of
-a plain ``profile list`` --- ``--hidden`` reveals them and tags them ``hidden``,
-which is why every profile above carries that tag. Profile names have two or more
-path segments (``nersc/perlmutter/cpu`` names a specific node type). Inspect one
+this list. Profile names have two or more path segments (a profile may add a
+further segment such as ``.../cpu`` to name a specific node type). Inspect one
 before you commit to it --- before bootstrap you pass the spec explicitly:
 
 .. code-block:: console

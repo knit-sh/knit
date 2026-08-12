@@ -1,10 +1,10 @@
 {
-    "_hide": true,
     "description": "ALCF Aurora — Intel Xeon Max, 208 cores + 6× Intel GPU Max per node",
     "scheduler": {
         "type": "pbs",
         "command": "qsub",
         "default_queue": "prod",
+        "default_args": ["-l filesystems=home:flare"],
         "queues": {
             "debug":         { "min_nodes": 1,   "max_nodes": 2,     "min_walltime": "00:05:00", "max_walltime": "01:00:00", "default_walltime": "01:00:00" },
             "debug-scaling": { "min_nodes": 2,   "max_nodes": 256,   "min_walltime": "00:05:00", "max_walltime": "01:00:00", "default_walltime": "01:00:00" },

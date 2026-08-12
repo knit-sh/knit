@@ -1,7 +1,7 @@
 [
-{"name":"anl/aurora","description":"ALCF Aurora — Intel Xeon Max, 208 cores + 6× Intel GPU Max per node","hidden":true},
-{"name":"anl/improv","description":"LCRC Improv — 2× AMD EPYC 7713, 128 cores per node (CPU-only)","hidden":true},
-{"name":"anl/polaris","description":"ALCF Polaris — HPE Cray EX, 32 cores + 4× NVIDIA A100 per node","hidden":true},
+{"name":"anl/aurora","description":"ALCF Aurora — Intel Xeon Max, 208 cores + 6× Intel GPU Max per node","hidden":false},
+{"name":"anl/improv","description":"LCRC Improv — 2× AMD EPYC 7713, 128 cores per node (CPU-only)","hidden":false},
+{"name":"anl/polaris","description":"ALCF Polaris — HPE Cray EX, 32 cores + 4× NVIDIA A100 per node","hidden":false},
 {"name":"nersc/perlmutter/cpu","description":"NERSC Perlmutter (CPU nodes) — HPE Cray EX (Slingshot); 2× AMD EPYC 7763, 128 cores","hidden":true},
 {"name":"nersc/perlmutter/gpu","description":"NERSC Perlmutter (GPU nodes) — HPE Cray EX (Slingshot); 1× AMD EPYC 7763 (64 cores) + 4× NVIDIA A100","hidden":true},
 {"name":"ornl/frontier","description":"ORNL Frontier — HPE Cray EX, 64 cores + 8× AMD MI250X per node","hidden":true}
