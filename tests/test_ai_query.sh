@@ -71,16 +71,55 @@ _sql_resp() {
     [ "${args[*]}" = "-cmd .mode csv -cmd .headers off -cmd .separator ;" ]
 }
 
-# ---------- _knit_ai_extract_sql ----------
+# ---------- _knit_ai_extract_query ----------
 
-@test "extract_sql returns a bare statement unchanged (trimmed)" {
-    run _knit_ai_extract_sql "  SELECT 1  "
-    [ "$output" = "SELECT 1" ]
+@test "extract_query returns a bare statement unchanged (trimmed) as sql" {
+    local lang query
+    _knit_ai_extract_query lang query "  SELECT 1  "
+    [ "$lang" = "sql" ]
+    [ "$query" = "SELECT 1" ]
 }
 
-@test "extract_sql strips a fenced code block and language tag" {
-    run _knit_ai_extract_sql $'```sql\nSELECT name FROM t\n```'
-    [ "$output" = "SELECT name FROM t" ]
+@test "extract_query reads the sql fence info string" {
+    local lang query
+    _knit_ai_extract_query lang query $'```sql\nSELECT name FROM t\n```'
+    [ "$lang" = "sql" ]
+    [ "$query" = "SELECT name FROM t" ]
+}
+
+@test "extract_query reads the cypher fence info string (case-insensitive)" {
+    local lang query
+    _knit_ai_extract_query lang query $'```Cypher\nMATCH (n) RETURN n\n```'
+    [ "$lang" = "cypher" ]
+    [ "$query" = "MATCH (n) RETURN n" ]
+}
+
+@test "extract_query infers cypher from a leading keyword in a bare fence" {
+    local lang query
+    _knit_ai_extract_query lang query $'```\nMATCH (n) RETURN n\n```'
+    [ "$lang" = "cypher" ]
+    [ "$query" = "MATCH (n) RETURN n" ]
+}
+
+@test "extract_query infers sql from a leading keyword in a bare fence" {
+    local lang query
+    _knit_ai_extract_query lang query $'```\nWITH x AS (SELECT 1) SELECT * FROM x\n```'
+    [ "$lang" = "sql" ]
+    [ "$query" = "WITH x AS (SELECT 1) SELECT * FROM x" ]
+}
+
+@test "extract_query drops an unknown fence tag and infers from the keyword" {
+    local lang query
+    _knit_ai_extract_query lang query $'```postgres\nMATCH (n) RETURN n\n```'
+    [ "$lang" = "cypher" ]
+    [ "$query" = "MATCH (n) RETURN n" ]
+}
+
+@test "extract_query falls back to sql for an ambiguous statement" {
+    local lang query
+    _knit_ai_extract_query lang query "SHOW TABLES"
+    [ "$lang" = "sql" ]
+    [ "$query" = "SHOW TABLES" ]
 }
 
 # ---------- _knit_ai_query_loop ----------

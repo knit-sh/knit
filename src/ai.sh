@@ -764,28 +764,55 @@ _knit_ai_query_mode_args() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_ai_extract_sql()
+# @fn _knit_ai_extract_query()
 #
-# Extract the bare SQL statement from a model reply, tolerating a reply wrapped
-# in a Markdown code fence (```sql … ```) and surrounding whitespace even though
-# the system prompt asks for none. When a fence is present, the content between
-# the first and next fence is taken and an optional leading language tag (`sql`)
-# is dropped; then leading/trailing whitespace is trimmed.
+# Extract the bare query and its language from a model reply, tolerating a reply
+# wrapped in a Markdown code fence (```sql … ``` / ```cypher … ```) and
+# surrounding whitespace even though the system prompt asks for none. When a
+# fence is present, the content between the first and next fence is taken; the
+# fence info string (first line) is read as the language, case-insensitively
+# (`sql`/`cypher`), and dropped. When the info string is missing or unknown, the
+# language is inferred from the leading keyword: MATCH/OPTIONAL/UNWIND/CALL ⇒
+# cypher, SELECT/WITH/EXPLAIN/PRAGMA ⇒ sql, anything else ⇒ sql. Leading and
+# trailing whitespace is trimmed from the query.
 #
+# @param lang_out (nameref) receives the detected language ("sql" or "cypher").
+# @param query_out (nameref) receives the trimmed query text.
 # @param text The raw model reply.
 # ------------------------------------------------------------------------------
-_knit_ai_extract_sql() {
-    local text="$1"
+_knit_ai_extract_query() {
+    local -n __knit_ret1=$1
+    local -n __knit_ret2=$2
+    shift 2
+    local __query="$1"
+    local __lang=""
     local fence='```'
-    if [[ "${text}" == *"${fence}"* ]]; then
-        text="${text#*"${fence}"}"
-        text="${text%%"${fence}"*}"
-        text="${text#sql}"
-        text="${text#SQL}"
+    if [[ "${__query}" == *"${fence}"* ]]; then
+        __query="${__query#*"${fence}"}"
+        __query="${__query%%"${fence}"*}"
+        if [[ "${__query}" == *$'\n'* ]]; then
+            local __info="${__query%%$'\n'*}"
+            __info="${__info#"${__info%%[![:space:]]*}"}"
+            __info="${__info%"${__info##*[![:space:]]}"}"
+            case "${__info,,}" in
+                sql)    __lang="sql" ;;
+                cypher) __lang="cypher" ;;
+            esac
+            __query="${__query#*$'\n'}"
+        fi
     fi
-    text="${text#"${text%%[![:space:]]*}"}"
-    text="${text%"${text##*[![:space:]]}"}"
-    printf '%s' "${text}"
+    __query="${__query#"${__query%%[![:space:]]*}"}"
+    __query="${__query%"${__query##*[![:space:]]}"}"
+    if [[ -z "${__lang}" ]]; then
+        local __first="${__query%%[[:space:]]*}"
+        case "${__first^^}" in
+            MATCH|OPTIONAL|UNWIND|CALL) __lang="cypher" ;;
+            SELECT|WITH|EXPLAIN|PRAGMA) __lang="sql" ;;
+            *)                          __lang="sql" ;;
+        esac
+    fi
+    __knit_ret1="${__lang}"
+    __knit_ret2="${__query}"
 }
 
 # ------------------------------------------------------------------------------
@@ -873,6 +900,8 @@ _knit_ai_query_loop() {
     _knit_ai_query_mode_args mode_args "${format}" "${no_header}" "${separator}"
 
     local i resp message sql out
+    # shellcheck disable=SC2034 # required output arg of _knit_ai_extract_query, unused here
+    local lang=""
     local last_sql="" last_err=""
     for (( i = 1; i <= max_iterations; i++ )); do
         resp=$(_knit_ai_chat_request "${base_url}" "${api_key}" "${model}" \
@@ -891,7 +920,7 @@ _knit_ai_query_loop() {
             '$m + [$msg]')
 
         sql=$(printf '%s' "${message}" | _knit_jq -r '.content // ""')
-        sql=$(_knit_ai_extract_sql "${sql}")
+        _knit_ai_extract_query lang sql "${sql}"
         last_sql="${sql}"
 
         [[ "${verbose}" == "true" ]] && \
