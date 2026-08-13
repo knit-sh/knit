@@ -242,6 +242,17 @@ _stub_curl() {
     [ -z "$(knit_get_profile_field '.scheduler.default_queue')" ]
 }
 
+# ---------- knit_platform_name ----------
+
+@test "knit_platform_name returns the recorded platform" {
+    _knit_metadata_store --key "__platform__" --value "anl/polaris"
+    [ "$(knit_platform_name)" = "anl/polaris" ]
+}
+
+@test "knit_platform_name is empty when no platform was recorded" {
+    [ -z "$(knit_platform_name)" ]
+}
+
 # ---------- index parsing / listing ----------
 
 # A repo index in the shipped format: an array of one-line

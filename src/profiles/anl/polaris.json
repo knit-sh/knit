@@ -1,4 +1,5 @@
 {
+    "name": "anl/polaris",
     "description": "ALCF Polaris — HPE Cray EX, 32 cores + 4× NVIDIA A100 per node",
     "scheduler": {
         "type": "pbs",

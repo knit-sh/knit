@@ -358,6 +358,53 @@ _bootstrap_launcher_stubs() {
     done
 }
 
+# ---------- bootstrap --platform / __platform__ ----------
+
+@test "bootstrap --platform freezes __platform__" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+
+    run _knit_bootstrap --scheduler local --launcher none --platform mymachine
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __platform__ --value mymachine' "${meta}"
+}
+
+@test "bootstrap derives __platform__ from the profile name when --platform is omitted" {
+    if ! command -v jq >/dev/null 2>&1; then skip "jq not available"; fi
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+    _KNIT_JQ_EXE="jq"
+
+    # A resolved profile carrying a "name": bootstrap must freeze it as the
+    # platform when the user did not pass --platform.
+    eval '_knit_resolve_profile() { local -n __j=$1 __l=$2; __j='"'"'{"name":"anl/polaris"}'"'"'; __l="anl/polaris@main"; }'
+    eval '_knit_render_platform_files() { :; }'
+    eval '_knit_load_profile() { :; }'
+
+    run _knit_bootstrap --scheduler local --launcher none --profile anl/polaris
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __platform__ --value anl/polaris' "${meta}"
+}
+
+@test "bootstrap --platform overrides the profile name" {
+    if ! command -v jq >/dev/null 2>&1; then skip "jq not available"; fi
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+    _KNIT_JQ_EXE="jq"
+
+    eval '_knit_resolve_profile() { local -n __j=$1 __l=$2; __j='"'"'{"name":"anl/polaris"}'"'"'; __l="anl/polaris@main"; }'
+    eval '_knit_render_platform_files() { :; }'
+    eval '_knit_load_profile() { :; }'
+
+    run _knit_bootstrap --scheduler local --launcher none \
+        --profile anl/polaris --platform override
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __platform__ --value override' "${meta}"
+}
+
 @test "bootstrap with a none-launcher profile freezes __launcher__=none without detection" {
     local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
     _bootstrap_launcher_stubs "${calls}" "${meta}"

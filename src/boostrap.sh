@@ -115,6 +115,8 @@ knit_with_optional "job-path:string" "jobs" \
     "Root directory under which jobs live. Relative values resolve against the experiment root (portable); an absolute path is used as-is. Default: jobs."
 knit_with_optional "profile:string" "" \
     "Machine profile name (e.g. polaris). Prepopulates scheduler, launcher, and hardware defaults."
+knit_with_optional "platform:string" "" \
+    "Human-facing platform name recorded in metadata and returned by knit_platform_name. Defaults to the profile's name when --profile is given and this is omitted."
 knit_with_optional "scheduler:__scheduler__" "auto" \
     "Batch job scheduler. One of: auto, slurm, pbs, local, none. With auto the scheduler is detected automatically. Use none for a self-managed cluster (no scheduler); pair it with --default-nodefile."
 knit_with_optional "launcher:__launcher__" "auto" \
@@ -162,6 +164,7 @@ _knit_bootstrap() {
     local spack_ref
     local spack_packages_ref
     local profile
+    local platform
     local scheduler
     local launcher
     local account
@@ -183,6 +186,7 @@ _knit_bootstrap() {
     spack_ref="$(knit_get_parameter "spack" "$@")"
     spack_packages_ref="$(knit_get_parameter "spack-packages" "$@")"
     profile="$(knit_get_parameter "profile" "$@")"
+    platform="$(knit_get_parameter "platform" "$@")"
     scheduler="$(knit_get_parameter "scheduler" "$@")"
     launcher="$(knit_get_parameter "launcher" "$@")"
     account="$(knit_get_parameter "account" "$@")"
@@ -245,6 +249,11 @@ _knit_bootstrap() {
         # Materialize the platform artifacts (.knit/platform.sh, spack-config.json)
         # from the resolved profile; either is absent when its fields are omitted.
         _knit_render_platform_files "${profile_json}"
+        # Platform name defaults to the profile's own "name" field when the user
+        # did not pass --platform, so a profile-based experiment self-identifies.
+        if [[ -z "${platform}" ]]; then
+            platform="$(printf '%s' "${profile_json}" | _knit_jq -r '.name // empty')"
+        fi
         default_queue="${_KNIT_PROFILE_SCHEDULER_DEFAULT_QUEUE}"
         default_scheduler_args="${_KNIT_PROFILE_SCHEDULER_DEFAULT_ARGS}"
         default_launcher_args="${_KNIT_PROFILE_LAUNCHER_DEFAULT_ARGS}"
@@ -330,6 +339,7 @@ _knit_bootstrap() {
     knit metadata store --key "__job_path__"               --value "${job_path_opt}"
     knit metadata store --key "__account__"                --value "${account}"
     knit metadata store --key "__profile__"                --value "${profile_label}"
+    knit metadata store --key "__platform__"               --value "${platform}"
     knit metadata store --key "__profile_json__"           --value "${profile_json}"
     knit metadata store --key "__scheduler__"              --value "${scheduler}"
     knit metadata store --key "__launcher__"               --value "${launcher}"

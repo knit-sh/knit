@@ -1,5 +1,6 @@
 {
     "_hide": true,
+    "name": "ornl/frontier",
     "description": "ORNL Frontier — HPE Cray EX, 64 cores + 8× AMD MI250X per node",
     "scheduler": {
         "type": "slurm",

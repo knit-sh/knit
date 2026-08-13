@@ -1,4 +1,5 @@
 {
+    "name": "anl/improv",
     "description": "LCRC Improv — 2× AMD EPYC 7713, 128 cores per node (CPU-only)",
     "scheduler": {
         "type": "pbs",

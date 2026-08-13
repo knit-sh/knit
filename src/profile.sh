@@ -405,6 +405,21 @@ knit_get_profile_field() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_platform_name()
+#
+# Print the platform name recorded for the bootstrapped experiment (the
+# "__platform__" metadata key). This is the value of bootstrap's --platform
+# option, or, when that was omitted and a --profile was given, the profile's own
+# "name" field (e.g. "anl/polaris"). Prints an empty string when no platform was
+# recorded.
+# ------------------------------------------------------------------------------
+knit_platform_name() {
+    local name
+    _knit_metadata_get name "__platform__"
+    printf '%s\n' "${name}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_load_profile()
 #
 # Extract all portable fields from a profile's JSON and store them in global

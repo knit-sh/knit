@@ -1,5 +1,6 @@
 {
     "_hide": true,
+    "name": "nersc/perlmutter/gpu",
     "description": "NERSC Perlmutter (GPU nodes) — HPE Cray EX (Slingshot); 1× AMD EPYC 7763 (64 cores) + 4× NVIDIA A100",
     "scheduler": {
         "type": "slurm",

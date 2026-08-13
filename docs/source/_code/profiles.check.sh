@@ -20,4 +20,10 @@ exp metadata store --force --key __profile_json__ \
 check_eq "$(exp sizing)" "scheduler=slurm cores_per_node=128" \
     "knit_get_profile_field reads scheduler.type and hardware.cores_per_node"
 
+# knit_platform_name is empty until a platform is recorded, then returns it.
+check_eq "$(exp where)" "platform=" "knit_platform_name is empty without a platform"
+exp metadata store --force --key __platform__ --value "anl/polaris" >/dev/null
+check_eq "$(exp where)" "platform=anl/polaris" \
+    "knit_platform_name returns the recorded platform"
+
 dc_summary

@@ -20,4 +20,12 @@ sizing() {
 knit_done
 # END field
 
+# START platform
+knit_register "where" where "Report the platform this experiment runs on."
+where() {
+    printf 'platform=%s\n' "$(knit_platform_name)"
+}
+knit_done
+# END platform
+
 knit "$@"
