@@ -56,6 +56,11 @@ endif
 
 KNIT_TESTS := $(wildcard tests/test_*.sh)
 
+# Live AI tests live under tests/ai/ and are excluded from KNIT_TESTS above
+# (that glob is non-recursive). They talk to a real LLM served by Ollama, so
+# they are kept out of `make check` and run on demand via `make check-ai`.
+KNIT_AI_TESTS := $(wildcard tests/ai/test_*.sh)
+
 .PHONY: check check-unit check-integration build-images
 check: check-unit check-integration
 
@@ -79,6 +84,17 @@ check-integration: knit.sh
 
 build-images:
 	$(MAKE) -C tests/integration build-images
+
+# Live AI tests against a real LLM (Ollama). Opt-in and standalone: not part of
+# `make check`. Start Ollama and pull the model first, then:
+#   export KNIT_AI_LIVE=1 OLLAMA_API_KEY=ollama
+#   make check-ai
+# Without KNIT_AI_LIVE=1 or a reachable server, every test skips cleanly.
+.PHONY: check-ai
+check-ai: knit.sh
+	@echo "Running live AI tests..."
+	bats $(KNIT_AI_TESTS)
+	@echo "Live AI tests completed."
 
 .PHONY: shellcheck
 shellcheck:
