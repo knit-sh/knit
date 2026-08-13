@@ -1,5 +1,6 @@
 [![Tests](https://github.com/knit-sh/knit/actions/workflows/tests.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/tests.yml)
 [![Integration](https://github.com/knit-sh/knit/actions/workflows/integration.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/integration.yml)
+[![ai](https://github.com/knit-sh/knit/actions/workflows/ai.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/ai.yml)
 [![ShellCheck](https://github.com/knit-sh/knit/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/shellcheck.yml)
 [![Documentation Check](https://github.com/knit-sh/knit/actions/workflows/doccheck.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/doccheck.yml)
 [![Code Coverage](https://github.com/knit-sh/knit/actions/workflows/codecov.yml/badge.svg)](https://github.com/knit-sh/knit/actions/workflows/codecov.yml)
@@ -112,3 +113,27 @@ doxygen does not understand).
   if there is a good reason for it.
 - All the functions and global variables (regardless of scope) should be
   documented using Doxygen syntax.
+
+### Live AI tests
+
+The `ai` commands (`ai init`, `ai ask`, `ai query`) have fast, deterministic unit
+tests that stub the network (`tests/test_ai*.sh`, run by `make check`). A separate
+suite under `tests/ai/` exercises the same commands against a **real** LLM served
+locally by [Ollama](https://ollama.com), to check the OpenAI-compatible
+request/response and tool-calling contract end to end. These are opt-in and are
+not part of `make check`.
+
+To run them locally, install Ollama, pull the model, then:
+
+```sh
+ollama serve &
+ollama pull qwen2.5:7b-instruct-q4_K_M
+export KNIT_AI_LIVE=1 OLLAMA_API_KEY=ollama
+make check-ai
+```
+
+Without `KNIT_AI_LIVE=1` (or if no server is reachable) every test skips cleanly.
+The model, endpoint, and API-key env var can be overridden with `KNIT_AI_MODEL`,
+`KNIT_AI_BASE_URL`, and `OLLAMA_API_KEY`. CI runs this suite via the `ai`
+workflow; because a live model is nondeterministic, that check is informational
+and is not required for merges.
