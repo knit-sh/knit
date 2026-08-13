@@ -25,7 +25,7 @@ To review the SQL before trusting it, ask for it without running it:
 
 .. code-block:: console
 
-   $ ./exp.sh ai query --question "average procs per run, by app" --sql-only
+   $ ./exp.sh ai query --question "average procs per run, by app" --query-only
 
 The output is shaped by the sqlite dot-command options:
 

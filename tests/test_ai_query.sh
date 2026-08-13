@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
     knit_test_require_sqlite
@@ -170,26 +172,38 @@ _sql_resp() {
     [ "$(cat "${KNIT_T_SEQ}/n")" = "2" ]
 }
 
-@test "query loop --sql-only prints the SQL and does not run it" {
+@test "query loop --query-only prints the SQL and its language and does not run it" {
     _stub_curl_seq "$(_sql_resp 'DROP TABLE t')"
     run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "drop it" "sys" 3 \
         false true csv false "" auto
     [ "$status" -eq 0 ]
-    [ "$output" = "DROP TABLE t" ]
+    # The query lands on stdout; the language line on stderr (both in $output).
+    [[ "$output" == *"DROP TABLE t"* ]]
+    [[ "$output" == *"language: sql"* ]]
     # Only one call; the (write) statement was never executed.
     [ "$(cat "${KNIT_T_SEQ}/n")" = "1" ]
     run _knit_sqlite3 "SELECT count(*) FROM t"
     [ "$output" = "2" ]
 }
 
-@test "query loop --verbose streams generated SQL and sqlite errors to stderr" {
+@test "query loop --query-only keeps the query alone on stdout" {
+    _stub_curl_seq "$(_sql_resp 'SELECT name FROM t')"
+    run --separate-stderr _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" \
+        "names?" "sys" 3 false true csv false "" auto
+    [ "$status" -eq 0 ]
+    [ "$output" = "SELECT name FROM t" ]
+    [[ "$stderr" == *"language: sql"* ]]
+}
+
+@test "query loop --verbose streams the language, generated query and sqlite errors to stderr" {
     _stub_curl_seq \
         "$(_sql_resp 'SELECT nope FROM t')" \
         "$(_sql_resp 'SELECT name FROM t')"
     run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "names?" "sys" 3 \
         true false csv false "" auto
     [ "$status" -eq 0 ]
-    [[ "$output" == *"generated SQL"* ]]
+    [[ "$output" == *"language: sql"* ]]
+    [[ "$output" == *"generated query"* ]]
     [[ "$output" == *"sqlite error"* ]]
 }
 
@@ -256,15 +270,16 @@ _sql_resp() {
     [ "$(cat "${KNIT_T_SEQ}/n")" = "2" ]
 }
 
-@test "query loop --sql-only prints a Cypher query without running knit-graph" {
+@test "query loop --query-only prints a Cypher query and its language without running knit-graph" {
     _stub_curl_seq "$(_sql_resp 'MATCH (n) RETURN n')"
     # Any call to the backend is a failure for this test.
     _knit_knit_graph() { printf 'SHOULD-NOT-RUN\n'; return 0; }
 
-    run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "graph?" "sys" 3 \
-        false true csv false "" auto
+    run --separate-stderr _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" \
+        "graph?" "sys" 3 false true csv false "" auto
     [ "$status" -eq 0 ]
     [ "$output" = "MATCH (n) RETURN n" ]
+    [[ "$stderr" == *"language: cypher"* ]]
     [ "$(cat "${KNIT_T_SEQ}/n")" = "1" ]
 }
 
@@ -293,14 +308,15 @@ _sql_resp() {
     [[ "$output" == *"alice"* ]]
 }
 
-@test "ai query --sql-only prints SQL via the dispatcher" {
+@test "ai query --query-only prints the query and language via the dispatcher" {
     _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
     export KNIT_T_KEY="sk-secret"
     _stub_curl_seq "$(_sql_resp 'SELECT name FROM t')"
 
-    run knit ai query --question "list names" --sql-only
+    run knit ai query --question "list names" --query-only
     [ "$status" -eq 0 ]
     [[ "$output" == *"SELECT name FROM t"* ]]
+    [[ "$output" == *"language: sql"* ]]
 }
 
 @test "ai query fatals cleanly when the provider is not configured" {

@@ -631,13 +631,13 @@ feeds the error back so the model can correct it (up to ``--max-iterations``):
    -1.25   0.0     34164
    -0.1    0.651   890
 
-When you would rather review the query than trust it blindly, ``--sql-only``
-prints the generated statement without running it --- handy for pasting into
-``query sql`` yourself:
+When you would rather review the query than trust it blindly, ``--query-only``
+prints the generated statement (and its detected language) without running it ---
+handy for pasting into ``query sql`` yourself:
 
 .. code-block:: console
 
-   $ ./exp.sh ai query --sql-only \
+   $ ./exp.sh ai query --query-only \
        --question "Show each render's constant and inside count, most interior first"
    SELECT c_re, c_im, inside FROM render ORDER BY inside DESC;
 

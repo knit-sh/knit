@@ -599,7 +599,7 @@
 #
 #   ./full.sh ai query --question "list completed jobs and their hostnames"
 #   ./full.sh ai query --question "count runs per app" --format csv
-#   ./full.sh ai query --question "..." --sql-only   # print the SQL, don't run it
+#   ./full.sh ai query --question "..." --query-only # print the query, don't run it
 #
 # Both commands need a configured provider and a reachable API key; without one
 # they stop with a clear message pointing you back to `ai init`.

@@ -853,7 +853,7 @@ EOF
 # Run the bounded self-correcting loop behind `ai query`. Seeds the conversation
 # with the query system prompt and the user question, then per round: asks the
 # model for a single statement, extracts it with its language, and (unless
-# --sql-only) routes it to the matching read-only backend. SQL is guarded with
+# --query-only) routes it to the matching read-only backend. SQL is guarded with
 # the shared read-only check and run on the read path (_knit_sqlite3, never
 # _knit_sqlite3_write); Cypher is run through knit-graph (_knit_knit_graph) with
 # the live name<->table map and the same output flags, and needs no separate
@@ -866,8 +866,9 @@ EOF
 # A pinned language (lang != "auto") overrides the per-statement detection so the
 # query is always routed to that backend.
 #
-# With --sql-only the first generated statement is printed and the loop returns
-# without touching the database.
+# With --query-only the first generated statement and its detected language are
+# printed (the query on stdout, the language on stderr) and the loop returns
+# without touching either backend.
 #
 # @param base_url Resolved endpoint base URL.
 # @param api_key Resolved API key (passed straight to the request helper).
@@ -875,14 +876,16 @@ EOF
 # @param question The user's natural-language question.
 # @param system_prompt The system prompt to seed the conversation with.
 # @param max_iterations Cap on generate→run→fix rounds.
-# @param verbose "true" to stream each generated SQL and any error to stderr.
-# @param sql_only "true" to print the generated SQL and return without running.
+# @param verbose "true" to stream the chosen language, each generated query, and
+#                any backend error to stderr.
+# @param query_only "true" to print the generated query and its language and
+#                   return without running either backend.
 # @param format The query_format enum value for the output mode.
 # @param no_header "true" to omit column headers.
 # @param separator Optional column separator for csv/list modes.
 # @param lang Pinned language ("auto"/"sql"/"cypher"); "auto" defers to the
 #             per-statement detection, sql/cypher override it.
-# @return 0 on a successful (or --sql-only) run; fatals on hitting the cap.
+# @return 0 on a successful (or --query-only) run; fatals on hitting the cap.
 # ------------------------------------------------------------------------------
 _knit_ai_query_loop() {
     local base_url="$1"
@@ -892,7 +895,7 @@ _knit_ai_query_loop() {
     local system_prompt="$5"
     local max_iterations="$6"
     local verbose="$7"
-    local sql_only="$8"
+    local query_only="$8"
     local format="$9"
     local no_header="${10}"
     local separator="${11}"
@@ -942,10 +945,13 @@ _knit_ai_query_loop() {
         [[ "${lang_pinned}" != "auto" ]] && lang="${lang_pinned}"
         last_sql="${sql}"
 
-        [[ "${verbose}" == "true" ]] && \
-            printf 'ai: generated SQL:\n%s\n' "${sql}" >&2
+        if [[ "${verbose}" == "true" ]]; then
+            printf 'ai: language: %s\n' "${lang}" >&2
+            printf 'ai: generated query:\n%s\n' "${sql}" >&2
+        fi
 
-        if [[ "${sql_only}" == "true" ]]; then
+        if [[ "${query_only}" == "true" ]]; then
+            [[ "${verbose}" != "true" ]] && printf 'ai: language: %s\n' "${lang}" >&2
             printf '%s\n' "${sql}"
             return 0
         fi
@@ -1049,20 +1055,20 @@ knit_with_optional "max-iterations:integer" "3" \
     "Cap on generate -> run -> fix rounds."
 knit_with_optional "model:string" "" \
     "Override the configured model for this call."
-knit_with_flag "sql-only" \
-    "Print the generated SQL without running it."
+knit_with_flag "query-only" \
+    "Print the generated query and its language without running it."
 knit_with_flag "verbose" \
-    "Stream each generated SQL and any sqlite error to stderr as the loop runs."
+    "Stream the chosen language, each generated query, and any backend error to stderr as the loop runs."
 # ------------------------------------------------------------------------------
 # @fn _knit_ai_query()
 #
 # Body of 'ai query': resolve the provider config, build the query system prompt
 # (schema + describe summary), and run the self-correcting query loop, which
-# prints the formatted result (or the SQL alone with --sql-only). The resolved
+# prints the formatted result (or the query alone with --query-only). The resolved
 # API key stays in a local and is never logged or recorded.
 # ------------------------------------------------------------------------------
 _knit_ai_query() {
-    local question lang format no_header separator max_iterations model sql_only verbose
+    local question lang format no_header separator max_iterations model query_only verbose
     question="$(knit_get_parameter "question" "$@")"
     lang="$(knit_get_parameter "lang" "$@")"
     format="$(knit_get_parameter "format" "$@")"
@@ -1070,7 +1076,7 @@ _knit_ai_query() {
     separator="$(knit_get_parameter "separator" "$@")"
     max_iterations="$(knit_get_parameter "max-iterations" "$@")"
     model="$(knit_get_parameter "model" "$@")"
-    sql_only="$(knit_get_parameter "sql-only" "$@")" || sql_only="false"
+    query_only="$(knit_get_parameter "query-only" "$@")" || query_only="false"
     verbose="$(knit_get_parameter "verbose" "$@")" || verbose="false"
 
     local api_key base_url resolved_model
@@ -1081,6 +1087,6 @@ _knit_ai_query() {
 
     _knit_ai_query_loop "${base_url}" "${api_key}" "${resolved_model}" \
         "${question}" "${system_prompt}" "${max_iterations}" "${verbose}" \
-        "${sql_only}" "${format}" "${no_header}" "${separator}" "${lang}"
+        "${query_only}" "${format}" "${no_header}" "${separator}" "${lang}"
 }
 knit_done
