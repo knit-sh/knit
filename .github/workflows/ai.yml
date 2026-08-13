@@ -1,0 +1,74 @@
+name: ai
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches:
+    - main
+
+# Cancel an in-flight run when a newer commit is pushed to the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Provider knobs in one place. The tests point knit's AI provider at the local
+# Ollama server (OpenAI-compatible) and only run when KNIT_AI_LIVE=1. Swapping the
+# model (e.g. to qwen3:4b-instruct-2507-q4_K_M for speed) is a one-line change
+# here: it drives the cache key, the pull, and the tests alike.
+env:
+  KNIT_AI_MODEL: qwen2.5:7b-instruct-q4_K_M
+  KNIT_AI_BASE_URL: http://localhost:11434/v1
+  OLLAMA_API_KEY: ollama
+  KNIT_AI_LIVE: "1"
+
+jobs:
+  # Informational only: this exercises knit's AI commands against a real model,
+  # which is inherently nondeterministic, so it is NOT a required status check for
+  # branch protection (a repo-admin setting, not enforced here). A flaky run must
+  # never block an unrelated merge.
+  ai:
+    runs-on: ubuntu-latest
+    # CPU-only inference of a 7B model is slow; give the whole job room.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install bats, sqlite3, jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats sqlite3 jq
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      # The ~4.7 GB model pull dominates wall-clock; cache the blobs+manifests so
+      # only the first run (or a model change) pays for it.
+      - name: Cache Ollama model
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-models-${{ env.KNIT_AI_MODEL }}
+
+      - name: Start Ollama and wait for it
+        run: |
+          ollama serve >/tmp/ollama.log 2>&1 &
+          deadline=$((SECONDS + 30))
+          until curl -fsS "${KNIT_AI_BASE_URL%/}/models" >/dev/null 2>&1; do
+            if (( SECONDS >= deadline )); then
+              echo "Ollama did not become ready in time" >&2
+              cat /tmp/ollama.log >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "Ollama is up."
+
+      - name: Pull the model
+        run: ollama pull "${KNIT_AI_MODEL}"
+
+      - name: Build knit.sh
+        run: make
+
+      - name: Run live AI tests
+        run: make check-ai
