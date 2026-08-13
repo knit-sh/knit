@@ -33,10 +33,10 @@ knit_ai_live_require() {
         || skip "no OpenAI-compatible server reachable at ${KNIT_AI_BASE_URL}"
 }
 
-# Source knit.sh, wire up a throwaway database (via the shared unit harness), and
-# point knit's AI provider at the local Ollama endpoint. Only the LLM call is
-# live; the database is the same fast in-repo test DB the unit tests use.
-knit_ai_live_setup() {
+# Source knit.sh and wire up a throwaway database (via the shared unit harness),
+# but do NOT configure the AI provider. Tests that exercise `ai init` itself use
+# this and then run the real command; others use knit_ai_live_setup below.
+knit_ai_live_setup_noconfig() {
     knit_ai_live_require
 
     # shellcheck source=tests/setup_teardown.sh
@@ -49,9 +49,15 @@ knit_ai_live_setup() {
     KNIT_SCRIPT_NAME="my-exp.sh"
     _knit_create_metadata_table
 
-    # Make the API-key env var visible to the knit subshells and store the
-    # provider config through the real code path (as `ai init` / bootstrap would).
+    # Make the API-key env var visible to the knit subshells that run the CLI.
     export OLLAMA_API_KEY
+}
+
+# As above, then point knit's AI provider at the local Ollama endpoint through the
+# real config code path (the same one `ai init` and bootstrap use). Only the LLM
+# call is live; the database is the fast in-repo test DB the unit tests use.
+knit_ai_live_setup() {
+    knit_ai_live_setup_noconfig
     _knit_ai_store_config \
         "OLLAMA_API_KEY" "" "" "${KNIT_AI_BASE_URL}" "${KNIT_AI_MODEL}" "true"
 }
