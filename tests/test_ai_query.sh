@@ -392,10 +392,38 @@ _sql_resp() {
 
 # ---------- system prompt ----------
 
-@test "query system prompt seeds the schema and a one-statement instruction" {
-    run _knit_ai_query_system_prompt
+@test "query system prompt (auto) seeds both halves, the name map and edge model" {
+    _KNIT_DB_REGISTERED_TABLES=([jobs]="submit")
+    run _knit_ai_query_system_prompt auto
     [ "$status" -eq 0 ]
-    [[ "$output" == *"SINGLE SQL statement"* ]]
-    [[ "$output" == *"CREATE TABLE t"* ]]   # the seeded schema
+    [[ "$output" == *"SINGLE fenced code block"* ]]
+    [[ "$output" == *"CREATE TABLE t"* ]]   # the SQL half's seeded schema
+    [[ "$output" == *"jobs=submit"* ]]      # the live name<->table map
+    [[ "$output" == *"used_by"* ]]          # the edge model
+    [[ "$output" == *"Cypher rules"* ]]
+    [[ "$output" == *"SQL rules"* ]]
     [[ "$output" == *"- ai query:"* ]]      # the compact describe summary
+}
+
+@test "query system prompt --lang sql emits only the SQL half" {
+    _KNIT_DB_REGISTERED_TABLES=([jobs]="submit")
+    run _knit_ai_query_system_prompt sql
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'tagged `sql`'* ]]
+    [[ "$output" == *"CREATE TABLE t"* ]]   # schema present
+    [[ "$output" == *"SQL rules"* ]]
+    [[ "$output" != *"Cypher rules"* ]]     # no Cypher half
+    [[ "$output" != *"jobs=submit"* ]]      # no name map
+}
+
+@test "query system prompt --lang cypher emits only the Cypher half" {
+    _KNIT_DB_REGISTERED_TABLES=([jobs]="submit")
+    run _knit_ai_query_system_prompt cypher
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'tagged `cypher`'* ]]
+    [[ "$output" == *"Cypher rules"* ]]
+    [[ "$output" == *"jobs=submit"* ]]      # the name map present
+    [[ "$output" == *"used_by"* ]]          # the edge model present
+    [[ "$output" != *"SQL rules"* ]]        # no SQL half
+    [[ "$output" != *"Database schema:"* ]] # no schema block
 }

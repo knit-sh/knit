@@ -818,33 +818,125 @@ _knit_ai_extract_query() {
 # ------------------------------------------------------------------------------
 # @fn _knit_ai_query_system_prompt()
 #
-# Print the system prompt for `ai query`: it instructs the model to translate the
-# question into exactly one read-only SQL statement and nothing else, and seeds
-# the model with the database schema (`_knit_sqlite3 ".schema"`) and a compact
-# `describe` summary for column semantics.
+# Print the system prompt for `ai query`. It instructs the model to translate the
+# question into exactly ONE read-only query wrapped in a single language-tagged
+# fenced block, and seeds it from live state: the SQLite schema
+# (`_knit_sqlite3 ".schema"`), the knit-graph node-label map
+# (`_knit_query_build_names`), the provenance edge model, and a compact
+# `describe` summary for column and edge semantics.
+#
+# The SQL and Cypher halves are gated by the pinned language: with `sql` or
+# `cypher` only that half (and the matching reply contract) is emitted so the
+# model isn't tempted to use the other backend; with `auto` (the default) both
+# halves and the when-to-prefer-each guidance are emitted and the model chooses.
+#
+# @param lang Pinned language ("auto"/"sql"/"cypher"); defaults to "auto".
 # ------------------------------------------------------------------------------
 _knit_ai_query_system_prompt() {
-    local schema summary
+    local lang="${1:-auto}"
+    local schema summary names_spec
     schema=$(_knit_sqlite3 ".schema" 2>/dev/null)
     summary=$(_knit_ai_describe_summary)
-    cat <<EOF
-You translate a natural-language question about the "knit" experiment
-"${KNIT_SCRIPT_NAME}" into exactly ONE read-only SQL query for its SQLite
+    _knit_query_build_names names_spec
+
+    # Reply contract: narrowed to the pinned language, or the choose-one form.
+    local intro
+    if [[ "${lang}" == "sql" ]]; then
+        intro="You translate a natural-language question about the \"knit\" experiment
+\"${KNIT_SCRIPT_NAME}\" into exactly ONE read-only SQL query for its SQLite
 database.
 
-Rules:
-- Reply with a SINGLE SQL statement and NOTHING else: no prose, no explanation,
-  no Markdown code fences.
+Reply with a SINGLE fenced code block tagged \`sql\` and NOTHING else (no prose,
+no explanation), for example:
+\`\`\`sql
+SELECT app, avg(procs) FROM runs GROUP BY app
+\`\`\`"
+    elif [[ "${lang}" == "cypher" ]]; then
+        intro="You translate a natural-language question about the \"knit\" experiment
+\"${KNIT_SCRIPT_NAME}\" into exactly ONE read-only Cypher query for its
+provenance graph (run by the knit-graph engine).
+
+Reply with a SINGLE fenced code block tagged \`cypher\` and NOTHING else (no
+prose, no explanation), for example:
+\`\`\`cypher
+MATCH (j:submit)-[:call]->(r:runs) RETURN j.job, r.app
+\`\`\`"
+    else
+        intro="You translate a natural-language question about the \"knit\" experiment
+\"${KNIT_SCRIPT_NAME}\" into exactly ONE read-only query, choosing the language
+that fits best: SQL (run against its SQLite database) or Cypher (run against its
+provenance graph by the knit-graph engine).
+
+Reply with a SINGLE fenced code block whose info string is the language --
+\`sql\` or \`cypher\` -- and NOTHING else (no prose, no explanation), for
+example:
+\`\`\`sql
+SELECT app, avg(procs) FROM runs GROUP BY app
+\`\`\`
+or
+\`\`\`cypher
+MATCH (j:submit)-[:call]->(r:runs) RETURN j.job, r.app
+\`\`\`
+
+When to prefer each:
+- SQL for filtering, aggregation, and sorting within one table (averages,
+  counts, \"the 5 longest runs\", column projections).
+- Cypher for relationships and provenance across commands: which command called
+  which (\`call\` edges), which setup a job used (\`used_by\` edges), and queries
+  filtered by a \`knit_as\` alias on an edge."
+    fi
+
+    local sql_half=""
+    if [[ "${lang}" != "cypher" ]]; then
+        sql_half="SQL rules:
 - The statement must be read-only: it must start with SELECT, WITH, EXPLAIN, or
   PRAGMA. Never emit INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/REPLACE/ATTACH.
 - Use only the tables and columns present in the schema below.
 
 Database schema:
-${schema}
+${schema}"
+    fi
 
-Command reference (for column semantics):
-${summary}
-EOF
+    local cypher_half=""
+    if [[ "${lang}" != "sql" ]]; then
+        cypher_half="Cypher rules (knit-graph subset):
+- Read-only only: MATCH, OPTIONAL MATCH, WHERE, RETURN (with DISTINCT,
+  aggregation, ORDER BY, LIMIT). Never emit a write clause.
+- A node label is a command or table name from the map below; the two sides of
+  each map entry are interchangeable (e.g. \`submit\` and \`jobs\` name the same
+  nodes). A label's columns are that table's columns in the schema.
+  Backtick-quote a label containing a colon, e.g. (s:\`setup:libs\`).
+- Edges are directed source-->target, the source being the antecedent:
+  \`call\` (a command invoked another; carries start_time/end_time and an
+  optional \`alias\` naming the call site) and \`used_by\` (a setup was consumed
+  by a later command). Match an alias inline for a single hop, e.g.
+  -[{alias:'fast'}]-> or -[e]->() WHERE e.alias = 'fast'.
+
+Cypher authoring rules (avoid these footguns):
+- A bare (submit) is a VARIABLE, not a label -- always write (v:label), e.g.
+  (j:submit).
+- To match an endpoint by name only (e.g. a used_by source whose id is a
+  submission uuid, not a body-table row), label the node but do NOT project its
+  columns -- projecting forces an id JOIN that fails.
+- When a shared node is named differently across two edges, query the two edges
+  separately rather than chaining them in one pattern.
+
+Node label map (table=command, either side usable as a label):
+${names_spec}"
+    fi
+
+    local prompt="${intro}"
+    [[ -n "${sql_half}" ]] && prompt+="
+
+${sql_half}"
+    [[ -n "${cypher_half}" ]] && prompt+="
+
+${cypher_half}"
+    prompt+="
+
+Command reference (for column and edge semantics):
+${summary}"
+    printf '%s\n' "${prompt}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1063,7 +1155,8 @@ knit_with_flag "verbose" \
 # @fn _knit_ai_query()
 #
 # Body of 'ai query': resolve the provider config, build the query system prompt
-# (schema + describe summary), and run the self-correcting query loop, which
+# (gated to the pinned --lang half; schema, name map, edge model, and describe
+# summary), and run the self-correcting query loop, which
 # prints the formatted result (or the query alone with --query-only). The resolved
 # API key stays in a local and is never logged or recorded.
 # ------------------------------------------------------------------------------
@@ -1083,7 +1176,7 @@ _knit_ai_query() {
     _knit_ai_resolve_config api_key base_url resolved_model "${model}"
 
     local system_prompt
-    system_prompt="$(_knit_ai_query_system_prompt)"
+    system_prompt="$(_knit_ai_query_system_prompt "${lang}")"
 
     _knit_ai_query_loop "${base_url}" "${api_key}" "${resolved_model}" \
         "${question}" "${system_prompt}" "${max_iterations}" "${verbose}" \
