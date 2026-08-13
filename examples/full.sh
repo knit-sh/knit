@@ -593,12 +593,15 @@
 #   ./full.sh ai ask --question "..." --verbose   # stream tool calls to stderr
 #
 # `ai query` is narrower and easy to audit: it turns a question into a SINGLE
-# read-only SQL statement, runs it against ./.knit/knit.db, and prints the result
-# in the sqlite output mode you pick. If the SQL errors, knit feeds the error
-# back so the model can correct it (up to --max-iterations):
+# read-only query, runs it against ./.knit/knit.db, and prints the result in the
+# output mode you pick. It chooses the language that fits -- SQL for aggregation
+# within a table, Cypher (via knit-graph) for relationships across commands --
+# and if the query errors, knit feeds the error back so the model can correct it
+# (up to --max-iterations):
 #
-#   ./full.sh ai query --question "list completed jobs and their hostnames"
 #   ./full.sh ai query --question "count runs per app" --format csv
+#   ./full.sh ai query --question "which setup did each montecarlo job use?"
+#   ./full.sh ai query --lang cypher --question "which app did mcparallel call?"
 #   ./full.sh ai query --question "..." --query-only # print the query, don't run it
 #
 # Both commands need a configured provider and a reachable API key; without one

@@ -613,9 +613,11 @@ work. Because the tools are read-only, ``ai ask`` can describe and inspect the
 experiment but never submit a job or write to the database.
 
 **Auditable answers, with** ``ai query``, is narrower: it turns the question
-into exactly *one* read-only SQL statement, runs it against Knit's database, and
-prints the result in the sqlite output mode you choose. If the SQL errors, Knit
-feeds the error back so the model can correct it (up to ``--max-iterations``):
+into exactly *one* read-only query, runs it against the experiment, and prints
+the result in the output mode you choose. It picks the language that fits: SQL
+for aggregation and sorting within a table, Cypher (via knit-graph) for
+relationships across commands. If the query errors, Knit feeds the error back so
+the model can correct it (up to ``--max-iterations``):
 
 .. code-block:: console
 
@@ -631,9 +633,17 @@ feeds the error back so the model can correct it (up to ``--max-iterations``):
    -1.25   0.0     34164
    -0.1    0.651   890
 
+A relationship question is better answered in Cypher; ``--lang`` pins the
+language when you want to be sure, and ``--verbose`` reports which one was used:
+
+.. code-block:: console
+
+   $ ./exp.sh ai query --lang cypher \
+       --question "which setup did the render job use?"
+
 When you would rather review the query than trust it blindly, ``--query-only``
 prints the generated statement (and its detected language) without running it ---
-handy for pasting into ``query sql`` yourself:
+handy for pasting into ``query sql`` or ``query graph`` yourself:
 
 .. code-block:: console
 

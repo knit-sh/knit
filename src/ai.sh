@@ -1130,7 +1130,7 @@ _knit_is_builtin
 # Registration of 'ai query'.
 # ------------------------------------------------------------------------------
 knit_register "ai:query" _knit_ai_query \
-    "Answer a question by generating and running a read-only SQL query."
+    "Answer a question by generating and running one read-only SQL or Cypher query."
 _knit_is_builtin
 knit_without_provenance
 knit_with_required "question:string" \
