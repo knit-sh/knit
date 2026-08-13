@@ -874,6 +874,8 @@ EOF
 # @param format The query_format enum value for the output mode.
 # @param no_header "true" to omit column headers.
 # @param separator Optional column separator for csv/list modes.
+# @param lang Pinned language ("auto"/"sql"/"cypher"); "auto" defers to the
+#             per-statement detection, sql/cypher override it.
 # @return 0 on a successful (or --sql-only) run; fatals on hitting the cap.
 # ------------------------------------------------------------------------------
 _knit_ai_query_loop() {
@@ -888,6 +890,7 @@ _knit_ai_query_loop() {
     local format="$9"
     local no_header="${10}"
     local separator="${11}"
+    local lang_pinned="${12}"
 
     local messages
     # shellcheck disable=SC2016 # $system/$question are jq variables, not shell
@@ -921,6 +924,8 @@ _knit_ai_query_loop() {
 
         sql=$(printf '%s' "${message}" | _knit_jq -r '.content // ""')
         _knit_ai_extract_query lang sql "${sql}"
+        # A pinned --lang (anything but "auto") overrides per-statement detection.
+        [[ "${lang_pinned}" != "auto" ]] && lang="${lang_pinned}"
         last_sql="${sql}"
 
         [[ "${verbose}" == "true" ]] && \
@@ -977,6 +982,15 @@ knit_define_enum "query_format" \
 _knit_is_builtin
 
 # ------------------------------------------------------------------------------
+# Registration of the query-language enum for 'ai query --lang'.
+#
+# `auto` lets the loop detect the language of each generated statement; `sql` and
+# `cypher` pin generation to one language and override detection.
+# ------------------------------------------------------------------------------
+knit_define_enum "ai_query_lang" "auto" "sql" "cypher"
+_knit_is_builtin
+
+# ------------------------------------------------------------------------------
 # Registration of 'ai query'.
 # ------------------------------------------------------------------------------
 knit_register "ai:query" _knit_ai_query \
@@ -985,6 +999,8 @@ _knit_is_builtin
 knit_without_provenance
 knit_with_required "question:string" \
     "The natural-language question to answer."
+knit_with_optional "lang:ai_query_lang" "auto" \
+    "Query language: auto (detect), sql, or cypher."
 knit_with_optional "format:query_format" "box" \
     "Output mode: box, column, csv, json, line, list, markdown, table, html, ascii, tabs."
 knit_with_flag "no-header" \
@@ -1008,8 +1024,9 @@ knit_with_flag "verbose" \
 # API key stays in a local and is never logged or recorded.
 # ------------------------------------------------------------------------------
 _knit_ai_query() {
-    local question format no_header separator max_iterations model sql_only verbose
+    local question lang format no_header separator max_iterations model sql_only verbose
     question="$(knit_get_parameter "question" "$@")"
+    lang="$(knit_get_parameter "lang" "$@")"
     format="$(knit_get_parameter "format" "$@")"
     no_header="$(knit_get_parameter "no-header" "$@")" || no_header="false"
     separator="$(knit_get_parameter "separator" "$@")"
@@ -1026,6 +1043,6 @@ _knit_ai_query() {
 
     _knit_ai_query_loop "${base_url}" "${api_key}" "${resolved_model}" \
         "${question}" "${system_prompt}" "${max_iterations}" "${verbose}" \
-        "${sql_only}" "${format}" "${no_header}" "${separator}"
+        "${sql_only}" "${format}" "${no_header}" "${separator}" "${lang}"
 }
 knit_done

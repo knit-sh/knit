@@ -127,7 +127,7 @@ _sql_resp() {
 @test "query loop runs generated SQL and prints it in the chosen format" {
     _stub_curl_seq "$(_sql_resp 'SELECT name FROM t ORDER BY n')"
     run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "names?" "sys" 3 \
-        false false csv false ""
+        false false csv false "" auto
     [ "$status" -eq 0 ]
     [[ "$output" == *"name"* ]]   # header present by default
     [[ "$output" == *"bob"* ]]
@@ -137,7 +137,7 @@ _sql_resp() {
 @test "query loop rejects a write statement without running it" {
     _stub_curl_seq "$(_sql_resp 'DROP TABLE t')"
     run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "drop it" "sys" 1 \
-        false false csv false ""
+        false false csv false "" auto
     [ "$status" -ne 0 ]
     # The table still exists: the write never reached the database.
     run _knit_sqlite3 "SELECT count(*) FROM t"
@@ -150,7 +150,7 @@ _sql_resp() {
         "$(_sql_resp 'SELECT nope FROM t')" \
         "$(_sql_resp 'SELECT name FROM t ORDER BY n')"
     run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "names?" "sys" 3 \
-        false false csv false ""
+        false false csv false "" auto
     [ "$status" -eq 0 ]
     [[ "$output" == *"alice"* ]]
     # Exactly two provider calls; the second carried the sqlite error back.
@@ -164,7 +164,7 @@ _sql_resp() {
         "$(_sql_resp 'SELECT nope FROM t')" \
         "$(_sql_resp 'SELECT still_nope FROM t')"
     run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "names?" "sys" 2 \
-        false false csv false ""
+        false false csv false "" auto
     [ "$status" -ne 0 ]
     [[ "$output" == *"could not produce a working query"* ]]
     [ "$(cat "${KNIT_T_SEQ}/n")" = "2" ]
@@ -173,7 +173,7 @@ _sql_resp() {
 @test "query loop --sql-only prints the SQL and does not run it" {
     _stub_curl_seq "$(_sql_resp 'DROP TABLE t')"
     run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "drop it" "sys" 3 \
-        false true csv false ""
+        false true csv false "" auto
     [ "$status" -eq 0 ]
     [ "$output" = "DROP TABLE t" ]
     # Only one call; the (write) statement was never executed.
@@ -187,7 +187,7 @@ _sql_resp() {
         "$(_sql_resp 'SELECT nope FROM t')" \
         "$(_sql_resp 'SELECT name FROM t')"
     run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "names?" "sys" 3 \
-        true false csv false ""
+        true false csv false "" auto
     [ "$status" -eq 0 ]
     [[ "$output" == *"generated SQL"* ]]
     [[ "$output" == *"sqlite error"* ]]
@@ -251,6 +251,40 @@ _sql_resp() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"│"* ]]
     [[ "$output" == *"alice"* ]]
+}
+
+# ---------- --lang ----------
+
+@test "ai query forwards --lang to the query loop" {
+    _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
+    export KNIT_T_KEY="sk-secret"
+    # Capture the loop's pinned-language argument (12th positional).
+    _knit_ai_query_loop() { printf 'LANG=%s\n' "${12}"; }
+
+    run knit ai query --question "x" --lang cypher
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"LANG=cypher"* ]]
+
+    run knit ai query --question "x" --lang sql
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"LANG=sql"* ]]
+}
+
+@test "ai query --lang defaults to auto" {
+    _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
+    export KNIT_T_KEY="sk-secret"
+    _knit_ai_query_loop() { printf 'LANG=%s\n' "${12}"; }
+
+    run knit ai query --question "x"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"LANG=auto"* ]]
+}
+
+@test "ai query rejects an invalid --lang value" {
+    _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
+    export KNIT_T_KEY="sk-secret"
+    run knit ai query --question "x" --lang bogus
+    [ "$status" -ne 0 ]
 }
 
 # ---------- system prompt ----------
