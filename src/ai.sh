@@ -852,13 +852,19 @@ EOF
 #
 # Run the bounded self-correcting loop behind `ai query`. Seeds the conversation
 # with the query system prompt and the user question, then per round: asks the
-# model for a single SQL statement, extracts it, and (unless --sql-only) checks
-# it with the shared read-only guard and runs it on the read path
-# (_knit_sqlite3, never _knit_sqlite3_write) in the requested output mode. On
-# success the formatted result is printed and the loop returns 0. A guard
-# rejection or a sqlite error is fed back to the model as a follow-up message so
-# the next round can correct it. After max_iterations failed rounds the loop
-# fatals, showing the last SQL and error.
+# model for a single statement, extracts it with its language, and (unless
+# --sql-only) routes it to the matching read-only backend. SQL is guarded with
+# the shared read-only check and run on the read path (_knit_sqlite3, never
+# _knit_sqlite3_write); Cypher is run through knit-graph (_knit_knit_graph) with
+# the live name<->table map and the same output flags, and needs no separate
+# guard because knit-graph rejects write clauses itself. On success the formatted
+# result is printed and the loop returns 0. A guard rejection or a backend error
+# is fed back to the model as a follow-up message so the next round can correct
+# it (including switching language). After max_iterations failed rounds the loop
+# fatals, showing the last query and error.
+#
+# A pinned language (lang != "auto") overrides the per-statement detection so the
+# query is always routed to that backend.
 #
 # With --sql-only the first generated statement is printed and the loop returns
 # without touching the database.
@@ -902,9 +908,17 @@ _knit_ai_query_loop() {
     local -a mode_args=()
     _knit_ai_query_mode_args mode_args "${format}" "${no_header}" "${separator}"
 
-    local i resp message sql out
-    # shellcheck disable=SC2034 # required output arg of _knit_ai_extract_query, unused here
-    local lang=""
+    # Cypher backend prep (loop-invariant; built once). knit-graph takes the
+    # header on/off as the inverse of --no-header, and the live name<->table map
+    # lets a node label be written as either a table name or its command name.
+    local header="true"
+    [[ "${no_header}" == "true" ]] && header="false"
+    local -a graph_flags=()
+    _knit_query_graph_output_flags graph_flags "${format}" "${header}" "${separator}"
+    local names_spec
+    _knit_query_build_names names_spec
+
+    local i resp message sql out lang
     local last_sql="" last_err=""
     for (( i = 1; i <= max_iterations; i++ )); do
         resp=$(_knit_ai_chat_request "${base_url}" "${api_key}" "${model}" \
@@ -934,6 +948,30 @@ _knit_ai_query_loop() {
         if [[ "${sql_only}" == "true" ]]; then
             printf '%s\n' "${sql}"
             return 0
+        fi
+
+        # Cypher path: route through knit-graph with the name map and output
+        # flags. knit-graph itself rejects write clauses (non-zero exit), so no
+        # separate read-only guard is needed; a failing round feeds knit-graph's
+        # error back to the model, exactly like the SQL branch below.
+        if [[ "${lang}" == "cypher" ]]; then
+            local -a kg_args=()
+            [[ -n "${names_spec}" ]] && kg_args+=(--names "${names_spec}")
+            kg_args+=("${graph_flags[@]}")
+            kg_args+=("${_KNIT_DATABASE}" "${sql}")
+            if out=$(_knit_knit_graph "${kg_args[@]}" 2>&1); then
+                printf '%s\n' "${out}"
+                return 0
+            fi
+            last_err="${out}"
+            [[ "${verbose}" == "true" ]] && \
+                printf 'ai: knit-graph error:\n%s\n' "${last_err}" >&2
+            # shellcheck disable=SC2016 # $m/$e are jq variables, not shell
+            messages=$(_knit_jq -n \
+                --argjson m "${messages}" \
+                --arg e "${last_err}" \
+                '$m + [{role: "user", content: ("Running that Cypher query failed with this error:\n" + $e + "\nReturn a corrected single read-only query only.")}]')
+            continue
         fi
 
         if ! _knit_ai_sql_is_readonly "${sql}"; then

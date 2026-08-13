@@ -193,6 +193,93 @@ _sql_resp() {
     [[ "$output" == *"sqlite error"* ]]
 }
 
+# ---------- _knit_ai_query_loop: Cypher branch ----------
+
+@test "query loop routes Cypher to knit-graph with the name map and output flags" {
+    _stub_curl_seq "$(_sql_resp 'MATCH (n) RETURN n')"
+    # Capture the exact argv knit-graph is called with.
+    _knit_knit_graph() { printf 'KG:%s\n' "$*"; }
+
+    run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "graph?" "sys" 3 \
+        false false csv false "" auto
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--names "* ]]        # live name<->table map passed
+    [[ "$output" == *"-csv"* ]]            # format mapped to knit-graph flag
+    [[ "$output" == *"-header"* ]]         # headers on by default
+    [[ "$output" == *"MATCH (n) RETURN n"* ]]
+}
+
+@test "query loop maps --no-header to knit-graph -noheader for Cypher" {
+    _stub_curl_seq "$(_sql_resp 'MATCH (n) RETURN n')"
+    _knit_knit_graph() { printf 'KG:%s\n' "$*"; }
+
+    run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "graph?" "sys" 3 \
+        false false csv true "" auto
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"-noheader"* ]]
+    [[ "$output" != *"-header "* ]]
+}
+
+@test "query loop feeds a knit-graph error back and the second attempt succeeds" {
+    _stub_curl_seq \
+        "$(_sql_resp 'MATCH bad RETURN x')" \
+        "$(_sql_resp 'MATCH (n) RETURN n')"
+    # Fail the first (bad) query; succeed on the corrected one.
+    _knit_knit_graph() {
+        if [[ "$*" == *bad* ]]; then
+            printf 'syntax error near "bad"\n' >&2
+            return 1
+        fi
+        printf 'GRAPH-RESULT\n'
+    }
+
+    run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "graph?" "sys" 3 \
+        false false csv false "" auto
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"GRAPH-RESULT"* ]]
+    # Exactly two provider calls; the second carried knit-graph's error back.
+    [ "$(cat "${KNIT_T_SEQ}/n")" = "2" ]
+    local body2; body2=$(cat "${KNIT_T_SEQ}/body_2")
+    [[ "$(printf '%s' "${body2}" | jq -r '.messages[-1].content')" == *"syntax error"* ]]
+}
+
+@test "query loop fatals after Cypher hits the iteration cap" {
+    _stub_curl_seq \
+        "$(_sql_resp 'MATCH bad RETURN x')" \
+        "$(_sql_resp 'MATCH worse RETURN y')"
+    _knit_knit_graph() { printf 'boom\n' >&2; return 1; }
+
+    run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "graph?" "sys" 2 \
+        false false csv false "" auto
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"could not produce a working query"* ]]
+    [ "$(cat "${KNIT_T_SEQ}/n")" = "2" ]
+}
+
+@test "query loop --sql-only prints a Cypher query without running knit-graph" {
+    _stub_curl_seq "$(_sql_resp 'MATCH (n) RETURN n')"
+    # Any call to the backend is a failure for this test.
+    _knit_knit_graph() { printf 'SHOULD-NOT-RUN\n'; return 0; }
+
+    run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "graph?" "sys" 3 \
+        false true csv false "" auto
+    [ "$status" -eq 0 ]
+    [ "$output" = "MATCH (n) RETURN n" ]
+    [ "$(cat "${KNIT_T_SEQ}/n")" = "1" ]
+}
+
+@test "query loop honors a pinned --lang cypher and routes to knit-graph" {
+    # The reply looks like SQL, but the pinned language forces the Cypher backend.
+    _stub_curl_seq "$(_sql_resp 'SELECT 1')"
+    _knit_knit_graph() { printf 'KG:%s\n' "$*"; }
+
+    run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "graph?" "sys" 3 \
+        false false csv false "" cypher
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"KG:"* ]]
+    [[ "$output" == *"SELECT 1"* ]]
+}
+
 # ---------- ai query (end to end via the dispatcher, stubbed curl) ----------
 
 @test "ai query resolves config, runs the loop, and prints the result" {
