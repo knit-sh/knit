@@ -568,7 +568,7 @@ _knit_setup_dep_before_cb() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_setup_record_uses_edge()
+# @fn _knit_setup_record_used_by_edge()
 #
 # Record a "used_by" provenance edge from the setup built at <setup_path> to a
 # consuming invocation. The edge's source is the setup (its row id read from the
@@ -577,33 +577,28 @@ _knit_setup_dep_before_cb() {
 # are NULL. Shared by `knit submit` (jobs) and by the generic setup-dependency
 # after-callback (plain commands and apps).
 #
-# Best-effort and gated with the other provenance writes: it records nothing when
-# recording is disabled, on a suppressed rank, before bootstrap, when the target
-# does not participate in the graph, or when the setup directory has no .setup.id
-# (e.g. it was built before provenance shipped).
+# It reads the setup directory's .setup.id / .setup.type markers and delegates the
+# gated write to _knit_record_used_by_edge (which records nothing when recording is
+# disabled, on a suppressed rank, before bootstrap, or when the target does not
+# participate in the graph). A setup directory with no .setup.id (e.g. built before
+# provenance shipped) yields no edge.
 #
 # @param setup_path  Path to the setup directory the consumer references.
 # @param target_cmd  Mangled command name of the consumer (the edge target).
 # @param target_id   Resolved row id of the consumer (the edge target).
 # ------------------------------------------------------------------------------
-_knit_setup_record_uses_edge() {
+_knit_setup_record_used_by_edge() {
     local setup_path="$1"
     local target_cmd="$2"
     local target_id="$3"
-    [[ "${KNIT_DISABLE_RECORDING:-}" == "true" ]] && return 0
-    [[ -n "${_KNIT_RECORDING_SUPPRESSED}" ]] && return 0
-    _knit_is_bootstrapped || return 0
-    _knit_provenance_enabled "${target_cmd}" || return 0
     local id_file="${setup_path}/.setup.id"
     [[ -f "${id_file}" ]] || return 0
     local setup_id=""
     IFS= read -r setup_id < "${id_file}" || setup_id=""
-    [[ -z "${setup_id}" ]] && return 0
     local setup_type=""
     IFS= read -r setup_type < "${setup_path}/.setup.type" 2>/dev/null || setup_type=""
-    _knit_prov_ensure_table
-    _knit_prov_record_edge "${setup_id}" "setup:${setup_type}" \
-        "${target_id}" "$(_knit_command_demangle "${target_cmd}")" "used_by" "" ""
+    _knit_record_used_by_edge "${setup_id}" "setup:${setup_type}" \
+        "${target_cmd}" "${target_id}"
 }
 
 # ------------------------------------------------------------------------------
@@ -631,7 +626,7 @@ _knit_setup_dep_after_cb() {
     [[ -z "${setup_path}" ]] && return 0
     setup_path="$(realpath "${setup_path}" 2>/dev/null)" || return 0
     [[ ${#_KNIT_EXECUTING_COMMAND[@]} -gt 0 ]] || return 0
-    _knit_setup_record_uses_edge "${setup_path}" \
+    _knit_setup_record_used_by_edge "${setup_path}" \
         "${_KNIT_EXECUTING_COMMAND[-1]}" "${_KNIT_EXECUTING_ROW_ID[-1]}"
 }
 

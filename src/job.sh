@@ -226,7 +226,7 @@ _knit_submit() {
     # submission, so the setup can be reached from the job by id. Emitted here on
     # the login side, where the setup was resolved and validated; the job's row id
     # is this submission's UUID. Best-effort and gated like other provenance
-    # writes (see _knit_setup_record_uses_edge).
+    # writes (see _knit_setup_record_used_by_edge).
     #
     # The edge target must be named after the command that owns the submission's
     # table (the "submit" dispatcher, whose table is "jobs"), NOT the job
@@ -236,7 +236,7 @@ _knit_submit() {
     # _KNIT_EXECUTING_COMMAND[-1] is that owning command (mirrors the non-job
     # after-callback _knit_setup_dep_after_cb).
     if [[ -n "${setup_path}" ]]; then
-        _knit_setup_record_uses_edge "${setup_path}" \
+        _knit_setup_record_used_by_edge "${setup_path}" \
             "${_KNIT_EXECUTING_COMMAND[-1]}" "${uuid}"
     fi
 

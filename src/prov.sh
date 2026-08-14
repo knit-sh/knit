@@ -171,3 +171,38 @@ _knit_prov_edge_sql() {
 _knit_prov_record_edge() {
     _knit_sqlite3_write "$(_knit_prov_edge_sql "$@")"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_record_used_by_edge()
+#
+# Record a "used_by" provenance edge from an already-resolved source node (a
+# setup or a resource instance) to a consuming invocation (the target). A
+# "used_by" edge has no duration, so both timestamps are NULL. Shared by the
+# setup-dependency after-callback (setup:<type> source) and the resource-
+# dependency after-callback (resource:<type> source); each caller reads its own
+# on-disk id/type markers and passes the resolved node identity here.
+#
+# Best-effort and gated with the other provenance writes: it records nothing when
+# recording is disabled, on a suppressed rank, before bootstrap, when the target
+# does not participate in the graph, or when the source id is empty (e.g. a setup
+# or resource materialized before provenance shipped).
+#
+# @param source_id   Resolved row id of the source node (empty -> no edge).
+# @param source_name Node name of the source ("setup:<type>" / "resource:<type>").
+# @param target_cmd  Mangled command name of the consumer (the edge target).
+# @param target_id   Resolved row id of the consumer (the edge target).
+# ------------------------------------------------------------------------------
+_knit_record_used_by_edge() {
+    local source_id="$1"
+    local source_name="$2"
+    local target_cmd="$3"
+    local target_id="$4"
+    [[ "${KNIT_DISABLE_RECORDING:-}" == "true" ]] && return 0
+    [[ -n "${_KNIT_RECORDING_SUPPRESSED}" ]] && return 0
+    _knit_is_bootstrapped || return 0
+    _knit_provenance_enabled "${target_cmd}" || return 0
+    [[ -z "${source_id}" ]] && return 0
+    _knit_prov_ensure_table
+    _knit_prov_record_edge "${source_id}" "${source_name}" \
+        "${target_id}" "$(_knit_command_demangle "${target_cmd}")" "used_by" "" ""
+}

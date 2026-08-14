@@ -682,26 +682,26 @@ _seed_setup_dir() {
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" = "0" ]
 }
 
-@test "_knit_setup_record_uses_edge writes source, target, and NULL timestamps" {
+@test "_knit_setup_record_used_by_edge writes source, target, and NULL timestamps" {
     local dep="${_KNIT_TEST_TMPDIR}/dep"
     _seed_setup_dir "${dep}" "mcenv" "setup-uuid-9"
     _test_fn() { :; }
     knit_register "plaincmd" "_test_fn" "A plain command."
     knit_done
-    _knit_setup_record_uses_edge "${dep}" "plaincmd" "target-uuid-9"
+    _knit_setup_record_used_by_edge "${dep}" "plaincmd" "target-uuid-9"
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT source_id,source_name,target_id,target_name,edge_type,start_time,end_time FROM ${_KNIT_PROV_TABLE};")" \
         = "setup-uuid-9|setup:mcenv|target-uuid-9|plaincmd|used_by||" ]
 }
 
-@test "_knit_setup_record_uses_edge records nothing for a without-provenance target" {
+@test "_knit_setup_record_used_by_edge records nothing for a without-provenance target" {
     local dep="${_KNIT_TEST_TMPDIR}/dep"
     _seed_setup_dir "${dep}" "mcenv" "setup-uuid-9"
     _test_fn() { :; }
     knit_register "plaincmd" "_test_fn" "A plain command."
     knit_without_provenance
     knit_done
-    _knit_setup_record_uses_edge "${dep}" "plaincmd" "target-uuid-9"
+    _knit_setup_record_used_by_edge "${dep}" "plaincmd" "target-uuid-9"
     _knit_prov_ensure_table
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE};")" = "0" ]
 }

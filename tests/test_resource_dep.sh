@@ -35,11 +35,15 @@ teardown() {
 }
 
 # Fake a fetched instance named <name> of type <type> (a directory plus its
-# .resource.type sidecar), so the before-callback validates it as fetched.
+# .resource.type sidecar), so the before-callback validates it as fetched. An
+# optional third argument seeds the .resource.id sidecar so the after-callback can
+# record a used_by edge from the instance.
 _fake_instance() {
-    local name="$1" type="$2"
+    local name="$1" type="$2" id="${3:-}"
     mkdir -p "${_RES_ROOT}/${name}"
     printf '%s\n' "${type}" > "${_RES_ROOT}/.${name}.resource.type"
+    [[ -n "${id}" ]] && printf '%s\n' "${id}" > "${_RES_ROOT}/.${name}.resource.id"
+    return 0
 }
 
 # ---------- declaration ----------
@@ -194,4 +198,81 @@ _fake_instance() {
     printf '%s\n' "images" > "${_RES_ROOT}/.staged_set.resource.type"
     run _knit_resource_dep_before_cb "dataset" "images" --dataset staged_set
     [ "$status" -eq 0 ]
+}
+
+# ---------- used_by edges ----------
+
+@test "knit_with_resource installs the used_by-edge after-callback" {
+    knit_register "train" _train "Train."
+    knit_with_resource "dataset:images" "Images."
+    _train() { :; }
+    knit_done
+    local cmd
+    cmd=$(_knit_command_mangle "train")
+    local -n _acbs="_KNIT_CMD_${cmd}_after_cb"
+    [[ "${_acbs[*]}" == *"_knit_resource_dep_after_cb"* ]]
+}
+
+@test "a consumer with knit_with_resource records a used_by edge to the resource" {
+    _fake_instance "cats" "images" "res-uuid-1"
+    knit_register "train" _train "Train."
+    knit_with_table "train"
+    knit_with_resource "dataset:images" "Images."
+    _train() { :; }
+    knit_done
+    _knit_invoke_command "train" --dataset cats
+    # The edge's source is the instance (id from .resource.id, name resource:<type>),
+    # its target is the consumer's recorded row, and it has no duration.
+    [ "$(_knit_sqlite3 \
+        "SELECT source_id,source_name,target_name,edge_type,start_time,end_time FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" \
+        = "res-uuid-1|resource:images|train|used_by||" ]
+    [ "$(_knit_sqlite3 "SELECT target_id FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" \
+        = "$(_knit_sqlite3 'SELECT id FROM train;')" ]
+}
+
+@test "a consumer records no used_by edge when the instance has no .resource.id" {
+    _fake_instance "cats" "images"   # no id sidecar
+    knit_register "train" _train "Train."
+    knit_with_table "train"
+    knit_with_resource "dataset:images" "Images."
+    _train() { :; }
+    knit_done
+    _knit_invoke_command "train" --dataset cats
+    _knit_prov_ensure_table
+    [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" = "0" ]
+}
+
+@test "_knit_resource_record_used_by_edge writes source, target, and NULL timestamps" {
+    _fake_instance "cats" "images" "res-uuid-9"
+    knit_register "train" _train "Train."
+    _train() { :; }
+    knit_done
+    local cmd
+    cmd=$(_knit_command_mangle "train")
+    _knit_resource_record_used_by_edge "cats" "${cmd}" "target-uuid-9"
+    [ "$(_knit_sqlite3 \
+        "SELECT source_id,source_name,target_id,target_name,edge_type,start_time,end_time FROM ${_KNIT_PROV_TABLE};")" \
+        = "res-uuid-9|resource:images|target-uuid-9|train|used_by||" ]
+}
+
+@test "_knit_resource_record_used_by_edge records nothing for a without-provenance target" {
+    _fake_instance "cats" "images" "res-uuid-9"
+    knit_register "train" _train "Train."
+    knit_without_provenance
+    _train() { :; }
+    knit_done
+    local cmd
+    cmd=$(_knit_command_mangle "train")
+    _knit_resource_record_used_by_edge "cats" "${cmd}" "target-uuid-9"
+    _knit_prov_ensure_table
+    [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE};")" = "0" ]
+}
+
+@test "the after-callback records nothing when the resource name is empty" {
+    knit_register "train" _train "Train."
+    _train() { :; }
+    knit_done
+    _knit_resource_dep_after_cb "dataset" "images" --dataset ""
+    _knit_prov_ensure_table
+    [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE};")" = "0" ]
 }

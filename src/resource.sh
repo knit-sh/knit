@@ -878,6 +878,70 @@ _knit_resource_dep_before_cb() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_resource_record_used_by_edge()
+#
+# Record a "used_by" provenance edge from a fetched resource instance to a
+# consuming invocation. The edge's source is the instance (its row id read from
+# the .<name>.resource.id sidecar, its node name "resource:<type>" from the
+# .<name>.resource.type sidecar); its target is the consumer. Delegates the gated
+# write to _knit_record_used_by_edge, so it records nothing when recording is
+# disabled, on a suppressed rank, before bootstrap, when the target does not
+# participate in the graph, or when the sidecar has no id (e.g. an instance
+# fetched before provenance shipped).
+#
+# @param name        Resource instance name (as passed to `knit fetch --name`).
+# @param target_cmd  Mangled command name of the consumer (the edge target).
+# @param target_id   Resolved row id of the consumer (the edge target).
+# ------------------------------------------------------------------------------
+_knit_resource_record_used_by_edge() {
+    local name="$1"
+    local target_cmd="$2"
+    local target_id="$3"
+    local root
+    _knit_resource_root root
+    local id_file="${root}/.${name}.resource.id"
+    [[ -f "${id_file}" ]] || return 0
+    local resource_id=""
+    IFS= read -r resource_id < "${id_file}" || resource_id=""
+    local resource_type=""
+    IFS= read -r resource_type < "${root}/.${name}.resource.type" 2>/dev/null || resource_type=""
+    _knit_record_used_by_edge "${resource_id}" "resource:${resource_type}" \
+        "${target_cmd}" "${target_id}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_resource_dep_after_cb()
+#
+# After-callback installed by knit_with_resource on the consuming command, one per
+# declared resource parameter. It records a "used_by" edge from the fetched
+# resource instance the command depends on to the command itself. It runs as an
+# after-callback (not the before-callback that validates the instance) because the
+# consumer's frame is on the executing stacks only from push time onward, so the
+# consumer's resolved row id — the edge target — is available here but not in the
+# before-callback (this mirrors _knit_setup_dep_after_cb).
+#
+# The declared parameter name and required type are bound at registration time and
+# carried as the first two arguments; the trailing arguments are the command's own
+# runtime arguments, scanned for the instance name. A missing name is silently
+# skipped: the before-callback already fataled on it, so this is only reached with
+# a valid instance.
+#
+# @param param Normalized name of the resource parameter to read.
+# @param type  Resource type of the named instance (unused; kept for symmetry with
+#              the before-callback's bound arguments).
+# ------------------------------------------------------------------------------
+_knit_resource_dep_after_cb() {
+    local param="$1"
+    shift 2
+    local name
+    name=$(knit_get_parameter "${param}" "$@") || name=""
+    [[ -z "${name}" ]] && return 0
+    [[ ${#_KNIT_EXECUTING_COMMAND[@]} -gt 0 ]] || return 0
+    _knit_resource_record_used_by_edge "${name}" \
+        "${_KNIT_EXECUTING_COMMAND[-1]}" "${_KNIT_EXECUTING_ROW_ID[-1]}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_with_resource()
 #
 # Declare that the command currently being registered consumes a fetched resource
@@ -892,7 +956,9 @@ _knit_resource_dep_before_cb() {
 # turns that name into a path with knit_resource_path. A per-parameter marker
 # (_KNIT_CMD_<cmd>_resource_<param>=<type>) records the declared type for
 # validation and, later, for `describe` / `--help`. A before-callback validates
-# the named instance (existence + recorded type) before the body runs.
+# the named instance (existence + recorded type) before the body runs, and an
+# after-callback records a "used_by" provenance edge from the fetched instance to
+# this command.
 #
 # Wrappers cannot declare knit_with_resource (they forward their arguments
 # verbatim and take no parsed parameters). Every declared resource is required
@@ -944,10 +1010,12 @@ knit_with_resource() {
     # before-callback and (later) by describe / --help.
     printf -v "_KNIT_CMD_${cmd}_resource_${param}" '%s' "${type}"
 
-    # Register the underlying required string parameter and the before-callback
-    # that validates the named instance before the body runs. All resources are
-    # required for now.
+    # Register the underlying required string parameter, the before-callback that
+    # validates the named instance before the body runs, and the after-callback
+    # that records the "used_by" provenance edge from the instance to this command.
+    # All resources are required for now.
     [[ -z "${description}" ]] && description="Resource instance of type \"${type}\"."
     knit_with_required "${param_name}:string" "${description}"
     _knit_run_before _knit_resource_dep_before_cb "${param}" "${type}"
+    _knit_run_after _knit_resource_dep_after_cb "${param}" "${type}"
 }
