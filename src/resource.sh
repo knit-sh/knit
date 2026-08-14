@@ -310,11 +310,141 @@ _knit_resource_fetch_body() {
 # @fn _knit_fetch()
 #
 # Body of the builtin `fetch` dispatcher command. It materializes a named resource
-# instance under the resource root by dispatching to the requested resource type.
-# The dispatcher logic is implemented in a later milestone; for now this is a stub.
+# instance at `<resource-root>/<name>` by dispatching to the requested resource
+# type, mirroring `knit setup`:
+#
+# ```
+# ./exp.sh fetch --name <name> [--ignore-checksum] -- <resource-type> [args...]
+# ```
+#
+# The instance name is validated as a single path component and the type must be a
+# registered resource type. Fetching is idempotent by name and serialized on a
+# per-name lock under .knit: if the instance already exists with a matching source
+# identity the fetch is a no-op that just reprints the path; if it exists with a
+# different source it is fatal (remove it to re-fetch); otherwise the download body
+# runs, the instance is recorded, and its type / source identity / row id are
+# written to sidecar markers beside it. The resolved instance path is printed to
+# stdout (all logging is on stderr). On a failed download the partial instance is
+# removed and no row survives. `--ignore-checksum` is threaded to the backend as
+# KNIT_IGNORE_CHECKSUM (a no-op until checksum verification ships).
 # ------------------------------------------------------------------------------
 _knit_fetch() {
-    knit_fatal "knit fetch is not yet implemented."
+    local name
+    name=$(knit_get_parameter "name" "$@")
+    local ignore_checksum
+    ignore_checksum=$(knit_get_parameter "ignore-checksum" "$@") || ignore_checksum="false"
+
+    # Extract the resource type and its arguments (everything after --).
+    local args=("$@")
+    local extra_index
+    extra_index=$(knit_extra_index "${args[@]}")
+    local extra=("${args[@]:extra_index}")
+    if [[ ${#extra[@]} -eq 0 ]]; then
+        knit_fatal "fetch requires a resource type (pass it after --)."
+    fi
+    local type="${extra[0]}"
+    local resource_args=("${extra[@]:1}")
+
+    # Validate the instance name (a single path component).
+    _knit_validate_instance_name "${name}"
+
+    # The type must be a registered resource type.
+    if [[ ! -v _KNIT_RESOURCES["${type}"] ]]; then
+        knit_fatal "Unknown resource type \"${type}\"."
+    fi
+
+    local subcmd
+    subcmd=$(_knit_command_mangle "fetch:${type}")
+
+    # Usability pre-check (login side): fail fast before touching the filesystem if
+    # the resource type declares knit_usable_if predicates that do not hold.
+    local usable_reason=""
+    if ! _knit_command_check_usable usable_reason "${subcmd}"; then
+        knit_fatal "Command \"fetch:${type}\" cannot run: ${usable_reason}"
+    fi
+
+    # Validate the resource type's own arguments (fatal on bad args).
+    _knit_check_command_arguments "${subcmd}" "${resource_args[@]}"
+
+    # Compute this fetch's source identity from the fully-expanded arguments (so
+    # defaults are filled in), to compare against a prior fetch of the same name.
+    local -a expanded
+    readarray -d '' -t expanded \
+        < <(_knit_expand_command_arguments "${subcmd}" "${resource_args[@]}")
+    local method_var="_KNIT_CMD_${subcmd}_fetch_method"
+    local method="${!method_var}"
+    local identity
+    _knit_resource_source_identity identity "${method}" "${expanded[@]}"
+
+    # Resolve the instance directory and its sidecar markers under the resource
+    # root (markers are siblings of the instance, since the instance is made
+    # read-only and a symlinked local instance has no inside to write into).
+    local root
+    _knit_resource_root root
+    local path="${root}/${name}"
+    local type_marker="${root}/.${name}.resource.type"
+    local id_marker="${root}/.${name}.resource.id"
+    local source_marker="${root}/.${name}.resource.source"
+
+    # Serialize concurrent fetches of the same name on a per-name lock under .knit,
+    # so the first fetch downloads and records while the rest fall through to the
+    # idempotent-skip path. A brace group (not a subshell) holds the lock fd for
+    # the critical section, so a knit_fatal inside still terminates the process and
+    # releases the lock as the fd closes on exit.
+    local lock="${_KNIT_PREFIX}/fetch-${name}.lock"
+    {
+        flock 8 || knit_fatal "Could not acquire fetch lock \"${lock}\"."
+
+        # Already present: idempotent-skip on a matching source, fatal on a conflict.
+        if [[ -e "${path}" || -L "${path}" ]]; then
+            local recorded_type="" recorded_source=""
+            if [[ -f "${type_marker}" ]]; then
+                IFS= read -r recorded_type < "${type_marker}" || recorded_type=""
+            fi
+            if [[ -f "${source_marker}" ]]; then
+                IFS= read -r recorded_source < "${source_marker}" || recorded_source=""
+            fi
+            if [[ "${recorded_type}" == "${type}" && "${recorded_source}" == "${identity}" ]]; then
+                printf '%s\n' "${path}"
+                return 0
+            fi
+            knit_fatal "Resource \"${name}\" already exists at \"${path}\" with a different source; remove it to re-fetch."
+        fi
+
+        # Fresh fetch: the backend creates <path>, so only its parent must exist.
+        mkdir -p "${root}"
+        export KNIT_RESOURCE_PREFIX="${path}"
+        export KNIT_IGNORE_CHECKSUM="${ignore_checksum}"
+
+        # Run the resource type's download body. Clear the last-recorded row id so
+        # we only pick up an id the body itself recorded (empty when not
+        # bootstrapped, though fetch requires bootstrap to reach here).
+        local ret=0
+        _KNIT_LAST_ROW_ID=""
+        _knit_invoke_command "fetch" "${type}" "${resource_args[@]}" || ret=$?
+        local body_row_id="${_KNIT_LAST_ROW_ID}"
+
+        if [[ "${ret}" -ne 0 ]]; then
+            _knit_resource_cleanup_dir "${path}"
+            knit_fatal "Fetch of resource \"${name}\" failed; removed \"${path}\"."
+        fi
+
+        # Record the instance's type and source identity beside it so a later
+        # knit_with_resource can validate the type and a re-fetch can detect a
+        # conflicting source, both without a database read.
+        printf '%s\n' "${type}" > "${type_marker}"
+        printf '%s\n' "${identity}" > "${source_marker}"
+
+        # When the body recorded a row (bootstrapped), keep its id in a sidecar (for
+        # the used_by edge) and complete the row with the instance name and directory.
+        if [[ -n "${body_row_id}" ]]; then
+            printf '%s\n' "${body_row_id}" > "${id_marker}"
+            _knit_db_update_row "resource:${type}" "${body_row_id}" \
+                "name=${name}" "directory=${path}"
+        fi
+
+        printf '%s\n' "${path}"
+    } 8>"${lock}"
 }
 
 # The `fetch` dispatcher: real invocation is `fetch --name <name> -- <type> [args]`,
@@ -324,6 +454,7 @@ _knit_fetch() {
 knit_register "fetch" _knit_fetch "Fetch a resource instance"
 _knit_is_builtin
 knit_with_required "name:string" "Name for the resource instance"
+knit_with_flag "ignore-checksum" "Skip knit_with_checksum verification for this fetch."
 knit_with_dispatch "resource" "User-provided resource type to fetch"
 knit_with_subcommand_title "Resources"
 knit_done
@@ -435,6 +566,11 @@ knit_register_resource() {
     local cmd="${_KNIT_CURRENT_COMMAND}"
     printf -v "_KNIT_CMD_${cmd}_is_resource" '%s' 'true'
     knit_with_table "resource:${type}"
+    # Every instance records its name and on-disk directory (filled by the `knit
+    # fetch` dispatcher after the download body runs), so the row identifies the
+    # instance without reconstructing the path from the name.
+    knit_with_output "name:string" "" "The resource instance name (from knit fetch --name)."
+    knit_with_output "directory:string" "" "The instance's on-disk directory."
     _KNIT_RESOURCES["${type}"]=1
     # Push the method check last so it runs first at knit_done (done callbacks run
     # in reverse order of installation): a type that declared no download method
