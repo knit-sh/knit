@@ -344,8 +344,9 @@ _knit_describe_enum_values_json() {
 # Render one input parameter as a JSON object (array element: the leading indent
 # is included). The rendered fields depend on the group: "required" has no
 # default, "optional" adds a raw default, and "flags" are always boolean with no
-# default or enum. An enum-typed parameter inlines its allowed values, and a
-# "--when" constraint is included when present.
+# default or enum. An enum-typed parameter inlines its allowed values, a resource
+# parameter (knit_with_resource) adds its "resource" type, and a "--when"
+# constraint is included when present.
 #
 # @param cmd    Mangled command name.
 # @param group  Parameter group ("required", "optional", or "flags").
@@ -388,6 +389,12 @@ _knit_describe_json_param() {
     fi
     _knit_describe_json_str s "${desc}"
     printf -v e '%s"description":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
+    local rtype
+    _knit_resource_param_type rtype "${cmd}" "${param}"
+    if [[ -n "${rtype}" ]]; then
+        _knit_describe_json_str s "${rtype}"
+        printf -v e '%s"resource":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
+    fi
     local when_raw_var="_KNIT_CMD_${cmd}_2_${param}_when_raw"
     if [[ -v "${when_raw_var}" ]]; then
         _knit_describe_json_str s "${!when_raw_var}"
@@ -765,7 +772,8 @@ _knit_describe_yaml_flow_seq() {
 # Render one input parameter as a YAML block-sequence element (the first key
 # carries the "- " indicator at item_indent). Mirrors the JSON parameter object:
 # an enum type inlines its allowed values, "optional" carries a raw default, flags
-# are boolean with no default, and a "--when" constraint is included when present.
+# are boolean with no default, a resource parameter (knit_with_resource) adds its
+# "resource" type, and a "--when" constraint is included when present.
 #
 # @param cmd         Mangled command name.
 # @param group       Parameter group ("required", "optional", or "flags").
@@ -806,6 +814,12 @@ _knit_describe_yaml_param() {
     fi
     _knit_describe_yaml_scalar sc "${desc}" "${cont}"
     printf '%sdescription: %s\n' "${key}" "${sc}"
+    local rtype
+    _knit_resource_param_type rtype "${cmd}" "${param}"
+    if [[ -n "${rtype}" ]]; then
+        _knit_describe_yaml_scalar sc "${rtype}" "${cont}"
+        printf '%sresource: %s\n' "${key}" "${sc}"
+    fi
     local when_raw_var="_KNIT_CMD_${cmd}_2_${param}_when_raw"
     if [[ -v "${when_raw_var}" ]]; then
         _knit_describe_yaml_scalar sc "${!when_raw_var}" "${cont}"
@@ -1111,7 +1125,8 @@ _knit_describe_enum_constraint() {
 # Print a command's "Options" section for the human-readable format, mirroring
 # the "--help" layout: a header, the "--help" entry, then required, optional
 # (with "default: '…'") and flag parameters, column-aligned, each annotated with
-# its enum constraint and "when:" clause when present.
+# its enum constraint, "resource:" type (for a knit_with_resource parameter), and
+# "when:" clause when present.
 #
 # @param cmd       Mangled command name.
 # @param use_color "true" to emit ANSI styling in the header.
@@ -1152,7 +1167,7 @@ _knit_describe_default_options() {
     printf '%s%-*s  %s\n' "${cind}" "${max}" "--help" \
         "Print this help message and exit."
 
-    local desc dflt when_var ann cons
+    local desc dflt when_var ann cons rtype
     _knit_set_array __items "${req_var}"
     for opt in "${__items[@]}"; do
         _knit_param_description desc "${cmd}" "${opt}"
@@ -1162,6 +1177,8 @@ _knit_describe_default_options() {
         ann="required"
         _knit_describe_enum_constraint cons "${cmd}" "${opt}"
         [[ -n "${cons}" ]] && ann+=", ${cons}"
+        _knit_resource_param_type rtype "${cmd}" "${opt}"
+        [[ -n "${rtype}" ]] && ann+=", resource: ${rtype}"
         [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
     done
@@ -1175,6 +1192,8 @@ _knit_describe_default_options() {
         ann="default: '${dflt}'"
         _knit_describe_enum_constraint cons "${cmd}" "${opt}"
         [[ -n "${cons}" ]] && ann+=", ${cons}"
+        _knit_resource_param_type rtype "${cmd}" "${opt}"
+        [[ -n "${rtype}" ]] && ann+=", resource: ${rtype}"
         [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
     done
@@ -1379,9 +1398,10 @@ _knit_describe_md_code() {
 # @fn _knit_describe_md_constraints()
 #
 # Build the "Constraints" column text for a parameter: the enum "one of: …" list
-# (when the type is an enum) and the "--when" clause (with the raw expression in
-# inline code), joined by "; ". Returns the empty string when the parameter is
-# unconstrained.
+# (when the type is an enum), the "resource: <type>" annotation (when the parameter
+# was declared with knit_with_resource), and the "--when" clause (with the raw
+# expression in inline code), joined by "; ". Returns the empty string when the
+# parameter is unconstrained.
 #
 # @param __knit_ret Name of the variable to hold the constraints text.
 # @param cmd   Mangled command name.
@@ -1394,8 +1414,13 @@ _knit_describe_md_constraints() {
     # The accumulator must not be named like any internal local of a helper it
     # passes itself to by name: _knit_describe_enum_constraint has its own
     # "local __out", which would shadow a nameref pointed at a caller "__out".
-    local acc __when_var
+    local acc __when_var __rtype
     _knit_describe_enum_constraint acc "${__cmd}" "${__param}"
+    _knit_resource_param_type __rtype "${__cmd}" "${__param}"
+    if [[ -n "${__rtype}" ]]; then
+        [[ -n "${acc}" ]] && acc+='; '
+        acc+="resource: \`${__rtype}\`"
+    fi
     __when_var="_KNIT_CMD_${__cmd}_2_${__param}_when_raw"
     if [[ -v "${__when_var}" ]]; then
         [[ -n "${acc}" ]] && acc+='; '

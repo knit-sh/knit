@@ -1019,3 +1019,24 @@ knit_with_resource() {
     _knit_run_before _knit_resource_dep_before_cb "${param}" "${type}"
     _knit_run_after _knit_resource_dep_after_cb "${param}" "${type}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_resource_param_type()
+#
+# Store the resource type a parameter was declared with in the caller-named
+# variable, or the empty string when the parameter is an ordinary parameter (not
+# declared through knit_with_resource). Reads the per-parameter marker
+# (_KNIT_CMD_<cmd>_resource_<param>) that knit_with_resource records, so `describe`
+# and `--help` can annotate a resource parameter with its type from the
+# registration tables alone (no database read). The parameter name must be
+# normalized, as it is stored in the parameter sets.
+#
+# @param __knit_ret Name of the variable to hold the resource type (empty if none).
+# @param cmd        Mangled command name.
+# @param param      Normalized parameter name.
+# ------------------------------------------------------------------------------
+_knit_resource_param_type() {
+    local -n __knit_ret=$1
+    local __var="_KNIT_CMD_${2}_resource_${3}"
+    __knit_ret="${!__var:-}"
+}

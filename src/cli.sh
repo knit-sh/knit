@@ -2027,8 +2027,11 @@ _knit_print_options_block() {
         opt2="--${opt2}"
         local when_raw_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
         local annotation="required"
+        local rtype
+        _knit_resource_param_type rtype "${cmd}" "${opt}"
+        [[ -n "${rtype}" ]] && annotation+=", resource: ${rtype}"
         if [[ -v "${when_raw_var}" ]]; then
-            annotation="required, when: ${!when_raw_var}"
+            annotation+=", when: ${!when_raw_var}"
         fi
         printf -v head "  %-${max_opt_length}s  [%s] " "${opt2} <value>" "${annotation}"
         _knit_help_render_entry "${width}" "${head}" "${#head}" "${indent}" "${description}"
@@ -2040,8 +2043,11 @@ _knit_print_options_block() {
         opt2="--${opt2}"
         local when_raw_var="_KNIT_CMD_${cmd}_2_${opt}_when_raw"
         local annotation="default: '${default}'"
+        local rtype
+        _knit_resource_param_type rtype "${cmd}" "${opt}"
+        [[ -n "${rtype}" ]] && annotation+=", resource: ${rtype}"
         if [[ -v "${when_raw_var}" ]]; then
-            annotation="default: '${default}', when: ${!when_raw_var}"
+            annotation+=", when: ${!when_raw_var}"
         fi
         printf -v head "  %-${max_opt_length}s  [%s] " "${opt2} <value>" "${annotation}"
         _knit_help_render_entry "${width}" "${head}" "${#head}" "${indent}" "${description}"

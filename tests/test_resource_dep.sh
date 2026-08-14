@@ -276,3 +276,79 @@ _fake_instance() {
     _knit_prov_ensure_table
     [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE};")" = "0" ]
 }
+
+# ---------- describe / --help surfacing ----------
+
+@test "_knit_resource_param_type reads the declared type, empty for a plain param" {
+    knit_register "train" _train "Train."
+    knit_with_resource "dataset:images" "Images."
+    knit_with_required "epochs:integer" "Epochs."
+    _train() { :; }
+    knit_done
+    local cmd rtype
+    cmd=$(_knit_command_mangle "train")
+    _knit_resource_param_type rtype "${cmd}" "dataset"
+    [ "${rtype}" = "images" ]
+    _knit_resource_param_type rtype "${cmd}" "epochs"
+    [ -z "${rtype}" ]
+}
+
+@test "--help annotates a resource parameter with its type" {
+    knit_register "train" _train "Train."
+    knit_with_resource "dataset:images" "Training images."
+    _train() { :; }
+    knit_done
+    run _knit_invoke_command "train" --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[required, resource: images]"* ]]
+}
+
+@test "describe default shows the resource type on the parameter line" {
+    knit_register "train" _train "Train."
+    knit_with_resource "dataset:images" "Training images."
+    _train() { :; }
+    knit_done
+    run knit describe --format default --only train
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"resource: images"* ]]
+}
+
+@test "describe json includes a resource field for a resource parameter" {
+    knit_register "train" _train "Train."
+    knit_with_resource "dataset:images" "Training images."
+    _train() { :; }
+    knit_done
+    run knit describe --format json --only train
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'"resource": "images"'* ]]
+}
+
+@test "describe json omits the resource field for a plain parameter" {
+    knit_register "train" _train "Train."
+    knit_with_required "epochs:integer" "Epochs."
+    _train() { :; }
+    knit_done
+    run knit describe --format json --only train
+    [ "$status" -eq 0 ]
+    [[ "$output" != *'"resource"'* ]]
+}
+
+@test "describe yaml includes a resource field for a resource parameter" {
+    knit_register "train" _train "Train."
+    knit_with_resource "dataset:images" "Training images."
+    _train() { :; }
+    knit_done
+    run knit describe --format yaml --only train
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"resource: images"* ]]
+}
+
+@test "describe markdown shows the resource type in the constraints column" {
+    knit_register "train" _train "Train."
+    knit_with_resource "dataset:images" "Training images."
+    _train() { :; }
+    knit_done
+    run knit describe --format markdown --only train
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'resource: `images`'* ]]
+}
