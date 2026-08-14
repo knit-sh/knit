@@ -67,15 +67,243 @@ knit_resource_path() {
 declare -gA _KNIT_RESOURCES
 
 # ------------------------------------------------------------------------------
+# @fn _knit_resource_make_readonly()
+#
+# Make a fetched instance tree read-only so consumers cannot mutate a shared
+# input: `chmod -R a-w` clears the write bit for everyone while preserving the
+# existing read and execute bits. Applied by the git and url backends and by the
+# local backend's --copy path; a symlinked local instance is deliberately left
+# alone (its target stays owned and writable by whoever staged it).
+#
+# @param dir Path to the instance tree (or file) to make read-only.
+# ------------------------------------------------------------------------------
+_knit_resource_make_readonly() {
+    local dir="$1"
+    chmod -R a-w "${dir}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_resource_cleanup_dir()
+#
+# Remove a partial or failed instance at <dir>, restoring write permission first
+# so a read-only tree (see _knit_resource_make_readonly) can be deleted. A symlink
+# instance is unlinked without touching its target. A no-op when <dir> is empty or
+# does not exist, so it is safe to call unconditionally on any failure path.
+#
+# @param dir Path to the instance to remove.
+# ------------------------------------------------------------------------------
+_knit_resource_cleanup_dir() {
+    local dir="$1"
+    [[ -z "${dir}" ]] && return 0
+    # A symlink instance: remove only the link, never follow it into the target.
+    if [[ -L "${dir}" ]]; then
+        rm -f "${dir}"
+        return 0
+    fi
+    [[ -e "${dir}" ]] || return 0
+    # Restore write so a read-only tree's own files and subdirectories can be
+    # removed, then delete it.
+    chmod -R u+w "${dir}" 2>/dev/null || true
+    rm -rf "${dir}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_resource_source_identity()
+#
+# Build the source-identity string for a fetch and store it in the caller-named
+# variable. The identity is the tuple that identifies where an instance came from,
+# recorded on its row and compared on a same-name re-fetch to distinguish an
+# idempotent skip (identical source) from a conflicting re-fetch (same name, a
+# different source). It is derived from the backend method and the resolved
+# parameters, per backend:
+#   - git:   the repository url and the requested ref
+#   - url:   the url and the uncompress flag
+#   - local: the source path and the copy flag
+# The commit a git ref resolves to is deliberately not part of the identity: a
+# mutable ref (e.g. main) still identifies the same source between fetches.
+#
+# @param __knit_ret Name of the variable to hold the identity string.
+# @param method     The backend method ("git", "url", or "local").
+# @param ...        The fetch's arguments (read via knit_get_parameter).
+# ------------------------------------------------------------------------------
+_knit_resource_source_identity() {
+    local -n __knit_ret=$1; shift
+    local method="$1"; shift
+    case "${method}" in
+        git)
+            local url ref
+            url=$(knit_get_parameter "url" "$@") || url=""
+            ref=$(knit_get_parameter "ref" "$@") || ref=""
+            __knit_ret="git|url=${url}|ref=${ref}"
+            ;;
+        url)
+            local url uncompress
+            url=$(knit_get_parameter "url" "$@") || url=""
+            uncompress=$(knit_get_parameter "uncompress" "$@") || uncompress="false"
+            __knit_ret="url|url=${url}|uncompress=${uncompress}"
+            ;;
+        local)
+            local path copy
+            path=$(knit_get_parameter "path" "$@") || path=""
+            copy=$(knit_get_parameter "copy" "$@") || copy="false"
+            __knit_ret="local|path=${path}|copy=${copy}"
+            ;;
+        *)
+            __knit_ret=""
+            return 1
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_fetch_git()
+#
+# Git backend: clone <url> into <dest>, check out <ref>, and print the resolved
+# commit SHA (`git rev-parse HEAD`) to stdout so a mutable ref is pinned to the
+# commit actually obtained. The clone and checkout write their progress to stderr
+# (redirected here so stdout carries only the SHA), and the resulting tree is made
+# read-only. Returns non-zero (leaving cleanup to the caller) if git is missing or
+# any step fails.
+#
+# @param dest Directory to create and clone into (must not already exist).
+# @param url  Repository URL to clone.
+# @param ref  Ref (branch, tag, or commit) to check out.
+# ------------------------------------------------------------------------------
+_knit_fetch_git() {
+    local dest="$1"
+    local url="$2"
+    local ref="$3"
+    if ! command -v git >/dev/null 2>&1; then
+        knit_error "git is required to fetch this resource but was not found on PATH."
+        return 1
+    fi
+    git clone "${url}" "${dest}" 1>&2 || return 1
+    git -C "${dest}" checkout --quiet "${ref}" 1>&2 || return 1
+    local sha
+    sha=$(git -C "${dest}" rev-parse HEAD) || return 1
+    _knit_resource_make_readonly "${dest}"
+    printf '%s\n' "${sha}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_fetch_url()
+#
+# URL backend: download <url> with curl into <dest>, optionally unpacking it. The
+# artifact is saved under its URL basename; when <uncompress> is "true" it is
+# extracted with `tar -xf` (auto-detecting gzip/bzip2/xz) and the archive is then
+# removed, so the instance holds the unpacked tree. curl uses -f so an HTTP error
+# fails the fetch. The resulting instance is made read-only. Returns non-zero
+# (leaving cleanup to the caller) on any failed step.
+#
+# @param dest       Directory to create and download into (must not already exist).
+# @param url        URL of the artifact to download.
+# @param uncompress "true" to unpack the downloaded archive, "false" to keep it.
+# ------------------------------------------------------------------------------
+_knit_fetch_url() {
+    local dest="$1"
+    local url="$2"
+    local uncompress="$3"
+    mkdir -p "${dest}" || return 1
+    # Name the download after the URL's basename, ignoring any query string; fall
+    # back to a generic name when the URL has no usable last component.
+    local fname="${url%%\?*}"
+    fname="${fname##*/}"
+    [[ -z "${fname}" ]] && fname="download"
+    local archive="${dest}/${fname}"
+    curl -fL -o "${archive}" "${url}" 1>&2 || return 1
+    if [[ "${uncompress}" == "true" ]]; then
+        tar -xf "${archive}" -C "${dest}" 1>&2 || return 1
+        rm -f "${archive}"
+    fi
+    _knit_resource_make_readonly "${dest}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_fetch_local()
+#
+# Local backend: materialize <dest> from a local source <src>. By default <dest>
+# is a symlink to <src> (so a large already-staged dataset is not duplicated), left
+# writable through its target. With <copy> = "true" the source is copied into a
+# self-contained snapshot which is then made read-only. The source path is resolved
+# to an absolute path first, so a symlink instance does not depend on the caller's
+# working directory. Returns non-zero (leaving cleanup to the caller) if the source
+# is missing or a step fails.
+#
+# @param dest Path to create for the instance (must not already exist).
+# @param src  Local source path (file or directory) to link or copy.
+# @param copy "true" to copy a read-only snapshot, "false" to symlink the source.
+# ------------------------------------------------------------------------------
+_knit_fetch_local() {
+    local dest="$1"
+    local src="$2"
+    local copy="$3"
+    if [[ ! -e "${src}" ]]; then
+        knit_error "Local source \"${src}\" does not exist."
+        return 1
+    fi
+    src="$(realpath "${src}")" || return 1
+    if [[ "${copy}" == "true" ]]; then
+        cp -R "${src}" "${dest}" || return 1
+        _knit_resource_make_readonly "${dest}"
+    else
+        ln -s "${src}" "${dest}" || return 1
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_resource_fetch_body()
 #
 # Shared body registered for every resource type (the function every
-# `fetch:<type>` command runs). It dispatches on the type's declared download
-# method to the matching backend. The download backends are implemented in a
-# later milestone; for now this is a stub.
+# `fetch:<type>` command runs). It reads the type's declared download method from
+# the per-command marker (_KNIT_CMD_<cmd>_fetch_method) and dispatches to the
+# matching backend, materializing the instance at KNIT_RESOURCE_PREFIX (the target
+# path the `knit fetch` dispatcher exports; it must not already exist, since each
+# backend creates it). The git backend's resolved commit SHA is recorded as the
+# "commit" output. On any backend failure the partial instance is removed and the
+# body returns non-zero so the dispatcher aborts without recording a row.
 # ------------------------------------------------------------------------------
 _knit_resource_fetch_body() {
-    knit_fatal "Resource download is not yet implemented."
+    if [[ -z "${KNIT_RESOURCE_PREFIX:-}" ]]; then
+        knit_fatal "Resource fetch commands must be invoked via \"knit fetch [OPTIONS] -- <resource> [OPTIONS]\", not directly."
+    fi
+    local dest="${KNIT_RESOURCE_PREFIX}"
+    local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
+    local method_var="_KNIT_CMD_${cmd}_fetch_method"
+    local method="${!method_var:-}"
+
+    local ret=0
+    case "${method}" in
+        git)
+            local url ref sha
+            url=$(knit_get_parameter "url" "$@") || url=""
+            ref=$(knit_get_parameter "ref" "$@") || ref=""
+            if sha=$(_knit_fetch_git "${dest}" "${url}" "${ref}"); then
+                knit_output "commit" "${sha}"
+            else
+                ret=1
+            fi
+            ;;
+        url)
+            local url uncompress
+            url=$(knit_get_parameter "url" "$@") || url=""
+            uncompress=$(knit_get_parameter "uncompress" "$@") || uncompress="false"
+            _knit_fetch_url "${dest}" "${url}" "${uncompress}" || ret=1
+            ;;
+        local)
+            local path copy
+            path=$(knit_get_parameter "path" "$@") || path=""
+            copy=$(knit_get_parameter "copy" "$@") || copy="false"
+            _knit_fetch_local "${dest}" "${path}" "${copy}" || ret=1
+            ;;
+        *)
+            knit_fatal "Resource \"$(_knit_command_demangle "${cmd}")\" has no download method."
+            ;;
+    esac
+
+    if [[ "${ret}" -ne 0 ]]; then
+        _knit_resource_cleanup_dir "${dest}"
+        return 1
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -220,8 +448,9 @@ knit_register_resource() {
 # Download decorator: acquire the resource type by cloning a git repository and
 # checking out a ref. Declares the automatic parameters --url (default <url>) and
 # --ref (default <ref>); both arguments are required at registration because a
-# resource type must name the ref it pins. Valid only on a resource type, at most
-# one download decorator per type.
+# resource type must name the ref it pins. Also declares the "commit" output, in
+# which the fetch records the commit SHA the ref resolved to. Valid only on a
+# resource type, at most one download decorator per type.
 #
 # @param url The default git repository URL.
 # @param ref The default git ref (branch, tag, or commit) to check out.
@@ -239,6 +468,8 @@ knit_with_git() {
     _knit_resource_set_method "git"
     knit_with_optional "url:string" "${url}" "Git repository URL to clone."
     knit_with_optional "ref:string" "${ref}" "Git ref (branch, tag, or commit) to check out."
+    knit_with_output "commit:string" "" \
+        "The commit SHA the ref resolved to at fetch time (git rev-parse HEAD)."
 }
 
 # ------------------------------------------------------------------------------
