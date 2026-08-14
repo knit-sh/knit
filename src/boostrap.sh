@@ -113,6 +113,8 @@ knit_with_optional "setup-path:string" "setups" \
     "Root directory under which setups live. Relative values resolve against the experiment root (portable); an absolute path is used as-is. Default: setups."
 knit_with_optional "job-path:string" "jobs" \
     "Root directory under which jobs live. Relative values resolve against the experiment root (portable); an absolute path is used as-is. Default: jobs."
+knit_with_optional "resource-path:string" "resources" \
+    "Root directory under which fetched resources live. Relative values resolve against the experiment root (portable); an absolute path is used as-is. Default: resources."
 knit_with_optional "profile:string" "" \
     "Machine profile name (e.g. polaris). Prepopulates scheduler, launcher, and hardware defaults."
 knit_with_optional "platform:string" "" \
@@ -161,6 +163,7 @@ _knit_bootstrap() {
     local project
     local setup_path_opt
     local job_path_opt
+    local resource_path_opt
     local spack_ref
     local spack_packages_ref
     local profile
@@ -183,6 +186,7 @@ _knit_bootstrap() {
     project="$(knit_get_parameter "project" "$@")"
     setup_path_opt="$(knit_get_parameter "setup-path" "$@")"
     job_path_opt="$(knit_get_parameter "job-path" "$@")"
+    resource_path_opt="$(knit_get_parameter "resource-path" "$@")"
     spack_ref="$(knit_get_parameter "spack" "$@")"
     spack_packages_ref="$(knit_get_parameter "spack-packages" "$@")"
     profile="$(knit_get_parameter "profile" "$@")"
@@ -326,17 +330,20 @@ _knit_bootstrap() {
         knit_warning "The 'none' scheduler was selected without --default-nodefile; jobs will report only the local hostname."
     fi
 
-    # Setup/job roots are stored verbatim (as the user typed them) and resolved
-    # late (see _knit_setup_root / _knit_job_root): a relative value stays
-    # portable, an absolute value is honored as-is. Warn — but do not fail — on an
-    # absolute value, which pins the experiment to this machine's filesystem.
+    # Setup/job/resource roots are stored verbatim (as the user typed them) and
+    # resolved late (see _knit_setup_root / _knit_job_root / _knit_resource_root):
+    # a relative value stays portable, an absolute value is honored as-is. Warn —
+    # but do not fail — on an absolute value, which pins the experiment to this
+    # machine's filesystem.
     _knit_bootstrap_warn_absolute_root "--setup-path" "${setup_path_opt}"
     _knit_bootstrap_warn_absolute_root "--job-path" "${job_path_opt}"
+    _knit_bootstrap_warn_absolute_root "--resource-path" "${resource_path_opt}"
 
     knit_trace "Writing initial metadata..."
     knit metadata store --key "__project__"                --value "${project}"
     knit metadata store --key "__setup_path__"             --value "${setup_path_opt}"
     knit metadata store --key "__job_path__"               --value "${job_path_opt}"
+    knit metadata store --key "__resource_path__"          --value "${resource_path_opt}"
     knit metadata store --key "__account__"                --value "${account}"
     knit metadata store --key "__profile__"                --value "${profile_label}"
     knit metadata store --key "__platform__"               --value "${platform}"

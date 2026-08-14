@@ -30,6 +30,7 @@ KNIT_SOURCE = src/global.sh   \
               src/launch_pbs.sh \
               src/launch_pals.sh \
               src/setup.sh    \
+              src/resource.sh \
               src/job.sh      \
               src/job_cli.sh  \
               src/app.sh      \
