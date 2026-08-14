@@ -7,8 +7,9 @@
 # This is a complete, runnable knit experiment. It estimates the value of pi
 # with a Monte-Carlo method, and along the way it exercises every feature knit
 # currently implements: bootstrapping, machine profiles, metadata, typed
-# command parameters, setups (reproducible environments, optionally backed by a
-# Spack environment), job submission to a batch scheduler (Slurm/PBS) — or to
+# command parameters, downloadable input artifacts fetched as named resources
+# (knit fetch / knit_with_resource), setups (reproducible environments, optionally
+# backed by a Spack environment), job submission to a batch scheduler (Slurm/PBS) — or to
 # local background processes when no scheduler is present — MPI application
 # launch across a job's allocation with `knit run`, the Spack package
 # manager (`knit spack`, plus Spack-backed setups), call-site aliasing of
@@ -53,8 +54,8 @@
 #   ./full.sh --help
 #
 # Prints the program description and the list of subcommands: preflight,
-# estimate, submit, run, setup, bootstrap, metadata, profile, job, db, query,
-# spack, ai.
+# estimate, submit, run, fetch, setup, bootstrap, metadata, profile, job, db,
+# query, spack, ai.
 # Every command takes --help,
 # e.g.
 #
@@ -175,20 +176,22 @@
 #   ./full.sh bootstrap --project pi-demo --launcher none
 #
 # You can also configure the AI provider here with the --ai-* options (see step
-# 13); e.g. --ai-api-key-env OPENAI_API_KEY --ai-model gpt-4o-mini.
+# 14); e.g. --ai-api-key-env OPENAI_API_KEY --ai-model gpt-4o-mini.
 #
-# Bootstrap also fixes where setups and jobs live. By default setups go under
-# ./setups and jobs under ./jobs — both relative to the experiment root (the
-# directory holding .knit), so the whole experiment stays relocatable. Override
-# either root with --setup-path / --job-path; an absolute value (e.g. a fast
-# scratch filesystem) is honored as-is but warned about, since it makes the
-# experiment harder to reproduce elsewhere:
+# Bootstrap also fixes where setups, jobs, and fetched resources live. By default
+# setups go under ./setups, jobs under ./jobs, and resources under ./resources —
+# all relative to the experiment root (the directory holding .knit), so the whole
+# experiment stays relocatable. Override any root with --setup-path / --job-path /
+# --resource-path; an absolute value (e.g. a fast scratch filesystem) is honored
+# as-is but warned about, since it makes the experiment harder to reproduce
+# elsewhere:
 #
 #   ./full.sh bootstrap --project pi-demo --job-path /scratch/$USER/jobs
 #
-# The result is a clean three-way split: ./.knit holds knit's private tooling
-# (database, sqlite, spack), ./setups holds reproducible environments, and ./jobs
-# holds every job's working directory (steps 7–8).
+# The result is a clean split: ./.knit holds knit's private tooling (database,
+# sqlite, spack), ./setups holds reproducible environments, ./jobs holds every
+# job's working directory (steps 7–8), and ./resources holds fetched inputs
+# (section 12).
 #
 # Bootstrap is one-shot: re-running it on an already-bootstrapped experiment is
 # an error. To start over, `rm -rf .knit setups jobs` first.
@@ -296,7 +299,7 @@
 #
 #   ./full.sh query catalog
 #
-# Section 14 covers `knit query` in full: read-only SQL, the schema catalog, and
+# Section 15 covers `knit query` in full: read-only SQL, the schema catalog, and
 # Cypher queries over the provenance graph. Producing plots from the database is
 # still future work.
 #
@@ -534,7 +537,44 @@
 # to `knit_with_spack_env` instead of using the `knit_with_spack_specs` sugar.
 #
 # -----------------------------------------------------------------------------
-# 12. Describe the whole experiment
+# 12. Fetch an input artifact (a resource)
+# -----------------------------------------------------------------------------
+# Experiments often need an input acquired before they run: a dataset, a
+# reference input, or third-party source. knit models that as a *resource* — a
+# named, downloadable artifact you fetch once and then reference by name.
+#
+# This experiment registers a resource type `seeds` (a list of PRNG seeds to
+# sweep) using the LOCAL backend, so nothing is downloaded from the network:
+# `knit fetch` symlinks (or, with --copy, snapshots) a path already on disk.
+# Stage a seed list and fetch it under a name:
+#
+#   mkdir -p seed-list
+#   { echo 1; echo 7; echo 42; echo 99; } > seed-list/seeds.txt
+#   ./full.sh fetch --name myseeds -- seeds --path ./seed-list
+#
+# The instance lands at ./resources/myseeds (the --resource-path root, step 2),
+# is recorded in the `resource:seeds` table for provenance, and its path is
+# printed on stdout. Fetching is idempotent by name: re-fetching `myseeds` from
+# the same source does nothing; a different source under the same name is refused.
+# A git or url resource is one decorator away — knit_with_git <url> <ref> or
+# knit_with_url <url> in place of knit_with_local — and downloads instead of links.
+#
+# A command that needs a resource DECLARES it with knit_with_resource, so the
+# need is validated up front and recorded in the provenance graph. `batch` sweeps
+# the fetched seed list, estimating pi once per seed:
+#
+#   ./full.sh batch --seeds myseeds --samples 2000
+#
+# The value you pass (`myseeds`) is the instance NAME, not a path: knit checks the
+# named instance exists and is of type `seeds` before the body runs, records a
+# used_by edge from the resource to `batch`, then the body turns the name into a
+# path with knit_resource_path. Run `batch` before fetching and it refuses up
+# front, printing the exact `knit fetch` command to run first. Any command may
+# declare a resource — a setup that builds fetched source is the typical case
+# (see the demo, examples/demo.sh).
+#
+# -----------------------------------------------------------------------------
+# 13. Describe the whole experiment
 # -----------------------------------------------------------------------------
 # `--help` documents one command at a time; `describe` dumps the entire
 # interface — every command (builtin or user-declared), its parameters, types,
@@ -561,7 +601,7 @@
 # instead of stdout (and disables color for the default format).
 #
 # -----------------------------------------------------------------------------
-# 13. Ask questions in natural language (knit ai)
+# 14. Ask questions in natural language (knit ai)
 # -----------------------------------------------------------------------------
 # knit can put an LLM in front of your experiment: it answers questions about
 # the interface and the recorded runs by calling knit's own commands. Everything
@@ -608,7 +648,7 @@
 # they stop with a clear message pointing you back to `ai init`.
 #
 # -----------------------------------------------------------------------------
-# 14. Provenance and querying (knit_as + knit query)
+# 15. Provenance and querying (knit_as + knit query)
 # -----------------------------------------------------------------------------
 # Everything knit records is also a node in a provenance graph. When a command's
 # body invokes another command, knit records a "call" edge between them; a job
@@ -672,7 +712,7 @@
 # safe to run at any time after bootstrap.
 #
 # -----------------------------------------------------------------------------
-# 15. Clean up
+# 16. Clean up
 # -----------------------------------------------------------------------------
 #   rm -rf .knit setups jobs
 #
@@ -1002,7 +1042,7 @@ knit_done
 #
 # When a command's body invokes another command, knit records a provenance
 # "call" edge between them. knit_as labels that edge so repeated invocations can
-# be told apart in `knit query graph` (guided-tour section 14). Here the two
+# be told apart in `knit query graph` (guided-tour section 15). Here the two
 # estimate calls are aliased "coarse" and "fine"; each also records its own row
 # in the `estimate` table.
 # -----------------------------------------------------------------------------
@@ -1034,6 +1074,47 @@ _mclib_setup() {
     # captured into .activate.sh (next to the Spack re-activation block) and
     # inherited by dependent jobs.
     export MC_LIB="zlib"
+}
+knit_done
+
+# -----------------------------------------------------------------------------
+# seeds — a resource type (see guided-tour section 12).
+#
+# A resource declares HOW to acquire an input artifact; it has no body. This one
+# uses the local backend (knit_with_local), so `knit fetch` links or copies a
+# path already on disk — no network. Swap knit_with_local for knit_with_git <url>
+# <ref> or knit_with_url <url> to download from a repository or a URL instead.
+# -----------------------------------------------------------------------------
+knit_register_resource "seeds" "A list of PRNG seeds to sweep, one per line."
+knit_with_local "./seed-list"
+knit_done
+
+# -----------------------------------------------------------------------------
+# batch — a command that CONSUMES a resource (see guided-tour section 12).
+#
+# knit_with_resource "seeds:seeds" declares a dependency on a `seeds` resource:
+# the parameter value is the instance NAME, validated before the body runs, with a
+# used_by provenance edge recorded automatically. knit_resource_path turns the
+# name into the on-disk directory the instance was fetched to. It declares
+# knit_with_table, so each sweep is recorded as a row (giving the used_by edge a
+# target to point at).
+# -----------------------------------------------------------------------------
+knit_register "batch" _batch "Estimate pi once per seed from a fetched seed list."
+knit_with_resource "seeds:seeds"      "Name of the fetched seed list to sweep."
+knit_with_required "samples:integer"  "Samples to draw for each seed."
+knit_with_table
+_batch() {
+    local seeds_dir samples
+    seeds_dir="$(knit_resource_path "$(knit_get_parameter seeds "$@")")"
+    samples=$(knit_get_parameter samples "$@")
+
+    # The instance is a directory; read the seed list it contains.
+    local seed pi
+    while read -r seed; do
+        [[ -z "${seed}" ]] && continue
+        pi=$(_pi_monte_carlo "${samples}" "${seed}" decimal)
+        printf 'seed %-4s pi ~= %s\n' "${seed}" "${pi}"
+    done < "${seeds_dir}/seeds.txt"
 }
 knit_done
 

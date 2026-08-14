@@ -29,6 +29,11 @@ title = "Setup"
 summary = "Defining and provisioning software environments."
 
 [[category]]
+slug = "resources"
+title = "Resources"
+summary = "Fetching input artifacts (datasets, source code) and declaring them as command dependencies."
+
+[[category]]
 slug = "spack"
 title = "Spack"
 summary = "Working with Spack environments and package specs."

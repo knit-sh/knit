@@ -11,9 +11,11 @@
 # functions), this demo builds and launches a real C++/MPI binary.
 #
 # Along the way it exercises: bootstrap (with automatic Spack provisioning); a
-# command usable before bootstrap (preflight); a Spack-backed setup that
-# git-clones, CMake-builds and installs external code and provides its own MPI
-# launcher (knit_provides_launcher); a job declaring that setup with
+# command usable before bootstrap (preflight); a downloadable resource fetched
+# with knit fetch (the julia-fractal source) and declared as a dependency with
+# knit_with_resource; a Spack-backed setup that CMake-builds and installs that
+# fetched source and provides its own MPI launcher (knit_provides_launcher); a job
+# declaring that setup with
 # knit_with_setup, with job-state tracking and knit_job_hostnames; an app
 # launched with `knit run` for real MPI across the allocation (placement options
 # and native_cmd recording); knit_output recording a computed metric and an
@@ -23,9 +25,9 @@
 #
 # It is organised around the knit experiment model — a single pipeline:
 #
-#   bootstrap  →  setup      →  submit (job)  →  run (app)      →  analyze
-#   provision     build deps    schedule work    fan out to MPI    fan in:
-#   tooling       (juliaenv)    (render)         ranks (julia)     query results
+#   bootstrap  →  fetch     →  setup      →  submit (job) →  run (app)     →  analyze
+#   provision     download     build deps    schedule work   fan out to MPI    fan in:
+#   tooling       source       (juliaenv)    (render)        ranks (julia)     query
 #
 # HOW TO USE THIS FILE
 # --------------------
@@ -64,23 +66,34 @@
 #   ./demo.sh bootstrap --project julia-demo
 #
 # Creates ./.knit, makes sqlite and jq available, and — because a Spack-backed
-# setup is declared (step 3) — provisions a knit-private Spack (a curl+tar
+# setup is declared (step 4) — provisions a knit-private Spack (a curl+tar
 # download, a few minutes the first time). On a cluster, pass --profile / the
 # scheduler options as in examples/full.sh. If this machine has a system MPI
 # launcher that cannot launch the setup's own MPI, bootstrap once with
 # --launcher none so the setup supplies the launcher instead (juliaenv section).
 #
 # -----------------------------------------------------------------------------
-# 3. setup juliaenv — build the app and its dependencies (the `setup` step)
+# 3. fetch julia_src — download the source as a resource (the `fetch` step)
 # -----------------------------------------------------------------------------
-#   ./demo.sh setup --name juliaenv -- juliaenv
+#   ./demo.sh fetch --name julia_src -- julia_code
 #
-# Builds cmake/mpi/libpng with Spack, git-clones julia-fractal at its pinned tag,
-# and CMake-builds/installs it into ./setups/juliaenv. Pin a different revision
-# with `-- juliaenv --ref main` (juliaenv section).
+# `julia_code` is a resource TYPE (knit_register_resource + knit_with_git). knit
+# fetch clones it once at its pinned tag into ./resources/julia_src, makes it
+# read-only, and records the resolved commit for provenance. Pin a different
+# revision with `-- julia_code --ref main` (julia_code section).
 #
 # -----------------------------------------------------------------------------
-# 4. submit render → run julia — schedule the work and FAN OUT to MPI ranks
+# 4. setup juliaenv — build the fetched source and its deps (the `setup` step)
+# -----------------------------------------------------------------------------
+#   ./demo.sh setup --name juliaenv -- juliaenv --src julia_src
+#
+# Builds cmake/mpi/libpng with Spack, then CMake-builds/installs the fetched
+# julia-fractal source (named by --src) into ./setups/juliaenv. The setup declares
+# knit_with_resource "src:julia_code", so knit checks julia_src was fetched (and
+# is of type julia_code) before the body runs (juliaenv section).
+#
+# -----------------------------------------------------------------------------
+# 5. submit render → run julia — schedule the work and FAN OUT to MPI ranks
 # -----------------------------------------------------------------------------
 #   ./demo.sh submit --setup juliaenv --wait -- render --procs 1           # laptop
 #   ./demo.sh submit --setup juliaenv --nodes 2 --wait -- render --procs 8 # cluster
@@ -97,7 +110,7 @@
 #   ./demo.sh submit --setup juliaenv --wait -- render --colormap grayscale --zoom 4
 #
 # -----------------------------------------------------------------------------
-# 5. analyze — FAN IN: query the results back into one summary
+# 6. analyze — FAN IN: query the results back into one summary
 # -----------------------------------------------------------------------------
 #   ./demo.sh analyze
 #
@@ -111,8 +124,10 @@
 # Provenance and knit_as (shown here, not exercised live)
 # -----------------------------------------------------------------------------
 # Everything above is also a provenance graph: `submit --setup ...` records a
-# `used_by` edge from the setup to the job, and each command that invokes another
-# records a `call` edge. Step 5's graph queries traverse exactly those edges.
+# `used_by` edge from the setup to the job, the juliaenv setup (declaring
+# knit_with_resource) records a `used_by` edge from the julia_code resource to
+# itself, and each command that invokes another records a `call` edge. Step 6's
+# graph queries traverse exactly those edges.
 #
 # To tell repeated calls of the SAME command apart, wrap each with
 # `knit_as <alias>`. A driver job could render twice under two aliases:
@@ -123,7 +138,7 @@
 # `render` job, so knit_as stays in the comments rather than run live.
 #
 # -----------------------------------------------------------------------------
-# 6. Clean up
+# 7. Clean up
 # -----------------------------------------------------------------------------
 #   rm -rf .knit setups jobs
 #
@@ -154,10 +169,10 @@ knit_set_program_description \
 # Declared with knit_usable_before_bootstrap, so it appears in `--help` and runs
 # on a fresh checkout (before ./.knit exists). Such commands must not declare a
 # table or use --when: both would silently do nothing before bootstrap. This one
-# reports whether the host has the tools bootstrap and the juliaenv setup need:
-# git to clone the source, a C/C++ compiler to build it (and for Spack), and
-# curl/tar for bootstrap's provisioning. cmake/mpi/libpng are provided by the
-# setup's Spack environment, so they are not checked here.
+# reports whether the host has the tools bootstrap and the demo need: git for
+# `knit fetch` to clone the julia_code source resource, a C/C++ compiler to build
+# it (and for Spack), and curl/tar for bootstrap's provisioning. cmake/mpi/libpng
+# are provided by the setup's Spack environment, so they are not checked here.
 # -----------------------------------------------------------------------------
 knit_register "preflight" preflight "Check this machine has what bootstrap and the setup need (usable before bootstrap)."
 knit_usable_before_bootstrap
@@ -193,7 +208,23 @@ preflight() {
 knit_done
 
 # -----------------------------------------------------------------------------
-# juliaenv (walkthrough step 3) — the `setup` step: build julia-fractal's real
+# julia_code (walkthrough step 3) — a resource: the julia-fractal MPI source.
+#
+# A resource is a named, downloadable input artifact. This one declares the
+# julia-fractal repository as a git resource (knit_register_resource +
+# knit_with_git <url> <ref>); `knit fetch` clones it once, at its pinned ref, into
+# ./resources/<name>, makes it read-only, and records the resolved commit for
+# provenance. The juliaenv setup below consumes it by name. Fetch it with:
+#   ./demo.sh fetch --name julia_src -- julia_code
+# or pin a different revision:
+#   ./demo.sh fetch --name julia_src -- julia_code --ref main
+# -----------------------------------------------------------------------------
+knit_register_resource "julia_code" "The julia-fractal MPI source (github.com/knit-sh/julia-fractal-example)."
+knit_with_git "https://github.com/knit-sh/julia-fractal-example.git" "v1.0.0"
+knit_done
+
+# -----------------------------------------------------------------------------
+# juliaenv (walkthrough step 4) — the `setup` step: build julia-fractal's real
 # dependencies and the app itself into the setup prefix.
 #
 # knit_with_spack_specs declares a Spack environment mirroring the repo's own
@@ -204,17 +235,19 @@ knit_done
 # knit-private Spack automatically (curl+tar, no git needed).
 #
 # We use knit_with_spack_specs (not the knit_with_spack_env file form) because
-# the repo — and thus its spack.yaml — does not exist until the body clones it;
+# the repo — and thus its spack.yaml — is not present until the source is fetched;
 # the environment must be built before the body runs.
 #
-# The setup then clones the (public) julia-fractal source, checks out the
-# requested git ref, and CMake-configures/builds/installs it into the setup
-# prefix. A full clone + checkout handles a tag, branch, OR commit uniformly (a
-# shallow --branch clone cannot fetch an arbitrary commit SHA). The `ref`
-# parameter is a declared column, so the resolved ref is recorded on the setup
-# row for provenance on its own. Exporting PATH puts the installed julia-fractal
-# binary in scope for every job that requires this setup (and the launcher
-# forwards it to the MPI ranks).
+# The julia-fractal source is NOT cloned here: it is a resource, fetched once with
+# `knit fetch` (walkthrough step 3) and declared as a dependency with
+# knit_with_resource "src:julia_code". knit validates that the named instance was
+# fetched (and is of type julia_code) before this body runs and records a used_by
+# edge from the resource to the setup; the resolved commit is recorded on the
+# resource's own row for provenance. The setup CMake-configures/builds/installs
+# that fetched source into the setup prefix. Because a fetched instance is
+# read-only, the build is done out of source. Exporting PATH puts the installed
+# julia-fractal binary in scope for every job that requires this setup (and the
+# launcher forwards it to the MPI ranks).
 #
 # Because this setup builds its own MPI (the `mpi` spec above), it also builds
 # that MPI's launcher (mpirun/mpiexec). knit_provides_launcher declares this: at
@@ -227,24 +260,27 @@ knit_done
 # MPI, bootstrap once with `--launcher none` to tell knit the machine offers no
 # integrated launcher, so this contract is used.
 #
-# Build it (auto-provisioning Spack on first bootstrap):
-#   ./demo.sh setup --name juliaenv -- juliaenv
-# or pin a different revision:
-#   ./demo.sh setup --name juliaenv -- juliaenv --ref main
+# Fetch the source, then build it (auto-provisioning Spack on first bootstrap):
+#   ./demo.sh fetch --name julia_src -- julia_code
+#   ./demo.sh setup --name juliaenv -- juliaenv --src julia_src
+# or pin a different revision when you fetch:
+#   ./demo.sh fetch --name julia_src -- julia_code --ref main
 # -----------------------------------------------------------------------------
-knit_register_setup "juliaenv" _juliaenv_setup "Build & install julia-fractal from source."
+knit_register_setup "juliaenv" _juliaenv_setup "Build & install julia-fractal from fetched source."
+knit_with_resource "src:julia_code" "Name of the fetched julia-fractal source to build."
 knit_with_spack_specs "cmake" "mpi" "libpng"
 knit_provides_launcher
-knit_with_optional "ref:string" "v1.0.0" "git ref to build (tag, branch, or commit)."
 _juliaenv_setup() {
     # The Spack environment is already built and activated here, so cmake, mpicc,
     # and libpng from the specs above are on PATH / LD_LIBRARY_PATH.
-    local ref
-    ref="$(knit_get_parameter ref "$@")"
-
-    git clone "https://github.com/knit-sh/julia-fractal-example.git" \
-        "${KNIT_SETUP_PREFIX}/src"
-    git -C "${KNIT_SETUP_PREFIX}/src" checkout "${ref}"
+    #
+    # The source comes from a resource: knit_with_resource validated that the
+    # named instance was fetched (of type julia_code) before this body ran, and
+    # knit_resource_path turns the name into its on-disk directory. The instance
+    # is read-only, so we build OUT of source (a separate build/ tree under the
+    # setup prefix) and never write back into it.
+    local src
+    src="$(knit_resource_path "$(knit_get_parameter src "$@")")"
 
     # CMAKE_INSTALL_RPATH_USE_LINK_PATH bakes the link-time library directories
     # (the Spack env's libpng/zlib and the MPI) into the installed binary's
@@ -252,7 +288,7 @@ _juliaenv_setup() {
     # binary cannot find e.g. libpng16.so.16 at run time on a machine that has no
     # system libpng — and an MPI rank on a remote node cannot rely on
     # LD_LIBRARY_PATH being forwarded. RPATH makes the binary self-contained.
-    cmake -S "${KNIT_SETUP_PREFIX}/src" -B "${KNIT_SETUP_PREFIX}/build" \
+    cmake -S "${src}" -B "${KNIT_SETUP_PREFIX}/build" \
         -DCMAKE_INSTALL_PREFIX="${KNIT_SETUP_PREFIX}" \
         -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON
     cmake --build "${KNIT_SETUP_PREFIX}/build"
@@ -265,7 +301,7 @@ _juliaenv_setup() {
 knit_done
 
 # -----------------------------------------------------------------------------
-# julia (walkthrough step 4, the fan-out) — the `run` step: one MPI rank of the
+# julia (walkthrough step 5, the fan-out) — the `run` step: one MPI rank of the
 # julia-fractal renderer.
 #
 # Apps are launched by `knit run`, which starts one copy (rank) per MPI process
@@ -331,7 +367,7 @@ _julia_app() {
 knit_done
 
 # -----------------------------------------------------------------------------
-# render (walkthrough step 4) — the `submit` step: a job that renders a fractal
+# render (walkthrough step 5) — the `submit` step: a job that renders a fractal
 # as MPI work.
 #
 # The job stays thin: it declares its setup dependency with knit_with_setup
@@ -384,7 +420,7 @@ _render_job() {
 knit_done
 
 # -----------------------------------------------------------------------------
-# analyze (walkthrough step 5) — the `analyze` step: fan the results back in with
+# analyze (walkthrough step 6) — the `analyze` step: fan the results back in with
 # `knit query`.
 #
 # After one or more render jobs have fanned out and each recorded its metric,

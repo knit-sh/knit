@@ -4,7 +4,7 @@
 # Runs the shipped demo experiment (examples/demo.sh) end to end against a real
 # scheduler + MPI, exactly as a user would, to prove the flagship example works:
 #
-#   bootstrap -> setup juliaenv -> submit render --wait -> analyze
+#   bootstrap -> fetch julia_src -> setup juliaenv -> submit render --wait -> analyze
 #
 # The demo builds and launches the real julia-fractal MPI program. To keep the
 # run feasible in the test clusters, a machine profile hands Spack the system
@@ -100,15 +100,23 @@ check_grep "\"cmake\":" ".knit/spack-config.json" "profile externals rendered (c
 check_grep "\"${MPI_NAME}\":" ".knit/spack-config.json" "profile externals rendered (${MPI_NAME})"
 
 # --------------------------------------------------------------------------
-# 3. setup juliaenv — Spack env (cmake+mpi external, libpng built), then
-#    git-clone + CMake build/install of julia-fractal into the setup prefix.
+# 3. fetch julia_src — clone the julia-fractal source as a git resource (made
+#    read-only and recorded for provenance) before the setup builds it.
 # --------------------------------------------------------------------------
-./demo.sh setup --name juliaenv -- juliaenv
+./demo.sh fetch --name julia_src -- julia_code
+check_dir "resources/julia_src" "fetch materialized the julia_code resource"
+check_file "resources/julia_src/CMakeLists.txt" "fetched source has CMakeLists.txt"
+
+# --------------------------------------------------------------------------
+# 4. setup juliaenv — Spack env (cmake+mpi external, libpng built), then CMake
+#    build/install of the fetched julia-fractal source into the setup prefix.
+# --------------------------------------------------------------------------
+./demo.sh setup --name juliaenv -- juliaenv --src julia_src
 check_file "setups/juliaenv/.activate.sh" "setup produced .activate.sh"
 check_exec "setups/juliaenv/bin/julia-fractal" "setup built the julia-fractal binary"
 
 # --------------------------------------------------------------------------
-# 4. submit render --wait — the job body calls `knit run` to fan out julia
+# 5. submit render --wait — the job body calls `knit run` to fan out julia
 #    across a 2-node allocation; rank 0 writes the PNG and records the metric.
 # --------------------------------------------------------------------------
 render_uuid=$(./demo.sh submit --setup juliaenv --nodes 2 --wait \
@@ -128,7 +136,7 @@ sig=$(head -c8 "${png}" 2>/dev/null | od -An -tx1 | tr -d ' \n')
 check_eq "${sig}" "89504e470d0a1a0a" "fractal.png has a valid PNG signature"
 
 # --------------------------------------------------------------------------
-# 5. Recording — rank-0 gating means exactly one julia app row, carrying the
+# 6. Recording — rank-0 gating means exactly one julia app row, carrying the
 #    computed metric (inside > 0) and the image path; the runs row records the
 #    app and resolved proc count.
 # --------------------------------------------------------------------------
@@ -146,7 +154,7 @@ check_sqlite ".knit/knit.db" "SELECT app, procs FROM runs;" "julia|4" \
     "runs row records the julia app and resolved proc count"
 
 # --------------------------------------------------------------------------
-# 6. analyze — the read-only query step over the recorded rows and the
+# 7. analyze — the read-only query step over the recorded rows and the
 #    provenance graph. It records nothing (knit_without_provenance); assert it
 #    runs and surfaces this render across the SQL and graph surfaces.
 # --------------------------------------------------------------------------
