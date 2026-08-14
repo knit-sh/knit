@@ -824,3 +824,130 @@ knit_with_checksum() {
     fi
     printf -v "${marker_var}" '%s' "${sha256}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_resource_dep_before_cb()
+#
+# Before-callback installed by knit_with_resource on the consuming command, one
+# per declared resource parameter. Before the command body runs it validates that
+# the resource named by the parameter has been fetched and is of the required
+# type, using only the on-disk sidecar markers (no database read):
+#   - the parameter value (the instance name) missing → fatal;
+#   - `<resource-root>/<name>` absent → fatal, printing the `knit fetch` command
+#     to run;
+#   - the `.<name>.resource.type` sidecar marker absent or not equal to the
+#     declared type → fatal type-mismatch.
+# The instance name is also validated as a single path component. Returning
+# normally lets the command proceed; a fatal aborts it before the body runs.
+#
+# The declared parameter name and required type are bound at registration time
+# and carried as the first two arguments; the trailing arguments are the
+# command's own runtime arguments, scanned for the parameter value.
+#
+# @param param Normalized name of the resource parameter to read.
+# @param type  Resource type the named instance must have been fetched as.
+# ------------------------------------------------------------------------------
+_knit_resource_dep_before_cb() {
+    local param="$1"
+    local type="$2"
+    shift 2
+    local name
+    name=$(knit_get_parameter "${param}" "$@") || name=""
+    if [[ -z "${name}" ]]; then
+        local opt
+        _knit_str_underscores_to_hyphens opt "${param}"
+        knit_fatal "This command requires a resource of type \"${type}\" (parameter --${opt})."
+    fi
+    _knit_validate_instance_name "${name}"
+
+    local root
+    _knit_resource_root root
+    local path="${root}/${name}"
+    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+        knit_fatal "Resource \"${name}\" (type \"${type}\") is not fetched. Fetch it first with: ./${KNIT_SCRIPT_NAME} fetch --name ${name} -- ${type} [args...]"
+    fi
+
+    local type_marker="${root}/.${name}.resource.type"
+    local actual=""
+    if [[ -f "${type_marker}" ]]; then
+        IFS= read -r actual < "${type_marker}" || actual=""
+    fi
+    if [[ "${actual}" != "${type}" ]]; then
+        knit_fatal "Resource \"${name}\" is of type \"${actual:-<unknown>}\", but a \"${type}\" resource is required."
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_with_resource()
+#
+# Declare that the command currently being registered consumes a fetched resource
+# instance, given as `"<param>:<type>"` (e.g. "training_dataset:image_dataset").
+# Must be called between a knit_register* call and knit_done; a command may
+# declare several resources. The `<type>` must be a resource type registered with
+# knit_register_resource before this call.
+#
+# Under the hood this registers an ordinary required string parameter named
+# `<param>` (so the CLI, knit_get_parameter, and the backing table all treat it
+# as a plain value) whose value is the resource instance *name*. The command body
+# turns that name into a path with knit_resource_path. A per-parameter marker
+# (_KNIT_CMD_<cmd>_resource_<param>=<type>) records the declared type for
+# validation and, later, for `describe` / `--help`. A before-callback validates
+# the named instance (existence + recorded type) before the body runs.
+#
+# Wrappers cannot declare knit_with_resource (they forward their arguments
+# verbatim and take no parsed parameters). Every declared resource is required
+# for now.
+#
+# Example:
+# ```
+# knit_register "train" _train "Train a model."
+# knit_with_resource "training_dataset:image_dataset" "Training images."
+# _train() {
+#     local dir
+#     dir="$(knit_resource_path "$(knit_get_parameter training_dataset "$@")")"
+#     ...
+# }
+# knit_done
+# ```
+#
+# @param spec        The dependency as "<param>:<type>".
+# @param description One-line description of the resource parameter.
+# ------------------------------------------------------------------------------
+knit_with_resource() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_resource must be called between a knit_register* call and knit_done."
+    fi
+    _knit_wrapper_reject_declaration "knit_with_resource"
+
+    local spec="$1"
+    local description="$2"
+    if [[ "${spec}" != *:* ]]; then
+        knit_fatal "knit_with_resource requires a \"<param>:<type>\" annotation; got \"${spec}\"."
+    fi
+    local param_name="${spec%%:*}"
+    local type="${spec#*:}"
+    if [[ -z "${param_name}" ]] || ! _knit_name_is_valid "${param_name}"; then
+        knit_fatal "knit_with_resource: \"${param_name}\" is not a valid parameter name."
+    fi
+    if [[ -z "${type}" ]]; then
+        knit_fatal "knit_with_resource requires a resource type after the colon; got \"${spec}\"."
+    fi
+    if [[ ! -v _KNIT_RESOURCES["${type}"] ]]; then
+        knit_fatal "knit_with_resource references unknown resource type \"${type}\"; register it with knit_register_resource first."
+    fi
+
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local param
+    param=$(_knit_name_normalize "${param_name}")
+
+    # Record the declared type in a per-parameter marker, read by the validation
+    # before-callback and (later) by describe / --help.
+    printf -v "_KNIT_CMD_${cmd}_resource_${param}" '%s' "${type}"
+
+    # Register the underlying required string parameter and the before-callback
+    # that validates the named instance before the body runs. All resources are
+    # required for now.
+    [[ -z "${description}" ]] && description="Resource instance of type \"${type}\"."
+    knit_with_required "${param_name}:string" "${description}"
+    _knit_run_before _knit_resource_dep_before_cb "${param}" "${type}"
+}
