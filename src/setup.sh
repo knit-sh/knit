@@ -292,6 +292,7 @@ knit_register_setup() {
     knit_register "setup:${name}" "${fn}" "${description}"
     knit_with_table
     _KNIT_SETUPS["${name}"]=1
+    printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_type" '%s' 'setup'
     _knit_run_before _knit_setup_before_cb
     _knit_run_after  _knit_setup_after_cb
 }

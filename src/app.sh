@@ -469,5 +469,6 @@ knit_register_app() {
     # SQL quoting of the colon.
     knit_with_table "${name}"
     _KNIT_APPS["${name}"]=1
+    printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_type" '%s' 'app'
     _knit_run_before _knit_app_before_cb
 }

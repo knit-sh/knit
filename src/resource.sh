@@ -608,14 +608,15 @@ knit_done
 #
 # Test whether a command is a resource type, i.e. it was registered with
 # knit_register_resource. Used by the resource declaration directives to reject
-# use on any other kind of command.
+# use on any other kind of command. Reads the command kind from the
+# _KNIT_CMD_<cmd>_type field (see knit_register).
 #
 # @param cmd Command (mangled name) to test.
 # @return 0 if the command is a resource type, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_command_is_resource() {
-    local var="_KNIT_CMD_${1}_is_resource"
-    [[ "${!var:-}" == "true" ]]
+    local var="_KNIT_CMD_${1}_type"
+    [[ "${!var:-}" == "resource" ]]
 }
 
 # ------------------------------------------------------------------------------
@@ -708,10 +709,10 @@ knit_register_resource() {
     fi
     knit_register "fetch:${type}" _knit_resource_fetch_body "${description}"
     local cmd="${_KNIT_CURRENT_COMMAND}"
-    printf -v "_KNIT_CMD_${cmd}_is_resource" '%s' 'true'
+    printf -v "_KNIT_CMD_${cmd}_type" '%s' 'resource'
     # A failed fetch (bad download or a checksum mismatch) records no data row: the
     # dispatcher removes the partial instance, so a row would dangle.
-    printf -v "_KNIT_CMD_${cmd}_no_record_on_failure" '%s' 'true'
+    knit_no_record_on_failure
     knit_with_table "resource:${type}"
     # Every instance records its name and on-disk directory (filled by the `knit
     # fetch` dispatcher after the download body runs), so the row identifies the

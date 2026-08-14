@@ -584,6 +584,23 @@ knit_job_nodecount() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_command_is_job()
+#
+# Test whether a command is a job, i.e. it was registered with knit_register_job.
+# A job's row carries a "state" column written from its callbacks and signal
+# traps (running / killed / completed), so a directive that would suppress that
+# row can consult this to reject a job. Reads the command kind from the
+# _KNIT_CMD_<cmd>_type field (see knit_register).
+#
+# @param cmd Command (mangled name) to test.
+# @return 0 if the command is a job, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_command_is_job() {
+    local var="_KNIT_CMD_${1}_type"
+    [[ "${!var:-}" == "job" ]]
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_register_job()
 #
 # Register a job, i.e. a subcommand of the "submit" command that executes as a
@@ -616,6 +633,7 @@ knit_register_job() {
     # no SQL quoting of the colon.
     knit_with_table "${name}"
     _KNIT_JOBS["${name}"]=1
+    printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_type" '%s' 'job'
     _knit_run_before _knit_job_before_cb
     _knit_run_after  _knit_job_after_cb
 }

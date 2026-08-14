@@ -473,7 +473,7 @@ knit_register() {
     printf -v "_KNIT_CMD_${cmd}_extra"           '%s' ''
     printf -v "_KNIT_CMD_${cmd}_dispatch"        '%s' ''
     printf -v "_KNIT_CMD_${cmd}_is_hidden"       '%s' 'false'
-    printf -v "_KNIT_CMD_${cmd}_is_wrapper"      '%s' 'false'
+    printf -v "_KNIT_CMD_${cmd}_type"            '%s' 'command'
     printf -v "_KNIT_CMD_${cmd}_is_builtin"      '%s' 'false'
     printf -v "_KNIT_CMD_${cmd}_usable_before_bootstrap" '%s' 'false'
     printf -v "_KNIT_CMD_${cmd}_provenance"      '%s' ''
@@ -520,14 +520,17 @@ knit_done() {
 #
 # Test whether a command is a wrapper, i.e. it was registered with
 # knit_register_wrapper. A wrapper forwards its arguments verbatim to the
-# underlying command and declares no parameters or outputs.
+# underlying command and declares no parameters or outputs. Reads the command
+# kind from the _KNIT_CMD_<cmd>_type field (see knit_register), which records the
+# mutually-exclusive kind: "command" (plain, the default), "wrapper", "setup",
+# "job", "app", or "resource".
 #
 # @param cmd Command (mangled name) to test.
 # @return 0 if the command is a wrapper, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_command_is_wrapper() {
-    local var="_KNIT_CMD_${1}_is_wrapper"
-    [[ "${!var:-}" == "true" ]]
+    local var="_KNIT_CMD_${1}_type"
+    [[ "${!var:-}" == "wrapper" ]]
 }
 
 # ------------------------------------------------------------------------------
@@ -564,7 +567,7 @@ knit_register_wrapper() {
     local fn="$2"
     local description="$3"
     knit_register "${name}" "${fn}" "${description}"
-    printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_is_wrapper" '%s' 'true'
+    printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_type" '%s' 'wrapper'
 }
 
 # ------------------------------------------------------------------------------
@@ -1111,6 +1114,37 @@ knit_without_provenance() {
     fi
     knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as not recording provenance."
     printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_provenance" '%s' 'without'
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_no_record_on_failure()
+#
+# Mark the command currently being registered so that a failed invocation records
+# no database row. By default a command with a table (knit_with_table) records a
+# row after its body runs, whatever the body's exit status; with this directive a
+# non-zero body exit skips recording, so a failed run leaves no data row behind.
+# Use it for a command that removes its own partial output on failure (as
+# `knit fetch` removes a partial resource instance), where a dangling row would
+# misrepresent a run that produced nothing.
+#
+# Must be called between a knit_register* call and knit_done. It is not valid on a
+# job (knit_register_job): a job's row carries a "state" column written from its
+# callbacks and signal traps (running / killed / completed), which suppressing a
+# failed job's row would drop. It is not valid on a wrapper (knit_register_wrapper)
+# either, which forwards its arguments verbatim and has no body of its own.
+# Calling it more than once on the same command is harmless.
+# ------------------------------------------------------------------------------
+knit_no_record_on_failure() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_no_record_on_failure should be used after a call to \"knit_register\"."
+    fi
+    _knit_wrapper_reject_declaration "knit_no_record_on_failure"
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    if _knit_command_is_job "${cmd}"; then
+        knit_fatal "knit_no_record_on_failure cannot be used with a job (registered with knit_register_job): a job's row records its state (running / killed / completed), which suppressing a failed job's row would drop."
+    fi
+    knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} to record no row on failure."
+    printf -v "_KNIT_CMD_${cmd}_no_record_on_failure" '%s' 'true'
 }
 
 # ------------------------------------------------------------------------------
