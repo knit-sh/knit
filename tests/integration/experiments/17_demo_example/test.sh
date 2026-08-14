@@ -28,7 +28,7 @@ set -euo pipefail
 source /shared/knit/tests/integration/lib/assert.sh
 
 WORKDIR=$(mktemp -d /shared/runs/17-demo-example-XXXXXX)
-trap 'rm -rf "${WORKDIR}"' EXIT
+trap 'chmod -R u+w "${WORKDIR}" 2>/dev/null; rm -rf "${WORKDIR}"' EXIT
 
 # The demo uses a bare `source knit.sh`, so knit.sh must sit next to the script.
 cp /shared/knit/examples/demo.sh "${WORKDIR}/demo.sh"
