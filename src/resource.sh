@@ -156,6 +156,96 @@ _knit_resource_source_identity() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_resource_sha256()
+#
+# Compute the sha256 of a fetched artifact and store the 64-hex digest (with no
+# trailing filename) in the caller-named variable. A regular file is hashed
+# directly. A directory is hashed recursively into one digest: every regular file
+# under it is hashed together with its relative path (sha256sum prints
+# "<hash>  <path>"), the lines are sorted for a stable order independent of
+# readdir order, and the aggregate is hashed again — so both the tree structure
+# and every file's content contribute. A symlink is followed (so a `local`
+# symlink instance hashes its target). Returns non-zero (with a knit_error) when
+# sha256sum is unavailable or a step fails.
+#
+# @param __knit_ret Name of the variable to hold the digest.
+# @param path       Path to the file or directory to hash.
+# ------------------------------------------------------------------------------
+_knit_resource_sha256() {
+    local -n __knit_ret=$1
+    local path="$2"
+    if ! command -v sha256sum >/dev/null 2>&1; then
+        knit_error "sha256sum is required for checksum verification but was not found on PATH."
+        return 1
+    fi
+    local out
+    if [[ -d "${path}" ]]; then
+        out=$( cd "${path}" && find . -type f -print0 | LC_ALL=C sort -z \
+               | xargs -0 sha256sum | sha256sum ) || return 1
+    else
+        out=$(sha256sum "${path}") || return 1
+    fi
+    __knit_ret="${out%% *}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_resource_check_sha()
+#
+# Compare a computed digest against an expected knit_with_checksum pin, case-
+# insensitively (sha256 hex is case-independent). On a mismatch it prints a
+# knit_error naming what failed and returns 1, so the caller aborts the fetch and
+# removes the partial instance; on a match it returns 0.
+#
+# @param expected The expected value (the knit_with_checksum pin).
+# @param actual   The computed value.
+# @param what     Short label for the artifact (for the error message).
+# ------------------------------------------------------------------------------
+_knit_resource_check_sha() {
+    local expected="$1"
+    local actual="$2"
+    local what="$3"
+    if [[ "${expected,,}" != "${actual,,}" ]]; then
+        knit_error "Checksum mismatch for ${what}: expected \"${expected}\", got \"${actual}\"."
+        return 1
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_resource_defaults_used()
+#
+# Test whether a fetch still uses the resource type's declared source defaults, so
+# a knit_with_checksum pin still applies. The pin is authored against the default
+# source; if the user overrides the source the artifact would legitimately hash
+# differently, so the pin no longer holds. For each source-defining parameter of
+# the backend (git: url + ref; url: url; local: path) it compares the effective
+# value against the declared default; it returns 0 when every one matches
+# (defaults in use), 1 otherwise. The uncompress/copy flags are not compared: they
+# do not change the archive/file content the pin covers.
+#
+# @param cmd    The resource type's command (mangled name).
+# @param method The backend method ("git", "url", or "local").
+# @param ...    The fetch's expanded arguments (read via knit_get_parameter).
+# ------------------------------------------------------------------------------
+_knit_resource_defaults_used() {
+    local cmd="$1"; shift
+    local method="$1"; shift
+    local -a params=()
+    case "${method}" in
+        git)   params=("url" "ref") ;;
+        url)   params=("url") ;;
+        local) params=("path") ;;
+        *)     return 1 ;;
+    esac
+    local p val def
+    for p in "${params[@]}"; do
+        val=$(knit_get_parameter "${p}" "$@") || val=""
+        _knit_param_default def "${cmd}" "${p}"
+        [[ "${val}" == "${def}" ]] || return 1
+    done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_fetch_git()
 #
 # Git backend: clone <url> into <dest>, check out <ref>, and print the resolved
@@ -192,17 +282,21 @@ _knit_fetch_git() {
 # artifact is saved under its URL basename; when <uncompress> is "true" it is
 # extracted with `tar -xf` (auto-detecting gzip/bzip2/xz) and the archive is then
 # removed, so the instance holds the unpacked tree. curl uses -f so an HTTP error
-# fails the fetch. The resulting instance is made read-only. Returns non-zero
-# (leaving cleanup to the caller) on any failed step.
+# fails the fetch. When <expected> is a non-empty knit_with_checksum pin the
+# downloaded archive's sha256 is checked against it (before it is unpacked or
+# removed) and a mismatch fails the fetch. The resulting instance is made
+# read-only. Returns non-zero (leaving cleanup to the caller) on any failed step.
 #
 # @param dest       Directory to create and download into (must not already exist).
 # @param url        URL of the artifact to download.
 # @param uncompress "true" to unpack the downloaded archive, "false" to keep it.
+# @param expected   Expected archive sha256 to verify, or "" to skip verification.
 # ------------------------------------------------------------------------------
 _knit_fetch_url() {
     local dest="$1"
     local url="$2"
     local uncompress="$3"
+    local expected="$4"
     mkdir -p "${dest}" || return 1
     # Name the download after the URL's basename, ignoring any query string; fall
     # back to a generic name when the URL has no usable last component.
@@ -211,6 +305,12 @@ _knit_fetch_url() {
     [[ -z "${fname}" ]] && fname="download"
     local archive="${dest}/${fname}"
     curl -fL -o "${archive}" "${url}" 1>&2 || return 1
+    # Verify the archive against the pin before unpacking or removing it.
+    if [[ -n "${expected}" ]]; then
+        local actual
+        _knit_resource_sha256 actual "${archive}" || return 1
+        _knit_resource_check_sha "${expected}" "${actual}" "url archive" || return 1
+    fi
     if [[ "${uncompress}" == "true" ]]; then
         tar -xf "${archive}" -C "${dest}" 1>&2 || return 1
         rm -f "${archive}"
@@ -226,17 +326,21 @@ _knit_fetch_url() {
 # writable through its target. With <copy> = "true" the source is copied into a
 # self-contained snapshot which is then made read-only. The source path is resolved
 # to an absolute path first, so a symlink instance does not depend on the caller's
-# working directory. Returns non-zero (leaving cleanup to the caller) if the source
-# is missing or a step fails.
+# working directory. When <expected> is a non-empty knit_with_checksum pin the
+# instance's sha256 (of the file, or a recursive digest of a directory) is checked
+# against it and a mismatch fails the fetch. Returns non-zero (leaving cleanup to
+# the caller) if the source is missing or a step fails.
 #
-# @param dest Path to create for the instance (must not already exist).
-# @param src  Local source path (file or directory) to link or copy.
-# @param copy "true" to copy a read-only snapshot, "false" to symlink the source.
+# @param dest     Path to create for the instance (must not already exist).
+# @param src      Local source path (file or directory) to link or copy.
+# @param copy     "true" to copy a read-only snapshot, "false" to symlink the source.
+# @param expected Expected sha256 to verify, or "" to skip verification.
 # ------------------------------------------------------------------------------
 _knit_fetch_local() {
     local dest="$1"
     local src="$2"
     local copy="$3"
+    local expected="$4"
     if [[ ! -e "${src}" ]]; then
         knit_error "Local source \"${src}\" does not exist."
         return 1
@@ -247,6 +351,13 @@ _knit_fetch_local() {
         _knit_resource_make_readonly "${dest}"
     else
         ln -s "${src}" "${dest}" || return 1
+    fi
+    # Verify the materialized instance against the pin (a symlink is followed to
+    # its target).
+    if [[ -n "${expected}" ]]; then
+        local actual
+        _knit_resource_sha256 actual "${dest}" || return 1
+        _knit_resource_check_sha "${expected}" "${actual}" "local source" || return 1
     fi
 }
 
@@ -261,6 +372,12 @@ _knit_fetch_local() {
 # backend creates it). The git backend's resolved commit SHA is recorded as the
 # "commit" output. On any backend failure the partial instance is removed and the
 # body returns non-zero so the dispatcher aborts without recording a row.
+#
+# When the type declares knit_with_checksum and the pin still applies (the source
+# defaults are unchanged), the dispatcher exports it as KNIT_RESOURCE_EXPECTED_-
+# CHECKSUM; the body verifies it — the git commit SHA directly, and the url/local
+# artifacts through their backends — unless the fetch bypassed it with
+# --ignore-checksum (KNIT_IGNORE_CHECKSUM). A mismatch fails the fetch.
 # ------------------------------------------------------------------------------
 _knit_resource_fetch_body() {
     if [[ -z "${KNIT_RESOURCE_PREFIX:-}" ]]; then
@@ -271,6 +388,13 @@ _knit_resource_fetch_body() {
     local method_var="_KNIT_CMD_${cmd}_fetch_method"
     local method="${!method_var:-}"
 
+    # The knit_with_checksum pin to verify (empty = skip). The dispatcher exports
+    # it only when it still applies; --ignore-checksum bypasses it here.
+    local expected=""
+    if [[ "${KNIT_IGNORE_CHECKSUM:-false}" != "true" ]]; then
+        expected="${KNIT_RESOURCE_EXPECTED_CHECKSUM:-}"
+    fi
+
     local ret=0
     case "${method}" in
         git)
@@ -279,6 +403,10 @@ _knit_resource_fetch_body() {
             ref=$(knit_get_parameter "ref" "$@") || ref=""
             if sha=$(_knit_fetch_git "${dest}" "${url}" "${ref}"); then
                 knit_output "commit" "${sha}"
+                # git's pin is the expected commit SHA the default ref resolves to.
+                if [[ -n "${expected}" ]]; then
+                    _knit_resource_check_sha "${expected}" "${sha}" "git commit" || ret=1
+                fi
             else
                 ret=1
             fi
@@ -287,13 +415,13 @@ _knit_resource_fetch_body() {
             local url uncompress
             url=$(knit_get_parameter "url" "$@") || url=""
             uncompress=$(knit_get_parameter "uncompress" "$@") || uncompress="false"
-            _knit_fetch_url "${dest}" "${url}" "${uncompress}" || ret=1
+            _knit_fetch_url "${dest}" "${url}" "${uncompress}" "${expected}" || ret=1
             ;;
         local)
             local path copy
             path=$(knit_get_parameter "path" "$@") || path=""
             copy=$(knit_get_parameter "copy" "$@") || copy="false"
-            _knit_fetch_local "${dest}" "${path}" "${copy}" || ret=1
+            _knit_fetch_local "${dest}" "${path}" "${copy}" "${expected}" || ret=1
             ;;
         *)
             knit_fatal "Resource \"$(_knit_command_demangle "${cmd}")\" has no download method."
@@ -325,8 +453,10 @@ _knit_resource_fetch_body() {
 # runs, the instance is recorded, and its type / source identity / row id are
 # written to sidecar markers beside it. The resolved instance path is printed to
 # stdout (all logging is on stderr). On a failed download the partial instance is
-# removed and no row survives. `--ignore-checksum` is threaded to the backend as
-# KNIT_IGNORE_CHECKSUM (a no-op until checksum verification ships).
+# removed and no row survives. When the type declares knit_with_checksum and the
+# pin still applies (the source defaults are unchanged), it is exported as
+# KNIT_RESOURCE_EXPECTED_CHECKSUM for the body to verify; `--ignore-checksum`
+# (exported as KNIT_IGNORE_CHECKSUM) bypasses that verification.
 # ------------------------------------------------------------------------------
 _knit_fetch() {
     local name
@@ -376,6 +506,19 @@ _knit_fetch() {
     local identity
     _knit_resource_source_identity identity "${method}" "${expanded[@]}"
 
+    # Decide whether a knit_with_checksum pin still applies to this fetch: only
+    # when the type declares one and the source parameters hold their declared
+    # defaults (an overridden source would legitimately hash differently). The
+    # download body honors the --ignore-checksum bypass. An empty value means no
+    # verification.
+    local checksum_var="_KNIT_CMD_${subcmd}_checksum"
+    local pin="${!checksum_var:-}"
+    local expected_checksum=""
+    if [[ -n "${pin}" ]] \
+    && _knit_resource_defaults_used "${subcmd}" "${method}" "${expanded[@]}"; then
+        expected_checksum="${pin}"
+    fi
+
     # Resolve the instance directory and its sidecar markers under the resource
     # root (markers are siblings of the instance, since the instance is made
     # read-only and a symlinked local instance has no inside to write into).
@@ -415,6 +558,7 @@ _knit_fetch() {
         mkdir -p "${root}"
         export KNIT_RESOURCE_PREFIX="${path}"
         export KNIT_IGNORE_CHECKSUM="${ignore_checksum}"
+        export KNIT_RESOURCE_EXPECTED_CHECKSUM="${expected_checksum}"
 
         # Run the resource type's download body. Clear the last-recorded row id so
         # we only pick up an id the body itself recorded (empty when not
@@ -565,6 +709,9 @@ knit_register_resource() {
     knit_register "fetch:${type}" _knit_resource_fetch_body "${description}"
     local cmd="${_KNIT_CURRENT_COMMAND}"
     printf -v "_KNIT_CMD_${cmd}_is_resource" '%s' 'true'
+    # A failed fetch (bad download or a checksum mismatch) records no data row: the
+    # dispatcher removes the partial instance, so a row would dangle.
+    printf -v "_KNIT_CMD_${cmd}_no_record_on_failure" '%s' 'true'
     knit_with_table "resource:${type}"
     # Every instance records its name and on-disk directory (filled by the `knit
     # fetch` dispatcher after the download body runs), so the row identifies the
@@ -657,8 +804,10 @@ knit_with_local() {
 # Declare an optional integrity pin for the resource type: a sha256 verified at
 # fetch time, but only when the source defaults are used (an overridden source
 # would legitimately hash differently) and not bypassed with --ignore-checksum.
-# Valid only on a resource type, at most once. The verification itself is
-# implemented in a later milestone; this records the pin.
+# Valid only on a resource type, at most once. The pin is the sha256 of the
+# downloaded archive (url), the sha256 of the local file or a recursive digest of
+# a local directory (local), or the expected commit SHA the default ref resolves
+# to (git). A mismatch fails the fetch and removes the partial instance.
 #
 # @param sha256 The expected sha256 (a commit SHA for the git backend).
 # ------------------------------------------------------------------------------

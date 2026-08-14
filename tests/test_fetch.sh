@@ -138,6 +138,8 @@ _stub_git() {
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"failed"* ]]
     [ ! -e "${_KNIT_TEST_TMPDIR}/resources/ds1" ]
+    # A failed download leaves no row (the partial instance is removed).
+    [ "$(_knit_sqlite3 'SELECT COUNT(*) FROM "resource:ds";')" = "0" ]
 }
 
 # ---------- --ignore-checksum threading ----------

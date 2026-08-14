@@ -2496,7 +2496,13 @@ _knit_invoke_command() {
     # Record this invocation as a database row (if the command declared a table)
     # while it is still on the executing stacks, so recording reads this frame's
     # resolved row id from _KNIT_EXECUTING_ROW_ID (see the wrapper path). Then pop.
-    _knit_record_invocation "${cmd}" "${args[@]}"
+    # A command may opt out of recording a row when its body fails (the marker
+    # _KNIT_CMD_<cmd>_no_record_on_failure): a resource fetch does so, because the
+    # dispatcher removes the partial instance on failure and a row would dangle.
+    local no_fail_record_var="_KNIT_CMD_${cmd}_no_record_on_failure"
+    if [[ "${func_status}" -eq 0 || "${!no_fail_record_var:-}" != "true" ]]; then
+        _knit_record_invocation "${cmd}" "${args[@]}"
+    fi
     unset '_KNIT_EXECUTING_COMMAND[-1]'
     unset '_KNIT_EXECUTING_ROW_ID[-1]'
     unset '_KNIT_EXECUTING_START_TIME[-1]'
