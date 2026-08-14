@@ -528,6 +528,8 @@ runs and jobs, knit_job_output to read a job's captured stdout/stderr or batch
 script, and knit_metadata_show for configuration. All tools are read-only: you
 cannot run experiment commands or modify anything.
 
+When answering, use ASD-STE100.
+
 The experiment exposes these commands:
 ${summary}
 EOF
