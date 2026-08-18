@@ -129,6 +129,59 @@ setup() {
     [ "${argv[2]}" = "2" ]
 }
 
+# ---------- openmpi: environment forwarding ----------
+
+@test "openmpi env forward exports a user variable with -x" {
+    export KNIT_ENVFWD_USERVAR=1
+    declare -a fwd
+    _knit_launch_openmpi_env_forward fwd
+    local s=" ${fwd[*]} "
+    [[ "$s" == *" -x KNIT_ENVFWD_USERVAR "* ]]
+    unset KNIT_ENVFWD_USERVAR
+}
+
+@test "openmpi env forward skips launcher and resource-manager variables" {
+    export OMPI_ENVFWD=1 PMIX_ENVFWD=1 PMI_ENVFWD=1 SLURM_ENVFWD=1 \
+           PBS_ENVFWD=1 PALS_ENVFWD=1 FLUX_ENVFWD=1 HYDRA_ENVFWD=1 PRTE_ENVFWD=1
+    declare -a fwd
+    _knit_launch_openmpi_env_forward fwd
+    local s=" ${fwd[*]} "
+    [[ "$s" != *"OMPI_ENVFWD"* ]]
+    [[ "$s" != *"PMIX_ENVFWD"* ]]
+    [[ "$s" != *"PMI_ENVFWD"* ]]
+    [[ "$s" != *"SLURM_ENVFWD"* ]]
+    [[ "$s" != *"PBS_ENVFWD"* ]]
+    [[ "$s" != *"PALS_ENVFWD"* ]]
+    [[ "$s" != *"FLUX_ENVFWD"* ]]
+    [[ "$s" != *"HYDRA_ENVFWD"* ]]
+    [[ "$s" != *"PRTE_ENVFWD"* ]]
+    unset OMPI_ENVFWD PMIX_ENVFWD PMI_ENVFWD SLURM_ENVFWD PBS_ENVFWD \
+          PALS_ENVFWD FLUX_ENVFWD HYDRA_ENVFWD PRTE_ENVFWD
+}
+
+@test "openmpi env forward skips shell- and host-local variables" {
+    declare -a fwd
+    _knit_launch_openmpi_env_forward fwd
+    local s=" ${fwd[*]} "
+    [[ "$s" != *" -x PWD "* ]]
+    [[ "$s" != *" -x OLDPWD "* ]]
+    [[ "$s" != *" -x HOSTNAME "* ]]
+    [[ "$s" != *" -x SHLVL "* ]]
+}
+
+@test "openmpi env forward keeps KNIT_MPI_FLAVOR but drops the per-rank KNIT_MPI_* vars" {
+    export KNIT_MPI_FLAVOR=openmpi KNIT_MPI_RANK=3 KNIT_MPI_SIZE=4 \
+           KNIT_MPI_LOCAL_RANK=1
+    declare -a fwd
+    _knit_launch_openmpi_env_forward fwd
+    local s=" ${fwd[*]} "
+    [[ "$s" == *" -x KNIT_MPI_FLAVOR "* ]]
+    [[ "$s" != *" -x KNIT_MPI_RANK "* ]]
+    [[ "$s" != *" -x KNIT_MPI_SIZE "* ]]
+    [[ "$s" != *" -x KNIT_MPI_LOCAL_RANK "* ]]
+    unset KNIT_MPI_FLAVOR KNIT_MPI_RANK KNIT_MPI_SIZE KNIT_MPI_LOCAL_RANK
+}
+
 # ---------- mpich: cmdline ----------
 
 @test "mpich cmdline translates a full placement" {
@@ -299,6 +352,7 @@ setup() {
 @test "openmpi exec runs the launcher argv followed by the worker command" {
     declare -A opts
     _knit_launch_openmpi_cmdline() { local -n _o="$1"; _o=(echo LAUNCHED); }
+    _knit_launch_openmpi_env_forward() { local -n _f="$1"; _f=(); }
     run _knit_launch_openmpi_exec opts -- worker arg1
     [ "$status" -eq 0 ]
     [ "$output" = "LAUNCHED worker arg1" ]
@@ -315,6 +369,7 @@ setup() {
 @test "openmpi exec tolerates a missing -- separator" {
     declare -A opts
     _knit_launch_openmpi_cmdline() { local -n _o="$1"; _o=(echo LAUNCHED); }
+    _knit_launch_openmpi_env_forward() { local -n _f="$1"; _f=(); }
     run _knit_launch_openmpi_exec opts worker
     [ "$status" -eq 0 ]
     [ "$output" = "LAUNCHED worker" ]
@@ -323,8 +378,22 @@ setup() {
 @test "openmpi exec returns the launched command's exit status" {
     declare -A opts
     _knit_launch_openmpi_cmdline() { local -n _o="$1"; _o=(env); }
+    _knit_launch_openmpi_env_forward() { local -n _f="$1"; _f=(); }
     run _knit_launch_openmpi_exec opts -- bash -c 'exit 5'
     [ "$status" -eq 5 ]
+}
+
+@test "openmpi exec splices the -x forwarding flags after the executable" {
+    export KNIT_ENVFWD_SPLICE=1
+    declare -A opts
+    # Stub the placement so the first word (echo) prints the rest of the argv:
+    # the -x flags must appear before the placement token and the worker.
+    _knit_launch_openmpi_cmdline() { local -n _o="$1"; _o=(echo PLACE); }
+    run _knit_launch_openmpi_exec opts -- worker
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"-x KNIT_ENVFWD_SPLICE"* ]]
+    [[ "$output" == *"PLACE worker"* ]]
+    unset KNIT_ENVFWD_SPLICE
 }
 
 @test "pals exec runs the launcher argv followed by the worker command" {

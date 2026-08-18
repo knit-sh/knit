@@ -42,9 +42,16 @@
 # is therefore not expressible to this backend; use MPICH there.
 #
 # Placement is resolved and validated upstream by the run dispatcher; this
-# backend only formats the resolved triple into an argument vector. mpirun
-# forwards the submitting environment to every rank by default, so the ranks
-# inherit the surrounding job's environment (KNIT_* variables and the setup env).
+# backend only formats the resolved triple into an argument vector.
+#
+# Environment forwarding: unlike srun and MPICH's Hydra, which pass the launching
+# environment to every rank, mpirun forwards nothing to ranks it starts on other
+# nodes over SSH. The ranks on the launching node inherit the job's environment
+# by fork, but the remote ranks would start with a bare login environment and
+# lose the surrounding job's environment (KNIT_* variables and the setup env). So
+# _knit_launch_openmpi_exec forwards the environment explicitly with mpirun's -x,
+# skipping the variables that must stay per-rank or per-host (the launcher's own
+# rank/PMI variables and shell-local values); see _knit_launch_openmpi_env_forward.
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
@@ -142,11 +149,54 @@ _knit_launch_openmpi_cmdline() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_launch_openmpi_env_forward()
+#
+# Build the mpirun "-x NAME" flags that forward the current environment to every
+# rank, into a caller-provided array passed by name. mpirun does not forward the
+# environment to ranks it starts on other nodes over SSH (see the file header),
+# so the surrounding job's environment (KNIT_* variables and the setup env) is
+# forwarded explicitly here to match srun/Hydra behavior.
+#
+# Every exported variable is forwarded except two classes that must not be copied
+# from the launching shell to the ranks:
+#   - the launcher's own per-rank and resource-manager variables (OMPI_*, PMI_*,
+#     PMIX_*, and the Slurm/PBS/PALS/Flux/Hydra/PRTE families), which each rank or
+#     backend sets for itself — copying the launching shell's values would corrupt
+#     a rank's identity or confuse the backend; and
+#   - shell- and host-local values (HOSTNAME, PWD, TMPDIR, SSH_* and the like),
+#     which are meaningful only on the launching node.
+# The per-rank KNIT_MPI_RANK/SIZE/LOCAL_RANK are likewise skipped; the worker
+# derives them from the launcher-native variables on each rank.
+#
+# @param argv_name Name of the array to fill with the "-x NAME" flags.
+# ------------------------------------------------------------------------------
+_knit_launch_openmpi_env_forward() {
+    local -n _fwd_argv="$1"
+    _fwd_argv=()
+
+    local name
+    while IFS= read -r name; do
+        case "${name}" in
+            OMPI_*|OPAL_*|ORTE_*|PRTE_*|PMI_*|PMIX_*| \
+            FLUX_*|SLURM_*|PBS_*|PALS_*|HYDRA_*|MPIR_*) continue ;;
+            HOSTNAME|HOST|PWD|OLDPWD|SHLVL|_|TMPDIR|TERM|DISPLAY| \
+            SSH_CLIENT|SSH_CONNECTION|SSH_TTY) continue ;;
+            KNIT_MPI_RANK|KNIT_MPI_SIZE|KNIT_MPI_LOCAL_RANK) continue ;;
+        esac
+        _fwd_argv+=(-x "${name}")
+    done < <(compgen -e)
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_launch_openmpi_exec()
 #
 # Run mpirun with the translated placement flags followed by the worker command,
 # and return its exit status. The worker command is everything after a literal
-# "--". The launcher argv is built by _knit_launch_openmpi_cmdline.
+# "--". The launcher argv is built by _knit_launch_openmpi_cmdline; the "-x"
+# environment-forwarding flags (built by _knit_launch_openmpi_env_forward) are
+# spliced in right after the mpirun executable so remote ranks inherit the job
+# environment. The forwarding flags are intentionally left out of the recorded
+# native command (which stays the clean placement command).
 #
 # @param arr_name Name of the resolved placement-options associative array.
 # @param --       Literal separator.
@@ -159,5 +209,9 @@ _knit_launch_openmpi_exec() {
 
     local -a launcher
     _knit_launch_openmpi_cmdline launcher "${arr_name}"
-    "${launcher[@]}" "$@"
+
+    local -a fwd
+    _knit_launch_openmpi_env_forward fwd
+
+    "${launcher[0]}" "${fwd[@]}" "${launcher[@]:1}" "$@"
 }

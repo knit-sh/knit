@@ -27,19 +27,6 @@ set -euo pipefail
 
 source /shared/knit/tests/integration/lib/assert.sh
 
-# Skipped on the Flux cluster for an environment reason, not a knit one. knit
-# resolves and launches correctly here: the juliaenv setup's
-# knit_provides_launcher contract (openmpi) defers to the machine's detected
-# `flux` launcher, and the render runs `flux run` (runs.launcher = flux). But the
-# Spack-built julia-fractal binary hangs in cross-node MPI on this single-user
-# image (a fabric/PMIx runtime issue; the image-built MPI program in experiment
-# 04 runs fine cross-node under `flux run`). The demo path is covered on the
-# Slurm and PBS clusters.
-if command -v flux >/dev/null 2>&1; then
-    echo "SKIP 17_demo_example: Spack-built MPI binary hangs across nodes on this Flux image (runtime/fabric issue, not a knit launcher issue)."
-    exit 0
-fi
-
 WORKDIR=$(mktemp -d /shared/runs/17-demo-example-XXXXXX)
 trap 'chmod -R u+w "${WORKDIR}" 2>/dev/null; rm -rf "${WORKDIR}"' EXIT
 
@@ -60,19 +47,51 @@ CMAKE_PREFIX=${CMAKE_BIN%/bin/cmake}
 CMAKE_VER=$(cmake --version | sed -n '1s/.*version \([0-9][0-9.]*\).*/\1/p')
 [[ -n "${CMAKE_VER}" ]] || fail "could not parse the cmake version"
 
-MPICC=$(command -v mpicc) || fail "no system mpicc on the login node"
-MPI_PREFIX=${MPICC%/bin/mpicc}
-[[ "${MPI_PREFIX}" != "${MPICC}" ]] || fail "mpicc not under a bin/ prefix: ${MPICC}"
+# Pick the system MPI to adopt as a non-buildable Spack external.
 if command -v sbatch >/dev/null 2>&1; then
     MPI_NAME=openmpi
-    MPI_VER=$(ompi_info --version 2>/dev/null | sed -n '1s/.*v\([0-9][0-9.]*\).*/\1/p')
 elif command -v qsub >/dev/null 2>&1; then
     MPI_NAME=mpich
-    MPI_VER=$(mpichversion 2>/dev/null | sed -n 's/.*Version:[[:space:]]*\([0-9][0-9.]*\).*/\1/p')
+elif command -v flux >/dev/null 2>&1; then
+    MPI_NAME=openmpi
 else
-    fail "no supported scheduler (sbatch/qsub) found on the login node"
+    fail "no supported scheduler (sbatch/qsub/flux) found on the login node"
 fi
-[[ -n "${MPI_VER}" ]] || fail "could not parse the ${MPI_NAME} version"
+
+# Resolve the MPI prefix and version. Slurm and PBS keep the system MPI on PATH.
+# Flux keeps the packaged OpenMPI behind an Lmod module: probe it in a SUBSHELL
+# so loading that module never puts mpirun on the script's PATH. bootstrap (below)
+# must detect the flux launcher, not OpenMPI's mpirun — an MPI-native launcher
+# wins the auto-detection, and mpirun would then try to start the render over
+# ssh, which this single-user Flux image has no sshd for.
+_probe_mpi() {   # prints: <prefix> <version>
+    local mpicc ver
+    mpicc=$(command -v mpicc) || return 1
+    [[ "${mpicc%/bin/mpicc}" != "${mpicc}" ]] || return 1
+    if [[ "${MPI_NAME}" == "openmpi" ]]; then
+        ver=$(ompi_info --version 2>/dev/null | sed -n '1s/.*v\([0-9][0-9.]*\).*/\1/p')
+    else
+        ver=$(mpichversion 2>/dev/null | sed -n 's/.*Version:[[:space:]]*\([0-9][0-9.]*\).*/\1/p')
+    fi
+    [[ -n "${ver}" ]] || return 1
+    printf '%s %s\n' "${mpicc%/bin/mpicc}" "${ver}"
+}
+if command -v flux >/dev/null 2>&1; then
+    # `module` is defined in profile.d, which a bare `bash test.sh` does not
+    # source; source the module init (as the flux profile does). set +u guards
+    # the module scripts' unbound-variable references. The module env stays in
+    # the subshell, so the parent's PATH is unchanged for bootstrap.
+    read -r MPI_PREFIX MPI_VER < <(
+        set +u
+        source /etc/profile.d/modules.sh 2>/dev/null || true
+        module load openmpi 2>/dev/null || true
+        _probe_mpi
+    ) || true
+else
+    read -r MPI_PREFIX MPI_VER < <(_probe_mpi) || true
+fi
+[[ -n "${MPI_PREFIX:-}" ]] || fail "no system mpicc on the login node"
+[[ -n "${MPI_VER:-}"    ]] || fail "could not parse the ${MPI_NAME} version"
 
 cat >"${WORKDIR}/profile.json" <<JSON
 {

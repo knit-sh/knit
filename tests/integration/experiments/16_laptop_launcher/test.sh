@@ -30,23 +30,22 @@ set -euo pipefail
 source /shared/knit/tests/integration/lib/assert.sh
 
 # --------------------------------------------------------------------------
-# Cluster-specific facts. mpiB is the non-system MPI, exposed through an Lmod
-# module named after its implementation and installed under /opt/<impl>.
+# Cluster-specific facts. mpiB is the MPI the setup module-loads and provides as
+# the launcher, exposed through an Lmod module named after its implementation.
 #   slurm: system = OpenMPI (on PATH); module mpiB = mpich   (/opt/mpich)
 #   pbs:   system = MPICH   (on PATH); module mpiB = openmpi (/opt/openmpi)
+#   flux:  no MPI on PATH (flux is the default launcher); module mpiB = openmpi
+#          (/usr/lib64/openmpi). With --launcher none the setup provides that
+#          OpenMPI's mpirun, which spans the 2-node allocation over SSH.
 # --------------------------------------------------------------------------
 if command -v sbatch >/dev/null 2>&1; then
     MOD_MPI="mpich";   MOD_PREFIX="/opt/mpich"
 elif command -v qsub >/dev/null 2>&1; then
     MOD_MPI="openmpi"; MOD_PREFIX="/opt/openmpi"
 elif command -v flux >/dev/null 2>&1; then
-    # Not applicable to the Flux cluster: a setup-provided MPI-native launcher
-    # (mpiexec/mpirun) cannot span nodes without Flux, because the image ships no
-    # sshd. Cross-node launch on this cluster always goes through `flux run`.
-    echo "SKIP 16_laptop_launcher: not applicable to the Flux cluster (no standalone MPI-native launcher across nodes)."
-    exit 0
+    MOD_MPI="openmpi"; MOD_PREFIX="/usr/lib64/openmpi"
 else
-    fail "no supported scheduler (sbatch/qsub) found on the login node"
+    fail "no supported scheduler (sbatch/qsub/flux) found on the login node"
 fi
 
 WORKDIR=$(mktemp -d /shared/runs/16-laptop-launcher-XXXXXX)

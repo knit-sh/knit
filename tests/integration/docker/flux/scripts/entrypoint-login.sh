@@ -24,6 +24,12 @@ echo "============================================================"
 # 1. Shared directory layout
 #    /shared is bind-mounted from the host (./shared in this cluster's dir).
 # -----------------------------------------------------------------------------
+# sshd lets the "laptop launcher" path (experiment 16) run OpenMPI's mpirun
+# across nodes over SSH. It is not used by the broker overlay, which connects
+# over its own CURVE-secured TCP tree.
+echo "[entrypoint] Starting sshd..."
+/usr/sbin/sshd || true
+
 echo "[entrypoint] Setting up /shared directories..."
 mkdir -p /shared/jobs /shared/home /shared/runs || true
 # sticky-bit + world-writable so all users can create directories there

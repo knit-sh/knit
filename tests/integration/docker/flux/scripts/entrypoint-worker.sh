@@ -26,6 +26,12 @@ echo "[entrypoint] Preparing broker rundir..."
 mkdir -p /run/flux
 chown hpcuser:hpcuser /run/flux
 
+# sshd lets the "laptop launcher" path (experiment 16) run OpenMPI's mpirun
+# across nodes over SSH. mpirun starts orted on this worker over SSH; the
+# broker overlay itself does not use SSH.
+echo "[entrypoint] Starting sshd..."
+/usr/sbin/sshd || true
+
 # -----------------------------------------------------------------------------
 # 2. Wait for the leader's overlay port
 #    Uses bash's built-in /dev/tcp so it does not depend on nc being present.
