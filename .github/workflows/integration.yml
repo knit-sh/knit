@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cluster: [slurm, pbs]
+        cluster: [slurm, pbs, flux]
     permissions:
       contents: read
       packages: write

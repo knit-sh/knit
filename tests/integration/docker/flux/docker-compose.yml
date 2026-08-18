@@ -1,0 +1,93 @@
+# =============================================================================
+# Docker Compose — Flux learning cluster (knit integration tests)
+#
+# Topology:
+#   flux-login     — broker rank 0 (leader) + login node (tests exec here)
+#   flux-compute1  — broker rank 1 (compute node)
+#   flux-compute2  — broker rank 2 (compute node)
+#
+# All three containers are built from the same Dockerfile and form a static
+# broker overlay (see conf/flux/system.toml). flux-login is excluded from
+# scheduling, so an N-node job lands on the compute nodes.
+#
+# The FLUX_TAG build arg pins the base fluxrm/flux-core image at build time:
+#   docker compose build --build-arg FLUX_TAG=el9-v0.88.0
+#
+# Volume mounts:
+#   /shared/knit  — knit repo root (read-only); knit.sh at /shared/knit/knit.sh
+#   /shared/runs  — per-experiment working directories (read-write)
+#
+# Quick start:
+#   docker compose up -d --build
+#   docker exec -it flux-login bash
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Leader / login node
+  # ---------------------------------------------------------------------------
+  flux-login:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        FLUX_TAG: ${FLUX_TAG:-el9}
+    image: flux-cluster:latest
+    hostname: flux-login
+    container_name: flux-login
+    privileged: true          # parity with the Slurm/PBS clusters; gives the
+                              # broker unrestricted access to the container
+    networks:
+      - flux-net
+    volumes:
+      - ../../../../:/shared/knit:ro   # knit repo root (read-only)
+      - ./shared:/shared/runs          # per-experiment working directories
+    environment:
+      # Rank-0 broker socket; how tests (and knit's detection) reach the instance.
+      - FLUX_URI=local:///run/flux/local-0
+    entrypoint: ["/entrypoint-login.sh"]
+    ports:
+      - "8050:8050"
+
+  # ---------------------------------------------------------------------------
+  # Compute node 1
+  # ---------------------------------------------------------------------------
+  flux-compute1:
+    image: flux-cluster:latest
+    hostname: flux-compute1
+    container_name: flux-compute1
+    privileged: true
+    networks:
+      - flux-net
+    volumes:
+      - ../../../../:/shared/knit:ro
+      - ./shared:/shared/runs
+    entrypoint: ["/entrypoint-worker.sh"]
+    depends_on:
+      - flux-login
+
+  # ---------------------------------------------------------------------------
+  # Compute node 2
+  # ---------------------------------------------------------------------------
+  flux-compute2:
+    image: flux-cluster:latest
+    hostname: flux-compute2
+    container_name: flux-compute2
+    privileged: true
+    networks:
+      - flux-net
+    volumes:
+      - ../../../../:/shared/knit:ro
+      - ./shared:/shared/runs
+    entrypoint: ["/entrypoint-worker.sh"]
+    depends_on:
+      - flux-login
+
+# =============================================================================
+# Network
+# =============================================================================
+networks:
+  flux-net:
+    driver: bridge
+    name: flux-net

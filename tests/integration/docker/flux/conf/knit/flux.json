@@ -1,0 +1,13 @@
+{
+    "description": "knit integration Flux cluster — scheduler and launcher are both Flux; MPI is OpenMPI via the 'openmpi' module.",
+    "scheduler": {
+        "type": "flux",
+        "command": "flux"
+    },
+    "launcher": {
+        "type": "flux",
+        "command": "flux"
+    },
+    "module_init": "/etc/profile.d/modules.sh",
+    "modules": ["knit-marker", "openmpi"]
+}

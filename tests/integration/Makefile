@@ -1,5 +1,6 @@
 SLURM_COMPOSE = docker/slurm/docker-compose.yml
 PBS_COMPOSE   = docker/pbs/docker-compose.yml
+FLUX_COMPOSE  = docker/flux/docker-compose.yml
 
 # Relative path from inside the container to this directory.
 INTEGRATION_DIR = /shared/knit/tests/integration
@@ -7,10 +8,11 @@ INTEGRATION_DIR = /shared/knit/tests/integration
 # All test drivers, sorted so they run in order.
 EXPERIMENTS := $(sort $(wildcard experiments/*/test.sh))
 
-.PHONY: check-slurm check-pbs check-all build-images build-slurm build-pbs
+.PHONY: check-slurm check-pbs check-flux check-all build-images build-slurm build-pbs build-flux
 .PHONY: cluster-up-slurm cluster-down-slurm
 .PHONY: cluster-up-pbs cluster-down-pbs
-.PHONY: run-slurm run-pbs
+.PHONY: cluster-up-flux cluster-down-flux
+.PHONY: run-slurm run-pbs run-flux
 
 # ---------------------------------------------------------------------------
 # Image build (separated so CI can cache/pre-build before the test step)
@@ -26,7 +28,10 @@ build-slurm:
 build-pbs:
 	docker compose -f $(PBS_COMPOSE) build
 
-build-images: build-slurm build-pbs
+build-flux:
+	docker compose -f $(FLUX_COMPOSE) build
+
+build-images: build-slurm build-pbs build-flux
 
 # ---------------------------------------------------------------------------
 # Full cycles
@@ -36,7 +41,9 @@ check-slurm: cluster-up-slurm run-slurm cluster-down-slurm
 
 check-pbs: cluster-up-pbs run-pbs cluster-down-pbs
 
-check-all: check-slurm check-pbs
+check-flux: cluster-up-flux run-flux cluster-down-flux
+
+check-all: check-slurm check-pbs check-flux
 
 # ---------------------------------------------------------------------------
 # Cluster lifecycle
@@ -58,6 +65,16 @@ cluster-up-pbs:
 cluster-down-pbs:
 	docker compose -f $(PBS_COMPOSE) down -v
 
+cluster-up-flux:
+	docker compose -f $(FLUX_COMPOSE) up -d
+	# The Flux instance is owned by hpcuser (single-user instance), so the
+	# readiness probe must run as hpcuser — root is an unauthorized guest.
+	docker exec --user hpcuser flux-login \
+	    bash $(INTEGRATION_DIR)/lib/wait-for-cluster.sh flux
+
+cluster-down-flux:
+	docker compose -f $(FLUX_COMPOSE) down -v
+
 # ---------------------------------------------------------------------------
 # Run experiments
 # ---------------------------------------------------------------------------
@@ -77,6 +94,16 @@ run-pbs:
 	for t in $(EXPERIMENTS); do \
 	    printf '\n=== %s (pbs) ===\n' "$$t"; \
 	    docker exec --user hpcuser pbs-login \
+	        bash $(INTEGRATION_DIR)/$$t \
+	    || { printf 'FAIL: %s\n' "$$t"; failed=1; }; \
+	done; \
+	exit $$failed
+
+run-flux:
+	@failed=0; \
+	for t in $(EXPERIMENTS); do \
+	    printf '\n=== %s (flux) ===\n' "$$t"; \
+	    docker exec --user hpcuser flux-login \
 	        bash $(INTEGRATION_DIR)/$$t \
 	    || { printf 'FAIL: %s\n' "$$t"; failed=1; }; \
 	done; \

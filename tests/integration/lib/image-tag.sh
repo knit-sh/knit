@@ -3,11 +3,12 @@
 # image-tag.sh — Deterministic content tag for a cluster's Docker build context.
 #
 # Usage:
-#   image-tag.sh slurm|pbs
+#   image-tag.sh slurm|pbs|flux
 #
 # Prints a short, stable hash (12 hex chars) of the entire
 # tests/integration/docker/<cluster>/ tree — the Dockerfile, docker-compose.yml
-# (which carries the SLURM_VERSION / PBS_VERSION defaults), and any conf/scripts.
+# (which carries the SLURM_VERSION / PBS_VERSION / FLUX_TAG defaults), and any
+# conf/scripts.
 # Both the publish workflow and the test workflow call THIS script so they always
 # agree on the tag; a registry miss on the requested tag means "the build context
 # changed and no image was published for it" (build locally instead).
@@ -20,9 +21,9 @@ set -euo pipefail
 
 cluster="${1:-}"
 case "${cluster}" in
-    slurm|pbs) ;;
+    slurm|pbs|flux) ;;
     *)
-        printf 'Usage: %s slurm|pbs\n' "$(basename "$0")" >&2
+        printf 'Usage: %s slurm|pbs|flux\n' "$(basename "$0")" >&2
         exit 1
         ;;
 esac

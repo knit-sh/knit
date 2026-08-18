@@ -3,11 +3,11 @@
 # provision-image.sh — Make a cluster's Docker image available locally, cheaply.
 #
 # Usage:
-#   provision-image.sh slurm|pbs
+#   provision-image.sh slurm|pbs|flux
 #
 # Tries to PULL the prebuilt image from ghcr.io at the exact content tag for the
 # current build context (lib/image-tag.sh) and retags it to the name the compose
-# file expects (slurm-learn:latest / openpbs-cluster:latest), so a subsequent
+# file expects (slurm-learn / openpbs-cluster / flux-cluster :latest), so a subsequent
 # `docker compose up -d` (no --build) reuses it. On any miss — tag not published,
 # no registry access, or no owner configured — it falls back to a local build
 # (make build-<cluster>).
@@ -37,8 +37,9 @@ cluster="${1:-}"
 case "${cluster}" in
     slurm) compose_image="slurm-learn:latest" ;;
     pbs)   compose_image="openpbs-cluster:latest" ;;
+    flux)  compose_image="flux-cluster:latest" ;;
     *)
-        printf 'Usage: %s slurm|pbs\n' "$(basename "$0")" >&2
+        printf 'Usage: %s slurm|pbs|flux\n' "$(basename "$0")" >&2
         exit 1
         ;;
 esac

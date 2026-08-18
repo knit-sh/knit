@@ -3,10 +3,10 @@
 # publish-image.sh — Push a cluster's Docker image to ghcr.io (CI/main only).
 #
 # Usage:
-#   publish-image.sh slurm|pbs
+#   publish-image.sh slurm|pbs|flux
 #
-# Tags the locally-available compose image (slurm-learn:latest /
-# openpbs-cluster:latest) as
+# Tags the locally-available compose image (slurm-learn / openpbs-cluster /
+# flux-cluster :latest) as
 #   ghcr.io/<owner>/knit-<cluster>-cluster:<content-hash>   (lib/image-tag.sh)
 #   ghcr.io/<owner>/knit-<cluster>-cluster:latest
 # and pushes both.
@@ -30,8 +30,9 @@ cluster="${1:-}"
 case "${cluster}" in
     slurm) compose_image="slurm-learn:latest" ;;
     pbs)   compose_image="openpbs-cluster:latest" ;;
+    flux)  compose_image="flux-cluster:latest" ;;
     *)
-        printf 'Usage: %s slurm|pbs\n' "$(basename "$0")" >&2
+        printf 'Usage: %s slurm|pbs|flux\n' "$(basename "$0")" >&2
         exit 1
         ;;
 esac

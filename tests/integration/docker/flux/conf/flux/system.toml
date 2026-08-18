@@ -1,0 +1,36 @@
+# Flux system-instance bootstrap for the knit integration cluster.
+#
+# A static broker overlay: every node runs `flux broker` with this config, and
+# each broker learns its rank from the position of its hostname in `hosts`.
+# There is no resource manager underneath — the [resource] section defines the
+# node/core set directly.
+#
+# Read by every broker via `flux broker --config-path=/etc/flux/system/conf.d`.
+
+[bootstrap]
+# Shared certificate securing the overlay (baked into the image, owned by the
+# instance owner, mode 0600).
+curve_cert = "/etc/flux/system/curve.cert"
+
+# TCP endpoints of the overlay tree. %p expands to the port, %h to the hostname.
+default_port    = 8050
+default_bind    = "tcp://eth0:%p"
+default_connect = "tcp://%h:%p"
+
+# Rank order: flux-login is rank 0 (the leader), the two compute nodes follow.
+hosts = [
+    { host = "flux-login" },
+    { host = "flux-compute[1-2]" },
+]
+
+[resource]
+# The login node is the leader and point of contact for tests; exclude it from
+# scheduling so an N-node job lands on the compute nodes only, matching the
+# controller-is-not-a-compute-node shape of the Slurm/PBS clusters.
+exclude = "flux-login"
+
+# Static resource inventory: 4 cores per node. Fixed here so allocation is
+# deterministic regardless of how many cores the Docker host exposes.
+[[resource.config]]
+hosts = "flux-login,flux-compute[1-2]"
+cores = "0-3"
