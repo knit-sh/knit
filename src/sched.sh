@@ -214,7 +214,7 @@ _knit_sched_resolve() {
 # scheduler directive lines (e.g. "#SBATCH ..." / "#PBS ...") for the resolved
 # options. The local and none backends print nothing.
 #
-# @param backend  Scheduler backend name ("local", "none", "slurm", "pbs").
+# @param backend  Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
 # @param arr_name Name of the resolved-options associative array.
 # @param jobdir   Job directory (used by backends for --output/--error paths).
 # ------------------------------------------------------------------------------
@@ -227,6 +227,7 @@ _knit_sched_directives() {
         none)  _knit_sched_none_directives "${arr_name}" "${jobdir}" ;;
         slurm) _knit_sched_slurm_directives "${arr_name}" "${jobdir}" ;;
         pbs)   _knit_sched_pbs_directives "${arr_name}" "${jobdir}" ;;
+        flux)  _knit_sched_flux_directives "${arr_name}" "${jobdir}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
     esac
 }
@@ -240,7 +241,7 @@ _knit_sched_directives() {
 # This is built separately from _knit_sched_submit so the resolved submission
 # command can be recorded in the jobs table and logged before it is issued.
 #
-# @param backend   Scheduler backend name ("local", "none", "slurm", "pbs").
+# @param backend   Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
 # @param arr_name  Name of the resolved-options associative array.
 # @param script    Path to the batch script to submit.
 # @param argv_name Name of the array to fill with the submission argv.
@@ -255,6 +256,7 @@ _knit_sched_submit_cmdline() {
         none)  _knit_sched_none_submit_cmdline "${argv_name}" "${arr_name}" "${script}" ;;
         slurm) _knit_sched_slurm_submit_cmdline "${argv_name}" "${arr_name}" "${script}" ;;
         pbs)   _knit_sched_pbs_submit_cmdline "${argv_name}" "${arr_name}" "${script}" ;;
+        flux)  _knit_sched_flux_submit_cmdline "${argv_name}" "${arr_name}" "${script}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
     esac
 }
@@ -266,7 +268,7 @@ _knit_sched_submit_cmdline() {
 # already-written batch script and prints the resulting scheduler job id (or, for
 # the local/none backend, the process id) to stdout.
 #
-# @param backend  Scheduler backend name ("local", "none", "slurm", "pbs").
+# @param backend  Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
 # @param arr_name Name of the resolved-options associative array.
 # @param script   Path to the batch script to submit.
 # @param jobdir   Job directory (holds .stdout/.stderr for local/none backends).
@@ -281,6 +283,7 @@ _knit_sched_submit() {
         none)  _knit_sched_none_submit "${arr_name}" "${script}" "${jobdir}" ;;
         slurm) _knit_sched_slurm_submit "${arr_name}" "${script}" "${jobdir}" ;;
         pbs)   _knit_sched_pbs_submit "${arr_name}" "${script}" "${jobdir}" ;;
+        flux)  _knit_sched_flux_submit "${arr_name}" "${script}" "${jobdir}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
     esac
 }
@@ -293,7 +296,7 @@ _knit_sched_submit() {
 # kill, slurm: scancel, pbs: qdel). Cancelling a job that is already gone is not
 # an error. Knit's terminal state (killed) is recorded by the caller.
 #
-# @param backend Scheduler backend name ("local", "none", "slurm", "pbs").
+# @param backend Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
 # @param jobid   Backend job id (scheduler id, or a PID for local/none backends).
 # ------------------------------------------------------------------------------
 _knit_sched_cancel() {
@@ -304,6 +307,7 @@ _knit_sched_cancel() {
         none)  _knit_sched_none_cancel "${jobid}" ;;
         slurm) _knit_sched_slurm_cancel "${jobid}" ;;
         pbs)   _knit_sched_pbs_cancel "${jobid}" ;;
+        flux)  _knit_sched_flux_cancel "${jobid}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
     esac
 }
@@ -316,7 +320,7 @@ _knit_sched_cancel() {
 # the workstation case and maps to the local background-process backend. An
 # explicit "none" in metadata is a real, deliberate backend (a user-owned
 # cluster driven without a scheduler) and flows through untouched. Returns one of
-# "local", "none", "slurm", "pbs".
+# "local", "none", "slurm", "pbs", "flux".
 #
 # @param __knit_ret Name of the variable to hold the resolved backend name.
 # ------------------------------------------------------------------------------
@@ -338,7 +342,7 @@ _knit_sched_backend() {
 # functions); knit's own terminal state (completed/killed) is read from the jobs
 # table afterwards, so this only has to unblock when the job stops running.
 #
-# @param backend Scheduler backend name ("local", "none", "slurm", "pbs").
+# @param backend Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
 # @param jobid   Backend job id (scheduler id, or a PID for local/none backends).
 # ------------------------------------------------------------------------------
 _knit_sched_wait() {
@@ -349,6 +353,7 @@ _knit_sched_wait() {
         none)  _knit_sched_none_wait "${jobid}" ;;
         slurm) _knit_sched_slurm_wait "${jobid}" ;;
         pbs)   _knit_sched_pbs_wait "${jobid}" ;;
+        flux)  _knit_sched_flux_wait "${jobid}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
     esac
 }
@@ -373,6 +378,7 @@ _knit_sched_hostfile() {
         none)  _knit_sched_none_hostfile ;;
         slurm) _knit_sched_slurm_hostfile ;;
         pbs)   _knit_sched_pbs_hostfile ;;
+        flux)  _knit_sched_flux_hostfile ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
     esac
 }

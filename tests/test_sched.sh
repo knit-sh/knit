@@ -804,6 +804,7 @@ _seed_default_setup() {
     _knit_sched_none_cancel()  { printf 'none:%s\n'  "$1" > "${_KNIT_TEST_TMPDIR}/c"; }
     _knit_sched_slurm_cancel() { printf 'slurm:%s\n' "$1" > "${_KNIT_TEST_TMPDIR}/c"; }
     _knit_sched_pbs_cancel()   { printf 'pbs:%s\n'   "$1" > "${_KNIT_TEST_TMPDIR}/c"; }
+    _knit_sched_flux_cancel()  { printf 'flux:%s\n'  "$1" > "${_KNIT_TEST_TMPDIR}/c"; }
 
     _knit_sched_cancel local 111
     [ "$(< "${_KNIT_TEST_TMPDIR}/c")" = "local:111" ]
@@ -813,6 +814,8 @@ _seed_default_setup() {
     [ "$(< "${_KNIT_TEST_TMPDIR}/c")" = "slurm:222" ]
     _knit_sched_cancel pbs 333
     [ "$(< "${_KNIT_TEST_TMPDIR}/c")" = "pbs:333" ]
+    _knit_sched_cancel flux fABC
+    [ "$(< "${_KNIT_TEST_TMPDIR}/c")" = "flux:fABC" ]
 }
 
 @test "_knit_sched_cancel fatals on an unknown backend" {
@@ -838,6 +841,9 @@ _seed_default_setup() {
 
     _knit_sched_submit_cmdline pbs opts /d/.job.sh argv
     [ "${argv[*]}" = "qsub /d/.job.sh" ]
+
+    _knit_sched_submit_cmdline flux opts /d/.job.sh argv
+    [ "${argv[*]}" = "flux batch /d/.job.sh" ]
 }
 
 @test "_knit_sched_submit_cmdline threads the wait flag to slurm and pbs" {

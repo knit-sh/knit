@@ -22,6 +22,7 @@ KNIT_SOURCE = src/global.sh   \
               src/sched_none.sh \
               src/sched_slurm.sh \
               src/sched_pbs.sh \
+              src/sched_flux.sh \
               src/launch.sh   \
               src/launch_none.sh \
               src/launch_openmpi.sh \
