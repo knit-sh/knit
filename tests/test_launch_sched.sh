@@ -158,14 +158,37 @@ setup() {
     declare -A opts=([procs]=8 [procs-per-node]=4 [hostnames]="h0,h1")
     declare -a argv
     _knit_launch_flux_cmdline argv opts
+    # procs-per-node becomes a node count: nnodes = ceil(8 / 4) = 2.
     [ "${#argv[@]}" -eq 7 ]
     [ "${argv[0]}" = "flux" ]
     [ "${argv[1]}" = "run" ]
     [ "${argv[2]}" = "-n" ]
     [ "${argv[3]}" = "8" ]
-    [ "${argv[4]}" = "--tasks-per-node" ]
-    [ "${argv[5]}" = "4" ]
+    [ "${argv[4]}" = "-N" ]
+    [ "${argv[5]}" = "2" ]
     [ "${argv[6]}" = "--requires=host:h0,h1" ]
+}
+
+@test "flux cmdline rounds the node count up when procs is not a multiple" {
+    declare -A opts=([procs]=5 [procs-per-node]=2)
+    declare -a argv
+    _knit_launch_flux_cmdline argv opts
+    # nnodes = ceil(5 / 2) = 3.
+    [ "${#argv[@]}" -eq 6 ]
+    [ "${argv[2]}" = "-n" ]
+    [ "${argv[3]}" = "5" ]
+    [ "${argv[4]}" = "-N" ]
+    [ "${argv[5]}" = "3" ]
+}
+
+@test "flux cmdline omits the node count when procs-per-node has no procs" {
+    declare -A opts=([procs-per-node]=4)
+    declare -a argv
+    _knit_launch_flux_cmdline argv opts
+    # Without procs the node count cannot be computed, so -N is not emitted.
+    [ "${#argv[@]}" -eq 2 ]
+    [ "${argv[0]}" = "flux" ]
+    [ "${argv[1]}" = "run" ]
 }
 
 @test "flux cmdline emits only the flags whose options are set" {

@@ -230,13 +230,14 @@ _stub_hostfile() {
     [ "$(_state_of "job")" = "running" ]
 }
 
-@test "job before callback installs the kill trap on TERM and USR1" {
+@test "job before callback installs the kill trap on HUP, TERM and USR1" {
     export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
     : > "${KNIT_SETUP_PREFIX}/.activate.sh"
     _seed_jobs "job" "submitted"
     _stub_hostfile
     _knit_job_before_cb
+    trap -p HUP | grep -q _knit_job_killed_trap
     trap -p TERM | grep -q _knit_job_killed_trap
     trap -p USR1 | grep -q _knit_job_killed_trap
 }

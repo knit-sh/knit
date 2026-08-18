@@ -33,8 +33,12 @@ if command -v sbatch >/dev/null 2>&1; then
 elif command -v qsub >/dev/null 2>&1; then
     PROFILE="pbs"
     MPI_MODULE="openmpi"
+elif command -v flux >/dev/null 2>&1; then
+    # The Flux image has a single MPI (OpenMPI), exposed only as a module.
+    PROFILE="flux"
+    MPI_MODULE="openmpi"
 else
-    fail "no supported scheduler (sbatch/qsub) found on the login node"
+    fail "no supported scheduler (sbatch/qsub/flux) found on the login node"
 fi
 
 WORKDIR=$(mktemp -d /shared/runs/12-platform-modules-XXXXXX)

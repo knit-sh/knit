@@ -148,6 +148,15 @@ teardown() {
     ! grep -q '^export KNIT_SETUP_PREFIX=' "${KNIT_SETUP_PREFIX}/.activate.sh"
 }
 
+@test "setup after callback excludes FLUX_URI from .activate.sh" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
+    # FLUX_URI is a per-instance handle: a job under "flux batch" must keep the
+    # one Flux gives it, not the one captured on the login node.
+    export FLUX_URI="local:///run/flux/local-0"
+    _knit_setup_after_cb
+    ! grep -q '^export FLUX_URI=' "${KNIT_SETUP_PREFIX}/.activate.sh"
+}
+
 @test "setup after callback excludes readonly variables from .activate.sh" {
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
     # A readonly exported variable cannot be re-exported: sourcing .activate.sh

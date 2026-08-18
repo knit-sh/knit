@@ -32,8 +32,10 @@ if command -v sbatch >/dev/null 2>&1; then
     PROFILE="slurm"
 elif command -v qsub >/dev/null 2>&1; then
     PROFILE="pbs"
+elif command -v flux >/dev/null 2>&1; then
+    PROFILE="flux"
 else
-    fail "no supported scheduler (sbatch/qsub) found on the login node"
+    fail "no supported scheduler (sbatch/qsub/flux) found on the login node"
 fi
 
 WORKDIR=$(mktemp -d /shared/runs/15-default-setup-XXXXXX)

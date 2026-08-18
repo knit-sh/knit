@@ -6,12 +6,13 @@
    apis: bootstrap, knit_provides_launcher
 
 By default ``bootstrap`` **auto-detects** the MPI launcher. ``--launcher`` is one
-of ``auto``, ``openmpi``, ``mpich``, ``pals``, ``slurm``, ``pbs``, ``none``. With
-``auto`` an MPI-native launcher (``openmpi``, ``mpich``, or ``pals``) is detected
-from the environment; if none is found and a batch scheduler is present, ``auto``
-falls back to that scheduler's integrated launcher (``slurm`` = ``srun``,
-``pbs`` = the PBS ``mpiexec`` wrapper). Select ``slurm``/``pbs`` explicitly to
-force the scheduler-integrated launcher even when an MPI-native one is present:
+of ``auto``, ``openmpi``, ``mpich``, ``pals``, ``flux``, ``slurm``, ``pbs``,
+``none``. With ``auto`` an MPI-native launcher (``openmpi``, ``mpich``, or
+``pals``) is detected from the environment; if none is found and a batch
+scheduler is present, ``auto`` falls back to that scheduler's integrated launcher
+(``slurm`` = ``srun``, ``pbs`` = the PBS ``mpiexec`` wrapper, ``flux`` =
+``flux run``). Select ``slurm``/``pbs``/``flux`` explicitly to force the
+scheduler-integrated launcher even when an MPI-native one is present:
 
 .. code-block:: console
 

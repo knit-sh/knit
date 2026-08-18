@@ -234,7 +234,11 @@ _knit_setup_write_activate_header() {
 # and re-initializes the module system for consumers, above the env dump.
 #
 # Dynamic bash internals (BASH_*, SHLVL, _, OLDPWD, PPID, RANDOM, LINENO,
-# SECONDS, KNIT_SETUP_PREFIX) are excluded from the dump.
+# SECONDS, KNIT_SETUP_PREFIX) are excluded from the dump. FLUX_URI is also
+# excluded: it is a per-instance handle to the Flux instance that owns the
+# current shell, so a job that runs under "flux batch" (its own sub-instance)
+# must keep the FLUX_URI that Flux gives it, not the one the setup captured on
+# the login node.
 # ------------------------------------------------------------------------------
 _knit_setup_after_cb() {
     local activate="${KNIT_SETUP_PREFIX}/.activate.sh"
@@ -243,7 +247,7 @@ _knit_setup_after_cb() {
         local var
         while IFS= read -r var; do
             case "${var}" in
-                BASH_*|SHLVL|_|OLDPWD|PPID|RANDOM|LINENO|SECONDS|KNIT_SETUP_PREFIX)
+                BASH_*|SHLVL|_|OLDPWD|PPID|RANDOM|LINENO|SECONDS|KNIT_SETUP_PREFIX|FLUX_URI)
                     continue ;;
             esac
             # Skip readonly variables (e.g. KNIT_VERSION): re-exporting them when

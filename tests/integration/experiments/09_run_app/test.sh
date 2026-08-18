@@ -55,8 +55,10 @@ if command -v sbatch >/dev/null 2>&1; then
     NODE_PREFIX="slurm-compute"
 elif command -v qsub >/dev/null 2>&1; then
     NODE_PREFIX="pbs-compute"
+elif command -v flux >/dev/null 2>&1; then
+    NODE_PREFIX="flux-compute"
 else
-    fail "no supported scheduler (sbatch/qsub) found on the login node"
+    fail "no supported scheduler (sbatch/qsub/flux) found on the login node"
 fi
 
 # --------------------------------------------------------------------------
@@ -163,11 +165,16 @@ app_uuid_for_run() {
 }
 
 # The scheduler-integrated launcher to exercise alongside the auto-detected
-# MPI-native one (srun under Slurm, the PBS mpiexec wrapper under PBS).
+# MPI-native one (srun under Slurm, the PBS mpiexec wrapper under PBS, flux run
+# under Flux).
 if command -v sbatch >/dev/null 2>&1; then
     INTEGRATED_LAUNCHER="slurm"
-else
+elif command -v qsub >/dev/null 2>&1; then
     INTEGRATED_LAUNCHER="pbs"
+elif command -v flux >/dev/null 2>&1; then
+    INTEGRATED_LAUNCHER="flux"
+else
+    fail "no supported scheduler (sbatch/qsub/flux) found on the login node"
 fi
 
 # ==========================================================================

@@ -44,8 +44,15 @@ if command -v sbatch >/dev/null 2>&1; then
 elif command -v qsub >/dev/null 2>&1; then
     PROFILE="pbs"; SCHED="pbs"
     SYS_MPI="mpich";   MOD_MPI="openmpi"; MOD_PREFIX="/opt/openmpi"
+elif command -v flux >/dev/null 2>&1; then
+    # Not applicable to the Flux cluster: it has a single MPI (OpenMPI) that
+    # launches only under `flux run`, so there is no system-vs-module MPI-native
+    # launcher selection to exercise, and no standalone mpiexec that spans nodes
+    # without Flux (the image ships no sshd).
+    echo "SKIP 13_platform_mpi_select: not applicable to the Flux cluster (single MPI; the launcher is always flux)."
+    exit 0
 else
-    fail "no supported scheduler (sbatch/qsub) found on the login node"
+    fail "no supported scheduler (sbatch/qsub/flux) found on the login node"
 fi
 
 WORKDIR=$(mktemp -d /shared/runs/13-mpi-select-XXXXXX)

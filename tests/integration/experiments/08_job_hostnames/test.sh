@@ -46,8 +46,10 @@ if command -v sbatch >/dev/null 2>&1; then
     NODE_PREFIX="slurm-compute"
 elif command -v qsub >/dev/null 2>&1; then
     NODE_PREFIX="pbs-compute"
+elif command -v flux >/dev/null 2>&1; then
+    NODE_PREFIX="flux-compute"
 else
-    fail "no supported scheduler (sbatch/qsub) found on the login node"
+    fail "no supported scheduler (sbatch/qsub/flux) found on the login node"
 fi
 
 # --------------------------------------------------------------------------

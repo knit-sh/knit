@@ -18,8 +18,9 @@ The supported backends are:
 - ``none`` --- no launcher; runs the app as a single rank-0 process (rejects
   ``--procs`` > 1 and remote hosts). This is the laptop default.
 - ``openmpi`` / ``mpich`` --- MPI-native launchers (``mpirun`` / ``mpiexec``).
-- ``slurm`` / ``pbs`` / ``pals`` --- the scheduler's own launcher (``srun``,
-  PBS ``mpiexec``, PALS ``mpiexec``), which reads the allocation natively.
+- ``slurm`` / ``pbs`` / ``pals`` / ``flux`` --- the scheduler's own launcher
+  (``srun``, PBS ``mpiexec``, PALS ``mpiexec``, ``flux run``), which reads the
+  allocation natively.
 
 Knit translates ``--procs``, ``--procs-per-node``, ``--hostnames``, and the
 binding options into each backend's native flags. When a flag isn't covered, or

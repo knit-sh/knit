@@ -39,6 +39,12 @@ if command -v sbatch >/dev/null 2>&1; then
     MOD_MPI="mpich";   MOD_PREFIX="/opt/mpich"
 elif command -v qsub >/dev/null 2>&1; then
     MOD_MPI="openmpi"; MOD_PREFIX="/opt/openmpi"
+elif command -v flux >/dev/null 2>&1; then
+    # Not applicable to the Flux cluster: a setup-provided MPI-native launcher
+    # (mpiexec/mpirun) cannot span nodes without Flux, because the image ships no
+    # sshd. Cross-node launch on this cluster always goes through `flux run`.
+    echo "SKIP 16_laptop_launcher: not applicable to the Flux cluster (no standalone MPI-native launcher across nodes)."
+    exit 0
 else
     fail "no supported scheduler (sbatch/qsub) found on the login node"
 fi

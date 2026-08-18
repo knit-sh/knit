@@ -7,7 +7,8 @@
 
 By default ``bootstrap`` **auto-detects** the batch scheduler. Pin it explicitly
 when detection guesses wrong, or to make the experiment self-documenting.
-``--scheduler`` is one of ``auto``, ``slurm``, ``pbs``, ``local``, ``none``:
+``--scheduler`` is one of ``auto``, ``slurm``, ``pbs``, ``flux``, ``local``,
+``none``:
 
 .. code-block:: console
 

@@ -52,8 +52,14 @@ elif command -v qsub >/dev/null 2>&1; then
     NAME_DIRECTIVE="#PBS -N "
     EXCL_DIRECTIVE="#PBS -l place=excl"
     TIME_DIRECTIVE="#PBS -l walltime="
+elif command -v flux >/dev/null 2>&1; then
+    BACKEND="flux"
+    NODE_PREFIX="flux-compute"
+    NAME_DIRECTIVE="# flux: --job-name="
+    EXCL_DIRECTIVE="# flux: --exclusive"
+    TIME_DIRECTIVE="# flux: --time-limit="
 else
-    fail "no supported scheduler (sbatch/qsub) found on the login node"
+    fail "no supported scheduler (sbatch/qsub/flux) found on the login node"
 fi
 
 # --------------------------------------------------------------------------

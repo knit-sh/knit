@@ -11,13 +11,20 @@
 # placement options directly:
 #
 #   --procs N          -> -n N               (--ntasks)
-#   --procs-per-node M -> --tasks-per-node M
+#   --procs-per-node M -> -N <nnodes>        (nnodes = ceil(procs / M))
 #   --cpus-per-proc N  -> -c N               (--cores-per-task, native)
 #   --gpus-per-proc N  -> -g N               (--gpus-per-task, native)
 #   --hostnames h0,h1  -> --requires=host:h0,h1
 #   --bind V           -> -o cpu-affinity=<v>   (V normalized by _knit_launch_bind_value)
 #   --gpu-bind V       -> -o gpu-affinity=<V>   (value passed through verbatim)
 #   --launcher-args …  -> appended verbatim after the placement flags
+#
+# `flux run` splits its placement flags into two families that must not be mixed:
+# per-task (-n/-c/-g) and per-resource (--tasks-per-node/--gpus-per-node). knit
+# keeps the per-task family so cpus-per-proc and gpus-per-proc stay native, and
+# expresses procs-per-node as a node count (-N) instead of --tasks-per-node:
+# with -n tasks over -N nodes, `flux run` fills the nodes evenly, so the ranks
+# per node equal procs-per-node. nnodes is ceil(procs / procs-per-node).
 #
 # `flux run` is a strong launcher fit: cpus-per-proc and gpus-per-proc are both
 # native, where the Hydra-family backends warn and skip them. Binding is coarser:
@@ -60,7 +67,12 @@ _knit_launch_flux_cmdline() {
 
     _launch_argv=(flux run)
     [[ -n "${procs}" ]] && _launch_argv+=(-n "${procs}")
-    [[ -n "${ppn}" ]] && _launch_argv+=(--tasks-per-node "${ppn}")
+    # Express procs-per-node as a node count so the per-task family (-n/-c/-g)
+    # stays usable: flux forbids -n together with --tasks-per-node. With -n
+    # tasks over -N nodes, flux fills the nodes evenly.
+    if [[ -n "${ppn}" && -n "${procs}" ]]; then
+        _launch_argv+=(-N "$(( (procs + ppn - 1) / ppn ))")
+    fi
     [[ -n "${cpp}" ]] && _launch_argv+=(-c "${cpp}")
     [[ -n "${gpp}" ]] && _launch_argv+=(-g "${gpp}")
     [[ -n "${hosts}" ]] && _launch_argv+=("--requires=host:${hosts}")

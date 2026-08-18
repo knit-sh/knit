@@ -424,10 +424,11 @@ _knit_job_record_hostnames() {
 # Signal handler installed while a job runs on the compute node. Schedulers warn
 # a job before killing it: Slurm can send a chosen signal a configurable time
 # before the walltime limit (requested via --signal in the batch directives) and
-# sends SIGTERM before SIGKILL; PBS likewise sends SIGTERM before SIGKILL. This
-# handler records the job as "killed" so its row does not stay stuck at
-# "running", then exits so the after-callback (which would mark it "completed")
-# does not run.
+# sends SIGTERM before SIGKILL; PBS likewise sends SIGTERM before SIGKILL. Flux
+# cancels a batch job by shutting down its instance, which sends SIGHUP to the
+# batch initial program. This handler records the job as "killed" so its row does
+# not stay stuck at "running", then exits so the after-callback (which would mark
+# it "completed") does not run.
 # ------------------------------------------------------------------------------
 _knit_job_killed_trap() {
     _knit_job_set_state "killed"
@@ -449,7 +450,8 @@ _knit_job_before_cb() {
     fi
     # Catch the scheduler's pre-termination signal so an out-of-time or cancelled
     # job records "killed" before it is hard-killed (see _knit_job_killed_trap).
-    trap '_knit_job_killed_trap' TERM USR1
+    # HUP covers Flux, which sends it to the batch program when it cancels a job.
+    trap '_knit_job_killed_trap' HUP TERM USR1
     _knit_job_set_state "running"
     _knit_job_record_hostnames
     # Setup-less jobs (no knit_with_setup) run without a KNIT_SETUP_PREFIX, so

@@ -9,7 +9,7 @@
 # currently implements: bootstrapping, machine profiles, metadata, typed
 # command parameters, downloadable input artifacts fetched as named resources
 # (knit fetch / knit_with_resource), setups (reproducible environments, optionally
-# backed by a Spack environment), job submission to a batch scheduler (Slurm/PBS) — or to
+# backed by a Spack environment), job submission to a batch scheduler (Slurm/PBS/Flux) — or to
 # local background processes when no scheduler is present — MPI application
 # launch across a job's allocation with `knit run`, the Spack package
 # manager (`knit spack`, plus Spack-backed setups), call-site aliasing of
@@ -29,7 +29,7 @@
 # Read the numbered walkthrough below and run the commands one at a time from
 # the directory that contains this script and knit.sh. Each step explains what
 # the command does and what you should expect to see. The same script runs
-# unchanged on your laptop (local backend) and on an HPC login node (Slurm/PBS)
+# unchanged on your laptop (local backend) and on an HPC login node (Slurm/PBS/Flux)
 # — that portability is the whole point of knit.
 #
 # Prerequisites: bash, make, and curl/wget. Bootstrap prefers a system
@@ -448,8 +448,10 @@
 #
 # --procs defaults to 1 so this runs anywhere, including a laptop with no MPI
 # launcher. Launching more than one rank needs a real MPI launcher: knit
-# auto-detects OpenMPI and MPICH; without one it uses the built-in "none"
-# launcher, which runs a single local rank and rejects --procs > 1. On a cluster,
+# auto-detects OpenMPI, MPICH and PALS, and falls back to a scheduler's
+# integrated launcher (srun, the PBS mpiexec, or flux run) when no MPI-native one
+# is present; without any it uses the built-in "none" launcher, which runs a
+# single local rank and rejects --procs > 1. On a cluster,
 # submit with more nodes and a higher --procs to spread ranks across the
 # allocation:
 #

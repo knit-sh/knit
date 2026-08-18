@@ -39,11 +39,13 @@ check_file "setups/env/.activate.sh" "setup produced .activate.sh"
 # Detect the scheduler and its cancel command.
 # --------------------------------------------------------------------------
 if command -v sbatch >/dev/null 2>&1; then
-    CANCEL="scancel"
+    CANCEL=(scancel)
 elif command -v qsub >/dev/null 2>&1; then
-    CANCEL="qdel"
+    CANCEL=(qdel)
+elif command -v flux >/dev/null 2>&1; then
+    CANCEL=(flux cancel)
 else
-    fail "no supported scheduler (sbatch/qsub) found on the login node"
+    fail "no supported scheduler (sbatch/qsub/flux) found on the login node"
 fi
 
 # --------------------------------------------------------------------------
@@ -73,7 +75,7 @@ check_eq "${running}" "1" "job reached the running state on a compute node"
 # Cancel the running job. The scheduler signals it; knit's trap records it as
 # "killed" before the process is torn down.
 # --------------------------------------------------------------------------
-"${CANCEL}" "${launcher}"
+"${CANCEL[@]}" "${launcher}"
 
 killed=0
 for _ in $(seq 1 90); do

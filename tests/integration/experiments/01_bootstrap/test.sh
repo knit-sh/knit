@@ -34,8 +34,14 @@ cd "${WORKDIR}"
 # Run bootstrap
 # --------------------------------------------------------------------------
 # No --profile / --default-cpus-per-node, so the per-node core count is filled
-# by live detection (sinfo/pbsnodes); both clusters advertise 2 CPUs per node.
+# by live detection (sinfo/pbsnodes/flux resource). The Slurm and PBS clusters
+# advertise 2 CPUs per node; the Flux compute nodes have 4.
 ./experiment.sh bootstrap --project "integration-test-01" --account "test-alloc"
+if command -v flux >/dev/null 2>&1; then
+    EXPECTED_NCPUS="4"
+else
+    EXPECTED_NCPUS="2"
+fi
 
 # Point the assertion helper at the sqlite3 built by knit.
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
@@ -58,10 +64,10 @@ check_sqlite ".knit/knit.db" \
     "test-alloc" \
     "metadata stores the account from --account"
 
-# The per-node core count was detected from the live scheduler (2 CPUs/node).
+# The per-node core count was detected from the live scheduler.
 check_sqlite ".knit/knit.db" \
     "SELECT value FROM metadata WHERE key='__node_ncpus__';" \
-    "2" \
+    "${EXPECTED_NCPUS}" \
     "metadata stores the detected per-node core count"
 
 assert_summary

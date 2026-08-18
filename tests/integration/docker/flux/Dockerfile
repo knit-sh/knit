@@ -16,7 +16,13 @@ USER root
 # 1. System packages
 #    - OpenMPI: an MPI that launches under `flux run` (OpenMPI's "pmix: flux"
 #      MCA component bootstraps from the Flux PMI). Exposed via an Lmod module.
-#    - Lmod: module system for the knit platform/profile tests.
+#    - Lmod: module system for the knit platform/profile tests. The base image
+#      also ships environment-modules (Tcl). Both claim the "module" command
+#      through the modules.sh alternative, and the Tcl one has the higher
+#      priority, but it cannot read the .lua modulefiles the tests install. So
+#      environment-modules is removed to leave Lmod as the only "module"
+#      provider (as on the Slurm and PBS images), and modules.sh then resolves
+#      to Lmod.
 #    - cmake + xz: let the demo experiment adopt a system CMake as a Spack
 #      external and let Spack extract .tar.xz sources.
 #    The overlay needs NO munge and NO sshd: brokers connect over a ZeroMQ
@@ -36,6 +42,7 @@ RUN dnf -y update && \
         tar \
         cmake \
         xz \
+    && dnf -y remove environment-modules \
     && dnf clean all
 
 # ---------------------------------------------------------------------------

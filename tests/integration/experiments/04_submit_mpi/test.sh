@@ -44,12 +44,20 @@ cd "${WORKDIR}"
 
 # Which cluster? The compute-node hostname prefix differs, and it is how we
 # confirm the ranks landed on real, distinct compute nodes.
+# On Slurm and PBS the system MPI is on PATH, so no profile is needed. The Flux
+# image keeps its OpenMPI behind an Lmod module, so bootstrap with the baked
+# profile: it loads the openmpi module for the setup build (mpicc) and, on the
+# compute node, for the compiled binary's runtime libraries.
+BOOTSTRAP_PROFILE=()
 if command -v sbatch >/dev/null 2>&1; then
     NODE_PREFIX="slurm-compute"
 elif command -v qsub >/dev/null 2>&1; then
     NODE_PREFIX="pbs-compute"
+elif command -v flux >/dev/null 2>&1; then
+    NODE_PREFIX="flux-compute"
+    BOOTSTRAP_PROFILE=(--profile flux)
 else
-    fail "no supported scheduler (sbatch/qsub) found on the login node"
+    fail "no supported scheduler (sbatch/qsub/flux) found on the login node"
 fi
 
 # --------------------------------------------------------------------------
@@ -79,7 +87,7 @@ wait_for_ranks() {
 # --------------------------------------------------------------------------
 # Bootstrap, then compile the MPI program in a setup.
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-04"
+./experiment.sh bootstrap --project "integration-test-04" "${BOOTSTRAP_PROFILE[@]}"
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 ./experiment.sh setup --name mpienv -- mpienv
