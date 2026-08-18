@@ -152,6 +152,89 @@ setup() {
     [ "${argv[4]}" = "core" ]
 }
 
+# ---------- flux: cmdline ----------
+
+@test "flux cmdline translates a full placement" {
+    declare -A opts=([procs]=8 [procs-per-node]=4 [hostnames]="h0,h1")
+    declare -a argv
+    _knit_launch_flux_cmdline argv opts
+    [ "${#argv[@]}" -eq 7 ]
+    [ "${argv[0]}" = "flux" ]
+    [ "${argv[1]}" = "run" ]
+    [ "${argv[2]}" = "-n" ]
+    [ "${argv[3]}" = "8" ]
+    [ "${argv[4]}" = "--tasks-per-node" ]
+    [ "${argv[5]}" = "4" ]
+    [ "${argv[6]}" = "--requires=host:h0,h1" ]
+}
+
+@test "flux cmdline emits only the flags whose options are set" {
+    declare -A opts=([procs]=4)
+    declare -a argv
+    _knit_launch_flux_cmdline argv opts
+    [ "${#argv[@]}" -eq 4 ]
+    [ "${argv[0]}" = "flux" ]
+    [ "${argv[1]}" = "run" ]
+    [ "${argv[2]}" = "-n" ]
+    [ "${argv[3]}" = "4" ]
+}
+
+@test "flux cmdline with no options is just the launcher" {
+    declare -A opts
+    declare -a argv
+    _knit_launch_flux_cmdline argv opts
+    [ "${#argv[@]}" -eq 2 ]
+    [ "${argv[0]}" = "flux" ]
+    [ "${argv[1]}" = "run" ]
+}
+
+@test "flux cmdline translates cpus-per-proc and gpus-per-proc natively" {
+    declare -A opts=([procs]=8 [cpus-per-proc]=4 [gpus-per-proc]=1)
+    declare -a argv
+    _knit_launch_flux_cmdline argv opts
+    [ "${#argv[@]}" -eq 8 ]
+    [ "${argv[2]}" = "-n" ]
+    [ "${argv[3]}" = "8" ]
+    [ "${argv[4]}" = "-c" ]
+    [ "${argv[5]}" = "4" ]
+    [ "${argv[6]}" = "-g" ]
+    [ "${argv[7]}" = "1" ]
+}
+
+@test "flux cmdline maps a bind level to per-task cpu-affinity" {
+    declare -A opts=([bind]=core)
+    declare -a argv
+    _knit_launch_flux_cmdline argv opts
+    [ "${#argv[@]}" -eq 4 ]
+    [ "${argv[2]}" = "-o" ]
+    [ "${argv[3]}" = "cpu-affinity=per-task" ]
+}
+
+@test "flux cmdline maps a none bind to off cpu-affinity" {
+    declare -A opts=([bind]=none)
+    declare -a argv
+    _knit_launch_flux_cmdline argv opts
+    [ "${argv[2]}" = "-o" ]
+    [ "${argv[3]}" = "cpu-affinity=off" ]
+}
+
+@test "flux cmdline passes gpu-bind through as a gpu-affinity policy" {
+    declare -A opts=([gpu-bind]=per-task)
+    declare -a argv
+    _knit_launch_flux_cmdline argv opts
+    [ "${argv[2]}" = "-o" ]
+    [ "${argv[3]}" = "gpu-affinity=per-task" ]
+}
+
+@test "flux cmdline appends launcher-args verbatim" {
+    declare -A opts=([procs]=2 [launcher-args]="-o mpi=spectrum")
+    declare -a argv
+    _knit_launch_flux_cmdline argv opts
+    [ "${#argv[@]}" -eq 6 ]
+    [ "${argv[4]}" = "-o" ]
+    [ "${argv[5]}" = "mpi=spectrum" ]
+}
+
 # ---------- dispatcher routing ----------
 
 @test "_knit_launch_cmdline routes to the slurm backend" {
@@ -166,6 +249,14 @@ setup() {
     declare -a argv
     _knit_launch_cmdline pbs opts argv
     [ "${argv[0]}" = "mpiexec" ]
+}
+
+@test "_knit_launch_cmdline routes to the flux backend" {
+    declare -A opts=([procs]=2)
+    declare -a argv
+    _knit_launch_cmdline flux opts argv
+    [ "${argv[0]}" = "flux" ]
+    [ "${argv[1]}" = "run" ]
 }
 
 # ---------- backend selection: never auto-detected ----------
@@ -216,5 +307,20 @@ setup() {
     declare -A opts
     _knit_launch_pbs_cmdline() { local -n _o="$1"; _o=(env); }
     run _knit_launch_pbs_exec opts -- bash -c 'exit 5'
+    [ "$status" -eq 5 ]
+}
+
+@test "flux exec runs the launcher argv followed by the worker command" {
+    declare -A opts
+    _knit_launch_flux_cmdline() { local -n _o="$1"; _o=(echo LAUNCHED); }
+    run _knit_launch_flux_exec opts -- worker arg1
+    [ "$status" -eq 0 ]
+    [ "$output" = "LAUNCHED worker arg1" ]
+}
+
+@test "flux exec returns the launched command's exit status" {
+    declare -A opts
+    _knit_launch_flux_cmdline() { local -n _o="$1"; _o=(env); }
+    run _knit_launch_flux_exec opts -- bash -c 'exit 5'
     [ "$status" -eq 5 ]
 }

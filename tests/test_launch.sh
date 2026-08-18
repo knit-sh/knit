@@ -122,6 +122,16 @@ teardown() {
     _knit_launch_bind_value v pals thread; [ "$v" = "thread" ]
 }
 
+@test "bind value maps the Flux distribution policy" {
+    local v
+    # Flux has no granularity: none disables affinity, every level is per-task.
+    _knit_launch_bind_value v flux none;   [ "$v" = "off" ]
+    _knit_launch_bind_value v flux core;   [ "$v" = "per-task" ]
+    _knit_launch_bind_value v flux socket; [ "$v" = "per-task" ]
+    _knit_launch_bind_value v flux numa;   [ "$v" = "per-task" ]
+    _knit_launch_bind_value v flux thread; [ "$v" = "per-task" ]
+}
+
 @test "bind value passes an unknown value through verbatim with a warning" {
     local v
     run _knit_launch_bind_value v slurm map_ldom:0

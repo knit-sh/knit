@@ -343,14 +343,14 @@ _knit_run_resolve_placement() {
 #   KNIT_MPI_LOCAL_RANK  node-local rank
 #
 # Each is taken from the first launcher that set it, by precedence
-# (OpenMPI -> MPICH/PMI -> Slurm srun -> PALS), falling back to a single
+# (OpenMPI -> MPICH/PMI -> Slurm srun -> PALS -> Flux), falling back to a single
 # rank-0 / size-1 process when none are present (the `none` backend). Called once
 # per rank by the worker, before forwarding to the app body.
 # ------------------------------------------------------------------------------
 _knit_run_normalize_mpi_env() {
-    export KNIT_MPI_RANK="${OMPI_COMM_WORLD_RANK:-${PMI_RANK:-${SLURM_PROCID:-${PALS_RANKID:-0}}}}"
-    export KNIT_MPI_SIZE="${OMPI_COMM_WORLD_SIZE:-${PMI_SIZE:-${SLURM_NTASKS:-1}}}"
-    export KNIT_MPI_LOCAL_RANK="${OMPI_COMM_WORLD_LOCAL_RANK:-${PMI_LOCAL_RANK:-${SLURM_LOCALID:-${PALS_LOCAL_RANKID:-0}}}}"
+    export KNIT_MPI_RANK="${OMPI_COMM_WORLD_RANK:-${PMI_RANK:-${SLURM_PROCID:-${PALS_RANKID:-${FLUX_TASK_RANK:-0}}}}}"
+    export KNIT_MPI_SIZE="${OMPI_COMM_WORLD_SIZE:-${PMI_SIZE:-${SLURM_NTASKS:-${FLUX_JOB_SIZE:-1}}}}"
+    export KNIT_MPI_LOCAL_RANK="${OMPI_COMM_WORLD_LOCAL_RANK:-${PMI_LOCAL_RANK:-${SLURM_LOCALID:-${PALS_LOCAL_RANKID:-${FLUX_TASK_LOCAL_ID:-0}}}}}"
 }
 
 knit_register "_run" _knit_run_worker "Per-rank worker for \`knit run\` (internal)."

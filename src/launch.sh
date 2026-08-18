@@ -17,6 +17,7 @@
 #   - slurm   — srun (scheduler-integrated)           [M3]
 #   - pbs     — the PBS mpiexec wrapper               [M3]
 #   - pals    — mpiexec (HPE Cray PALS)               [M12]
+#   - flux    — flux run (scheduler-integrated)
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
@@ -28,13 +29,16 @@
 # Slurm's --cpu-bind uses the plural/locality-domain spellings (cores, sockets,
 # ldoms, threads); PALS's --cpu-bind uses the singular spellings (core, socket,
 # numa, thread); the OpenMPI/Hydra family (openmpi, mpich, pbs) matches PALS
-# except that a hardware thread is spelled hwthread. An unrecognized value is not
-# an error — it is passed through verbatim (with a warning) so a user can still
-# reach a launcher-specific binding this vocabulary does not cover. Returns the
+# except that a hardware thread is spelled hwthread. Flux's -o cpu-affinity is a
+# distribution policy (off | per-task | map:LIST), not a granularity, so all four
+# levels map to per-task and none maps to off. An unrecognized value is not an
+# error — it is passed through verbatim (with a warning) so a user can still reach
+# a launcher-specific binding this vocabulary does not cover. Returns the
 # translated value.
 #
 # @param __knit_ret Name of the variable to hold the translated value.
-# @param backend Launcher backend name ("openmpi", "mpich", "slurm", ...).
+# @param backend Launcher backend name ("openmpi", "mpich", "slurm", "pals",
+#                "flux").
 # @param value   The knit --bind value to translate.
 # ------------------------------------------------------------------------------
 _knit_launch_bind_value() {
@@ -59,6 +63,16 @@ _knit_launch_bind_value() {
                 socket) __out="socket" ;;
                 numa) __out="numa" ;;
                 thread) __out="thread" ;;
+            esac
+            ;;
+        flux)
+            # Flux's -o cpu-affinity is a distribution policy (off|per-task|
+            # map:LIST), not a granularity, so knit's four levels all bind each
+            # rank to its assigned cores via per-task; none disables affinity.
+            # Reach exact placement with --launcher-args -o cpu-affinity=map:LIST.
+            case "${__value}" in
+                none) __out="off" ;;
+                core|socket|numa|thread) __out="per-task" ;;
             esac
             ;;
         *)
@@ -103,7 +117,7 @@ _knit_launch_bind_value() {
 # background-process backend. Note that a run-time --launcher of "none" (the
 # override argument, tier 1) is the opposite: an explicit, terminal choice of the
 # "none" backend that does NOT fall through to a setup contract.
-# Returns one of "none", "openmpi", "mpich", "pals", "slurm", "pbs".
+# Returns one of "none", "openmpi", "mpich", "pals", "slurm", "pbs", "flux".
 #
 # @param __knit_ret Name of the variable to hold the resolved backend name.
 # @param override Optional explicit launcher name (a per-run --launcher value);
@@ -148,6 +162,7 @@ _knit_launch_cmdline() {
         slurm) _knit_launch_slurm_cmdline "${argv_name}" "${opts_name}" ;;
         pbs) _knit_launch_pbs_cmdline "${argv_name}" "${opts_name}" ;;
         pals) _knit_launch_pals_cmdline "${argv_name}" "${opts_name}" ;;
+        flux) _knit_launch_flux_cmdline "${argv_name}" "${opts_name}" ;;
         *) knit_fatal "Launcher backend not implemented: ${backend}" ;;
     esac
 }
@@ -178,6 +193,7 @@ _knit_launch_exec() {
         slurm) _knit_launch_slurm_exec "${arr_name}" -- "$@" ;;
         pbs) _knit_launch_pbs_exec "${arr_name}" -- "$@" ;;
         pals) _knit_launch_pals_exec "${arr_name}" -- "$@" ;;
+        flux) _knit_launch_flux_exec "${arr_name}" -- "$@" ;;
         *) knit_fatal "Launcher backend not implemented: ${backend}" ;;
     esac
 }

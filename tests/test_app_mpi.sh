@@ -15,6 +15,7 @@ setup() {
     unset PMI_RANK PMI_SIZE PMI_LOCAL_RANK
     unset SLURM_PROCID SLURM_NTASKS SLURM_LOCALID
     unset PALS_RANKID PALS_LOCAL_RANKID
+    unset FLUX_TASK_RANK FLUX_JOB_SIZE FLUX_TASK_LOCAL_ID
     unset KNIT_MPI_RANK KNIT_MPI_SIZE KNIT_MPI_LOCAL_RANK
 }
 
@@ -72,6 +73,16 @@ teardown() {
     [ "${KNIT_MPI_RANK}" = "4" ]
     [ "${KNIT_MPI_SIZE}" = "64" ]
     [ "${KNIT_MPI_LOCAL_RANK}" = "1" ]
+}
+
+@test "mpi env: Flux variables are normalized" {
+    export FLUX_TASK_RANK=6
+    export FLUX_JOB_SIZE=12
+    export FLUX_TASK_LOCAL_ID=2
+    _knit_run_normalize_mpi_env
+    [ "${KNIT_MPI_RANK}" = "6" ]
+    [ "${KNIT_MPI_SIZE}" = "12" ]
+    [ "${KNIT_MPI_LOCAL_RANK}" = "2" ]
 }
 
 # ---------- precedence ----------
