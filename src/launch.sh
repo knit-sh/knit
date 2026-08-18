@@ -12,11 +12,11 @@
 #
 # Backends:
 #   - none    — run the worker directly, no launcher: a single rank-0 process.
-#   - openmpi — mpirun (Open MPI)                     [M2]
-#   - mpich   — mpiexec/Hydra (MPICH)                 [M2]
-#   - slurm   — srun (scheduler-integrated)           [M3]
-#   - pbs     — the PBS mpiexec wrapper               [M3]
-#   - pals    — mpiexec (HPE Cray PALS)               [M12]
+#   - openmpi — mpirun (Open MPI)
+#   - mpich   — mpiexec/Hydra (MPICH)
+#   - slurm   — srun (scheduler-integrated)
+#   - pbs     — the PBS mpiexec wrapper
+#   - pals    — mpiexec (HPE Cray PALS)
 #   - flux    — flux run (scheduler-integrated)
 # ------------------------------------------------------------------------------
 
