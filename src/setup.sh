@@ -1066,7 +1066,7 @@ knit_provides_launcher() {
     _knit_run_after _knit_setup_provides_launcher_after_cb
 
     knit_with_output "__mpi_launcher__:string" "" \
-        "The MPI launcher (openmpi/mpich/pals) this setup detected and froze."
+        "The MPI launcher (openmpi/mpich/pals/flux) this setup detected and froze."
 
     # shellcheck disable=SC2178 # nameref to the command's notes array
     local -n notes_ref="_KNIT_CMD_${cmd}_notes"

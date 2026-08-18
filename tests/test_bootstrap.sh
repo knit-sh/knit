@@ -343,17 +343,17 @@ _bootstrap_launcher_stubs() {
 
 @test "bootstrap __launcher__ enum accepts every documented launcher" {
     # The bootstrap --launcher help advertises these values; the enum must accept
-    # each one, including the scheduler-integrated slurm and pbs backends that are
-    # only ever selected explicitly (never auto-detected).
+    # each one, including the scheduler-integrated slurm, pbs, and flux backends
+    # that are only ever selected explicitly (never auto-detected).
     local v
-    for v in auto openmpi mpich pals slurm pbs none; do
+    for v in auto openmpi mpich pals flux slurm pbs none; do
         knit_type_check "__launcher__" "${v}"
     done
 }
 
 @test "bootstrap __scheduler__ enum accepts every documented scheduler" {
     local v
-    for v in auto slurm pbs local none; do
+    for v in auto slurm pbs flux local none; do
         knit_type_check "__scheduler__" "${v}"
     done
 }

@@ -8,6 +8,10 @@ setup() {
     # Satisfy the bootstrap check
     _KNIT_IS_BOOTSTRAPPED="1"
 
+    # A live FLUX_URI in the host environment would steer detection to Flux; the
+    # Flux tests set it explicitly, so start each test with it unset.
+    unset FLUX_URI
+
     # Temporary directory for mock executables
     MOCK_BIN="$(mktemp -d)"
 }
@@ -69,6 +73,40 @@ _write_mock() {
     run _knit_detect_job_manager
     [ "$status" -eq 0 ]
     [ "$output" = "slurm" ]
+}
+
+@test "_knit_detect_job_manager returns flux when FLUX_URI is set" {
+    FLUX_URI="local:///run/flux/local-0" \
+        PATH="${MOCK_BIN}:${PATH}" run _knit_detect_job_manager
+    [ "$status" -eq 0 ]
+    [ "$output" = "flux" ]
+}
+
+@test "_knit_detect_job_manager prefers FLUX_URI over sbatch (Flux under Slurm)" {
+    # A Flux instance running inside a Slurm allocation: both are reachable, but
+    # a live FLUX_URI means Flux owns this shell.
+    _write_mock "${MOCK_BIN}/sbatch" "exit 0"
+    FLUX_URI="local:///run/flux/local-0" \
+        PATH="${MOCK_BIN}:${PATH}" run _knit_detect_job_manager
+    [ "$status" -eq 0 ]
+    [ "$output" = "flux" ]
+}
+
+@test "_knit_detect_job_manager detects Slurm over Flux when FLUX_URI is unset" {
+    # flux and sbatch both on PATH but no live instance: the login shell of a
+    # Flux-under-Slurm machine correctly detects as Slurm.
+    _write_mock "${MOCK_BIN}/sbatch" "exit 0"
+    _write_mock "${MOCK_BIN}/flux"   "exit 0"
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_job_manager
+    [ "$status" -eq 0 ]
+    [ "$output" = "slurm" ]
+}
+
+@test "_knit_detect_job_manager returns flux when only flux is in PATH" {
+    _write_mock "${MOCK_BIN}/flux" "exit 0"
+    PATH="${MOCK_BIN}" run _knit_detect_job_manager
+    [ "$status" -eq 0 ]
+    [ "$output" = "flux" ]
 }
 
 # ---------- _knit_detect_mpi ----------
@@ -168,6 +206,32 @@ _write_mock() {
     [ "$output" = "pals" ]
 }
 
+@test "_knit_detect_launcher returns flux via FLUX_URI when no MPI launcher is present" {
+    # No mpiexec/mpirun on an isolated PATH; a live FLUX_URI selects flux.
+    FLUX_URI="local:///run/flux/local-0" \
+        PATH="${MOCK_BIN}" run _knit_detect_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "flux" ]
+}
+
+@test "_knit_detect_launcher returns flux via flux on PATH when no MPI launcher is present" {
+    _write_mock "${MOCK_BIN}/flux" "exit 0"
+    PATH="${MOCK_BIN}" run _knit_detect_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "flux" ]
+}
+
+@test "_knit_detect_launcher prefers an MPI-native launcher over flux" {
+    # OpenMPI mpirun and flux both present: the MPI-native launcher wins.
+    _write_mock "${MOCK_BIN}/mpirun" \
+        '[[ "$1" == "--version" ]] && echo "mpirun (Open MPI) 4.1.6" && exit 0; exit 0'
+    _write_mock "${MOCK_BIN}/flux" "exit 0"
+    FLUX_URI="local:///run/flux/local-0" \
+        PATH="${MOCK_BIN}:${PATH}" run _knit_detect_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "openmpi" ]
+}
+
 # ---------- _knit_detect_node_ncpus ----------
 
 @test "_knit_detect_node_ncpus returns the modal slurm cpu count" {
@@ -195,6 +259,28 @@ _write_mock() {
     PATH="${MOCK_BIN}:${PATH}" run _knit_detect_node_ncpus
     [ "$status" -eq 0 ]
     [ "$output" = "8" ]
+}
+
+@test "_knit_detect_node_ncpus derives the flux per-node count from cores/nodes" {
+    # flux is the job manager (isolated PATH, only flux present). "flux resource
+    # list ... {nnodes} {ncores}" reports 2 nodes / 32 cores -> 16 per node.
+    # The PATH is fully isolated so an absolute-path shebang is used (as in the
+    # getconf test) rather than "env bash".
+    printf '#!/bin/bash\n[[ "$1 $2" == "resource list" ]] && printf "2 32\\n" && exit 0\nexit 0\n' \
+        > "${MOCK_BIN}/flux"
+    chmod +x "${MOCK_BIN}/flux"
+    PATH="${MOCK_BIN}" run _knit_detect_node_ncpus
+    [ "$status" -eq 0 ]
+    [ "$output" = "16" ]
+}
+
+@test "_knit_detect_node_ncpus is empty when the flux resource query yields nothing" {
+    printf '#!/bin/bash\n[[ "$1 $2" == "resource list" ]] && exit 1\nexit 0\n' \
+        > "${MOCK_BIN}/flux"
+    chmod +x "${MOCK_BIN}/flux"
+    PATH="${MOCK_BIN}" run _knit_detect_node_ncpus
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
 }
 
 @test "_knit_detect_node_ncpus falls back to nproc when no scheduler is present" {

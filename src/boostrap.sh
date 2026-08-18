@@ -96,9 +96,9 @@ _knit_bootstrap_on_exit() {
 #
 # @param ... Arguments for bootstrap.
 # ------------------------------------------------------------------------------
-knit_define_enum "__scheduler__" "auto" "slurm" "pbs" "local" "none"
+knit_define_enum "__scheduler__" "auto" "slurm" "pbs" "flux" "local" "none"
 _knit_is_builtin
-knit_define_enum "__launcher__"  "auto" "openmpi" "mpich" "pals" "slurm" "pbs" "none"
+knit_define_enum "__launcher__"  "auto" "openmpi" "mpich" "pals" "flux" "slurm" "pbs" "none"
 _knit_is_builtin
 knit_register "bootstrap" _knit_bootstrap "Bootstrap the Knit framework."
 _knit_is_builtin
@@ -120,9 +120,9 @@ knit_with_optional "profile:string" "" \
 knit_with_optional "platform:string" "" \
     "Human-facing platform name recorded in metadata and returned by knit_platform_name. Defaults to the profile's name when --profile is given and this is omitted."
 knit_with_optional "scheduler:__scheduler__" "auto" \
-    "Batch job scheduler. One of: auto, slurm, pbs, local, none. With auto the scheduler is detected automatically. Use none for a self-managed cluster (no scheduler); pair it with --default-nodefile."
+    "Batch job scheduler. One of: auto, slurm, pbs, flux, local, none. With auto the scheduler is detected automatically. Use none for a self-managed cluster (no scheduler); pair it with --default-nodefile."
 knit_with_optional "launcher:__launcher__" "auto" \
-    "MPI launcher. One of: auto, openmpi, mpich, pals, slurm, pbs, none. With auto an MPI-native launcher (openmpi, mpich, or pals) is detected automatically; if none is found and a batch scheduler is present, auto falls back to that scheduler's integrated launcher (slurm=srun, pbs=the PBS mpiexec). Select slurm/pbs explicitly to force the scheduler-integrated launcher even when an MPI-native one is present. Use none to declare the machine offers no integrated launcher, so a setup's knit_provides_launcher supplies one."
+    "MPI launcher. One of: auto, openmpi, mpich, pals, flux, slurm, pbs, none. With auto an MPI-native launcher (openmpi, mpich, or pals) is detected automatically; if none is found and a batch scheduler is present, auto falls back to that scheduler's integrated launcher (slurm=srun, pbs=the PBS mpiexec, flux=flux run). Select slurm/pbs/flux explicitly to force the scheduler-integrated launcher even when an MPI-native one is present. Use none to declare the machine offers no integrated launcher, so a setup's knit_provides_launcher supplies one."
 knit_with_optional "account:string" "" \
     "Account/allocation to charge submitted jobs to."
 knit_with_optional "default-walltime:string" "" \
@@ -284,14 +284,15 @@ _knit_bootstrap() {
         launcher="$(_knit_detect_launcher)"
         # Fallback: when no MPI-native launcher (mpirun/mpiexec) is on PATH but the
         # machine has a batch scheduler, use the scheduler-integrated launcher
-        # (srun under Slurm, the PBS mpiexec wrapper under PBS) rather than
-        # degrading to no launcher. Detection cannot probe these — both are a
-        # property of the surrounding allocation, not a binary on PATH — so this
-        # is a last resort only: a detected MPI-native launcher always wins, and
-        # this merely fills the gap where detection found nothing.
+        # (srun under Slurm, the PBS mpiexec wrapper under PBS, flux run under
+        # Flux) rather than degrading to no launcher. Detection cannot probe
+        # these — all are a property of the surrounding allocation, not a binary
+        # on PATH — so this is a last resort only: a detected MPI-native launcher
+        # always wins, and this merely fills the gap where detection found
+        # nothing.
         if [[ "${launcher}" == "<unknown>" ]]; then
             case "${scheduler}" in
-                slurm|pbs)
+                slurm|pbs|flux)
                     launcher="${scheduler}"
                     knit_debug "No MPI-native launcher detected; falling back to the %s scheduler-integrated launcher." "${scheduler}"
                     ;;
