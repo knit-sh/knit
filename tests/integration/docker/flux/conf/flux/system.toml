@@ -29,8 +29,15 @@ hosts = [
 # controller-is-not-a-compute-node shape of the Slurm/PBS clusters.
 exclude = "flux-login"
 
-# Static resource inventory: 4 cores per node. Fixed here so allocation is
-# deterministic regardless of how many cores the Docker host exposes.
+# Static resource inventory: 2 cores per node.
+#
+# Flux checks this inventory against each node's real cores (hwloc) and drains
+# any node that is missing a declared core. The GitHub Actions runner gives each
+# container only 2 cores (0-1), so declaring more (for example 0-3) drains every
+# node and no job can start. Two cores is the safe count: the CI runner has
+# exactly this many, a larger host has more (a subset is never drained), and no
+# experiment needs more than 2 cores per node — the largest run is
+# `--procs 4 --procs-per-node 2` across the 2 compute nodes.
 [[resource.config]]
 hosts = "flux-login,flux-compute[1-2]"
-cores = "0-3"
+cores = "0-1"
