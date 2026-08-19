@@ -72,9 +72,12 @@ cluster-up-flux:
 	# On timeout, dump overlay diagnostics before failing: the probe alone
 	# cannot say why the overlay did not form, and the failure only appears on
 	# CI, so the dump is the only record of the cause.
+	# dump-flux-diag.sh drives docker from the host, so it is a host path
+	# (recipes run with CWD = this directory), unlike the container path
+	# INTEGRATION_DIR used by the docker-exec'd probe above.
 	docker exec --user hpcuser flux-login \
 	    bash $(INTEGRATION_DIR)/lib/wait-for-cluster.sh flux \
-	    || { bash $(INTEGRATION_DIR)/lib/dump-flux-diag.sh; exit 1; }
+	    || { bash lib/dump-flux-diag.sh; exit 1; }
 
 cluster-down-flux:
 	docker compose -f $(FLUX_COMPOSE) down -v
