@@ -21,6 +21,15 @@
 #     KNIT_PROVIDED_LAUNCHER). The profile launcher still wins: the runs row
 #     records the profile's launcher, not the frozen contract.
 #
+# On the Flux cluster mpiA is `flux run` itself: a system MPICH is on PATH only
+# as a detection foil, and scheduler-aware detection makes `flux run` win over
+# it, so Case A proves flux run beats an on-PATH MPI-native launcher. Case B
+# selects the openmpi module (mpirun across nodes). Case C is a real precedence
+# discriminator on flux too: the frozen setup detects only MPI-native launchers
+# (never flux), so it freezes the on-PATH MPICH foil, while the profile resolves
+# to flux — the profile launcher (flux) beating the frozen contract (mpich)
+# proves precedence rather than merely riding along.
+#
 # Every case launches 4 ranks (2 per node across a 2-node allocation), distinct
 # and covering [0,4), all agreeing on KNIT_MPI_SIZE == 4.
 #
@@ -32,25 +41,39 @@ set -euo pipefail
 source /shared/knit/tests/integration/lib/assert.sh
 
 # --------------------------------------------------------------------------
-# Cluster-specific facts. The system MPI (mpiA) and the module MPI (mpiB) are
-# swapped between clusters; the module and the module install prefix are named
-# after the implementation.
-#   slurm: system = OpenMPI (/usr/local); module = mpich (/opt/mpich)
-#   pbs:   system = MPICH  (/usr/lib64);  module = openmpi (/opt/openmpi)
+# Cluster-specific facts. The "system MPI" (mpiA) is what auto-detection selects
+# when the profile names no launcher; the module MPI (mpiB) is off PATH behind an
+# Lmod module and is selected by a profile. They are swapped between clusters.
+# FROZEN_MPI is what a setup's knit_provides_launcher freezes on the login node:
+# it probes only MPI-native launchers, so on flux it is the on-PATH MPICH foil,
+# not the scheduler-aware system launcher (flux). On slurm/pbs the system MPI is
+# itself MPI-native, so FROZEN_MPI == SYS_MPI there.
+#   slurm: mpiA = OpenMPI (/usr/local, on PATH);  mpiB = mpich  (/opt/mpich)
+#   pbs:   mpiA = MPICH  (/usr/lib64, on PATH);    mpiB = openmpi (/opt/openmpi)
+#   flux:  mpiA = flux run (auto-detected; a system MPICH is on PATH only as a
+#          detection foil);                        mpiB = openmpi (/usr/lib64
+#          module). Detection is scheduler-aware: under a Flux scheduler flux run
+#          wins even though MPICH is on PATH, so mpiA is "flux", not mpich. But a
+#          setup contract is MPI-native only, so FROZEN_MPI = mpich (the foil).
 # --------------------------------------------------------------------------
+IS_FLUX=""
 if command -v sbatch >/dev/null 2>&1; then
     PROFILE="slurm"; SCHED="slurm"
     SYS_MPI="openmpi"; MOD_MPI="mpich";   MOD_PREFIX="/opt/mpich"
+    FROZEN_MPI="${SYS_MPI}"
 elif command -v qsub >/dev/null 2>&1; then
     PROFILE="pbs"; SCHED="pbs"
     SYS_MPI="mpich";   MOD_MPI="openmpi"; MOD_PREFIX="/opt/openmpi"
+    FROZEN_MPI="${SYS_MPI}"
 elif command -v flux >/dev/null 2>&1; then
-    # Not applicable to the Flux cluster: it has a single MPI (OpenMPI) that
-    # launches only under `flux run`, so there is no system-vs-module MPI-native
-    # launcher selection to exercise, and no standalone mpiexec that spans nodes
-    # without Flux (the image ships no sshd).
-    echo "SKIP 13_platform_mpi_select: not applicable to the Flux cluster (single MPI; the launcher is always flux)."
-    exit 0
+    SCHED="flux"; IS_FLUX=1
+    SYS_MPI="flux"; MOD_MPI="openmpi"; MOD_PREFIX="/usr/lib64/openmpi"
+    # The setup contract probes MPI-native launchers only, so it freezes the
+    # on-PATH MPICH foil, not flux — giving Case C a real precedence check.
+    FROZEN_MPI="mpich"
+    # PROFILE (Case B) is a custom file written after WORKDIR exists (below): the
+    # baked flux profile pins launcher.type=flux, not the module MPI, so it cannot
+    # serve as the module-selecting profile.
 else
     fail "no supported scheduler (sbatch/qsub/flux) found on the login node"
 fi
@@ -75,6 +98,23 @@ cat >"${WORKDIR}/beats.json" <<JSON
     "launcher": { "type": "${SCHED}" }
 }
 JSON
+
+# Flux Case B profile: the baked flux profile pins launcher.type=flux, so Case B
+# needs its own profile that loads the openmpi module and pins launcher.type=
+# openmpi. This launches the app under OpenMPI's mpirun across nodes (the MPI-
+# over-SSH path proven by experiment 16), distinct from Case A's auto-detected
+# flux run.
+if [[ -n "${IS_FLUX}" ]]; then
+    cat >"${WORKDIR}/mpiB.json" <<'JSON'
+{
+    "description": "Flux Case B: load the openmpi module and launch under OpenMPI's mpirun (not flux run).",
+    "launcher": { "type": "openmpi" },
+    "module_init": "/etc/profile.d/modules.sh",
+    "modules": ["knit-marker", "openmpi"]
+}
+JSON
+    PROFILE="${WORKDIR}/mpiB.json"
+fi
 
 # --------------------------------------------------------------------------
 # Extract a "RANK=.. SIZE=.. FLAVOR=.. MPIEXEC=.. HOST=.." field from every rank
@@ -233,12 +273,13 @@ check_sqlite ".knit/knit.db" \
     "${SCHED}" \
     "beats: profile set the scheduler-integrated launcher (${SCHED})"
 
-# Instantiate the "frozen" setup: knit_provides_launcher detects and freezes the
-# system MPI (nothing built, so its PATH is the login node's system MPI).
+# Instantiate the "frozen" setup: knit_provides_launcher detects and freezes an
+# MPI-native launcher (nothing built, so its PATH is the login node's; the probe
+# never returns flux, so on the Flux cluster this is the on-PATH MPICH foil).
 ./experiment.sh setup --name frozen -- frozen
 check_file "setups/frozen/.activate.sh" "beats: frozen setup produced .activate.sh"
-check_grep "export KNIT_PROVIDED_LAUNCHER=${SYS_MPI}" "setups/frozen/.activate.sh" \
-    "beats: setup froze the system MPI (${SYS_MPI}) as the launcher contract"
+check_grep "export KNIT_PROVIDED_LAUNCHER=${FROZEN_MPI}" "setups/frozen/.activate.sh" \
+    "beats: setup froze the MPI-native launcher (${FROZEN_MPI}) as the contract"
 
 c_uuid=$(./experiment.sh submit --setup frozen --nodes 2 --wait -- run4frozen)
 c_dir="${C}/jobs/${c_uuid}"
@@ -249,12 +290,12 @@ c_run=$(run_uuid_for_job "${SQC}" "${C}/.knit/knit.db" "${c_uuid}" "run4frozen")
 [[ -n "${c_run}" ]] || fail "beats: no 'submit:run4frozen -> run' provenance edge"
 
 # The profile's launcher won: the run recorded the profile launcher, NOT the
-# system MPI the setup froze into KNIT_PROVIDED_LAUNCHER.
+# MPI-native launcher the setup froze into KNIT_PROVIDED_LAUNCHER.
 check_sqlite ".knit/knit.db" \
     "SELECT launcher FROM runs WHERE id='${c_run}';" \
     "${SCHED}" \
-    "beats: runs row records the PROFILE launcher (${SCHED}), beating the setup contract (${SYS_MPI})"
-[[ "${SCHED}" != "${SYS_MPI}" ]] \
-    && __assert_pass "beats: profile launcher (${SCHED}) differs from the frozen contract (${SYS_MPI})"
+    "beats: runs row records the PROFILE launcher (${SCHED}), beating the setup contract (${FROZEN_MPI})"
+[[ "${SCHED}" != "${FROZEN_MPI}" ]] \
+    && __assert_pass "beats: profile launcher (${SCHED}) differs from the frozen contract (${FROZEN_MPI})"
 
 assert_summary

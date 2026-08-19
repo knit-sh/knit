@@ -103,6 +103,71 @@ _knit_detect_mpi() {
 }
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_DETECTED_MPI_LAUNCHER
+#
+# Cache for _knit_detect_mpi_launcher(). Empty means "not yet detected"; one of
+# "pals", "openmpi", "mpich", or "<unknown>" after the first successful
+# detection call.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_DETECTED_MPI_LAUNCHER
+_KNIT_DETECTED_MPI_LAUNCHER=""
+
+# ------------------------------------------------------------------------------
+# @fn _knit_detect_mpi_launcher()
+#
+# Detect which MPI-native launcher is available on PATH, ignoring the scheduler.
+#
+# Outputs one of the following strings to stdout and returns 0:
+#   - "pals"    — mpiexec is present and its --help output starts with
+#                 "Parallel Application Launch Service"
+#   - "openmpi" — mpirun is present and its --version output contains "Open MPI"
+#   - "mpich"   — mpirun is present and its --version output contains "HYDRA"
+#   - "<unknown>" — no recognised MPI-native launcher found
+#
+# This probe is deliberately scheduler-unaware and never returns "flux": it
+# reports only the MPI-native launcher that ships with an MPI on PATH. PALS is
+# checked first because PALS provides mpiexec but not mpirun; OpenMPI and MPICH
+# also provide mpiexec as an alias, so the first-line check distinguishes them.
+#
+# It is the right probe for a setup that declares knit_provides_launcher: such a
+# setup always installs an MPI-native launcher, so its contract must never freeze
+# to "flux" even when the setup runs on a Flux login node.
+#
+# The result is cached in _KNIT_DETECTED_MPI_LAUNCHER so that subsequent calls
+# within the same session return immediately without re-probing the PATH.
+# ------------------------------------------------------------------------------
+_knit_detect_mpi_launcher() {
+    if [[ -n "${_KNIT_DETECTED_MPI_LAUNCHER}" ]]; then
+        echo "${_KNIT_DETECTED_MPI_LAUNCHER}"
+        return 0
+    fi
+
+    _KNIT_DETECTED_MPI_LAUNCHER="<unknown>"
+
+    if command -v mpiexec &>/dev/null; then
+        local first_line
+        first_line=$(mpiexec --help 2>&1 | head -1)
+        if [[ "${first_line}" == *"Parallel Application Launch Service"* ]]; then
+            _KNIT_DETECTED_MPI_LAUNCHER="pals"
+        fi
+    fi
+
+    if [[ "${_KNIT_DETECTED_MPI_LAUNCHER}" == "<unknown>" ]] \
+        && command -v mpirun &>/dev/null; then
+        local version_output
+        version_output=$(mpirun --version 2>&1)
+        if [[ "${version_output}" == *"Open MPI"* ]]; then
+            _KNIT_DETECTED_MPI_LAUNCHER="openmpi"
+        elif [[ "${version_output}" == *"HYDRA"* ]]; then
+            _KNIT_DETECTED_MPI_LAUNCHER="mpich"
+        fi
+    fi
+
+    knit_trace "Detected MPI launcher: ${_KNIT_DETECTED_MPI_LAUNCHER}"
+    echo "${_KNIT_DETECTED_MPI_LAUNCHER}"
+}
+
+# ------------------------------------------------------------------------------
 # @var _KNIT_DETECTED_LAUNCHER
 #
 # Cache for _knit_detect_launcher(). Empty means "not yet detected"; one of
@@ -115,21 +180,30 @@ _KNIT_DETECTED_LAUNCHER=""
 # ------------------------------------------------------------------------------
 # @fn _knit_detect_launcher()
 #
-# Detect which MPI launcher is available in the current environment.
+# Detect which MPI launcher to use in the current environment.
 #
 # Outputs one of the following strings to stdout and returns 0:
-#   - "pals"    — mpiexec is present and its --help output starts with
-#                 "Parallel Application Launch Service"
-#   - "openmpi" — mpirun is present and its --version output contains "Open MPI"
-#   - "mpich"   — mpirun is present and its --version output contains "HYDRA"
-#   - "flux"    — no MPI-native launcher, but FLUX_URI is set or flux is in PATH
+#   - "flux"    — the detected scheduler is Flux (flux run wins regardless of
+#                 any MPI-native launcher on PATH)
+#   - "pals"    — the MPI-native probe found PALS
+#   - "openmpi" — the MPI-native probe found OpenMPI
+#   - "mpich"   — the MPI-native probe found MPICH
+#   - "flux"    — no MPI-native launcher, but flux is in PATH
 #   - "<unknown>" — no recognised launcher found
 #
-# PALS is checked first because PALS provides mpiexec but not mpirun; OpenMPI
-# and MPICH also provide mpiexec as an alias so the first-line check
-# distinguishes them. Flux is the last resort: an MPI-native launcher (openmpi,
-# mpich, pals) always wins when present, so Flux is chosen only after those
-# probes find nothing.
+# Detection is scheduler-aware. When the detected scheduler is Flux, "flux run"
+# is the reliable native launcher and wins even if an MPI-native launcher is on
+# PATH: flux run bootstraps MPI through Flux's own PMI, and a bare mpirun may not
+# reach the compute nodes inside a Flux allocation. Under any other scheduler
+# (slurm, pbs, none, <unknown>) an MPI-native launcher on PATH wins, because a
+# scheduler-integrated launcher such as srun needs the MPI built against that
+# manager's PMI (which knit cannot verify), whereas mpirun/mpiexec always match
+# their own MPI.
+#
+# The MPI-native probe is delegated to _knit_detect_mpi_launcher(). Flux is the
+# last resort when it is not the scheduler: an MPI-native launcher wins when
+# present, so a system flux on PATH is chosen only after that probe finds
+# nothing.
 #
 # The result is cached in _KNIT_DETECTED_LAUNCHER so that subsequent calls
 # within the same session return immediately without re-probing the PATH.
@@ -140,31 +214,20 @@ _knit_detect_launcher() {
         return 0
     fi
 
-    _KNIT_DETECTED_LAUNCHER="<unknown>"
-
-    if command -v mpiexec &>/dev/null; then
-        local first_line
-        first_line=$(mpiexec --help 2>&1 | head -1)
-        if [[ "${first_line}" == *"Parallel Application Launch Service"* ]]; then
-            _KNIT_DETECTED_LAUNCHER="pals"
-        fi
+    # Under a Flux scheduler, flux run wins over any MPI-native launcher on PATH.
+    if [[ "$(_knit_detect_job_manager)" == "flux" ]]; then
+        _KNIT_DETECTED_LAUNCHER="flux"
+        knit_trace "Detected launcher: ${_KNIT_DETECTED_LAUNCHER}"
+        echo "${_KNIT_DETECTED_LAUNCHER}"
+        return 0
     fi
 
-    if [[ "${_KNIT_DETECTED_LAUNCHER}" == "<unknown>" ]] \
-        && command -v mpirun &>/dev/null; then
-        local version_output
-        version_output=$(mpirun --version 2>&1)
-        if [[ "${version_output}" == *"Open MPI"* ]]; then
-            _KNIT_DETECTED_LAUNCHER="openmpi"
-        elif [[ "${version_output}" == *"HYDRA"* ]]; then
-            _KNIT_DETECTED_LAUNCHER="mpich"
-        fi
-    fi
+    _KNIT_DETECTED_LAUNCHER="$(_knit_detect_mpi_launcher)"
 
-    # No MPI-native launcher found: fall back to Flux when a Flux instance owns
-    # this shell (FLUX_URI) or a system flux is on PATH.
+    # No MPI-native launcher found: fall back to Flux when a system flux is on
+    # PATH. (A live FLUX_URI already made the scheduler flux and returned above.)
     if [[ "${_KNIT_DETECTED_LAUNCHER}" == "<unknown>" ]] \
-        && { [[ -n "${FLUX_URI:-}" ]] || command -v flux &>/dev/null; }; then
+        && command -v flux &>/dev/null; then
         _KNIT_DETECTED_LAUNCHER="flux"
     fi
 

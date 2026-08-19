@@ -1002,11 +1002,14 @@ knit_with_spack_specs() {
 # ------------------------------------------------------------------------------
 _knit_setup_provides_launcher_after_cb() {
     local activate="${KNIT_SETUP_PREFIX}/.activate.sh"
-    # Detect against the now-active PATH; clear the cache so a stale bootstrap-time
-    # detection does not leak in.
-    _KNIT_DETECTED_LAUNCHER=""
+    # A setup that provides a launcher always installs an MPI-native launcher, so
+    # probe only for those (never "flux"): this after-cb runs on the login node,
+    # where a live FLUX_URI would otherwise make _knit_detect_launcher freeze the
+    # contract to "flux". Detect against the now-active PATH; clear the cache so a
+    # stale bootstrap-time detection does not leak in.
+    _KNIT_DETECTED_MPI_LAUNCHER=""
     local impl
-    impl="$(_knit_detect_launcher)"
+    impl="$(_knit_detect_mpi_launcher)"
     if [[ "${impl}" == "<unknown>" ]]; then
         # Mirror the tier-2 skip in _knit_launch_backend: a concrete machine
         # launcher wins over the setup contract, so the setup providing none is

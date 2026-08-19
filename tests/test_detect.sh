@@ -22,6 +22,7 @@ teardown() {
     # Reset detection caches so each test starts clean
     _KNIT_DETECTED_JOB_MANAGER=""
     _KNIT_DETECTED_MPI=""
+    _KNIT_DETECTED_MPI_LAUNCHER=""
     _KNIT_DETECTED_LAUNCHER=""
     _KNIT_DETECTED_NODE_NCPUS=""
 }
@@ -221,14 +222,115 @@ _write_mock() {
     [ "$output" = "flux" ]
 }
 
-@test "_knit_detect_launcher prefers an MPI-native launcher over flux" {
-    # OpenMPI mpirun and flux both present: the MPI-native launcher wins.
+@test "_knit_detect_launcher prefers an MPI-native launcher over flux under Slurm" {
+    # OpenMPI mpirun and flux both present under a Slurm scheduler (no FLUX_URI):
+    # the MPI-native launcher wins.
+    _write_mock "${MOCK_BIN}/sbatch" "exit 0"
+    _write_mock "${MOCK_BIN}/mpirun" \
+        '[[ "$1" == "--version" ]] && echo "mpirun (Open MPI) 4.1.6" && exit 0; exit 0'
+    _write_mock "${MOCK_BIN}/flux" "exit 0"
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "openmpi" ]
+}
+
+@test "_knit_detect_launcher prefers an MPI-native launcher over flux under PBS" {
+    # MPICH mpirun and flux both present under a PBS scheduler (no FLUX_URI):
+    # the MPI-native launcher wins.
+    _write_mock "${MOCK_BIN}/qsub" "exit 0"
+    _write_mock "${MOCK_BIN}/mpirun" \
+        '[[ "$1" == "--version" ]] && printf "mpirun (Hydra) 4.1.1\nProcess manager: HYDRA\n" && exit 0; exit 0'
+    _write_mock "${MOCK_BIN}/flux" "exit 0"
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "mpich" ]
+}
+
+@test "_knit_detect_launcher returns flux under a Flux scheduler even with an MPI-native launcher on PATH" {
+    # A live FLUX_URI makes the scheduler flux, so flux run wins over the
+    # on-PATH OpenMPI mpirun (the test-13 Case A guarantee).
     _write_mock "${MOCK_BIN}/mpirun" \
         '[[ "$1" == "--version" ]] && echo "mpirun (Open MPI) 4.1.6" && exit 0; exit 0'
     _write_mock "${MOCK_BIN}/flux" "exit 0"
     FLUX_URI="local:///run/flux/local-0" \
         PATH="${MOCK_BIN}:${PATH}" run _knit_detect_launcher
     [ "$status" -eq 0 ]
+    [ "$output" = "flux" ]
+}
+
+@test "_knit_detect_launcher returns flux when flux is the only scheduler even with mpich on PATH" {
+    # No FLUX_URI, no sbatch/qsub: flux on PATH is the detected scheduler, so
+    # flux run wins over the on-PATH MPICH mpirun.
+    _write_mock "${MOCK_BIN}/flux" "exit 0"
+    _write_mock "${MOCK_BIN}/mpirun" \
+        '[[ "$1" == "--version" ]] && printf "mpirun (Hydra) 4.1.1\nProcess manager: HYDRA\n" && exit 0; exit 0'
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "flux" ]
+}
+
+# ---------- _knit_detect_mpi_launcher ----------
+
+@test "_knit_detect_mpi_launcher returns pals when mpiexec --help first line mentions Parallel Application Launch Service" {
+    _write_mock "${MOCK_BIN}/mpiexec" \
+        '[[ "$1" == "--help" ]] && echo "Parallel Application Launch Service (PALS)" && exit 0; exit 0'
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_mpi_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "pals" ]
+}
+
+@test "_knit_detect_mpi_launcher returns openmpi when mpiexec is not PALS and mpirun is OpenMPI" {
+    _write_mock "${MOCK_BIN}/mpirun" \
+        '[[ "$1" == "--version" ]] && echo "mpirun (Open MPI) 4.1.6" && exit 0; exit 0'
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_mpi_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "openmpi" ]
+}
+
+@test "_knit_detect_mpi_launcher returns mpich when mpiexec is not PALS and mpirun is MPICH" {
+    _write_mock "${MOCK_BIN}/mpirun" \
+        '[[ "$1" == "--version" ]] && printf "mpirun (Hydra) 4.1.1\nProcess manager: HYDRA\n" && exit 0; exit 0'
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_mpi_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "mpich" ]
+}
+
+@test "_knit_detect_mpi_launcher returns <unknown> when neither mpiexec nor mpirun is in PATH" {
+    PATH="${MOCK_BIN}:${PATH}" run _knit_detect_mpi_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "<unknown>" ]
+}
+
+@test "_knit_detect_mpi_launcher never returns flux under a Flux scheduler with no MPI-native launcher on PATH" {
+    # The setup launcher contract uses this probe: on a Flux login node (FLUX_URI
+    # set, flux on PATH) with no MPI-native launcher, it must report <unknown>,
+    # NOT flux — a setup contract is always MPI-native.
+    _write_mock "${MOCK_BIN}/flux" "exit 0"
+    FLUX_URI="local:///run/flux/local-0" \
+        PATH="${MOCK_BIN}:${PATH}" run _knit_detect_mpi_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "<unknown>" ]
+}
+
+@test "_knit_detect_mpi_launcher returns the MPI-native launcher under a Flux scheduler (scheduler-unaware)" {
+    # Unlike _knit_detect_launcher, this probe ignores the scheduler: an OpenMPI
+    # mpirun on PATH is reported as openmpi even with a live FLUX_URI.
+    _write_mock "${MOCK_BIN}/flux" "exit 0"
+    _write_mock "${MOCK_BIN}/mpirun" \
+        '[[ "$1" == "--version" ]] && echo "mpirun (Open MPI) 4.1.6" && exit 0; exit 0'
+    FLUX_URI="local:///run/flux/local-0" \
+        PATH="${MOCK_BIN}:${PATH}" run _knit_detect_mpi_launcher
+    [ "$status" -eq 0 ]
+    [ "$output" = "openmpi" ]
+}
+
+@test "_knit_detect_mpi_launcher caches its result" {
+    _write_mock "${MOCK_BIN}/mpirun" \
+        '[[ "$1" == "--version" ]] && echo "mpirun (Open MPI) 4.1.6" && exit 0; exit 0'
+    PATH="${MOCK_BIN}:${PATH}" _knit_detect_mpi_launcher >/dev/null
+    [ "${_KNIT_DETECTED_MPI_LAUNCHER}" = "openmpi" ]
+    # A second call with an empty PATH still returns the cached value.
+    run _knit_detect_mpi_launcher
     [ "$output" = "openmpi" ]
 }
 

@@ -16,6 +16,10 @@ USER root
 # 1. System packages
 #    - OpenMPI: an MPI that launches under `flux run` (OpenMPI's "pmix: flux"
 #      MCA component bootstraps from the Flux PMI). Exposed via an Lmod module.
+#    - MPICH: a second MPI put on PATH (section 1c) purely as a detection foil
+#      for experiment 13. It proves that under a Flux scheduler `flux run` wins
+#      the launcher auto-detection even when an MPI-native launcher is on PATH.
+#      Nothing ever launches through it, so it needs no cross-node SSH wiring.
 #    - Lmod: module system for the knit platform/profile tests. The base image
 #      also ships environment-modules (Tcl). Both claim the "module" command
 #      through the modules.sh alternative, and the Tcl one has the higher
@@ -39,6 +43,7 @@ RUN dnf -y update && \
     dnf config-manager --set-enabled crb && \
     dnf -y install \
         openmpi openmpi-devel \
+        mpich mpich-devel \
         gcc gcc-c++ make \
         Lmod \
         which \
@@ -93,6 +98,19 @@ RUN OMPI_BIN=/usr/lib64/openmpi/bin && \
             sed -i 's/^compiler_flags=.*/compiler_flags= -DOMPI_SKIP_MPICXX/' "${f}"; \
         fi; \
     done
+
+# ---------------------------------------------------------------------------
+# 1c. Put MPICH on PATH as a launcher-detection foil (experiment 13).
+#    MPICH installs to /usr/lib64/mpich on Rocky Linux 9. Prepending its bin to
+#    PATH makes `mpirun`/`mpiexec` resolve to MPICH's Hydra on the login node, so
+#    the launcher auto-detection has an MPI-native launcher to find — yet under a
+#    Flux scheduler `flux run` still wins. OpenMPI stays OFF PATH (its module
+#    prepends /usr/lib64/openmpi/bin, so a loaded openmpi module overrides this).
+#    MPICH is a foil only; no experiment launches through it, so it needs none of
+#    the SSH/orted wiring the OpenMPI path (section 1b, experiment 16) requires.
+# ---------------------------------------------------------------------------
+ENV PATH="/usr/lib64/mpich/bin:$PATH"
+ENV LD_LIBRARY_PATH="/usr/lib64/mpich/lib:$LD_LIBRARY_PATH"
 
 # ---------------------------------------------------------------------------
 # 2. hpcuser (UID 1001) — the single user that owns the Flux instance on every

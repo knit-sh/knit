@@ -117,9 +117,9 @@ _arm_cmd() {
     # A stale cache value must not leak in: the callback clears it first. The stub
     # reports what it observed (detection runs in a $(...) subshell, so it signals
     # back through its return value rather than a variable).
-    _KNIT_DETECTED_LAUNCHER="stale"
-    _knit_detect_launcher() {
-        if [[ -z "${_KNIT_DETECTED_LAUNCHER}" ]]; then
+    _KNIT_DETECTED_MPI_LAUNCHER="stale"
+    _knit_detect_mpi_launcher() {
+        if [[ -z "${_KNIT_DETECTED_MPI_LAUNCHER}" ]]; then
             printf 'openmpi\n'
         else
             printf 'stale-leaked\n'
@@ -132,7 +132,7 @@ _arm_cmd() {
 @test "the after callback freezes KNIT_PROVIDED_LAUNCHER below the platform block" {
     _seed_activate
     _arm_cmd
-    _knit_detect_launcher() { printf 'mpich\n'; }
+    _knit_detect_mpi_launcher() { printf 'mpich\n'; }
     _knit_setup_provides_launcher_after_cb
     local f="${KNIT_SETUP_PREFIX}/.activate.sh"
     grep -q 'export KNIT_PROVIDED_LAUNCHER=mpich' "${f}"
@@ -146,7 +146,7 @@ _arm_cmd() {
 @test "the after callback records the detected launcher as __mpi_launcher__ provenance" {
     _seed_activate
     _arm_cmd
-    _knit_detect_launcher() { printf 'mpich\n'; }
+    _knit_detect_mpi_launcher() { printf 'mpich\n'; }
     _knit_setup_provides_launcher_after_cb
     local -n _out_ref="_KNIT_CMD_${_ARMED_CMD}_output_value"
     [ "${_out_ref[__mpi_launcher__]}" = "mpich" ]
@@ -155,7 +155,7 @@ _arm_cmd() {
 @test "the frozen contract activates as a real export" {
     _seed_activate
     _arm_cmd
-    _knit_detect_launcher() { printf 'openmpi\n'; }
+    _knit_detect_mpi_launcher() { printf 'openmpi\n'; }
     _knit_setup_provides_launcher_after_cb
     # A consumer sourcing .activate.sh gets the contract in its environment.
     local got
@@ -174,7 +174,7 @@ _set_machine_launcher() {
 @test "the after callback is fatal when no launcher is found and the machine has none" {
     _seed_activate
     _set_machine_launcher "<unknown>"
-    _knit_detect_launcher() { printf '<unknown>\n'; }
+    _knit_detect_mpi_launcher() { printf '<unknown>\n'; }
     run _knit_setup_provides_launcher_after_cb
     [ "$status" -ne 0 ]
     [[ "$output" == *"no MPI launcher found"* ]]
@@ -189,7 +189,7 @@ _set_machine_launcher() {
     # setup that builds against an MPI without an mpiexec/mpirun on PATH must not
     # abort here.
     _set_machine_launcher "pals"
-    _knit_detect_launcher() { printf '<unknown>\n'; }
+    _knit_detect_mpi_launcher() { printf '<unknown>\n'; }
     run _knit_setup_provides_launcher_after_cb
     [ "$status" -eq 0 ]
     # No contract is frozen (the machine launcher is used instead)...
@@ -200,7 +200,7 @@ _set_machine_launcher() {
     _seed_activate
     _arm_cmd
     _set_machine_launcher "pals"
-    _knit_detect_launcher() { printf '<unknown>\n'; }
+    _knit_detect_mpi_launcher() { printf '<unknown>\n'; }
     _knit_setup_provides_launcher_after_cb
     local -n _out_ref="_KNIT_CMD_${_ARMED_CMD}_output_value"
     [ "${_out_ref[__mpi_launcher__]}" = "<unknown>" ]
