@@ -69,8 +69,12 @@ cluster-up-flux:
 	docker compose -f $(FLUX_COMPOSE) up -d
 	# The Flux instance is owned by hpcuser (single-user instance), so the
 	# readiness probe must run as hpcuser — root is an unauthorized guest.
+	# On timeout, dump overlay diagnostics before failing: the probe alone
+	# cannot say why the overlay did not form, and the failure only appears on
+	# CI, so the dump is the only record of the cause.
 	docker exec --user hpcuser flux-login \
-	    bash $(INTEGRATION_DIR)/lib/wait-for-cluster.sh flux
+	    bash $(INTEGRATION_DIR)/lib/wait-for-cluster.sh flux \
+	    || { bash $(INTEGRATION_DIR)/lib/dump-flux-diag.sh; exit 1; }
 
 cluster-down-flux:
 	docker compose -f $(FLUX_COMPOSE) down -v
