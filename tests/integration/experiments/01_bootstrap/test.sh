@@ -34,14 +34,11 @@ cd "${WORKDIR}"
 # Run bootstrap
 # --------------------------------------------------------------------------
 # No --profile / --default-cpus-per-node, so the per-node core count is filled
-# by live detection (sinfo/pbsnodes/flux resource). The Slurm and PBS clusters
-# advertise 2 CPUs per node; the Flux compute nodes have 4.
+# by live detection (sinfo/pbsnodes/flux resource). Every cluster advertises 2
+# CPUs per node (the CI runner exposes only 2 cores, so the Flux inventory
+# declares 2 to match — see docker/flux/conf/flux/system.toml).
 ./experiment.sh bootstrap --project "integration-test-01" --account "test-alloc"
-if command -v flux >/dev/null 2>&1; then
-    EXPECTED_NCPUS="4"
-else
-    EXPECTED_NCPUS="2"
-fi
+EXPECTED_NCPUS="2"
 
 # Point the assertion helper at the sqlite3 built by knit.
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
