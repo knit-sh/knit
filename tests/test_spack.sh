@@ -44,6 +44,36 @@ teardown() {
     [ "$status" -eq 0 ]
 }
 
+# ---------- _knit_spack_github_api ----------
+
+@test "github_api sends no Authorization header when no token is set" {
+    local GITHUB_TOKEN="" GH_TOKEN=""
+    curl() { printf '%s\n' "$*"; }
+
+    run _knit_spack_github_api "https://api.github.com/x"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"Authorization"* ]]
+    [[ "$output" == *"https://api.github.com/x"* ]]
+}
+
+@test "github_api authenticates with GITHUB_TOKEN when set" {
+    local GITHUB_TOKEN="tok123" GH_TOKEN=""
+    curl() { printf '%s\n' "$*"; }
+
+    run _knit_spack_github_api "https://api.github.com/x"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Authorization: Bearer tok123"* ]]
+}
+
+@test "github_api falls back to GH_TOKEN when GITHUB_TOKEN is unset" {
+    local GITHUB_TOKEN="" GH_TOKEN="ghtok"
+    curl() { printf '%s\n' "$*"; }
+
+    run _knit_spack_github_api "https://api.github.com/x"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Authorization: Bearer ghtok"* ]]
+}
+
 # ---------- _knit_spack_latest_release ----------
 
 @test "latest release resolves the tag from the GitHub releases/latest API" {

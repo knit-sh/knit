@@ -1,12 +1,19 @@
 # Flux learning cluster — single image used for all nodes (leader + workers).
 #
-# Base is fluxrm/flux-core:el9, the official Flux image on Rocky Linux 9. Flux
-# is not packaged in EPEL 9, so this EL9 image is how a knit experiment gets a
+# Base is fluxrm/flux-core, the official Flux image on Rocky Linux 9. Flux is
+# not packaged in EPEL 9, so this EL9 image is how a knit experiment gets a
 # Rocky-9 base (the same OS family as the Slurm/PBS clusters) with flux-core,
 # flux-security, and the built-in sched-simple scheduler already installed — no
-# source build. The tag can be pinned at build time:
-#   docker compose build --build-arg FLUX_TAG=el9-v0.88.0
-ARG FLUX_TAG=el9
+# source build.
+#
+# The tag is pinned to an exact Flux release, NOT the moving "el9" tag: flux is
+# built from source inside the base image (it is not a dnf package here), so the
+# only way to pin the Flux version — the way the Slurm/PBS images pin their
+# scheduler with SLURM_VERSION / PBS_VERSION — is to pin the base tag. A moving
+# tag makes a from-scratch build (no layer cache, as in CI) pick up a different
+# Flux than a cached build, which is how the overlay silently stopped forming.
+# Override at build time: docker compose build --build-arg FLUX_TAG=el9-v0.90.0
+ARG FLUX_TAG=el9-v0.88.0
 FROM fluxrm/flux-core:${FLUX_TAG}
 
 # The base image runs as the unprivileged "fluxuser"; build steps need root.
@@ -38,8 +45,14 @@ USER root
 #    The overlay needs NO munge: it is single-user, so there is no cross-user
 #    credential to broker.
 # ---------------------------------------------------------------------------
-RUN dnf -y update && \
-    dnf -y install epel-release && \
+# No blanket "dnf -y update" here, unlike the Slurm/PBS images. Those compile a
+# scheduler from source and want current libraries to build against; this image
+# compiles nothing, so a full OS upgrade only floats the libraries Flux was
+# built against in the base (libsodium for the CURVE overlay, jansson, munge,
+# glibc, ...). On a from-scratch CI build that pulled newer libraries than the
+# base was tested with, the broker overlay stopped forming. Installing only the
+# packages the tests add keeps the Flux runtime as the base validated it.
+RUN dnf -y install epel-release && \
     dnf config-manager --set-enabled crb && \
     dnf -y install \
         openmpi openmpi-devel \

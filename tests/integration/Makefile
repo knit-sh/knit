@@ -79,11 +79,16 @@ cluster-down-flux:
 # Run experiments
 # ---------------------------------------------------------------------------
 
+# GITHUB_TOKEN, when set on the host, is forwarded into the container so knit's
+# spack provisioning authenticates its api.github.com calls and does not hit the
+# shared anonymous rate limit (60 requests/hour/address). "docker exec -e
+# GITHUB_TOKEN" (no value) passes the variable through only when it is present,
+# so a local run without a token behaves exactly as before.
 run-slurm:
 	@failed=0; \
 	for t in $(EXPERIMENTS); do \
 	    printf '\n=== %s (slurm) ===\n' "$$t"; \
-	    docker exec --user hpcuser slurm-login \
+	    docker exec -e GITHUB_TOKEN --user hpcuser slurm-login \
 	        bash $(INTEGRATION_DIR)/$$t \
 	    || { printf 'FAIL: %s\n' "$$t"; failed=1; }; \
 	done; \
@@ -93,7 +98,7 @@ run-pbs:
 	@failed=0; \
 	for t in $(EXPERIMENTS); do \
 	    printf '\n=== %s (pbs) ===\n' "$$t"; \
-	    docker exec --user hpcuser pbs-login \
+	    docker exec -e GITHUB_TOKEN --user hpcuser pbs-login \
 	        bash $(INTEGRATION_DIR)/$$t \
 	    || { printf 'FAIL: %s\n' "$$t"; failed=1; }; \
 	done; \
@@ -103,7 +108,7 @@ run-flux:
 	@failed=0; \
 	for t in $(EXPERIMENTS); do \
 	    printf '\n=== %s (flux) ===\n' "$$t"; \
-	    docker exec --user hpcuser flux-login \
+	    docker exec -e GITHUB_TOKEN --user hpcuser flux-login \
 	        bash $(INTEGRATION_DIR)/$$t \
 	    || { printf 'FAIL: %s\n' "$$t"; failed=1; }; \
 	done; \

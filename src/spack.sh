@@ -78,6 +78,31 @@ _knit_spack_framed_run() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_spack_github_api()
+#
+# Fetch a GitHub REST API URL and print the response body. When GITHUB_TOKEN or
+# GH_TOKEN is set, the request is authenticated: the anonymous api.github.com
+# limit is 60 requests per hour per address, shared by every process behind that
+# address, so continuous-integration runners exhaust it and knit sees an error
+# body instead of JSON. An authenticated request uses the far higher per-token
+# limit. curl also retries a few times so a transient network error does not
+# abort a bootstrap, and "-f" makes an HTTP error status a clean failure (empty
+# output) instead of a non-JSON body that would confuse the caller's parser.
+#
+# @param url The api.github.com URL to fetch.
+# @return Prints the response body; non-zero on a hard failure or HTTP error.
+# ------------------------------------------------------------------------------
+_knit_spack_github_api() {
+    local url="$1"
+    local token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+    local -a args=(-fsSL --retry 3 --retry-delay 2)
+    if [[ -n "${token}" ]]; then
+        args+=(-H "Authorization: Bearer ${token}")
+    fi
+    curl "${args[@]}" "${url}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_spack_latest_release()
 #
 # Resolve the latest release tag of a Spack repository via the GitHub API. Used
@@ -90,9 +115,10 @@ _knit_spack_latest_release() {
     local repo="$1"
     local url="https://api.github.com/repos/spack/${repo}/releases/latest"
     local tag
-    tag="$(curl -s "${url}" | _knit_jq -r '.tag_name // empty')"
+    tag="$(_knit_spack_github_api "${url}" | _knit_jq -r '.tag_name // empty')"
     if [[ -z "${tag}" ]]; then
-        knit_fatal "Could not resolve the latest ${repo} release from ${url}."
+        knit_fatal "Could not resolve the latest ${repo} release from ${url}." \
+            "If this is a rate-limited environment, set GITHUB_TOKEN."
     fi
     printf '%s' "${tag}"
 }
@@ -113,10 +139,10 @@ _knit_spack_resolve_commit() {
     local ref="$2"
     local url="https://api.github.com/repos/spack/${repo}/commits/${ref}"
     local sha
-    sha="$(curl -s "${url}" | _knit_jq -r '.sha // empty')"
+    sha="$(_knit_spack_github_api "${url}" | _knit_jq -r '.sha // empty')"
     if [[ -z "${sha}" ]]; then
         knit_fatal "Could not resolve ${ref} to a commit in spack/${repo}" \
-            "from ${url}."
+            "from ${url}. If this is a rate-limited environment, set GITHUB_TOKEN."
     fi
     printf '%s' "${sha}"
 }

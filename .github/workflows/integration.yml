@@ -53,6 +53,12 @@ jobs:
         run: bash tests/integration/lib/provision-image.sh ${{ matrix.cluster }}
 
       - name: Run integration tests
+        # Forwarded into the containers by the Makefile's run-* targets so knit's
+        # spack provisioning authenticates its api.github.com calls; the shared
+        # anonymous limit (60 requests/hour per runner address) otherwise gets
+        # exhausted and the spack ref resolution fails to read a JSON response.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: make -C tests/integration check-${{ matrix.cluster }}
 
       - name: Publish cluster image

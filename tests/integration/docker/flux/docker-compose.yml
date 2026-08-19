@@ -10,8 +10,10 @@
 # broker overlay (see conf/flux/system.toml). flux-login is excluded from
 # scheduling, so an N-node job lands on the compute nodes.
 #
-# The FLUX_TAG build arg pins the base fluxrm/flux-core image at build time:
-#   docker compose build --build-arg FLUX_TAG=el9-v0.88.0
+# The FLUX_TAG build arg pins the base fluxrm/flux-core image. It defaults to an
+# exact Flux release (not the moving "el9" tag) so a from-scratch build is
+# reproducible; override it to move to another release:
+#   docker compose build --build-arg FLUX_TAG=el9-v0.90.0
 #
 # Volume mounts:
 #   /shared/knit  — knit repo root (read-only); knit.sh at /shared/knit/knit.sh
@@ -32,7 +34,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        FLUX_TAG: ${FLUX_TAG:-el9}
+        FLUX_TAG: ${FLUX_TAG:-el9-v0.88.0}
     image: flux-cluster:latest
     hostname: flux-login
     container_name: flux-login
