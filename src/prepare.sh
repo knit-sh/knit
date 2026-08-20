@@ -414,8 +414,8 @@ def expand_matrix($i; $block):
   | (if ($exclude|type) != "array"
        then error("plan entry \($i): matrix \"exclude\" must be an array")
      else . end)
-  | ($block.include // []) as $include
-  | (if ($include|type) != "array"
+  | ($block.include // []) as $includes
+  | (if ($includes|type) != "array"
        then error("plan entry \($i): matrix \"include\" must be an array")
      else . end)
   | ($block | del(.axes, .exclude, .include)) as $fixed
@@ -424,7 +424,7 @@ def expand_matrix($i; $block):
       | select( any($exclude[]; . as $x
                     | all(($x|keys_unsorted[]); . as $k | $c[$k] == $x[$k]) )
                 | not ))) as $kept
-  | ($kept + ($include | map($fixed + .)));
+  | ($kept + ($includes | map($fixed + .)));
 .jobs |= ( [ range(0; length) as $i | (.[$i]) as $e
              | if ($e|type)=="object" and ($e|has("matrix"))
                then expand_matrix($i; $e.matrix)
