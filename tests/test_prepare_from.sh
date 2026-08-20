@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 
 # Unit tests for `prepare from` (src/prepare.sh): prepare many jobs from a JSON
-# plan read from --file or stdin. Matrix expansion is a later milestone; these
-# cover the concrete-entry plan (field resolution, defaults, group precedence,
-# plan order, and validate-before-prepare).
+# plan read from --file or stdin. Covers the concrete-entry plan (field
+# resolution, defaults, group precedence, plan order, validate-before-prepare)
+# and matrix expansion (cartesian product, exclude, include, ordering).
 
 setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
@@ -136,6 +136,20 @@ JSON
 # written when the job actually runs, so these assert against .job.sh.
 _jobscript_of() {
     cat "$(_knit_job_dir "$1")/.job.sh"
+}
+
+# The --colormap value baked into a prepared job's .job.sh (job args live there,
+# submission args live in the jobs row).
+_colormap_of() {
+    local script
+    script="$(_jobscript_of "$1")"
+    [[ "${script}" =~ --colormap\ ([^\ ]+) ]] && printf '%s' "${BASH_REMATCH[1]}"
+}
+
+# Prepared job UUIDs in ascending id order (uuidv7 => prepare order).
+_ordered_uuids() {
+    sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT id FROM jobs WHERE state='prepared' ORDER BY id ASC;"
 }
 
 @test "prepare from renders object args as --key value" {
@@ -376,5 +390,151 @@ JSON
 { "jobs": [] }
 JSON
     [ "$status" -eq 0 ]
+    [ "$(_prepared_count)" = "0" ]
+}
+
+# ---------- matrix expansion ----------
+
+@test "prepare from expands a matrix to the cartesian product" {
+    _register_jobs_with_setup
+
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "axes": { "args": [ {"colormap":"fire"}, {"colormap":"ice"} ],
+                "nodes": [2, 4] } } } ] }
+JSON
+    # 2 colormaps x 2 node counts = 4 prepared jobs.
+    [ "$(_prepared_count)" = "4" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM jobs WHERE state='prepared' AND nodes=2;")" = "2" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM jobs WHERE state='prepared' AND nodes=4;")" = "2" ]
+}
+
+@test "prepare from drops excluded matrix combinations" {
+    _register_jobs_with_setup
+
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "axes": { "args": [ {"colormap":"fire"}, {"colormap":"ice"} ],
+                "nodes": [2, 4] },
+      "exclude": [ { "args": {"colormap":"ice"}, "nodes": 4 } ] } } ] }
+JSON
+    # Product is 4, minus the one excluded combination (ice/4) = 3.
+    [ "$(_prepared_count)" = "3" ]
+    # No prepared row is the excluded ice/4 combination.
+    local id nodes cmap
+    while IFS= read -r id; do
+        nodes="$(sqlite3 "${_KNIT_DATABASE}" \
+            "SELECT nodes FROM jobs WHERE id='${id}';")"
+        cmap="$(_colormap_of "${id}")"
+        [ "${nodes}/${cmap}" != "4/ice" ]
+    done < <(_ordered_uuids)
+}
+
+@test "prepare from appends matrix include entries as standalone combinations" {
+    _register_jobs_with_setup
+
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "axes": { "args": [ {"colormap":"fire"} ], "nodes": [2] },
+      "include": [ { "args": {"colormap":"forest"}, "nodes": 8 } ] } } ] }
+JSON
+    # One product combination plus one appended include.
+    [ "$(_prepared_count)" = "2" ]
+    # The include carries the block's job (render) and its own fields.
+    local id
+    id="$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT id FROM jobs WHERE state='prepared' AND nodes=8;")"
+    [ -n "${id}" ]
+    [ "$(_colormap_of "${id}")" = "forest" ]
+}
+
+@test "prepare from varies a submission argument across a matrix axis" {
+    _register_jobs_with_setup
+
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "args": { "colormap": "gray" },
+      "axes": { "nodes": [2, 4, 8] } } } ] }
+JSON
+    [ "$(_prepared_count)" = "3" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT group_concat(nodes) FROM (SELECT nodes FROM jobs \
+         WHERE state='prepared' ORDER BY nodes);")" = "2,4,8" ]
+}
+
+@test "prepare from applies defaults to every matrix combination" {
+    _register_jobs_with_setup
+
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup", "nodes": 2 },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "axes": { "args": [ {"colormap":"a"}, {"colormap":"b"} ] } } } ] }
+JSON
+    [ "$(_prepared_count)" = "2" ]
+    # Every combination inherits the default setup and nodes.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM jobs WHERE state='prepared' \
+         AND setup='setup' AND nodes=2;")" = "2" ]
+}
+
+@test "prepare from prepares matrix combinations in product order, interleaved" {
+    _register_jobs_with_setup
+
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "job": "render", "args": { "colormap": "pre" } },
+            { "matrix": {
+                "job": "render",
+                "axes": { "args": [ {"colormap":"x"}, {"colormap":"y"} ] } } },
+            { "job": "render", "args": { "colormap": "post" } } ] }
+JSON
+    [ "$(_prepared_count)" = "4" ]
+    local -a ids
+    mapfile -t ids < <(_ordered_uuids)
+    local seq=""
+    local id
+    for id in "${ids[@]}"; do
+        seq+="$(_colormap_of "${id}") "
+    done
+    # Concrete entries and the expanded matrix interleave in plan order.
+    [ "${seq}" = "pre x y post " ]
+}
+
+@test "prepare from rejects a malformed matrix block before preparing" {
+    _register_jobs_with_setup
+
+    # An axis whose value is not a list is a structural error; nothing prepares.
+    run _knit_invoke_command prepare from <<'JSON'
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": { "job": "render", "axes": { "nodes": 2 } } } ] }
+JSON
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"axis"* ]]
+    [ "$(_prepared_count)" = "0" ]
+}
+
+@test "prepare from validates an expanded matrix job name" {
+    _register_jobs_with_setup
+
+    # The matrix carries an unregistered job; expansion resolves it, then the
+    # normal job-existence check rejects it before anything prepares.
+    run _knit_invoke_command prepare from <<'JSON'
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": { "job": "nosuchjob",
+                          "axes": { "nodes": [2, 4] } } } ] }
+JSON
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"unknown job"* ]]
     [ "$(_prepared_count)" = "0" ]
 }

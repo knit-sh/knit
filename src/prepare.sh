@@ -346,6 +346,80 @@ _knit_prepare_from() {
 knit_done
 
 # ------------------------------------------------------------------------------
+# @fn _knit_prepare_matrix_expand()
+#
+# Expand every matrix block in a plan's "jobs" list into concrete entries, in
+# place, and print the rewritten plan. A jobs element is either a concrete entry
+# (kept as-is) or a `{ "matrix": {…} }` block; a block expands to one entry per
+# combination so the later render pass resolves each combination by the same
+# field rules as a hand-written entry.
+#
+# A matrix block is a field map with three reserved keys and any number of fixed
+# fields:
+#   - "axes"    — a map from field name to a list of values; the block expands to
+#                 the cartesian product of the axes (first axis varies slowest).
+#   - "exclude" — a list of field maps; drop every combination that matches all
+#                 fields of any exclude entry.
+#   - "include" — a list of field maps; append each, merged over the block's
+#                 fixed fields, as a new standalone combination (after exclude).
+# Every other key on the block (e.g. "job", a fixed "setup") is carried into
+# every combination. Combinations keep product order, then the appended
+# includes; blocks and concrete entries interleave in plan order.
+#
+# To vary a job argument, use an "args" axis whose values are arg objects/arrays
+# (e.g. `"args": [ {"colormap":"fire"}, {"colormap":"ice"} ]`): a top-level
+# non-reserved field is a submission argument, exactly as for a concrete entry.
+#
+# A structural problem (a non-object matrix, a non-object "axes", an axis that is
+# not a list, a non-array "exclude"/"include") raises a jq error naming the
+# offending entry, so the whole expansion fails and nothing is prepared.
+#
+# @param plan The plan JSON text (already checked to be an object with a "jobs"
+#             array).
+# ------------------------------------------------------------------------------
+_knit_prepare_matrix_expand() {
+    local plan="$1"
+    local prog
+    # shellcheck disable=SC2016 # $-expressions below are jq syntax, not shell.
+    prog='
+def axis_combos($axes):
+  reduce ($axes|to_entries)[] as $e ([{}];
+    [ .[] as $acc | $e.value[] as $v | $acc + {($e.key): $v} ]);
+def expand_matrix($i; $block):
+  (if ($block|type) != "object"
+     then error("plan entry \($i): \"matrix\" must be an object") else . end)
+  | ($block.axes // {}) as $axes
+  | (if ($axes|type) != "object"
+       then error("plan entry \($i): matrix \"axes\" must be an object")
+     else . end)
+  | (if ($axes|to_entries|all(.value|type=="array")) then .
+     else error("plan entry \($i): every matrix axis must be a list of values")
+     end)
+  | ($block.exclude // []) as $exclude
+  | (if ($exclude|type) != "array"
+       then error("plan entry \($i): matrix \"exclude\" must be an array")
+     else . end)
+  | ($block.include // []) as $include
+  | (if ($include|type) != "array"
+       then error("plan entry \($i): matrix \"include\" must be an array")
+     else . end)
+  | ($block | del(.axes, .exclude, .include)) as $fixed
+  | (axis_combos($axes) | map($fixed + .)) as $base
+  | ($base | map(. as $c
+      | select( any($exclude[]; . as $x
+                    | all(($x|keys_unsorted[]); . as $k | $c[$k] == $x[$k]) )
+                | not ))) as $kept
+  | ($kept + ($include | map($fixed + .)));
+.jobs |= ( [ range(0; length) as $i | (.[$i]) as $e
+             | if ($e|type)=="object" and ($e|has("matrix"))
+               then expand_matrix($i; $e.matrix)
+               else [$e] end ]
+           | add // [] )
+'
+    printf '%s' "${plan}" | _knit_jq -c "${prog}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_prepare_from_file()
 #
 # Parse and fully validate a JSON plan, then prepare each job it describes in
@@ -399,6 +473,16 @@ _knit_prepare_from_file() {
             >/dev/null 2>&1; then
         knit_fatal "prepare from: \"group\" must be a string."
     fi
+
+    # Expand any matrix blocks into concrete entries before rendering, so a matrix
+    # combination is resolved by the same field rules as a hand-written entry. A
+    # structural problem in a matrix block raises a jq error, surfaced verbatim,
+    # so a bad plan prepares nothing.
+    local expanded
+    if ! expanded="$(_knit_prepare_matrix_expand "${plan}" 2>&1)"; then
+        knit_fatal "prepare from: invalid plan: ${expanded}"
+    fi
+    plan="${expanded}"
 
     # The top-level group applied to entries that set no group of their own: the
     # command-line --group overrides the plan's top-level "group".
