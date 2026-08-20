@@ -8,7 +8,7 @@
 # Associative array mapping registered app names to 1. Used to validate that an
 # app name passed to `knit run` is known. Mirrors _KNIT_JOBS for jobs.
 # ------------------------------------------------------------------------------
-declare -A _KNIT_APPS
+declare -gA _KNIT_APPS
 
 # ------------------------------------------------------------------------------
 # @var _KNIT_RUNS_TABLE

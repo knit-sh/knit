@@ -286,3 +286,225 @@ _knit_submit_next() {
     _knit_prepare_release "${claimed}" "${wait_flag}"
 }
 knit_done
+
+# ------------------------------------------------------------------------------
+# Prepare many jobs at once from a JSON plan.
+# ------------------------------------------------------------------------------
+knit_register "prepare:from" _knit_prepare_from \
+    "Prepare many jobs from a JSON plan (file or stdin)."
+_knit_is_builtin
+# Each prepared job is recorded by _knit_prepare_build under the "submit"
+# identity, so `prepare from` itself owns no table and adds no provenance node.
+knit_without_provenance
+knit_with_optional "file:string" "" \
+    "Path to the JSON plan (default: read the plan from stdin)."
+knit_with_optional "group:string" "" \
+    "Override the plan's top-level group for every prepared job."
+# ------------------------------------------------------------------------------
+# @fn _knit_prepare_from()
+#
+# Entry point for the `prepare from` CLI command. Reads a JSON plan (from --file,
+# or from stdin when --file is omitted) and prepares each job it describes, as if
+# each had been passed to `prepare … -- <job> …` individually. Reading from an
+# interactive terminal (nothing to read) or reading an empty plan is fatal rather
+# than a silent hang, mirroring the no-argument form of knit_with_spack_env. The
+# whole plan is validated before any job is prepared, so a bad plan leaves nothing
+# half-prepared. Prints one prepared job UUID per line, in plan order.
+#
+# Usage:
+# ```
+# ./exp.sh prepare from [--file <plan.json>] [--group <name>]
+# ./exp.sh prepare from < plan.json
+# ```
+# ------------------------------------------------------------------------------
+_knit_prepare_from() {
+    local file group_override
+    file=$(knit_get_parameter "file" "$@") || file=""
+    group_override=$(knit_get_parameter "group" "$@") || group_override=""
+
+    local plan
+    if [[ -n "${file}" ]]; then
+        if [[ ! -f "${file}" ]]; then
+            knit_fatal "prepare from: plan file \"${file}\" not found."
+        fi
+        plan="$(cat "${file}")"
+    else
+        # No --file: the plan must arrive on stdin (here-doc, here-string, or
+        # pipe). An interactive terminal has nothing to read, so "cat" would block
+        # forever; fail fast with guidance instead (see _knit_stdin_is_terminal).
+        if _knit_stdin_is_terminal; then
+            knit_fatal "prepare from: no plan provided. Give a plan with --file <plan.json> or feed one on stdin (here-doc/here-string/pipe)."
+        fi
+        plan="$(cat)"
+    fi
+    if [[ -z "${plan//[[:space:]]/}" ]]; then
+        knit_fatal "prepare from: the plan is empty."
+    fi
+
+    _knit_prepare_from_file "${plan}" "${group_override}"
+}
+knit_done
+
+# ------------------------------------------------------------------------------
+# @fn _knit_prepare_from_file()
+#
+# Parse and fully validate a JSON plan, then prepare each job it describes in
+# plan order. The plan is a JSON object with an optional top-level "group", an
+# optional "defaults" field map merged under every entry, and a required "jobs"
+# list of concrete entries. Every entry is resolved to a `prepare` argument list
+# and validated before anything is prepared, so a malformed plan leaves no job
+# half-prepared. Prints one prepared job UUID per line.
+#
+# Per-entry field resolution (an explicit field on the entry wins over defaults):
+#   - "job"   (required) — the registered job name (the token after --).
+#   - "args"  — the job's own arguments, either an object ({k:v} -> --k v, a
+#               boolean true -> a bare flag, false -> omitted) or an array of
+#               raw tokens passed through verbatim.
+#   - "extra" — an array of raw tokens appended after "args".
+#   - any other key — a submission argument (--key value). An unknown key (not a
+#               `prepare`/`submit` option) is fatal, naming the key.
+#
+# The group of each entry is, in decreasing precedence: a "group" on the entry
+# (or in "defaults"), the command-line --group override, the plan's top-level
+# "group".
+#
+# @param plan           The plan JSON text.
+# @param group_override Command-line --group value ("" when not given).
+# ------------------------------------------------------------------------------
+_knit_prepare_from_file() {
+    local plan="$1"
+    local group_override="$2"
+
+    # Reject a plan that is not valid JSON up front, so later jq passes can assume
+    # a parseable document.
+    if ! printf '%s' "${plan}" | _knit_jq -e . >/dev/null 2>&1; then
+        knit_fatal "prepare from: the plan is not valid JSON."
+    fi
+    # The plan must be an object with a "jobs" array; "defaults"/"group", when
+    # present, must be an object/string. These give clearer messages than a jq
+    # type error deep in rendering.
+    if ! printf '%s' "${plan}" | _knit_jq -e 'type=="object"' >/dev/null 2>&1; then
+        knit_fatal "prepare from: the plan must be a JSON object."
+    fi
+    if ! printf '%s' "${plan}" | _knit_jq -e '.jobs|type=="array"' >/dev/null 2>&1; then
+        knit_fatal "prepare from: the plan must have a \"jobs\" array."
+    fi
+    if ! printf '%s' "${plan}" \
+        | _knit_jq -e '(.defaults==null) or (.defaults|type=="object")' \
+            >/dev/null 2>&1; then
+        knit_fatal "prepare from: \"defaults\" must be an object."
+    fi
+    if ! printf '%s' "${plan}" \
+        | _knit_jq -e '(.group==null) or (.group|type=="string")' \
+            >/dev/null 2>&1; then
+        knit_fatal "prepare from: \"group\" must be a string."
+    fi
+
+    # The top-level group applied to entries that set no group of their own: the
+    # command-line --group overrides the plan's top-level "group".
+    local top_group
+    if [[ -n "${group_override}" ]]; then
+        top_group="${group_override}"
+    else
+        top_group="$(printf '%s' "${plan}" | _knit_jq -r '.group // ""')"
+    fi
+
+    # Render every entry to a compact JSON object { job, subkeys, tokens }:
+    #   tokens  — the full `prepare` argument list ([sub-args] -- job [job args]),
+    #   subkeys — the submission-argument key names (validated below),
+    #   job     — the resolved job name.
+    # A structural problem (non-object entry, missing/non-string "job", a bad
+    # "args"/"extra" type) raises a jq error naming the offending entry, so the
+    # whole render fails and nothing is prepared.
+    local prog
+    # shellcheck disable=SC2016 # $-expressions below are jq syntax, not shell.
+    prog='
+def render_value($k; $v):
+  if $v == true then ["--\($k)"]
+  elif $v == false then []
+  else ["--\($k)", ($v|tostring)] end;
+. as $plan
+| ($plan.defaults // {}) as $defaults
+| ($plan.jobs) as $jobs
+| range(0; ($jobs|length)) as $i
+| ($jobs[$i]) as $raw
+| (if ($raw|type) != "object"
+     then error("plan entry \($i) is not an object") else null end)
+| ($defaults + $raw) as $m0
+| (if ($m0|has("group")|not) and ($top_group != "")
+     then $m0 + {group: $top_group} else $m0 end) as $m
+| (if ($m|has("job")|not)
+     then error("plan entry \($i): missing required \"job\"")
+   elif (($m.job)|type) != "string"
+     then error("plan entry \($i): \"job\" must be a string")
+   else null end)
+| (($m.args) // null) as $args
+| (if ($args != null) and (($args|type) != "object") and (($args|type) != "array")
+     then error("plan entry \($i): \"args\" must be an object or array")
+   else null end)
+| (($m.extra) // null) as $extra
+| (if ($extra != null) and (($extra|type) != "array")
+     then error("plan entry \($i): \"extra\" must be an array")
+   else null end)
+| ($m | to_entries
+       | map(select((.key=="job" or .key=="args" or .key=="extra")|not))) as $subs
+| ($subs | map(render_value(.key; .value)) | add // []) as $subtokens
+| (if $args == null then []
+   elif ($args|type)=="array" then ($args | map(tostring))
+   else ($args | to_entries | map(render_value(.key; .value)) | add // []) end
+  ) as $argtokens
+| (if $extra == null then [] else ($extra | map(tostring)) end) as $extratokens
+| { job: $m.job,
+    subkeys: ($subs | map(.key)),
+    tokens: ($subtokens + ["--", $m.job] + $argtokens + $extratokens) }
+'
+    local rendered
+    if ! rendered="$(printf '%s' "${plan}" \
+        | _knit_jq -c --arg top_group "${top_group}" "${prog}" 2>&1)"; then
+        # jq's message (from error(), or a type error) is the most specific
+        # explanation available; surface it verbatim after our own prefix.
+        knit_fatal "prepare from: invalid plan: ${rendered}"
+    fi
+
+    # Nothing to do: an empty "jobs" list prepares no job.
+    if [[ -z "${rendered}" ]]; then
+        return 0
+    fi
+
+    # Validate before preparing (part 1): every submission-argument key must name
+    # a known `prepare` option, and every "job" must be registered. A single
+    # failure aborts before any _knit_prepare_build, so a bad plan prepares
+    # nothing.
+    local key norm
+    while IFS= read -r key; do
+        [[ -z "${key}" ]] && continue
+        norm=$(_knit_name_normalize "${key}")
+        if ! _knit_set_find _KNIT_CMD_prepare_optional "${norm}"; then
+            knit_fatal "prepare from: unknown key \"${key}\" in plan (not a \"prepare\"/\"submit\" option)."
+        fi
+    done < <(printf '%s' "${rendered}" | _knit_jq -r '.subkeys[]')
+
+    local job
+    while IFS= read -r job; do
+        [[ -z "${job}" ]] && continue
+        if [[ ! -v _KNIT_JOBS["${job}"] ]]; then
+            knit_fatal "prepare from: unknown job \"${job}\" in plan."
+        fi
+    done < <(printf '%s' "${rendered}" | _knit_jq -r '.job')
+
+    # Validated: prepare each entry in plan order.
+    local line
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] && continue
+        local -a toks=()
+        mapfile -t toks < <(printf '%s' "${line}" | _knit_jq -r '.tokens[]')
+        # Output variable names must not clash with _knit_prepare_build's internal
+        # locals (uuid/jobdir/alias_link/job_name); see nameref-shadow-collision.
+        # shellcheck disable=SC2034 # out_jobdir/out_alias/out_jobname are nameref
+        # outputs of _knit_prepare_build; only the uuid is printed here.
+        local out_uuid out_jobdir out_alias out_jobname
+        _knit_prepare_build out_uuid out_jobdir out_alias out_jobname \
+            "prepared" "${toks[@]}"
+        printf '%s\n' "${out_uuid}"
+    done <<< "${rendered}"
+}

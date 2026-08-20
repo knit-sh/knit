@@ -8,7 +8,7 @@
 # Associative array mapping registered job names to 1. Used to validate that
 # a job names passed to `knit submit` is known.
 # ------------------------------------------------------------------------------
-declare -A _KNIT_JOBS
+declare -gA _KNIT_JOBS
 
 # ------------------------------------------------------------------------------
 # @var _KNIT_JOBS_TABLE
