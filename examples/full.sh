@@ -54,8 +54,8 @@
 #   ./full.sh --help
 #
 # Prints the program description and the list of subcommands: preflight,
-# estimate, submit, run, fetch, setup, bootstrap, metadata, profile, job, db,
-# query, spack, ai.
+# estimate, submit, prepare, run, fetch, setup, bootstrap, metadata, profile,
+# job, db, query, spack, ai.
 # Every command takes --help,
 # e.g.
 #
@@ -351,7 +351,11 @@
 #
 #   --wait blocks until the job finishes. Without it, submit returns immediately
 #   and you poll the state yourself. Other options (see `submit --help`):
-#   --nodes, --walltime, --queue, --account, --gpus-per-node, --job-name.
+#   --nodes, --walltime, --queue, --account, --gpus-per-node, --job-name, and
+#   --group (a free-form label grouping related runs, recorded in the `jobs`
+#   table). To build a submission now and release it to the scheduler later —
+#   one at a time, or a whole batch from a JSON plan — use `prepare` instead of
+#   `submit`; see section 16.
 #
 # Give a job a stable alias with --name: it is recorded in the `name` column and
 # creates a convenience symlink jobs/<name> -> jobs/<uuid>. A name is validated
@@ -714,7 +718,84 @@
 # safe to run at any time after bootstrap.
 #
 # -----------------------------------------------------------------------------
-# 16. Clean up
+# 16. Prepare jobs now, release them later (prepare)
+# -----------------------------------------------------------------------------
+# `submit` builds a job and hands it to the scheduler in one step. `prepare`
+# does only the build half: it validates the job, creates its directory, writes
+# the batch script, and records the row — but stops before the scheduler,
+# leaving the job in a new `prepared` state. You release prepared jobs to the
+# queue later, one at a time, under a policy you control (a cron tick, or a loop
+# that keeps N jobs in flight). This separates "describe the runs" from "feed
+# them to the scheduler", which is what a parameter sweep wants.
+#
+# `prepare` mirrors `submit` argument-for-argument (minus --wait, since nothing
+# is dispatched) over the same job registry, plus a --group label. Prepare a
+# couple of montecarlo jobs into one group:
+#
+#   ./full.sh prepare --setup env --group pi-sweep -- montecarlo --samples 20000
+#   ./full.sh prepare --setup env --group pi-sweep -- montecarlo --samples 50000
+#
+# The whole submission spec — nodes, walltime, queue, setup, and the job's own
+# arguments — is frozen at prepare time, so releasing a prepared job never
+# re-opens those options. A prepared job is an ordinary `jobs` row, so it needs
+# no new listing command: `job list --status prepared` shows them, and
+# `job cancel` removes one (its row and directory) without contacting the
+# scheduler, since a prepared job never reached it:
+#
+#   ./full.sh job list --status prepared
+#   ./full.sh job cancel --id <uuid-of-a-prepared-job>
+#
+# Prepare a whole batch at once from a JSON plan with `prepare from` — from a
+# file with --file, or on stdin. A plan has an optional top-level `group`, an
+# optional `defaults` map merged under every entry, and a `jobs` list whose
+# elements are either a concrete entry or a `matrix` block. A matrix expands to
+# one prepared job per combination: the cartesian product of its `axes`, minus
+# every `exclude` combination, plus each `include` entry. A bare axis key varies
+# a submission option (like `nodes`); an `args` axis varies the job's OWN
+# arguments:
+#
+#   ./full.sh prepare from <<'JSON'
+#   {
+#     "group": "pi-sweep",
+#     "defaults": { "setup": "env" },
+#     "jobs": [
+#       { "job": "montecarlo", "args": { "samples": 20000 } },
+#       { "matrix": {
+#           "job": "montecarlo",
+#           "axes": {
+#             "args":  [ {"samples": 10000}, {"samples": 50000} ],
+#             "nodes": [ 1, 2 ]
+#           },
+#           "exclude": [ { "args": {"samples": 50000}, "nodes": 2 } ],
+#           "include": [ { "args": {"samples": 200000}, "nodes": 4 } ]
+#       } }
+#     ]
+#   }
+#   JSON
+#
+# The whole plan is validated before any job is prepared, so a bad plan (an
+# unknown key, a missing `job`, a malformed matrix) leaves nothing
+# half-prepared. Jobs prepare in plan order.
+#
+# Release prepared jobs with two `submit` subcommands. `submit prepared --id`
+# releases one specific job; `submit next` releases the oldest prepared job,
+# optionally filtered by --type (job name) or --group. The claim is atomic, so
+# concurrent releasers never double-submit the same row. `submit next` returns
+# non-zero when nothing matches, so a fill-the-queue loop drains a group and
+# stops on its own:
+#
+#   ./full.sh submit prepared --id <uuid> --wait
+#   while ./full.sh submit next --group pi-sweep --wait; do :; done
+#
+# Releasing advances the same row prepared -> submitted -> running -> completed;
+# the UUID never changes, so the job you prepared and the job that ran are one
+# recorded artifact, and `knit query` sees the whole group:
+#
+#   ./full.sh query sql --format column --header --exec \
+#       "SELECT id, job, state, \"group\" FROM jobs WHERE \"group\"='pi-sweep'"
+#
+# -----------------------------------------------------------------------------
+# 17. Clean up
 # -----------------------------------------------------------------------------
 #   rm -rf .knit setups jobs
 #
