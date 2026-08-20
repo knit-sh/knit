@@ -90,13 +90,21 @@ _knit_prepare_claim_next() {
     local jobs_ident id_ident
     _knit_db_sql_ident jobs_ident "${_KNIT_JOBS_TABLE}"
     _knit_db_sql_ident id_ident "id"
+    # The write lock (see _knit_sqlite3_write) already makes the whole
+    # pick-and-mark atomic, so no releaser can interleave between the pick and
+    # the UPDATE. A connection-scoped TEMP table holds the picked id, the UPDATE
+    # claims exactly that row, and the trailing SELECT reports it. This avoids
+    # UPDATE ... RETURNING, which needs sqlite >= 3.35 (a knit-symlinked system
+    # sqlite may be older). The TEMP table already filtered on state='prepared',
+    # so it is the claim guard; it is dropped when the connection closes.
     _knit_sqlite3_write \
-        "UPDATE ${jobs_ident} SET state='submitting'
-          WHERE ${id_ident} = (SELECT ${id_ident} FROM ${jobs_ident}
-                               WHERE ${where}
-                               ORDER BY ${id_ident} ASC LIMIT 1)
-            AND state='prepared'
-          RETURNING ${id_ident};"
+        "CREATE TEMP TABLE _knit_claim AS
+           SELECT ${id_ident} FROM ${jobs_ident}
+             WHERE ${where}
+             ORDER BY ${id_ident} ASC LIMIT 1;
+         UPDATE ${jobs_ident} SET state='submitting'
+           WHERE ${id_ident} IN (SELECT ${id_ident} FROM _knit_claim);
+         SELECT ${id_ident} FROM _knit_claim;"
 }
 
 # ------------------------------------------------------------------------------
@@ -118,10 +126,17 @@ _knit_prepare_claim_id() {
     local jobs_ident id_ident
     _knit_db_sql_ident jobs_ident "${_KNIT_JOBS_TABLE}"
     _knit_db_sql_ident id_ident "id"
+    # Same TEMP-table claim as _knit_prepare_claim_next, keyed on an explicit id
+    # (avoids UPDATE ... RETURNING, which needs sqlite >= 3.35). The TEMP table
+    # is empty when the row is absent or no longer prepared, so the UPDATE claims
+    # nothing and the trailing SELECT prints nothing. See that function's note.
     _knit_sqlite3_write \
-        "UPDATE ${jobs_ident} SET state='submitting'
-          WHERE ${id_ident}='${esc}' AND state='prepared'
-          RETURNING ${id_ident};"
+        "CREATE TEMP TABLE _knit_claim AS
+           SELECT ${id_ident} FROM ${jobs_ident}
+             WHERE ${id_ident}='${esc}' AND state='prepared';
+         UPDATE ${jobs_ident} SET state='submitting'
+           WHERE ${id_ident} IN (SELECT ${id_ident} FROM _knit_claim);
+         SELECT ${id_ident} FROM _knit_claim;"
 }
 
 # ------------------------------------------------------------------------------
