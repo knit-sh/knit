@@ -198,28 +198,20 @@ _knit_describe_children() {
 # ------------------------------------------------------------------------------
 # @fn _knit_describe_command_kind()
 #
-# Print the structural kind of a command, derived from its registration:
-# "wrapper" (knit_register_wrapper), "job" (a child of "submit"), "app" (a child
-# of "run"), "setup" (a child of "setup"), or "command" otherwise.
+# Print the structural kind of a command, read from the _type field set at
+# registration: "wrapper" (knit_register_wrapper), "job" (knit_register_job),
+# "app" (knit_register_app), "setup" (a setup command), or "command" otherwise.
+# This is the registered kind, not a guess from the parent: "submit" has both
+# jobs and ordinary subcommands (submit prepared / submit next), so a child of a
+# dispatcher is not necessarily a job.
 #
 # @param __knit_ret Name of the variable to hold the command kind.
 # @param cmd Mangled command name.
 # ------------------------------------------------------------------------------
 _knit_describe_command_kind() {
     local -n __knit_ret=$1
-    local __cmd="$2"
-    if _knit_command_is_wrapper "${__cmd}"; then
-        __knit_ret='wrapper'
-        return
-    fi
-    local __parent
-    _knit_command_get_parents __parent "${__cmd}"
-    case "${__parent}" in
-        submit) __knit_ret='job' ;;
-        run)    __knit_ret='app' ;;
-        setup)  __knit_ret='setup' ;;
-        *)      __knit_ret='command' ;;
-    esac
+    local __type_var="_KNIT_CMD_${2}_type"
+    __knit_ret="${!__type_var:-command}"
 }
 
 # ------------------------------------------------------------------------------

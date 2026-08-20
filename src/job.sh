@@ -413,17 +413,24 @@ _knit_prepare_build() {
 # handles a scheduler rejection (removing the never-run job, exactly as a direct
 # submit does). On success it records the backend job id in .job.id.
 #
-# @param uuid       The job UUID (the jobs row id).
-# @param jobdir     The job directory holding .submit and .job.sh.
-# @param job_name   The job name (for log and error messages).
-# @param alias_link The --name alias symlink path, or empty when none (removed
-#                   on rejection).
+# @param uuid          The job UUID (the jobs row id).
+# @param jobdir        The job directory holding .submit and .job.sh.
+# @param job_name      The job name (for log and error messages).
+# @param alias_link    The --name alias symlink path, or empty when none (removed
+#                      on rejection).
+# @param wait_override Optional: "true"/"false" to override the frozen "wait"
+#                      option at release time (empty keeps the value frozen at
+#                      build time). `submit` freezes --wait into .submit, so it
+#                      passes nothing; `submit prepared`/`submit next` accept
+#                      --wait at release and pass it here (prepared jobs freeze
+#                      "wait" as false, since `prepare` has no --wait).
 # ------------------------------------------------------------------------------
 _knit_submit_dispatch() {
     local uuid="$1"
     local jobdir="$2"
     local job_name="$3"
     local alias_link="$4"
+    local wait_override="${5:-}"
 
     # Restore the backend and resolved options frozen at build time. The name
     # "opts" must differ from the nameref names used inside the sched_* helpers to
@@ -432,6 +439,12 @@ _knit_submit_dispatch() {
     # shellcheck disable=SC2034 # populated by name, read by the sched_* helpers
     declare -A opts
     _knit_submit_meta_read "${jobdir}/.submit" backend opts
+
+    # A release may re-decide whether to block: the batch script is unchanged, so
+    # this only affects the submit-time wait behaviour, not the frozen spec.
+    if [[ -n "${wait_override}" ]]; then
+        opts["wait"]="${wait_override}"
+    fi
 
     local script="${jobdir}/.job.sh"
 

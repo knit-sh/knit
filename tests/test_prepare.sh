@@ -177,3 +177,164 @@ _register_myjob_with_setup() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"reserved"* ]]
 }
+
+# ---------- submit prepared / submit next : release ----------
+
+# Make the local backend "dispatch" succeed by returning a fake launcher pid, so
+# a release advances the row and writes .job.id without a real scheduler.
+_stub_dispatch_ok() {
+    _knit_submit_local() { printf '4242\n'; }
+}
+
+@test "submit prepared --id releases a prepared job" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+
+    local uuid released
+    uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
+    released="$(_knit_invoke_command submit prepared --id "${uuid}")"
+
+    # The release echoes the job UUID and advances the row to "submitted".
+    [ "${released}" = "${uuid}" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='${uuid}';")" = "submitted" ]
+    # The launcher id from the successful dispatch is recorded.
+    local jobdir
+    jobdir="$(_knit_job_dir "${uuid}")"
+    [ "$(cat "${jobdir}/.job.id")" = "4242" ]
+    # native-cmd is filled at release (empty while prepared).
+    [ -n "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT native_cmd FROM jobs WHERE id='${uuid}';")" ]
+}
+
+@test "submit prepared --id on a non-prepared row is fatal" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
+    _knit_invoke_command submit prepared --id "${uuid}"
+
+    # A second release finds the row already "submitted": fatal, no re-dispatch.
+    run _knit_invoke_command submit prepared --id "${uuid}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not prepared"* ]]
+}
+
+@test "submit prepared --id with an unknown id is fatal" {
+    _register_myjob_with_setup
+
+    run _knit_invoke_command submit prepared --id "does-not-exist"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No job found"* ]]
+}
+
+@test "submit prepared without --id is fatal" {
+    _register_myjob_with_setup
+
+    run _knit_invoke_command submit prepared
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"requires --id"* ]]
+}
+
+@test "submit next releases prepared jobs in prepare order" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+
+    local u1 u2 u3
+    u1="$(_knit_invoke_command prepare --setup setup -- myjob)"
+    u2="$(_knit_invoke_command prepare --setup setup -- myjob)"
+    u3="$(_knit_invoke_command prepare --setup setup -- myjob)"
+
+    # uuidv7 ids are time-ordered, so oldest-prepared releases first.
+    [ "$(_knit_invoke_command submit next)" = "${u1}" ]
+    [ "$(_knit_invoke_command submit next)" = "${u2}" ]
+    [ "$(_knit_invoke_command submit next)" = "${u3}" ]
+}
+
+@test "submit next returns non-zero when no prepared job remains" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
+    _knit_invoke_command submit next >/dev/null
+
+    run _knit_invoke_command submit next
+    [ "$status" -ne 0 ]
+}
+
+@test "submit next --type filters by job type" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+    _submit_other_fn() { :; }
+    knit_register_job "other" _submit_other_fn "another test job"
+    knit_with_setup "mcenv"
+    knit_done
+
+    local u_my u_other
+    u_my="$(_knit_invoke_command prepare --setup setup -- myjob)"
+    u_other="$(_knit_invoke_command prepare --setup setup -- other)"
+
+    # Selecting --type other skips the older myjob and releases the other job.
+    [ "$(_knit_invoke_command submit next --type other)" = "${u_other}" ]
+    # myjob is still prepared afterwards.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='${u_my}';")" = "prepared" ]
+}
+
+@test "submit next --group filters by group" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+
+    local u_a u_b
+    u_a="$(_knit_invoke_command prepare --setup setup --group a -- myjob)"
+    u_b="$(_knit_invoke_command prepare --setup setup --group b -- myjob)"
+
+    [ "$(_knit_invoke_command submit next --group b)" = "${u_b}" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='${u_a}';")" = "prepared" ]
+}
+
+@test "submit next claims exactly one prepared row" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+
+    _knit_invoke_command prepare --setup setup -- myjob >/dev/null
+    _knit_invoke_command prepare --setup setup -- myjob >/dev/null
+
+    _knit_invoke_command submit next >/dev/null
+
+    # One row released (submitted), one still prepared: the claim moved a single
+    # row, not both.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM jobs WHERE state='submitted';")" = "1" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM jobs WHERE state='prepared';")" = "1" ]
+}
+
+@test "submit prepared --wait threads the wait flag to the backend" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+    # Record that the backend was asked to block.
+    _knit_wait_local() { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/.waited"; }
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
+    _knit_invoke_command submit prepared --id "${uuid}" --wait >/dev/null
+
+    # A prepared job freezes wait=false; the release --wait must override it so the
+    # local backend blocks (calls _knit_wait_local).
+    [ -f "${_KNIT_TEST_TMPDIR}/.waited" ]
+}
+
+@test "submit next without --wait does not block" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+    _knit_wait_local() { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/.waited"; }
+
+    _knit_invoke_command prepare --setup setup -- myjob >/dev/null
+    _knit_invoke_command submit next >/dev/null
+
+    [ ! -f "${_KNIT_TEST_TMPDIR}/.waited" ]
+}
