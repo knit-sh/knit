@@ -222,6 +222,111 @@ teardown() {
     # Generated script re-enters the experiment to run the job.
     [ "$(head -n1 "${jobdir}/.job.sh")" = "#!/bin/bash" ]
     grep -Fxq "exec /fake/exp.sh submit myjob" "${jobdir}/.job.sh"
+
+    # The resolved backend and options are frozen next to the script.
+    [ -f "${jobdir}/.submit" ]
+    grep -Fxq "backend=local" "${jobdir}/.submit"
+    grep -Fxq "opt:nodes=2"   "${jobdir}/.submit"
+}
+
+# ---------- _knit_prepare_build / _knit_submit_dispatch : the M1 split ----------
+
+@test "_knit_prepare_build records the target state and does not dispatch" {
+    # Fail loudly if the build phase reaches the scheduler.
+    _knit_submit_local() { printf 'DISPATCHED\n' >&2; return 1; }
+
+    local setup="${_KNIT_TEST_SETUP_ROOT}/setup"
+    mkdir -p "${setup}"
+    printf 'mcenv\n' > "${setup}/.setup.type"
+    KNIT_SCRIPT_PATH="/fake/exp.sh"
+
+    _submit_myjob_fn() { :; }
+    knit_register_job "myjob" _submit_myjob_fn "test job"
+    knit_with_setup "mcenv"
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+
+    # Output names deliberately avoid _knit_prepare_build's internal locals
+    # (uuid/jobdir/alias_link/job_name) so the nameref outputs are not shadowed.
+    local ret_uuid ret_jobdir ret_alias ret_jobname
+    _knit_prepare_build ret_uuid ret_jobdir ret_alias ret_jobname \
+        "prepared" --setup "setup" --nodes 2 -- myjob
+
+    knit_type_check "uuid" "${ret_uuid}"
+    [ "${ret_jobname}" = "myjob" ]
+    [ "${ret_alias}" = "" ]
+
+    # The build wrote the script and froze the submission spec, but never issued
+    # a scheduler command: there is no .job.id.
+    [ -f "${ret_jobdir}/.job.sh" ]
+    [ -f "${ret_jobdir}/.submit" ]
+    [ ! -f "${ret_jobdir}/.job.id" ]
+    grep -Fxq "backend=local" "${ret_jobdir}/.submit"
+    grep -Fxq "opt:nodes=2"   "${ret_jobdir}/.submit"
+
+    # The row is recorded in the requested state, with native-cmd still empty
+    # (filled only on release).
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='${ret_uuid}';")" = "prepared" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT job FROM jobs WHERE id='${ret_uuid}';")" = "myjob" ]
+    [ -z "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT native_cmd FROM jobs WHERE id='${ret_uuid}';")" ]
+}
+
+@test "_knit_submit_dispatch releases using the frozen .submit, not re-resolution" {
+    _knit_db_setup_table "submit" "jobs"
+
+    # A hand-written .submit standing in for a built submission, naming a backend
+    # (slurm) that differs from what live detection would pick here (local), so a
+    # dispatch that re-resolved instead of reading the file would be caught.
+    local jobdir="${_KNIT_TEST_TMPDIR}/jobs/abc"
+    mkdir -p "${jobdir}"
+    printf '#!/bin/bash\n' > "${jobdir}/.job.sh"
+    cat > "${jobdir}/.submit" <<'EOF'
+backend=slurm
+opt:nodes=3
+opt:queue=debug
+EOF
+    sqlite3 "${_KNIT_DATABASE}" \
+        "INSERT INTO jobs (id, job, state) VALUES ('abc', 'myjob', 'prepared');"
+
+    # Capture the backend and options the scheduler layer is handed.
+    local seen="${_KNIT_TEST_TMPDIR}/seen"
+    _knit_sched_submit_cmdline() {
+        local backend="$1" arr_name="$2" script="$3" argv_name="$4"
+        local -n _o="${arr_name}"
+        local -n _argv="${argv_name}"
+        printf 'backend=%s nodes=%s queue=%s\n' \
+            "${backend}" "${_o[nodes]}" "${_o[queue]}" > "${seen}"
+        _argv=(fake-submit "${script}")
+    }
+    _knit_sched_submit() {
+        local backend="$1"
+        printf 'submit-backend=%s\n' "${backend}" >> "${seen}"
+        printf '1234\n'
+    }
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+
+    _knit_submit_dispatch "abc" "${jobdir}" "myjob" ""
+
+    # The frozen backend and options drove the release.
+    grep -Fxq "backend=slurm nodes=3 queue=debug" "${seen}"
+    grep -Fxq "submit-backend=slurm" "${seen}"
+
+    # The row advanced to submitted and recorded the resolved native-cmd; the
+    # launcher id landed in .job.id.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='abc';")" = "submitted" ]
+    local recorded_cmd
+    recorded_cmd="$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT native_cmd FROM jobs WHERE id='abc';")"
+    [[ "${recorded_cmd}" == *"fake-submit"* ]]
+    [ "$(cat "${jobdir}/.job.id")" = "1234" ]
 }
 
 # ---------- _knit_sched_local_cancel ----------

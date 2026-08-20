@@ -266,3 +266,42 @@ _stub_hostfile() {
     run _knit_job_after_cb
     [ "$status" -eq 0 ]
 }
+
+# ---------- .submit metadata round-trip (M1) ----------
+
+@test ".submit meta write emits a backend line and one opt line per option" {
+    declare -A opts=([nodes]="2" [queue]="debug" [account]="")
+    _knit_submit_meta_write "${_KNIT_TEST_TMPDIR}/.submit" "slurm" opts
+    grep -Fxq "backend=slurm"  "${_KNIT_TEST_TMPDIR}/.submit"
+    grep -Fxq "opt:nodes=2"    "${_KNIT_TEST_TMPDIR}/.submit"
+    grep -Fxq "opt:queue=debug" "${_KNIT_TEST_TMPDIR}/.submit"
+    # An empty value is still written, as a bare "key=".
+    grep -Fxq "opt:account="   "${_KNIT_TEST_TMPDIR}/.submit"
+}
+
+@test ".submit meta read restores the backend and every option" {
+    declare -A opts=([nodes]="2" [queue]="debug" [account]="")
+    _knit_submit_meta_write "${_KNIT_TEST_TMPDIR}/.submit" "slurm" opts
+
+    local backend
+    declare -A got
+    _knit_submit_meta_read "${_KNIT_TEST_TMPDIR}/.submit" backend got
+    [ "${backend}" = "slurm" ]
+    [ "${got[nodes]}" = "2" ]
+    [ "${got[queue]}" = "debug" ]
+    [ -v got[account] ]
+    [ "${got[account]}" = "" ]
+}
+
+@test ".submit meta round-trips values containing '=' and spaces" {
+    # extra-args carries site-mandatory scheduler flags verbatim, which may hold
+    # both spaces and '=' (e.g. "--foo=bar"); the value is the rest of the line.
+    declare -A opts=([extra-args]="-A proj -q debug --foo=bar")
+    _knit_submit_meta_write "${_KNIT_TEST_TMPDIR}/.submit" "pbs" opts
+
+    local backend
+    declare -A got
+    _knit_submit_meta_read "${_KNIT_TEST_TMPDIR}/.submit" backend got
+    [ "${backend}" = "pbs" ]
+    [ "${got[extra-args]}" = "-A proj -q debug --foo=bar" ]
+}

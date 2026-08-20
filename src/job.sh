@@ -81,7 +81,13 @@ knit_with_output "native-cmd:string" "" \
 # ------------------------------------------------------------------------------
 # @fn _knit_submit()
 #
-# Entry point for the `submit` CLI command.
+# Entry point for the `submit` CLI command. A submission is built and then
+# dispatched: _knit_prepare_build validates the request, creates the job
+# directory, records the jobs row, generates the batch script, and freezes the
+# resolved backend and options into a .submit metadata file; _knit_submit_dispatch
+# then issues the scheduler command. `submit` runs both back to back, so its
+# behaviour is a build immediately followed by a release. `prepare` runs only the
+# build (see prepare.sh).
 #
 # Usage:
 # ```
@@ -90,6 +96,54 @@ knit_with_output "native-cmd:string" "" \
 # ```
 # ------------------------------------------------------------------------------
 _knit_submit() {
+    # The output variable names must not clash with _knit_prepare_build's own
+    # internal locals (uuid/jobdir/alias_link/job_name), or the nameref outputs
+    # would be shadowed (see the nameref-shadow-collision convention).
+    local out_uuid out_jobdir out_alias out_jobname
+    _knit_prepare_build out_uuid out_jobdir out_alias out_jobname \
+        "submitted" "$@"
+    _knit_submit_dispatch "${out_uuid}" "${out_jobdir}" "${out_jobname}" \
+        "${out_alias}"
+    # Return the job UUID (the canonical, scheduler-independent identifier). The
+    # implementation-dependent launcher id lives only in .job.id.
+    printf '%s\n' "${out_uuid}"
+}
+knit_done
+
+# ------------------------------------------------------------------------------
+# @fn _knit_prepare_build()
+#
+# Build a submission without dispatching it: the shared first phase of `submit`
+# and `prepare`. It validates the request (job known, usability, setup type,
+# argument check), creates the job directory <job-root>/<uuid> (and any --name
+# alias), records the jobs row in the target lifecycle state with an empty
+# native-cmd, emits the setup "used_by" provenance edge, resolves the scheduler
+# options and backend, generates the batch script .job.sh, and freezes the
+# resolved backend and options into a .submit metadata file so a later release
+# (_knit_submit_dispatch) is deterministic and needs no re-resolution.
+#
+# The four output arguments receive the job UUID, its directory, the --name
+# alias symlink path (empty when no --name), and the job name. Callers MUST pass
+# output variables whose names do not clash with this function's internal locals
+# (uuid/jobdir/alias_link/job_name) — see the nameref-shadow-collision rule.
+#
+# Output namerefs come first, then the target state, then the submit CLI args.
+#
+# @param __knit_ret1  Out: the job UUID (the jobs row id).
+# @param __knit_ret2  Out: the job directory <job-root>/<uuid>.
+# @param __knit_ret3  Out: the --name alias symlink path (empty when none).
+# @param __knit_ret4  Out: the job name (the token after --).
+# @param target_state Lifecycle state to record ("submitted" or "prepared").
+# @param ...          The submit CLI arguments (everything, including -- job args).
+# ------------------------------------------------------------------------------
+_knit_prepare_build() {
+    local -n __knit_ret1=$1
+    local -n __knit_ret2=$2
+    local -n __knit_ret3=$3
+    local -n __knit_ret4=$4
+    local target_state="$5"
+    shift 5
+
     # --setup is optional and, when given, names a setup instance under the
     # experiment's setup root (resolved to <setup-root>/<name> via
     # _knit_setup_name_to_path). It is required only for jobs that declare a setup
@@ -217,10 +271,13 @@ _knit_submit() {
     # Record this submission: the recorded row's id is the canonical job
     # UUID, and the jobs table tracks the job name and lifecycle state. The
     # --name alias is recorded automatically as its own "name" column, like the
-    # other submit parameters.
+    # other submit parameters. The state is the caller-chosen target state
+    # ("submitted" for a direct submit, "prepared" for `prepare`); native-cmd is
+    # left at its declared default (empty) and filled by _knit_submit_dispatch on
+    # release.
     _knit_set_row_id "${uuid}"
     knit_output "job" "${job_name}"
-    knit_output "state" "submitted"
+    knit_output "state" "${target_state}"
 
     # Record a "used_by" edge from the setup this job references (if any) to this
     # submission, so the setup can be reached from the job by id. Emitted here on
@@ -279,6 +336,57 @@ _knit_submit() {
         "${setup_path}" "${jobdir}" "${uuid}" "submit" \
         "${job_name}" "${job_args[@]}"
 
+    # Freeze the resolved backend and options next to the script so a later
+    # release reconstructs the exact submission without re-resolving (values may
+    # change between build and release).
+    _knit_submit_meta_write "${jobdir}/.submit" "${backend}" opts
+
+    # Persist the jobs row now. For a direct submit this must precede a blocking
+    # --wait dispatch: the job then runs (on this host for the local backend, or
+    # on a compute node) and transitions this row's "state" while it executes, so
+    # the row has to exist first. The automatic post-invocation recording is
+    # idempotent and will not duplicate it.
+    _knit_record_row_now "$@"
+
+    __knit_ret1="${uuid}"
+    __knit_ret2="${jobdir}"
+    __knit_ret3="${alias_link}"
+    __knit_ret4="${job_name}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_submit_dispatch()
+#
+# Release a built submission to the scheduler: the second phase of `submit`, and
+# the whole of `submit prepared` / `submit next`. It reads the resolved backend
+# and options from the job directory's .submit metadata (frozen by
+# _knit_prepare_build), builds the scheduler submission command, records it as
+# the row's native-cmd, advances the row to "submitted", issues the command, and
+# handles a scheduler rejection (removing the never-run job, exactly as a direct
+# submit does). On success it records the backend job id in .job.id.
+#
+# @param uuid       The job UUID (the jobs row id).
+# @param jobdir     The job directory holding .submit and .job.sh.
+# @param job_name   The job name (for log and error messages).
+# @param alias_link The --name alias symlink path, or empty when none (removed
+#                   on rejection).
+# ------------------------------------------------------------------------------
+_knit_submit_dispatch() {
+    local uuid="$1"
+    local jobdir="$2"
+    local job_name="$3"
+    local alias_link="$4"
+
+    # Restore the backend and resolved options frozen at build time. The name
+    # "opts" must differ from the nameref names used inside the sched_* helpers to
+    # avoid bash circular-reference errors.
+    local backend
+    # shellcheck disable=SC2034 # populated by name, read by the sched_* helpers
+    declare -A opts
+    _knit_submit_meta_read "${jobdir}/.submit" backend opts
+
+    local script="${jobdir}/.job.sh"
+
     # Build the scheduler submission command (e.g. "sbatch <script>") so it can be
     # recorded in the jobs table and logged before it is issued.
     # shellcheck disable=SC2034 # filled and read by name via the sched_* helpers
@@ -286,14 +394,12 @@ _knit_submit() {
     _knit_sched_submit_cmdline "${backend}" opts "${script}" submit_argv
     local native_cmd
     native_cmd=$(_knit_str_render_cmd submit_argv)
-    knit_output "native-cmd" "${native_cmd}"
 
-    # Persist the jobs row now, before dispatching. This must precede a
-    # blocking --wait submission: the job then runs (on this host for the local
-    # backend, or on a compute node) and transitions this row's "state" while it
-    # executes, so the row has to exist first. The automatic post-invocation
-    # recording is idempotent and will not duplicate it.
-    _knit_record_row_now "$@"
+    # Record native-cmd and advance the row to "submitted" before dispatching: a
+    # blocking --wait job transitions this same row's state as it runs, so the
+    # recorded command and state must be in place first.
+    _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" \
+        "native-cmd=${native_cmd}" "state=submitted"
 
     # Log the resolved command before issuing it, then submit.
     knit_trace "Submitting job \"${job_name}\": ${native_cmd}"
@@ -324,12 +430,60 @@ _knit_submit() {
     # Record the implementation-dependent launcher id in .job.id. The full
     # submission record lives in the "jobs" table (see M10/M11 recording).
     printf '%s\n' "${jobid}" > "${jobdir}/.job.id"
-
-    # Return the job UUID (the canonical, scheduler-independent identifier). The
-    # implementation-dependent launcher id lives only in .job.id.
-    printf '%s\n' "${uuid}"
 }
-knit_done
+
+# ------------------------------------------------------------------------------
+# @fn _knit_submit_meta_write()
+#
+# Freeze the resolved scheduler backend and options of a built submission into
+# its .submit metadata file, so a later release reconstructs them without
+# re-resolving. The format is one "key=value" per line: a single "backend=<name>"
+# line, then one "opt:<key>=<value>" line per resolved option. A value is the
+# rest of its line, so it may contain "=" or spaces but not a newline (no
+# scheduler option does).
+#
+# @param file     Path of the .submit file to write.
+# @param backend  Scheduler backend name.
+# @param arr_name Name of the resolved-options associative array to persist.
+# ------------------------------------------------------------------------------
+_knit_submit_meta_write() {
+    local file="$1"
+    local backend="$2"
+    local -n _meta_opts="$3"
+    {
+        printf 'backend=%s\n' "${backend}"
+        local key
+        for key in "${!_meta_opts[@]}"; do
+            printf 'opt:%s=%s\n' "${key}" "${_meta_opts[${key}]}"
+        done
+    } > "${file}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_submit_meta_read()
+#
+# Restore the scheduler backend and resolved options a submission was built with
+# from its .submit metadata file (see _knit_submit_meta_write). The backend name
+# is written to the first named variable; each recorded option is written into
+# the named associative array, which the caller declares.
+#
+# @param file        Path of the .submit file to read.
+# @param out_backend Name of the variable to receive the backend name.
+# @param arr_name    Name of the associative array to populate with the options.
+# ------------------------------------------------------------------------------
+_knit_submit_meta_read() {
+    local file="$1"
+    local -n _meta_backend="$2"
+    local -n _meta_opts="$3"
+    local line key
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        key="${line%%=*}"
+        case "${key}" in
+            backend) _meta_backend="${line#*=}" ;;
+            opt:*)   _meta_opts["${key#opt:}"]="${line#*=}" ;;
+        esac
+    done < "${file}"
+}
 
 # ------------------------------------------------------------------------------
 # @fn _knit_submit_cleanup_rejected()
