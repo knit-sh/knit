@@ -36,38 +36,62 @@ _KNIT_JOBS_TABLE="jobs"
 # ------------------------------------------------------------------------------
 declare -g KNIT_JOB_PREFIX
 
+# ------------------------------------------------------------------------------
+# @fn _knit_declare_submit_options()
+#
+# Declare the scheduler options shared by the `submit` and `prepare` dispatchers,
+# so the two surfaces cannot drift. Must be called between knit_register and
+# knit_done while registering either dispatcher. It declares the optional
+# submission parameters (setup, name, job-name, account, project, queue, nodes,
+# walltime, gpus-per-node) and the free-form --group label, plus the "job"
+# dispatch marker and the "Jobs" subcommand title.
+#
+# Each dispatcher declares the rest itself: `submit` adds the submit-only --wait
+# flag and owns the "jobs" table and its outputs; `prepare` declares neither a
+# table nor outputs (it records under the `submit` identity, see
+# _knit_prepare_build).
+# ------------------------------------------------------------------------------
+_knit_declare_submit_options() {
+    knit_with_optional "setup:string" "" \
+        "Name of the setup to use (required if the job declares a setup type)."
+    # A stable, human-meaningful alias for this job instance under the job root:
+    # `--name <name>` creates a symlink <job-root>/<name> -> <job-root>/<uuid>
+    # and records the name in the jobs table. Distinct from --job-name below,
+    # which is the scheduler-facing job name (#SBATCH --job-name / #PBS -N).
+    knit_with_optional "name:string" "" \
+        "Stable alias for this job (symlinked under the job root; must be unique)."
+    # Identity. Empty defaults are the "not set" sentinel: _knit_sched_resolve
+    # fills them from bootstrap metadata, the machine profile, or a fallback.
+    knit_with_optional "job-name:string" "" \
+        "Job name (default: the experiment script name)."
+    knit_with_optional "account:string" "" \
+        "Account (default: the __account__ metadata)."
+    knit_with_optional "project:string" "" \
+        "Project name (default: the __project__ metadata)."
+    knit_with_optional "queue:string" "" \
+        "Queue/partition (default: the site default queue)."
+    # Resources. Knit allocates whole nodes exclusively: the per-node core count
+    # is taken from the machine profile (or bootstrap detection), not requested
+    # per submit, so there is no CPU option here.
+    knit_with_optional "nodes:integer" "1" "Number of nodes."
+    knit_with_optional "walltime:string" "" \
+        "Wall-clock limit as HH:MM:SS (default: the site default)."
+    knit_with_optional "gpus-per-node:integer" "0" "GPUs per node."
+    # A free-form label grouping related jobs. An optional parameter is recorded
+    # as its own "group" column automatically; it also drives "submit next
+    # --group". "group" is a SQL keyword, quoted by _knit_db_sql_ident.
+    knit_with_optional "group:string" "" \
+        "Free-form label grouping related jobs (filter for \"submit next\")."
+    knit_with_dispatch "job" "User-provided job command to execute"
+    knit_with_subcommand_title "Jobs"
+}
+
 knit_register "submit" _knit_submit "Submit a job."
 _knit_is_builtin
-knit_with_optional "setup:string" "" \
-    "Name of the setup to use (required if the job declares a setup type)."
-# A stable, human-meaningful alias for this job instance under the job root:
-# `knit submit --name <name>` creates a symlink <job-root>/<name> -> <job-root>/
-# <uuid> and records the name in the jobs table. Distinct from --job-name below,
-# which is the scheduler-facing job name (#SBATCH --job-name / #PBS -N).
-knit_with_optional "name:string" "" \
-    "Stable alias for this job (symlinked under the job root; must be unique)."
-# Identity. Empty defaults are the "not set" sentinel: _knit_sched_resolve fills
-# them from bootstrap metadata, the machine profile, or a hard-coded fallback.
-knit_with_optional "job-name:string" "" \
-    "Job name (default: the experiment script name)."
-knit_with_optional "account:string" "" \
-    "Account (default: the __account__ metadata)."
-knit_with_optional "project:string" "" \
-    "Project name (default: the __project__ metadata)."
-knit_with_optional "queue:string" "" \
-    "Queue/partition (default: the site default queue)."
-# Resources. Knit allocates whole nodes exclusively: the per-node core count is
-# taken from the machine profile (or bootstrap detection), not requested per
-# submit, so there is no CPU option here.
-knit_with_optional "nodes:integer" "1" "Number of nodes."
-knit_with_optional "walltime:string" "" \
-    "Wall-clock limit as HH:MM:SS (default: the site default)."
-knit_with_optional "gpus-per-node:integer" "0" "GPUs per node."
+_knit_declare_submit_options
 # Behaviour. Job stdout/stderr are always written to <job-dir>/.stdout and
 # <job-dir>/.stderr, so there are no output/error options.
 knit_with_flag "wait" "Block until the job completes; return its exit code."
-knit_with_dispatch "job" "User-provided job command to execute"
-knit_with_subcommand_title "Jobs"
 # Record every submission as a row in the "jobs" table. The row id is the job
 # UUID (set in _knit_submit); these outputs track the job and its state.
 knit_with_table "${_KNIT_JOBS_TABLE}"
@@ -268,16 +292,33 @@ _knit_prepare_build() {
         ln -s "${uuid}" "${alias_link}"
     fi
 
-    # Record this submission: the recorded row's id is the canonical job
-    # UUID, and the jobs table tracks the job name and lifecycle state. The
-    # --name alias is recorded automatically as its own "name" column, like the
-    # other submit parameters. The state is the caller-chosen target state
-    # ("submitted" for a direct submit, "prepared" for `prepare`); native-cmd is
-    # left at its declared default (empty) and filled by _knit_submit_dispatch on
-    # release.
+    # Record this submission under the "submit" command identity, regardless of
+    # which dispatcher (submit or prepare) invoked this build. The "jobs" table,
+    # its schema, and every provenance node/edge for a job belong to "submit"
+    # (its declared outputs and its --wait column define the schema); recording a
+    # prepared job under the "prepare" frame instead would need a second owner of
+    # the same table and would label the row/edges "prepare", breaking the
+    # name<->table map a graph query relies on. So resolve the owning command once
+    # and record against it: a prepared job and a directly-submitted job then
+    # produce identically-shaped, identically-labeled rows and edges.
+    local owner
+    owner="$(_knit_command_mangle "submit")"
+
+    # The recorded row's id is the canonical job UUID. Set it on the executing
+    # frame so the recording below (and any nested callee) sees it as the row id.
     _knit_set_row_id "${uuid}"
-    knit_output "job" "${job_name}"
-    knit_output "state" "${target_state}"
+
+    # The two tracked outputs. knit_output would target the executing frame,
+    # which for `prepare` is not `submit`, so write them straight to submit's
+    # output map (both values are trivially valid for their declared string
+    # type). The --name alias and the other submission parameters are recorded
+    # automatically from the CLI args as their own columns. The state is the
+    # caller-chosen target state ("submitted" for a direct submit, "prepared" for
+    # `prepare`); native-cmd is left at its declared default (empty) and filled by
+    # _knit_submit_dispatch on release.
+    local -n _owner_outputs="_KNIT_CMD_${owner}_output_value"
+    _owner_outputs["job"]="${job_name}"
+    _owner_outputs["state"]="${target_state}"
 
     # Record a "used_by" edge from the setup this job references (if any) to this
     # submission, so the setup can be reached from the job by id. Emitted here on
@@ -287,14 +328,12 @@ _knit_prepare_build() {
     #
     # The edge target must be named after the command that owns the submission's
     # table (the "submit" dispatcher, whose table is "jobs"), NOT the job
-    # subcommand: the row lives in "jobs", and a graph query resolves the node
-    # label through the name<->table map, so a "submit:<job>" name here would
-    # point the edge at the wrong table and make the used_by hop unmatchable.
-    # _KNIT_EXECUTING_COMMAND[-1] is that owning command (mirrors the non-job
-    # after-callback _knit_setup_dep_after_cb).
+    # subcommand and NOT the invoking dispatcher: the row lives in "jobs", and a
+    # graph query resolves the node label through the name<->table map, so any
+    # other name would point the edge at a table that command does not own and
+    # make the used_by hop unmatchable.
     if [[ -n "${setup_path}" ]]; then
-        _knit_setup_record_used_by_edge "${setup_path}" \
-            "${_KNIT_EXECUTING_COMMAND[-1]}" "${uuid}"
+        _knit_setup_record_used_by_edge "${setup_path}" "${owner}" "${uuid}"
     fi
 
     # Resolve the submission options (explicit args -> metadata -> profile ->
@@ -341,12 +380,21 @@ _knit_prepare_build() {
     # change between build and release).
     _knit_submit_meta_write "${jobdir}/.submit" "${backend}" opts
 
-    # Persist the jobs row now. For a direct submit this must precede a blocking
-    # --wait dispatch: the job then runs (on this host for the local backend, or
-    # on a compute node) and transitions this row's "state" while it executes, so
-    # the row has to exist first. The automatic post-invocation recording is
-    # idempotent and will not duplicate it.
-    _knit_record_row_now "$@"
+    # Persist the jobs row now, under the "submit" identity. For a direct submit
+    # this must precede a blocking --wait dispatch: the job then runs (on this
+    # host for the local backend, or on a compute node) and transitions this
+    # row's "state" while it executes, so the row has to exist first.
+    #
+    # Clear submit's per-invocation "recorded" guard first so each build records
+    # its own row: a single `prepare from` process builds many jobs in one run,
+    # and (unlike a real `submit` invocation) nothing resets that guard between
+    # them. For a direct submit `owner` is the executing command, so this matches
+    # the old eager _knit_record_row_now: the automatic post-invocation recording
+    # then finds the guard set and does not duplicate the row. For `prepare` the
+    # invoking dispatcher declares no table and no provenance, so its own
+    # post-invocation recording is a no-op.
+    unset "_KNIT_CMD_${owner}_recorded"
+    _knit_record_invocation "${owner}" "$@"
 
     __knit_ret1="${uuid}"
     __knit_ret2="${jobdir}"
@@ -765,6 +813,11 @@ _knit_command_is_job() {
 # A call to this function must be followed by any knit_with_* declarations,
 # the definition of <fn>, and a call to knit_done.
 #
+# The names "prepared", "next", and "from" are reserved: "submit prepared" and
+# "submit next" release prepared jobs and "prepare from" reads a plan, so a job
+# registered under one of these would mangle to the same command name and shadow
+# the release/plan subcommand. Registering such a job is fatal.
+#
 # @param name        Short name for the job (used as the subcommand name).
 # @param fn          Name of the Bash function implementing the job.
 # @param description One-line description shown in `--help`.
@@ -783,6 +836,11 @@ knit_register_job() {
     local name="$1"
     local fn="$2"
     local description="$3"
+    case "${name}" in
+        prepared|next|from)
+            knit_fatal "Job name \"${name}\" is reserved (it would shadow a \"submit\"/\"prepare\" subcommand)."
+            ;;
+    esac
     knit_register "submit:${name}" "${fn}" "${description}"
     # Record each job's invocations in a table named after the job itself (not
     # the "submit:<name>" command name), so the table reads naturally and needs
