@@ -164,6 +164,38 @@ _knit_prepare_release() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_prepare_remove()
+#
+# Remove a prepared job that was never dispatched: delete its jobs row, its job
+# directory, and any --name alias. A prepared job has contacted no scheduler, so
+# there is nothing to cancel; the teardown is exactly the rejection cleanup a
+# failed submit performs (_knit_submit_cleanup_rejected), reached here by the
+# "prepared" branch of `job cancel`. The --name alias is reconstructed from the
+# row's "name" column, as _knit_prepare_release reconstructs it on dispatch.
+#
+# @param uuid The prepared job UUID.
+# ------------------------------------------------------------------------------
+_knit_prepare_remove() {
+    local uuid="$1"
+    local esc
+    _knit_sql_escape esc "${uuid}"
+
+    local alias_name
+    alias_name="$(_knit_sqlite3 \
+        "SELECT name FROM ${_KNIT_JOBS_TABLE} WHERE id='${esc}';")"
+
+    local jobdir alias_link=""
+    jobdir="$(_knit_job_dir "${uuid}")"
+    if [[ -n "${alias_name}" ]]; then
+        local job_root
+        _knit_job_root job_root
+        alias_link="${job_root}/${alias_name}"
+    fi
+
+    _knit_submit_cleanup_rejected "${uuid}" "${jobdir}" "${alias_link}"
+}
+
+# ------------------------------------------------------------------------------
 # Release a prepared job to the scheduler by its UUID.
 # ------------------------------------------------------------------------------
 knit_register "submit:prepared" _knit_submit_prepared \
@@ -183,6 +215,8 @@ knit_with_flag "wait" "Block until the released job completes; return its exit c
 # fatal errors, so a typo or a double release is reported rather than silently
 # doing nothing. The claim is atomic (_knit_prepare_claim_id), so two releasers
 # racing on the same id never both dispatch it. Prints the released job's UUID.
+#
+# To inspect prepared jobs before releasing, use `job list --status prepared`.
 # ------------------------------------------------------------------------------
 _knit_submit_prepared() {
     local id wait_flag

@@ -271,6 +271,11 @@ knit_with_required "id:string" "Job UUID."
 # the job directory's .job.id (as `job wait` does) and handed to the backend's
 # cancel primitive (local -> kill, slurm -> scancel, pbs -> qdel).
 #
+# A prepared job (state "prepared") was never dispatched, so there is no
+# scheduler job to cancel: it is simply removed (row, job directory, and any
+# --name alias), the same teardown as a rejected submission. That branch runs
+# before the .job.id lookup, since a prepared job has no launcher id.
+#
 # Cancelling a job that has already reached a terminal state (completed or
 # killed) is a no-op with an informational message. An unknown id is fatal, and
 # a still-running job whose .job.id is missing errors rather than reporting a
@@ -295,6 +300,13 @@ _knit_job_cancel() {
     state="$(_knit_sqlite3 "SELECT state FROM jobs WHERE id = '${escaped}';")"
     if [[ -z "${state}" ]]; then
         knit_fatal "No job found with id \"${id}\"."
+    fi
+    # A prepared job never reached the scheduler: there is no launcher id to look
+    # up and nothing to cancel, so just remove its bookkeeping.
+    if [[ "${state}" == "prepared" ]]; then
+        _knit_prepare_remove "${id}"
+        knit_info "Removed prepared job \"${id}\"."
+        return 0
     fi
     # Already finished: there is nothing to cancel.
     case "${state}" in

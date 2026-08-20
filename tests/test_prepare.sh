@@ -338,3 +338,77 @@ _stub_dispatch_ok() {
 
     [ ! -f "${_KNIT_TEST_TMPDIR}/.waited" ]
 }
+
+# ---------- job cancel : prepared jobs ----------
+
+@test "job cancel removes a prepared job (row, dir and alias)" {
+    _register_myjob_with_setup
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup --name myalias -- myjob)"
+
+    local jobdir alias_link
+    jobdir="$(_knit_job_dir "${uuid}")"
+    local job_root
+    _knit_job_root job_root
+    alias_link="${job_root}/myalias"
+    [ -d "${jobdir}" ]
+    [ -L "${alias_link}" ]
+
+    _knit_invoke_command job cancel --id "${uuid}"
+
+    # Row, directory and alias are all gone.
+    [ -z "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT id FROM jobs WHERE id='${uuid}';")" ]
+    [ ! -d "${jobdir}" ]
+    [ ! -L "${alias_link}" ]
+}
+
+@test "job cancel on a prepared job does not contact the scheduler" {
+    _register_myjob_with_setup
+    _knit_sched_cancel() { printf 'CANCELLED\n' > "${_KNIT_TEST_TMPDIR}/.cancelled"; }
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
+    _knit_invoke_command job cancel --id "${uuid}"
+
+    # A prepared job has no launcher id, so the backend cancel is never called.
+    [ ! -f "${_KNIT_TEST_TMPDIR}/.cancelled" ]
+}
+
+@test "job cancel on a submitted job still cancels through the scheduler" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+    _knit_sched_cancel() { printf 'CANCELLED %s\n' "$2" > "${_KNIT_TEST_TMPDIR}/.cancelled"; }
+
+    local uuid
+    uuid="$(_knit_invoke_command submit --setup setup -- myjob)"
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='${uuid}';")" = "submitted" ]
+
+    _knit_invoke_command job cancel --id "${uuid}"
+
+    # The backend cancel was asked to stop the recorded launcher id, and the row
+    # transitioned to killed (unchanged pre-M4 behaviour).
+    [ "$(cat "${_KNIT_TEST_TMPDIR}/.cancelled")" = "CANCELLED 4242" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='${uuid}';")" = "killed" ]
+}
+
+@test "job cancel on a completed job is a no-op" {
+    _register_myjob_with_setup
+    _knit_sched_cancel() { printf 'CANCELLED\n' > "${_KNIT_TEST_TMPDIR}/.cancelled"; }
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
+    sqlite3 "${_KNIT_DATABASE}" \
+        "UPDATE jobs SET state='completed' WHERE id='${uuid}';"
+
+    run _knit_invoke_command job cancel --id "${uuid}"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"already completed"* ]]
+    # The row survives and the scheduler was not contacted.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='${uuid}';")" = "completed" ]
+    [ ! -f "${_KNIT_TEST_TMPDIR}/.cancelled" ]
+}
