@@ -8,7 +8,7 @@
 # Associative array mapping type alias names to their canonical type names.
 # ------------------------------------------------------------------------------
 declare -gA _KNIT_TYPE_ALIASES
-_KNIT_TYPE_ALIASES=([int]=integer [double]=real [float]=real [bool]=boolean)
+_KNIT_TYPE_ALIASES=([int]=integer [double]=real [float]=real [bool]=boolean [dir]=directory)
 
 # ------------------------------------------------------------------------------
 # @var _KNIT_BUILTIN_TYPES
@@ -23,6 +23,7 @@ _KNIT_BUILTIN_TYPES=(
     [string]=1
     [path]=1
     [file]=1
+    [directory]=1
     [filename]=1
     [date]=1
     [time]=1
@@ -223,8 +224,9 @@ _knit_type_check_time() {
 # - real: decimal number with optional exponent (e.g. 3.14, .5, 1e10)
 # - boolean: "true" or "false"
 # - string: any value (always passes)
-# - path, filename: non-empty string
-# - file: path to an existing file
+# - path, filename, file, directory: non-empty string (shape only; existence of
+#   a file or directory is checked separately as direction-aware runtime logic,
+#   not by this pure type check)
 # - date: YYYY-MM-DD with valid month/day ranges
 # - time: hh:mm:ss with valid hour/minute/second ranges
 # - datetime: "YYYY-MM-DD hh:mm:ss" combining date and time rules
@@ -264,11 +266,8 @@ knit_type_check() {
         string)
             return 0
             ;;
-        path|filename)
+        path|filename|file|directory)
             [[ -n "${value}" ]]
-            ;;
-        file)
-            [[ -f "${value}" ]]
             ;;
         date)
             _knit_type_check_date "${value}"
@@ -299,8 +298,8 @@ knit_type_check() {
 #
 # Map a Knit type name (or alias) to its corresponding SQLite type affinity.
 # Returns INTEGER for integer, REAL for real, and TEXT for all other types
-# (including boolean, string, path, file, filename, date, time, datetime, uuid,
-# and user-defined enums).
+# (including boolean, string, path, file, directory, filename, date, time,
+# datetime, uuid, and user-defined enums).
 #
 # Example:
 # ```

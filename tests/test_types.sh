@@ -32,8 +32,14 @@ setup() {
     [ "$result" = "boolean" ]
 }
 
+@test "resolve alias dir to directory" {
+    local result
+    _knit_type_resolve_alias result "dir"
+    [ "$result" = "directory" ]
+}
+
 @test "resolve canonical type returns itself" {
-    for t in integer real boolean string path file filename date time datetime uuid; do
+    for t in integer real boolean string path file directory filename date time datetime uuid; do
         local result
         _knit_type_resolve_alias result "$t"
         [ "$result" = "$t" ]
@@ -55,13 +61,13 @@ setup() {
 # ---------- knit_type_exists ----------
 
 @test "built-in types exist" {
-    for t in integer real boolean string path file filename date time datetime uuid; do
+    for t in integer real boolean string path file directory filename date time datetime uuid; do
         knit_type_exists "$t"
     done
 }
 
 @test "aliases exist" {
-    for t in int double float bool; do
+    for t in int double float bool dir; do
         knit_type_exists "$t"
     done
 }
@@ -215,17 +221,38 @@ setup() {
     [ "$status" -eq 1 ]
 }
 
-# ---------- knit_type_check: file ----------
+# ---------- knit_type_check: file (shape only) ----------
 
-@test "type check file valid for existing file" {
-    local tmpfile
-    tmpfile=$(mktemp)
-    knit_type_check "file" "$tmpfile"
-    rm -f "$tmpfile"
+@test "type check file valid for any non-empty path" {
+    knit_type_check "file" "/some/file.txt"
+    knit_type_check "file" "nonexistent.txt"
 }
 
-@test "type check file invalid for nonexistent file" {
-    run knit_type_check "file" "/nonexistent/file.txt"
+@test "type check file invalid when empty" {
+    run knit_type_check "file" ""
+    [ "$status" -eq 1 ]
+}
+
+@test "type check file does not require existence" {
+    # Existence is a direction-aware runtime concern, not part of the type check.
+    knit_type_check "file" "/nonexistent/file.txt"
+}
+
+# ---------- knit_type_check: directory (shape only) ----------
+
+@test "type check directory valid for any non-empty path" {
+    knit_type_check "directory" "/some/dir"
+    knit_type_check "directory" "relative/dir"
+}
+
+@test "type check directory invalid when empty" {
+    run knit_type_check "directory" ""
+    [ "$status" -eq 1 ]
+}
+
+@test "type check dir alias works" {
+    knit_type_check "dir" "/some/dir"
+    run knit_type_check "dir" ""
     [ "$status" -eq 1 ]
 }
 
@@ -385,6 +412,18 @@ setup() {
 @test "type to sqlite uuid returns TEXT" {
     local result
     _knit_type_to_sqlite result "uuid"
+    [ "$result" = "TEXT" ]
+}
+
+@test "type to sqlite directory returns TEXT" {
+    local result
+    _knit_type_to_sqlite result "directory"
+    [ "$result" = "TEXT" ]
+}
+
+@test "type to sqlite dir alias returns TEXT" {
+    local result
+    _knit_type_to_sqlite result "dir"
     [ "$result" = "TEXT" ]
 }
 
