@@ -7,7 +7,8 @@
 # This is a complete, runnable knit experiment. It estimates the value of pi
 # with a Monte-Carlo method, and along the way it exercises every feature knit
 # currently implements: bootstrapping, machine profiles, metadata, typed
-# command parameters, downloadable input artifacts fetched as named resources
+# command parameters (including file/directory inputs and outputs whose paths and
+# sha256 content checksums are recorded), downloadable input artifacts fetched as named resources
 # (knit fetch / knit_with_resource), setups (reproducible environments, optionally
 # backed by a Spack environment), job submission to a batch scheduler (Slurm/PBS/Flux) — or to
 # local background processes when no scheduler is present — MPI application
@@ -265,12 +266,26 @@
 #   --samples : integer (required)
 #   --seed    : integer (optional, default 42)  -> makes results reproducible
 #   --format  : enum {decimal, scientific}      -> demonstrates knit_define_enum
+#   --notes   : file (optional)                 -> a checksummed file input
 #   --verbose : flag                            -> prints extra info on stderr
 #
 #   ./full.sh estimate --samples 2000 --seed 7 --format scientific --verbose
 #
 # Re-running with the same --samples and --seed always yields the same estimate:
 # reproducibility is knit's reason for existing.
+#
+# `estimate` also produces two artifacts: a report FILE and a scratch DIRECTORY.
+# A file/directory parameter (input or output) is checked for existence and, by
+# default, fingerprinted with a sha256 that knit records next to its path. An
+# input is hashed before the body runs (so the digest reflects the artifact as
+# consumed); an output is hashed after the body returns, off the timed path. Add
+# --no-checksum to any file/directory declaration to record the path only:
+#
+#   printf 'my run notes\n' > notes.txt
+#   ./full.sh estimate --samples 2000 --notes notes.txt
+#
+# writes estimate-report-42.txt and estimate-scratch-42/, and records --notes'
+# and --report's sha256 (but not --scratch's, which is declared --no-checksum).
 #
 # Types are checked before the command runs, so bad input is rejected up front
 # rather than producing garbage or a confusing error deep in the command:
@@ -293,7 +308,15 @@
 #       "SELECT id, samples, seed, format, pi FROM estimate"
 #
 # Each `estimate` run is one row: its parameters, its declared output (pi), and
-# a time-ordered UUID id. --format picks the output mode (list, column, box, csv,
+# a time-ordered UUID id. The file/directory parameters land here too: --notes,
+# --report and --scratch each store their path, and the checksummed ones store a
+# sha256 in a companion column (notes_checksum, report_checksum) — --scratch,
+# declared --no-checksum, has a scratch column but no scratch_checksum:
+#
+#   ./full.sh query sql --format column --header --exec \
+#       "SELECT report, report_checksum, scratch FROM estimate"
+#
+# --format picks the output mode (list, column, box, csv,
 # markdown, json, ...) and --header adds a header row. `query catalog` lists
 # every table and, for each, its columns and their SQL types:
 #
@@ -891,15 +914,25 @@ knit_register "estimate" estimate "Estimate pi locally with Monte-Carlo."
 knit_with_required "samples:integer"       "Number of random samples to draw."
 knit_with_optional "seed:integer" "42"     "PRNG seed (fixed for reproducibility)."
 knit_with_optional "format:numfmt" "decimal" "Output format: decimal or scientific."
+# A file/directory input is checked for existence before the body runs and (by
+# default) fingerprinted with a sha256: knit records --notes' path AND content
+# digest, so a run pins the exact notes file it consumed.
+knit_with_optional "notes:file" ""         "Optional notes file embedded in the report (path + sha256 recorded)."
 knit_with_flag     "verbose"               "Print progress information on stderr."
 knit_with_table                            # record every run as a DB row
 knit_with_output   "pi:real" "0"           "The estimated value of pi."
+# A file/directory OUTPUT is checked for existence on success and fingerprinted
+# after the body returns (off the timed path). The report is checksummed; the
+# scratch tree opts out with --no-checksum, so only its path is recorded.
+knit_with_output   "report:file" ""        "A written report of this estimate (path + sha256 recorded)."
+knit_with_output   "scratch:directory" ""  "Scratch tree of intermediate data (path recorded, no checksum)." --no-checksum
 estimate() {
-    local samples seed format verbose
+    local samples seed format verbose notes
     samples=$(knit_get_parameter "samples" "$@")
     seed=$(knit_get_parameter "seed" "$@")
     format=$(knit_get_parameter "format" "$@")
     verbose=$(knit_get_parameter "verbose" "$@")
+    notes=$(knit_get_parameter "notes" "$@")
 
     if [[ "${verbose}" == "true" ]]; then
         knit_info "Estimating pi with ${samples} samples (seed ${seed})..."
@@ -909,6 +942,25 @@ estimate() {
     pi=$(_pi_monte_carlo "${samples}" "${seed}" "${format}")
 
     knit_output "pi" "${pi}"     # store the result in the DB row
+
+    # A scratch directory of intermediate data; recorded by path only.
+    local scratch="estimate-scratch-${seed}"
+    mkdir -p "${scratch}"
+    printf '%s\n' "${pi}" > "${scratch}/partial.txt"
+    knit_output "scratch" "${scratch}"
+
+    # A report file; recorded by path and content checksum.
+    local report="estimate-report-${seed}.txt"
+    {
+        printf 'pi ~= %s\n' "${pi}"
+        printf 'samples=%s seed=%s\n' "${samples}" "${seed}"
+        if [[ -n "${notes}" ]]; then
+            printf -- '--- notes ---\n'
+            cat "${notes}"
+        fi
+    } > "${report}"
+    knit_output "report" "${report}"
+
     printf 'pi ~= %s  (%s samples, seed %s)\n' "${pi}" "${samples}" "${seed}"
 }
 knit_done

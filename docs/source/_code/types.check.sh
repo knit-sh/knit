@@ -41,4 +41,38 @@ else
         "the enum error lists the accepted values"
 fi
 
+# report: a file input and file/directory outputs, with content checksums.
+printf 'a\nb\nc\n' > data.txt
+exp report --input data.txt >/dev/null
+
+# The input's path and a sha256 of its content are recorded.
+check_eq "$(exp query sql --exec "SELECT input FROM report;")" "data.txt" \
+    "the file input records its path"
+check_contains "$(exp query sql --exec "SELECT input_checksum FROM report;")" \
+    "sha256:" "the file input records a content checksum"
+
+# The checksummed file output records its path and a sha256 too.
+check_eq "$(exp query sql --exec "SELECT summary FROM report;")" "summary.txt" \
+    "the file output records its path"
+check_contains "$(exp query sql --exec "SELECT summary_checksum FROM report;")" \
+    "sha256:" "the file output records a content checksum"
+
+# The --no-checksum directory output records its path but has no checksum column.
+check_eq "$(exp query sql --exec "SELECT workdir FROM report;")" "work" \
+    "the --no-checksum output records its path"
+if exp query sql --exec "SELECT workdir_checksum FROM report;" >/dev/null 2>&1; then
+    check_eq "column present" "no column" \
+        "a --no-checksum output has no checksum column"
+else
+    check_eq "no column" "no column" \
+        "a --no-checksum output has no checksum column"
+fi
+
+# A missing file input is rejected before the body runs.
+if bad="$(exp report --input nope.txt 2>&1)"; then
+    check_eq "ran" "rejected" "a missing file input must be rejected"
+else
+    check_contains "${bad}" "does not exist" "the missing input is reported"
+fi
+
 dc_summary

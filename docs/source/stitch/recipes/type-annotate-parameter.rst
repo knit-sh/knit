@@ -19,10 +19,13 @@ everything else → ``TEXT``).
 Calling ``resize --width big`` fails with *Parameter --width of "resize" expects
 a value of type "integer" (got "big")* — the body never runs. The built-in types
 are ``integer``, ``real``, ``boolean``, ``string``, ``path``, ``file``,
-``filename``, ``date``, ``time``, ``datetime``, and ``uuid``, plus the aliases
-``int`` (→ ``integer``), ``float``/``double`` (→ ``real``), and ``bool``
-(→ ``boolean``). A flag declared with ``knit_with_flag`` is implicitly
-``boolean`` and takes no annotation.
+``directory``, ``filename``, ``date``, ``time``, ``datetime``, and ``uuid``, plus
+the aliases ``int`` (→ ``integer``), ``float``/``double`` (→ ``real``), ``bool``
+(→ ``boolean``), and ``dir`` (→ ``directory``). A flag declared with
+``knit_with_flag`` is implicitly ``boolean`` and takes no annotation. A ``file``
+or ``directory`` parameter is also checked for existence at runtime and, by
+default, fingerprinted with a content checksum (see *Checksum a file or directory
+parameter*).
 
 When a value does *not* come from a declared parameter — a computed value, an
 environment variable, or a trailing argument — validate it yourself with

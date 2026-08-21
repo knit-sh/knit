@@ -49,4 +49,26 @@ convert() {
 knit_done
 # END enum
 
+# START checksum
+# A file/directory parameter is checked for existence and, unless declared
+# --no-checksum, fingerprinted: knit records the path AND a sha256 of the content
+# in a companion <name>_checksum column. An input is hashed before the body runs
+# (the digest reflects the artifact as consumed); an output after it returns.
+knit_register "report" report "Summarize a data file into a report."
+knit_with_table
+knit_with_required "input:file" "The data file to summarize."
+knit_with_output "summary:file" "" "The written summary (path + sha256 recorded)."
+knit_with_output "workdir:directory" "" "Scratch tree, recorded by path only." --no-checksum
+report() {
+    local input
+    input=$(knit_get_parameter "input" "$@")
+    mkdir -p work
+    wc -l < "${input}" > work/lines.txt
+    knit_output "workdir" "work"
+    printf 'lines=%s\n' "$(cat work/lines.txt)" > summary.txt
+    knit_output "summary" "summary.txt"
+}
+knit_done
+# END checksum
+
 knit "$@"
