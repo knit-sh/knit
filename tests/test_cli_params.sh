@@ -285,9 +285,9 @@ teardown() {
     knit_register "cs_file_cmd" knit_empty "Test."
     knit_with_required "data:file" "An input dataset."
     knit_done
-    # Marker recorded as "<direction>:<kind>".
-    _knit_set_find "_KNIT_CMD_cs_file_cmd_checksummed" "data"
-    [ "${_KNIT_CMD_cs_file_cmd_checksum_data}" = "input:file" ]
+    # Marker recorded as "<direction>:<kind>:<checksum>".
+    _knit_set_find "_KNIT_CMD_cs_file_cmd_fileparams" "data"
+    [ "${_KNIT_CMD_cs_file_cmd_fileparam_data}" = "input:file:yes" ]
     # Companion output column is registered, of type string.
     _knit_set_find "_KNIT_CMD_cs_file_cmd_outputs" "data_checksum"
     [ "${_KNIT_CMD_cs_file_cmd_3_data_checksum_type}" = "string" ]
@@ -297,8 +297,8 @@ teardown() {
     knit_register "cs_opt_cmd" knit_empty "Test."
     knit_with_optional "data:file" "" "An input dataset."
     knit_done
-    _knit_set_find "_KNIT_CMD_cs_opt_cmd_checksummed" "data"
-    [ "${_KNIT_CMD_cs_opt_cmd_checksum_data}" = "input:file" ]
+    _knit_set_find "_KNIT_CMD_cs_opt_cmd_fileparams" "data"
+    [ "${_KNIT_CMD_cs_opt_cmd_fileparam_data}" = "input:file:yes" ]
     _knit_set_find "_KNIT_CMD_cs_opt_cmd_outputs" "data_checksum"
 }
 
@@ -306,7 +306,7 @@ teardown() {
     knit_register "cs_dir_cmd" knit_empty "Test."
     knit_with_required "tree:directory" "An input tree."
     knit_done
-    [ "${_KNIT_CMD_cs_dir_cmd_checksum_tree}" = "input:directory" ]
+    [ "${_KNIT_CMD_cs_dir_cmd_fileparam_tree}" = "input:directory:yes" ]
     _knit_set_find "_KNIT_CMD_cs_dir_cmd_outputs" "tree_checksum"
 }
 
@@ -314,7 +314,7 @@ teardown() {
     knit_register "cs_diralias_cmd" knit_empty "Test."
     knit_with_required "tree:dir" "An input tree."
     knit_done
-    [ "${_KNIT_CMD_cs_diralias_cmd_checksum_tree}" = "input:directory" ]
+    [ "${_KNIT_CMD_cs_diralias_cmd_fileparam_tree}" = "input:directory:yes" ]
     _knit_set_find "_KNIT_CMD_cs_diralias_cmd_outputs" "tree_checksum"
 }
 
@@ -322,24 +322,27 @@ teardown() {
     knit_register "cs_out_cmd" knit_empty "Test."
     knit_with_output "result:file" "" "A produced file."
     knit_done
-    [ "${_KNIT_CMD_cs_out_cmd_checksum_result}" = "output:file" ]
+    [ "${_KNIT_CMD_cs_out_cmd_fileparam_result}" = "output:file:yes" ]
     _knit_set_find "_KNIT_CMD_cs_out_cmd_outputs" "result_checksum"
 }
 
-@test "--no-checksum suppresses the companion column and marker" {
+@test "--no-checksum keeps the existence marker but drops the companion column" {
     knit_register "cs_no_cmd" knit_empty "Test."
     knit_with_required "data:file" "An input dataset." --no-checksum
     knit_done
-    run _knit_set_find "_KNIT_CMD_cs_no_cmd_checksummed" "data"
-    [ "$status" -ne 0 ]
+    # The marker is still recorded (existence is enforced) but with checksum "no".
+    _knit_set_find "_KNIT_CMD_cs_no_cmd_fileparams" "data"
+    [ "${_KNIT_CMD_cs_no_cmd_fileparam_data}" = "input:file:no" ]
+    # No companion checksum output column is registered.
     run _knit_set_find "_KNIT_CMD_cs_no_cmd_outputs" "data_checksum"
     [ "$status" -ne 0 ]
 }
 
-@test "--no-checksum on an output suppresses the companion column" {
+@test "--no-checksum on an output keeps the marker but drops the companion column" {
     knit_register "cs_noout_cmd" knit_empty "Test."
     knit_with_output "scratch:directory" "" "A large scratch tree." --no-checksum
     knit_done
+    [ "${_KNIT_CMD_cs_noout_cmd_fileparam_scratch}" = "output:directory:no" ]
     run _knit_set_find "_KNIT_CMD_cs_noout_cmd_outputs" "scratch_checksum"
     [ "$status" -ne 0 ]
 }

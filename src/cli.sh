@@ -45,6 +45,16 @@ declare -ga _KNIT_EXECUTING_ROW_ID=()
 declare -ga _KNIT_EXECUTING_START_TIME=()
 
 # ------------------------------------------------------------------------------
+# Completion timestamp of the current invocation, captured after its body and
+# after-callbacks but before any output checksum is computed, so hashing a
+# (possibly large) output is excluded from the recorded duration. When non-empty
+# _knit_record_invocation uses it as the call edge's end_time instead of reading
+# the clock itself; it is read once and cleared, so the eager and wrapper record
+# paths (which never set it) keep capturing the clock at record time.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_INVOCATION_END_TIME=""
+
+# ------------------------------------------------------------------------------
 # Stack of call-site aliases, parallel to _KNIT_EXECUTING_COMMAND: entry i holds
 # the alias knit_as named frame i's invocation with, or empty for a plain call.
 # Captured when the frame is pushed (from _KNIT_CALL_ALIAS, which knit_as sets
@@ -1198,22 +1208,31 @@ _knit_decl_flag_present() {
 # ------------------------------------------------------------------------------
 # @fn _knit_register_checksum()
 #
-# Wire up content checksums for a "file"/"directory" parameter or output that was
-# just declared for the command being registered. For a checksummable type not
-# opted out with --no-checksum this: (1) records a per-parameter marker
-# (_KNIT_CMD_<cmd>_checksummed set plus _KNIT_CMD_<cmd>_checksum_<param> holding
-# "<direction>:<kind>", e.g. "input:file") that the runtime reads to know when and
-# how to hash; and (2) registers an implicit recorded output column
-# "<name>-checksum" (DB "<name>_checksum") of type string, so the digest is
-# written by the normal row-recording machinery and appears in the command's
-# table. Passing --no-checksum on a non-checksummable type is a fatal declaration
-# error (there is nothing to checksum). A synthesized companion name that collides
-# with an already-declared parameter, flag, or output is a fatal declaration error
-# so the companion can never overwrite a user-declared column.
+# Wire up existence checking and content checksums for a "file"/"directory"
+# parameter or output that was just declared for the command being registered.
 #
-# Only meaningful in a command context; checksum wiring is skipped in a parameter
-# set (which has no outputs). The parameter must already have been added to its
-# declaration set before this is called, so the collision check sees it.
+# For every checksummable declaration (whether or not --no-checksum was given) it
+# records a per-parameter marker — a _KNIT_CMD_<cmd>_fileparams set plus
+# _KNIT_CMD_<cmd>_fileparam_<param> holding "<direction>:<kind>:<checksum>", e.g.
+# "input:file:yes" or "output:directory:no" — that the runtime reads to enforce
+# direction-aware existence and to know whether and how to hash. Existence is a
+# property of the type, so it is enforced even under --no-checksum; only the
+# digest is opted out.
+#
+# Unless --no-checksum was given it additionally registers an implicit recorded
+# output column "<name>-checksum" (DB "<name>_checksum") of type string, so the
+# digest is written by the normal row-recording machinery and appears in the
+# command's table.
+#
+# Passing --no-checksum on a non-checksummable type is a fatal declaration error
+# (there is nothing to checksum). A synthesized companion name that collides with
+# an already-declared parameter, flag, or output is a fatal declaration error so
+# the companion can never overwrite a user-declared column.
+#
+# Only meaningful in a command context; wiring is skipped in a parameter set
+# (which has no outputs and no runtime existence hooks). The parameter must
+# already have been added to its declaration set before this is called, so the
+# collision check sees it.
 #
 # @param direction "input" (parameter) or "output".
 # @param type      The declared type (name or alias) of the parameter/output.
@@ -1233,9 +1252,9 @@ _knit_register_checksum() {
         return 0
     fi
 
-    # Checksum wiring records an output column, which only exists for a command.
+    # The runtime existence hooks and the companion output column both exist only
+    # for a command; a parameter set has neither.
     [[ -v _KNIT_CURRENT_COMMAND ]] || return 0
-    [[ "${no_checksum}" == "true" ]] && return 0
 
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
@@ -1243,6 +1262,18 @@ _knit_register_checksum() {
     _knit_type_resolve_alias kind "${type}"
     local param
     param=$(_knit_name_normalize "${name}")
+
+    # Record the existence/checksum marker for every file/directory declaration,
+    # so existence is enforced even when the digest is opted out with
+    # --no-checksum. The "checksum" field says whether to also hash.
+    local checksum="yes"
+    [[ "${no_checksum}" == "true" ]] && checksum="no"
+    _knit_set_add "_KNIT_CMD_${cmd}_fileparams" "${param}"
+    printf -v "_KNIT_CMD_${cmd}_fileparam_${param}" '%s' "${direction}:${kind}:${checksum}"
+
+    # Opted out of the digest: no companion column, nothing more to wire.
+    [[ "${checksum}" == "no" ]] && return 0
+
     local companion
     companion=$(_knit_name_normalize "${name}-checksum")
 
@@ -1254,9 +1285,6 @@ _knit_register_checksum() {
     fi
 
     knit_trace "Adding checksum column \"${name}-checksum\" for ${direction} \"${name}\" of \"${demangled_cmd}\"."
-    _knit_set_add "_KNIT_CMD_${cmd}_checksummed" "${param}"
-    printf -v "_KNIT_CMD_${cmd}_checksum_${param}" '%s' "${direction}:${kind}"
-
     printf -v "_KNIT_CMD_${cmd}_3_${companion}_description" '%s' \
         "SHA-256 checksum of \"${name}\", recorded automatically."
     printf -v "_KNIT_CMD_${cmd}_3_${companion}_default" '%s' ""
@@ -2502,6 +2530,151 @@ _knit_check_constraints() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_checksum_require_exists()
+#
+# Verify that a checksummed file/directory value refers to an existing target,
+# fataling with a direction-specific message if it does not. A "file" must be a
+# regular file (-f), a "directory" must be a directory (-d). An input that does
+# not exist is a broken precondition; an output missing on a successful
+# completion is a broken postcondition — both are fatal, so a run never records a
+# checksum for an artifact that was not there.
+#
+# @param demangled_cmd Human-readable command name (for the message).
+# @param direction     "input" or "output" (shapes the error message).
+# @param name          Normalized parameter/output name (for the message).
+# @param kind          "file" or "directory".
+# @param value         The path to check.
+# ------------------------------------------------------------------------------
+_knit_checksum_require_exists() {
+    local demangled_cmd="$1"
+    local direction="$2"
+    local name="$3"
+    local kind="$4"
+    local value="$5"
+    case "${kind}" in
+        file)      [[ -f "${value}" ]] && return 0 ;;
+        directory) [[ -d "${value}" ]] && return 0 ;;
+    esac
+    if [[ "${direction}" == "input" ]]; then
+        knit_fatal "Input ${kind} \"${name}\" of \"${demangled_cmd}\" does not exist: \"${value}\"."
+    else
+        knit_fatal "Output ${kind} \"${name}\" of \"${demangled_cmd}\" was not produced: \"${value}\"."
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_checksum_stash()
+#
+# Record a computed digest for the currently-recording command by setting the
+# companion "<param>_checksum" output value in the command's in-memory output
+# store, so the normal row-recording machinery writes it. The digest is stored
+# algorithm-prefixed ("sha256:<hex>"). This is the source-agnostic seam every
+# path feeds: the non-app input hook, the non-app output hook, and (later) the
+# app dispatcher all land a digest here for the same column writer.
+#
+# @param cmd   Mangled command name.
+# @param param Normalized parameter/output name whose companion column to set.
+# @param hex   The bare 64-hex digest (no algorithm prefix).
+# ------------------------------------------------------------------------------
+_knit_checksum_stash() {
+    local cmd="$1"
+    local param="$2"
+    local hex="$3"
+    # shellcheck disable=SC2178 # nameref to the command's output-value array
+    local -n _knit_cs_out="_KNIT_CMD_${cmd}_output_value"
+    # shellcheck disable=SC2034 # written through the nameref
+    _knit_cs_out["${param}_checksum"]="sha256:${hex}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_checksum_inputs()
+#
+# For a command about to run, verify existence of every file/directory "input"
+# parameter and, unless it opted out with --no-checksum, stash its digest before
+# the timed body starts. The value comes from the expanded invocation arguments.
+# A required input, or an optional input given a non-empty value, that does not
+# exist is fatal; an optional input with no value is skipped (no existence check,
+# no checksum). Existence is enforced for every file/directory input; hashing is
+# skipped for a --no-checksum one. Hashing happens here, before the body, so a
+# body that overwrites its own input cannot corrupt the recorded input digest and
+# the hash time is excluded from the run.
+#
+# @param cmd Mangled command name.
+# @param ... The expanded invocation arguments.
+# ------------------------------------------------------------------------------
+_knit_checksum_inputs() {
+    local cmd="$1"
+    shift
+    local -a args=("$@")
+    local demangled_cmd
+    demangled_cmd=$(_knit_command_demangle "${cmd}")
+    local param
+    while IFS= read -r param; do
+        [[ -z "${param}" ]] && continue
+        local marker_var="_KNIT_CMD_${cmd}_fileparam_${param}"
+        local marker="${!marker_var:-}"
+        [[ "${marker}" == input:* ]] || continue
+        local rest="${marker#input:}"
+        local kind="${rest%%:*}"
+        local checksum="${rest##*:}"
+        local value
+        value="$(knit_get_parameter "${param}" "${args[@]}")" || value=""
+        # An absent optional input records no checksum and is not checked.
+        [[ -z "${value}" ]] && continue
+        _knit_checksum_require_exists "${demangled_cmd}" input "${param}" "${kind}" "${value}"
+        [[ "${checksum}" == "yes" ]] || continue
+        local hex
+        _knit_sha256 hex "${value}"
+        _knit_checksum_stash "${cmd}" "${param}" "${hex}"
+    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_fileparams")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_checksum_outputs()
+#
+# After a command completes successfully, verify existence of every file/directory
+# "output" and, unless it opted out with --no-checksum, stash its digest for the
+# row write. The output value (the path) is read from the in-memory output store
+# set by knit_output, else the output's declared default; an output left with no
+# value is skipped (no existence check, no checksum). Existence is enforced for
+# every file/directory output; hashing is skipped for a --no-checksum one. A
+# declared output whose path does not exist is fatal. Called after the run
+# duration has been captured, so hashing is excluded from the measured run time.
+#
+# @param cmd Mangled command name.
+# ------------------------------------------------------------------------------
+_knit_checksum_outputs() {
+    local cmd="$1"
+    local demangled_cmd
+    demangled_cmd=$(_knit_command_demangle "${cmd}")
+    # shellcheck disable=SC2178 # nameref to the command's output-value array
+    local -n _knit_co_out="_KNIT_CMD_${cmd}_output_value"
+    local param
+    while IFS= read -r param; do
+        [[ -z "${param}" ]] && continue
+        local marker_var="_KNIT_CMD_${cmd}_fileparam_${param}"
+        local marker="${!marker_var:-}"
+        [[ "${marker}" == output:* ]] || continue
+        local rest="${marker#output:}"
+        local kind="${rest%%:*}"
+        local checksum="${rest##*:}"
+        local value
+        if [[ -v _knit_co_out["${param}"] ]]; then
+            value="${_knit_co_out["${param}"]}"
+        else
+            _knit_output_default value "${cmd}" "${param}"
+        fi
+        # An output left with no value has no path to check or hash.
+        [[ -z "${value}" ]] && continue
+        _knit_checksum_require_exists "${demangled_cmd}" output "${param}" "${kind}" "${value}"
+        [[ "${checksum}" == "yes" ]] || continue
+        local hex
+        _knit_sha256 hex "${value}"
+        _knit_checksum_stash "${cmd}" "${param}" "${hex}"
+    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_fileparams")
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_invoke_command()
 #
 # Invoke a command.
@@ -2651,6 +2824,11 @@ _knit_invoke_command() {
     declare -gA "_KNIT_CMD_${cmd}_output_value=()"
     unset "_KNIT_CMD_${cmd}_row_id"
     unset "_KNIT_CMD_${cmd}_recorded"
+    # Verify existence of, and hash, every checksummed file/directory input
+    # before the timed body starts: a missing required input aborts here, and an
+    # input digest reflects the artifact as consumed, not as the body may leave
+    # it. The digests are stashed as companion output values for the row write.
+    _knit_checksum_inputs "${cmd}" "${args[@]}"
     # call the function
     _KNIT_EXECUTING_COMMAND+=("${cmd}")
     _KNIT_EXECUTING_ROW_ID+=("$(_knit_resolve_row_id "${cmd}")")
@@ -2663,6 +2841,17 @@ _knit_invoke_command() {
     # knit_output, just like the command body can. The output map has already
     # been reset (before the body), so after-callback outputs are recorded.
     _knit_execute_after_commands "${cmd}" "${args[@]}"
+    # Capture the completion time now, before any output checksum is computed, so
+    # hashing a (possibly large) output is excluded from the recorded duration;
+    # _knit_record_invocation reads it as the call edge's end_time.
+    _KNIT_INVOCATION_END_TIME="$(_knit_prov_now)"
+    # On a successful completion, verify existence of and hash every checksummed
+    # file/directory output, setting their companion checksum outputs before the
+    # row is written. A failed body may legitimately leave an output absent, so
+    # output checks run on success only.
+    if [[ "${func_status}" -eq 0 ]]; then
+        _knit_checksum_outputs "${cmd}"
+    fi
     # Record this invocation as a database row (if the command declared a table)
     # while it is still on the executing stacks, so recording reads this frame's
     # resolved row id from _KNIT_EXECUTING_ROW_ID (see the wrapper path). Then pop.
@@ -3016,6 +3205,12 @@ _knit_resolve_source_context() {
 # @param ... The expanded invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_record_invocation() {
+    # Consume the pre-captured completion timestamp, if the normal invocation path
+    # set one before hashing outputs, and clear it so the eager and wrapper record
+    # paths (which never set it) fall back to reading the clock here. Read first,
+    # before any early return, so it can never leak into a later invocation.
+    local end_time_override="${_KNIT_INVOCATION_END_TIME}"
+    _KNIT_INVOCATION_END_TIME=""
     # Global kill switch: KNIT_DISABLE_RECORDING=true disables all recording (data
     # rows and provenance edges), so a command or chain can be exercised without
     # leaving rows to clean up afterwards. Placed here so it also covers the eager
@@ -3083,8 +3278,10 @@ _knit_record_invocation() {
     if [[ ${#_KNIT_EXECUTING_START_TIME[@]} -gt 0 ]]; then
         start_time="${_KNIT_EXECUTING_START_TIME[-1]}"
     fi
-    local end_time
-    end_time="$(_knit_prov_now)"
+    local end_time="${end_time_override}"
+    if [[ -z "${end_time}" ]]; then
+        end_time="$(_knit_prov_now)"
+    fi
     local alias=""
     if [[ ${#_KNIT_EXECUTING_ALIAS[@]} -gt 0 ]]; then
         alias="${_KNIT_EXECUTING_ALIAS[-1]}"
