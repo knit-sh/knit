@@ -363,6 +363,11 @@ teardown() {
     knit_register "ic_disp2:leaf" knit_empty "A dispatched leaf."
     knit_with_optional "leaf-opt:string" "" "A leaf option."
     knit_done
+    # A dispatched leaf is a specialized kind (a job or app, set by
+    # knit_register_job / knit_register_app); an ordinary nested command keeps
+    # type "command" and renders with plain nesting instead. Mark the leaf as a
+    # job so it renders with the dispatcher grammar.
+    printf -v "_KNIT_CMD_$(_knit_command_mangle "ic_disp2:leaf")_type" '%s' 'job'
     local result
     result=$(_knit_invoke_command "ic_disp2" "leaf" "--help")
     # Usage reflects the "parent [OPTIONS] -- leaf [OPTIONS]" grammar.
@@ -373,6 +378,27 @@ teardown() {
     [[ "$result" == *"--root-opt"* ]]
     # Exactly one --help line (the leaf's; the parent block omits it).
     [ "$(printf '%s\n' "$result" | grep -c -- '--help')" -eq 1 ]
+}
+
+@test "help for an ordinary nested command under a dispatcher uses plain nesting" {
+    knit_register "ic_disp3" knit_empty "A dispatcher."
+    knit_with_optional "root-opt:string" "" "A dispatcher option."
+    knit_with_dispatch "target" "A target to dispatch to."
+    knit_done
+    # A plain knit_register child keeps type "command" (unlike a job/app), so it
+    # is invoked as "parent sub", not dispatched as "parent -- sub" (this is the
+    # "submit prepared" / "submit next" case).
+    knit_register "ic_disp3:sub" knit_empty "An ordinary nested command."
+    knit_with_optional "sub-opt:string" "" "A sub option."
+    knit_done
+    local result usage_line
+    result=$(_knit_invoke_command "ic_disp3" "sub" "--help")
+    usage_line=$(printf '%s\n' "$result" | head -1)
+    # Ordinary "parent sub" nesting, no "--", and no borrowed parent option block.
+    [[ "$usage_line" == *"ic_disp3 sub [OPTIONS]"* ]]
+    [[ "$usage_line" != *"--"* ]]
+    [[ "$result" == *"--sub-opt"* ]]
+    [[ "$result" != *"ic_disp3 options"* ]]
 }
 
 @test "_knit_invoke_command runs before and after callbacks in order" {

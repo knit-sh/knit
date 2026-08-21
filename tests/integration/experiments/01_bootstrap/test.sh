@@ -2,7 +2,13 @@
 # Integration test 01_bootstrap.
 #
 # Exercises:
-#   - knit bootstrap (sqlite build from source, DB creation, initial metadata)
+#   - knit bootstrap (sqlite build from source, jq download, DB creation,
+#     initial metadata)
+#
+# The cluster images ship system sqlite and jq, which knit bootstrap normally
+# symlinks (fast) so the other experiments do not each rebuild sqlite. This
+# experiment is the one that keeps the from-source build and jq-download path
+# covered, so it forces it with --ignore-system-sqlite/--ignore-system-jq.
 #
 # Expected outcomes:
 #   - .knit/ directory is created
@@ -37,7 +43,8 @@ cd "${WORKDIR}"
 # by live detection (sinfo/pbsnodes/flux resource). Every cluster advertises 2
 # CPUs per node (the CI runner exposes only 2 cores, so the Flux inventory
 # declares 2 to match — see docker/flux/conf/flux/system.toml).
-./experiment.sh bootstrap --project "integration-test-01" --account "test-alloc"
+./experiment.sh bootstrap --project "integration-test-01" --account "test-alloc" \
+    --ignore-system-sqlite --ignore-system-jq
 EXPECTED_NCPUS="2"
 
 # Point the assertion helper at the sqlite3 built by knit.

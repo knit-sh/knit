@@ -228,6 +228,15 @@ RUN cd /tmp && \
 # rebuild reuses the cached Slurm/OpenMPI/MPICH layers above.
 RUN dnf -y install cmake xz && dnf clean all
 
+# sqlite and jq on PATH so knit bootstrap symlinks them instead of building
+# sqlite from source and downloading jq in every experiment (that from-source
+# build dominated the slurm/pbs run time). One experiment (01_bootstrap) still
+# forces the build/download path with --ignore-system-sqlite/--ignore-system-jq,
+# so that path stays covered. The distro packages here are older than knit's
+# own (sqlite 3.34, jq 1.6), which also exercises the old-tool compatibility
+# path on this backend. Late layer so a rebuild reuses the cached layers above.
+RUN dnf -y install sqlite jq && dnf clean all
+
 # Lmod modulefiles (auto-discovered: /usr/share/modulefiles is on the default
 # MODULEPATH) and the admin profile resolved by `knit bootstrap --profile slurm`.
 COPY conf/modulefiles/knit-marker.lua /usr/share/modulefiles/knit-marker.lua

@@ -2117,15 +2117,20 @@ _knit_print_command_usage() {
 
     # A subcommand invoked through a dispatcher (e.g. a job under "submit") is
     # not run as "<parent> <name>" but as "<parent> [OPTIONS] -- <name>
-    # [OPTIONS]". Detect that case from the parent's dispatch marker so the
-    # usage line reflects the real grammar.
+    # [OPTIONS]". Detect that case from the parent's dispatch marker so the usage
+    # line reflects the real grammar. A dispatcher may also have ordinary nested
+    # subcommands (submit prepared / submit next), which run as "<parent> <name>";
+    # those keep their type "command" (only knit_register_job/_app set a dispatched
+    # kind), so a dispatched child is one whose own type is not "command".
     local parent
     _knit_command_get_parents parent "${cmd}"
-    local parent_is_dispatcher="false"
+    local is_dispatched_child="false"
     if [[ -n "${parent}" ]]; then
         local parent_dispatch_var="_KNIT_CMD_${parent}_dispatch"
-        if [[ -v "${parent_dispatch_var}" && -n "${!parent_dispatch_var}" ]]; then
-            parent_is_dispatcher="true"
+        local child_type_var="_KNIT_CMD_${cmd}_type"
+        if [[ -v "${parent_dispatch_var}" && -n "${!parent_dispatch_var}" \
+              && "${!child_type_var:-command}" != "command" ]]; then
+            is_dispatched_child="true"
         fi
     fi
 
@@ -2134,7 +2139,7 @@ _knit_print_command_usage() {
     elif [[ -n "${!dispatch_var}" ]]; then
         printf "Usage: %s %s [OPTIONS] -- <%s> [OPTIONS]\n\n" \
             "$0" "${display}" "${!dispatch_var}"
-    elif [[ "${parent_is_dispatcher}" == "true" ]]; then
+    elif [[ "${is_dispatched_child}" == "true" ]]; then
         local parent_display leaf
         parent_display=$(_knit_command_with_space "${parent}")
         _knit_command_get_last leaf "${cmd}"
@@ -2154,7 +2159,7 @@ _knit_print_command_usage() {
     # For a subcommand invoked through a dispatcher, also list the dispatcher's
     # own options (e.g. "submit"'s --setup, "setup"'s --path), which are passed
     # before the "--".
-    if [[ "${parent_is_dispatcher}" == "true" ]]; then
+    if [[ "${is_dispatched_child}" == "true" ]]; then
         local parent_display
         parent_display=$(_knit_command_with_space "${parent}")
         printf "\n"
