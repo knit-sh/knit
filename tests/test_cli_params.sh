@@ -278,3 +278,114 @@ teardown() {
     [ "$result" = "integer" ]
 }
 
+
+# ---------- checksum declaration wiring (file/directory) ----------
+
+@test "file required parameter synthesizes a checksum output column and marker" {
+    knit_register "cs_file_cmd" knit_empty "Test."
+    knit_with_required "data:file" "An input dataset."
+    knit_done
+    # Marker recorded as "<direction>:<kind>".
+    _knit_set_find "_KNIT_CMD_cs_file_cmd_checksummed" "data"
+    [ "${_KNIT_CMD_cs_file_cmd_checksum_data}" = "input:file" ]
+    # Companion output column is registered, of type string.
+    _knit_set_find "_KNIT_CMD_cs_file_cmd_outputs" "data_checksum"
+    [ "${_KNIT_CMD_cs_file_cmd_3_data_checksum_type}" = "string" ]
+}
+
+@test "file optional parameter synthesizes a checksum column" {
+    knit_register "cs_opt_cmd" knit_empty "Test."
+    knit_with_optional "data:file" "" "An input dataset."
+    knit_done
+    _knit_set_find "_KNIT_CMD_cs_opt_cmd_checksummed" "data"
+    [ "${_KNIT_CMD_cs_opt_cmd_checksum_data}" = "input:file" ]
+    _knit_set_find "_KNIT_CMD_cs_opt_cmd_outputs" "data_checksum"
+}
+
+@test "directory parameter synthesizes a checksum column with kind directory" {
+    knit_register "cs_dir_cmd" knit_empty "Test."
+    knit_with_required "tree:directory" "An input tree."
+    knit_done
+    [ "${_KNIT_CMD_cs_dir_cmd_checksum_tree}" = "input:directory" ]
+    _knit_set_find "_KNIT_CMD_cs_dir_cmd_outputs" "tree_checksum"
+}
+
+@test "dir alias parameter is checksummed as directory" {
+    knit_register "cs_diralias_cmd" knit_empty "Test."
+    knit_with_required "tree:dir" "An input tree."
+    knit_done
+    [ "${_KNIT_CMD_cs_diralias_cmd_checksum_tree}" = "input:directory" ]
+    _knit_set_find "_KNIT_CMD_cs_diralias_cmd_outputs" "tree_checksum"
+}
+
+@test "file output synthesizes a checksum column with direction output" {
+    knit_register "cs_out_cmd" knit_empty "Test."
+    knit_with_output "result:file" "" "A produced file."
+    knit_done
+    [ "${_KNIT_CMD_cs_out_cmd_checksum_result}" = "output:file" ]
+    _knit_set_find "_KNIT_CMD_cs_out_cmd_outputs" "result_checksum"
+}
+
+@test "--no-checksum suppresses the companion column and marker" {
+    knit_register "cs_no_cmd" knit_empty "Test."
+    knit_with_required "data:file" "An input dataset." --no-checksum
+    knit_done
+    run _knit_set_find "_KNIT_CMD_cs_no_cmd_checksummed" "data"
+    [ "$status" -ne 0 ]
+    run _knit_set_find "_KNIT_CMD_cs_no_cmd_outputs" "data_checksum"
+    [ "$status" -ne 0 ]
+}
+
+@test "--no-checksum on an output suppresses the companion column" {
+    knit_register "cs_noout_cmd" knit_empty "Test."
+    knit_with_output "scratch:directory" "" "A large scratch tree." --no-checksum
+    knit_done
+    run _knit_set_find "_KNIT_CMD_cs_noout_cmd_outputs" "scratch_checksum"
+    [ "$status" -ne 0 ]
+}
+
+@test "--no-checksum on a non-file parameter is fatal" {
+    knit_register "cs_bad_cmd" knit_empty "Test."
+    run knit_with_required "count:integer" "A count." --no-checksum
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--no-checksum flag is only valid"* ]]
+}
+
+@test "path and filename parameters are not checksummed" {
+    knit_register "cs_path_cmd" knit_empty "Test."
+    knit_with_required "p:path" "A path."
+    knit_with_required "f:filename" "A filename."
+    knit_done
+    run _knit_set_find "_KNIT_CMD_cs_path_cmd_outputs" "p_checksum"
+    [ "$status" -ne 0 ]
+    run _knit_set_find "_KNIT_CMD_cs_path_cmd_outputs" "f_checksum"
+    [ "$status" -ne 0 ]
+}
+
+@test "companion collides with an output declared afterwards" {
+    knit_register "cs_col1_cmd" knit_empty "Test."
+    knit_with_required "data:file" "An input dataset."
+    run knit_with_output "data-checksum:string" "" "Manual clash."
+    [ "$status" -ne 0 ]
+}
+
+@test "companion collides with an output declared beforehand" {
+    knit_register "cs_col2_cmd" knit_empty "Test."
+    knit_with_output "data-checksum:string" "" "Manual clash."
+    run knit_with_required "data:file" "An input dataset."
+    [ "$status" -ne 0 ]
+}
+
+@test "companion collides with a parameter declared afterwards" {
+    knit_register "cs_col3_cmd" knit_empty "Test."
+    knit_with_required "data:file" "An input dataset."
+    run knit_with_required "data_checksum:string" "A clashing parameter."
+    [ "$status" -ne 0 ]
+}
+
+@test "companion collides with a parameter declared beforehand" {
+    knit_register "cs_col4_cmd" knit_empty "Test."
+    knit_with_required "data_checksum:string" "A parameter."
+    run knit_with_required "data:file" "An input dataset."
+    [ "$status" -ne 0 ]
+}

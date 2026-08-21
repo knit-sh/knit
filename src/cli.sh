@@ -258,6 +258,13 @@ _knit_param_check_declaration() {
     || _knit_set_find "${ns}_flags"    "${normalized}"; then
         knit_fatal "Parameter \"${param_name}\" already declared for \"${context_name}\"."
     fi
+    # A parameter and an output map to the same table column, so their normalized
+    # names must not collide. This also rejects a parameter that would clash with a
+    # checksum column already synthesized for an earlier file/directory declaration.
+    # Parameter sets have no outputs, so this only applies in a command context.
+    if _knit_set_find "${ns}_outputs" "${normalized}"; then
+        knit_fatal "Parameter \"${param_name}\" collides with a declared output of \"${context_name}\"."
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -1164,6 +1171,100 @@ knit_with_subcommand_title() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_decl_flag_present()
+#
+# Return 0 if a bare declaration flag (e.g. "--no-checksum") appears among the
+# remaining declaration arguments, 1 otherwise. Used to parse boolean flags such
+# as --no-checksum that carry no value, so knit_get_parameter (which would read
+# the following token as a value) is not suitable. Hyphens and underscores in the
+# flag name are interchangeable, and anything from "--" onwards is ignored.
+#
+# @param flag Flag name without the leading "--".
+# @param ...  Declaration arguments to scan.
+# ------------------------------------------------------------------------------
+_knit_decl_flag_present() {
+    local flag
+    _knit_str_hyphens_to_underscores flag "$1"
+    shift
+    local a
+    for a in "$@"; do
+        [[ "${a}" == "--" ]] && break
+        [[ "${a}" == --* ]] || continue
+        [[ "$(_knit_arg_name "${a}")" == "${flag}" ]] && return 0
+    done
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_register_checksum()
+#
+# Wire up content checksums for a "file"/"directory" parameter or output that was
+# just declared for the command being registered. For a checksummable type not
+# opted out with --no-checksum this: (1) records a per-parameter marker
+# (_KNIT_CMD_<cmd>_checksummed set plus _KNIT_CMD_<cmd>_checksum_<param> holding
+# "<direction>:<kind>", e.g. "input:file") that the runtime reads to know when and
+# how to hash; and (2) registers an implicit recorded output column
+# "<name>-checksum" (DB "<name>_checksum") of type string, so the digest is
+# written by the normal row-recording machinery and appears in the command's
+# table. Passing --no-checksum on a non-checksummable type is a fatal declaration
+# error (there is nothing to checksum). A synthesized companion name that collides
+# with an already-declared parameter, flag, or output is a fatal declaration error
+# so the companion can never overwrite a user-declared column.
+#
+# Only meaningful in a command context; checksum wiring is skipped in a parameter
+# set (which has no outputs). The parameter must already have been added to its
+# declaration set before this is called, so the collision check sees it.
+#
+# @param direction "input" (parameter) or "output".
+# @param type      The declared type (name or alias) of the parameter/output.
+# @param name      The declared (un-normalized) parameter/output name.
+# @param no_checksum "true" if --no-checksum was given, "false" otherwise.
+# ------------------------------------------------------------------------------
+_knit_register_checksum() {
+    local direction="$1"
+    local type="$2"
+    local name="$3"
+    local no_checksum="$4"
+
+    if ! _knit_type_is_checksummable "${type}"; then
+        if [[ "${no_checksum}" == "true" ]]; then
+            knit_fatal "The --no-checksum flag is only valid on a file or directory declaration, not on \"${name}\" of type \"${type}\"."
+        fi
+        return 0
+    fi
+
+    # Checksum wiring records an output column, which only exists for a command.
+    [[ -v _KNIT_CURRENT_COMMAND ]] || return 0
+    [[ "${no_checksum}" == "true" ]] && return 0
+
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+    local kind
+    _knit_type_resolve_alias kind "${type}"
+    local param
+    param=$(_knit_name_normalize "${name}")
+    local companion
+    companion=$(_knit_name_normalize "${name}-checksum")
+
+    if _knit_set_find "_KNIT_CMD_${cmd}_required" "${companion}" \
+    || _knit_set_find "_KNIT_CMD_${cmd}_optional" "${companion}" \
+    || _knit_set_find "_KNIT_CMD_${cmd}_flags"    "${companion}" \
+    || _knit_set_find "_KNIT_CMD_${cmd}_outputs"  "${companion}"; then
+        knit_fatal "The checksum column \"${name}-checksum\" synthesized for \"${name}\" collides with an existing parameter or output of \"${demangled_cmd}\"."
+    fi
+
+    knit_trace "Adding checksum column \"${name}-checksum\" for ${direction} \"${name}\" of \"${demangled_cmd}\"."
+    _knit_set_add "_KNIT_CMD_${cmd}_checksummed" "${param}"
+    printf -v "_KNIT_CMD_${cmd}_checksum_${param}" '%s' "${direction}:${kind}"
+
+    printf -v "_KNIT_CMD_${cmd}_3_${companion}_description" '%s' \
+        "SHA-256 checksum of \"${name}\", recorded automatically."
+    printf -v "_KNIT_CMD_${cmd}_3_${companion}_default" '%s' ""
+    printf -v "_KNIT_CMD_${cmd}_3_${companion}_type"    '%s' "string"
+    _knit_set_add "_KNIT_CMD_${cmd}_outputs" "${companion}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_with_required()
 #
 # This function should be called right after a call to knit_register (or one of
@@ -1188,11 +1289,13 @@ knit_with_subcommand_title() {
 # @param --when Optional boolean constraint expression (jq syntax referring to
 #        the command's other parameters); the parameter only applies when the
 #        expression evaluates to true.
+# @param --no-checksum Optional flag; for a file/directory parameter, disable the
+#        content checksum and its companion column.
 # ------------------------------------------------------------------------------
 knit_with_required() {
     _knit_param_check_declaration "required" "$1" "$2"
-    knit_check_arguments "when" "" "${@:3}" \
-        || knit_fatal "knit_with_required takes a parameter, a description, and an optional --when."
+    knit_check_arguments "when" "no-checksum" "${@:3}" \
+        || knit_fatal "knit_with_required takes a parameter, a description, and an optional --when and --no-checksum."
     local param_spec="$1"
     local param_name="${param_spec%%:*}"
     local param_type="${param_spec#*:}"
@@ -1216,6 +1319,9 @@ knit_with_required() {
         printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
         printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
     fi
+    local no_checksum="false"
+    _knit_decl_flag_present "no-checksum" "${@:3}" && no_checksum="true"
+    _knit_register_checksum "input" "${param_type}" "${param_name}" "${no_checksum}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1250,11 +1356,13 @@ knit_with_required() {
 # @param --when Optional boolean constraint expression (jq syntax referring to
 #        the command's other parameters); the parameter only applies when the
 #        expression evaluates to true.
+# @param --no-checksum Optional flag; for a file/directory parameter, disable the
+#        content checksum and its companion column.
 # ------------------------------------------------------------------------------
 knit_with_optional() {
     _knit_param_check_declaration "optional" "$1" "$3"
-    knit_check_arguments "when" "" "${@:4}" \
-        || knit_fatal "knit_with_optional takes a parameter, a default, a description, and an optional --when."
+    knit_check_arguments "when" "no-checksum" "${@:4}" \
+        || knit_fatal "knit_with_optional takes a parameter, a default, a description, and an optional --when and --no-checksum."
     local param_spec="$1"
     local param_name="${param_spec%%:*}"
     local param_type="${param_spec#*:}"
@@ -1279,6 +1387,9 @@ knit_with_optional() {
         printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
         printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
     fi
+    local no_checksum="false"
+    _knit_decl_flag_present "no-checksum" "${@:4}" && no_checksum="true"
+    _knit_register_checksum "input" "${param_type}" "${param_name}" "${no_checksum}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1432,12 +1543,16 @@ knit_with_parameter_set() {
 # @param param Output name followed by ":type".
 # @param default Default value.
 # @param description Description of the output.
+# @param --no-checksum Optional flag; for a file/directory output, disable the
+#        content checksum and its companion column.
 # ------------------------------------------------------------------------------
 knit_with_output() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_output should be used after a call to \"knit_register\"."
     fi
     _knit_wrapper_reject_declaration "knit_with_output"
+    knit_check_arguments "" "no-checksum" "${@:4}" \
+        || knit_fatal "knit_with_output takes an output, a default, a description, and an optional --no-checksum."
     local param_spec="$1"
     if [[ "${param_spec}" != *:* ]]; then
         knit_fatal "Output \"${param_spec}\" is missing a type annotation (expected \"name:type\")."
@@ -1460,11 +1575,21 @@ knit_with_output() {
     if _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${output}"; then
         knit_fatal "Output \"${param_name}\" already declared for \"${demangled_cmd}\"."
     fi
+    # An output and a parameter map to the same table column, so their normalized
+    # names must not collide.
+    if _knit_set_find "_KNIT_CMD_${cmd}_required" "${output}" \
+    || _knit_set_find "_KNIT_CMD_${cmd}_optional" "${output}" \
+    || _knit_set_find "_KNIT_CMD_${cmd}_flags"    "${output}"; then
+        knit_fatal "Output \"${param_name}\" collides with a declared parameter of \"${demangled_cmd}\"."
+    fi
     knit_trace "Adding output \"${param_name}\" (type: ${param_type}) to command \"${demangled_cmd}\"."
     printf -v "_KNIT_CMD_${cmd}_3_${output}_description" '%s' "$3"
     printf -v "_KNIT_CMD_${cmd}_3_${output}_default"     '%s' "$2"
     printf -v "_KNIT_CMD_${cmd}_3_${output}_type"        '%s' "${param_type}"
     _knit_set_add "_KNIT_CMD_${cmd}_outputs" "${output}"
+    local no_checksum="false"
+    _knit_decl_flag_present "no-checksum" "${@:4}" && no_checksum="true"
+    _knit_register_checksum "output" "${param_type}" "${param_name}" "${no_checksum}"
 }
 
 # ------------------------------------------------------------------------------

@@ -438,3 +438,23 @@ setup() {
     run _knit_type_to_sqlite dummy "unknown"
     [ "$status" -ne 0 ]
 }
+
+# ---------- _knit_type_is_checksummable ----------
+
+@test "file and directory are checksummable" {
+    _knit_type_is_checksummable "file"
+    _knit_type_is_checksummable "directory"
+    _knit_type_is_checksummable "dir"
+}
+
+@test "path, filename, and other types are not checksummable" {
+    for t in path filename string integer real boolean uuid date; do
+        run _knit_type_is_checksummable "$t"
+        [ "$status" -ne 0 ]
+    done
+}
+
+@test "unknown type is not checksummable" {
+    run _knit_type_is_checksummable "unknown"
+    [ "$status" -ne 0 ]
+}

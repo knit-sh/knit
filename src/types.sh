@@ -323,3 +323,21 @@ _knit_type_to_sqlite() {
         *)       __knit_ret='TEXT' ;;
     esac
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_type_is_checksummable()
+#
+# Return 0 if a type name (or alias) refers to a target whose content Knit
+# checksums — the "file" and "directory" types (and the "dir" alias). Every other
+# type, including "path" and "filename", is not checksummable. This is the single
+# predicate the declaration and recording paths consult to decide whether a
+# parameter or output gains a companion checksum column.
+#
+# @param type_name Type name or alias to test.
+# @return 0 if checksummable, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_type_is_checksummable() {
+    local resolved
+    _knit_type_resolve_alias resolved "$1" || return 1
+    [[ "${resolved}" == "file" || "${resolved}" == "directory" ]]
+}
