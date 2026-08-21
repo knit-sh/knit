@@ -69,15 +69,18 @@ correct as an experiment grows and as Knit itself changes.
 ## Installing into a harness
 
 `knit skills install` downloads the latest `agent/` folder from the knit GitHub
-repo and copies it into a harness layout:
+repo and copies it into `.agents/skills` and `.agents/commands` — the canonical
+cross-harness location. Install merges into what is already there (other skills
+are preserved) and is idempotent. The skills are not embedded in `knit.sh`, so
+they track the published repo.
 
-- **default** → `.agents/skills` and `.agents/commands` (the cross-harness
-  location);
-- **`--harness claude`** → `.claude/skills` and `.claude/commands`.
-
-The `--harness` flag only selects the destination; the content is identical either
-way. Install is a layout mapping, not a rewrite. The skills are not embedded in
-`knit.sh`, so they track the published repo.
+Claude Code looks under `.claude/` instead. Add `--claude` to point it at the same
+install: it keeps `.claude/skills` and `.claude/commands` as real directories and
+symlinks each knit skill and command into them one at a time, so there is one real
+copy on disk, not a per-harness fork. Because the links are per item, the
+project's own `.claude` skills/commands and its `.claude/settings.json` are left
+untouched; an item whose name already exists is skipped with a warning rather than
+overwritten, and re-running is idempotent.
 
 Install also drops `AGENTS.md` at the project root so an agent orients itself even
 before a skill is loaded. An existing project `AGENTS.md` is never overwritten.

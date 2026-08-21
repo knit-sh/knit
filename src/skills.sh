@@ -23,25 +23,53 @@ declare -g _KNIT_SKILLS_DEFAULT_REF
 _KNIT_SKILLS_DEFAULT_REF="main"
 
 # ------------------------------------------------------------------------------
-# @fn _knit_skills_harness_dir()
+# @fn _knit_skills_link_claude()
 #
-# Map a harness name to the base directory the skills and commands install into,
-# relative to the current directory. The default (empty or "agents") is the
-# cross-harness ".agents"; "claude" installs into ".claude". Any other value is
-# fatal, listing the valid names.
+# Point Claude Code at the canonical ".agents" install by symlinking knit's items
+# into ".claude/skills" and ".claude/commands", one entry at a time. The two
+# containers are kept as real directories (created if missing, and an existing one
+# --- even a symlink --- is left as is), so a project's own skills/commands and
+# its ".claude/settings.json" live alongside the links rather than being replaced.
 #
-# @param __knit_ret1 Name of the variable to hold the base directory.
-# @param harness     Harness name from --harness ("" for the default).
+# Each immediate entry of ".agents/skills" (a skill directory) and
+# ".agents/commands" (a command file) is symlinked into the matching container.
+# The target is absolute (${PWD}/.agents/...) so the link is valid wherever the
+# container physically lives --- in particular when the container is itself a
+# symlink, where a relative target would resolve from the wrong place. An entry
+# name already present is skipped with a warning rather than overwritten, so a
+# user's own item is never clobbered; an entry that is already the exact link this
+# would create is skipped silently, which makes a re-install idempotent.
 # ------------------------------------------------------------------------------
-_knit_skills_harness_dir() {
-    local -n __knit_ret1=$1
-    local harness="$2"
-    case "${harness}" in
-        ""|agents) __knit_ret1=".agents" ;;
-        claude)    __knit_ret1=".claude" ;;
-        *) knit_fatal "%s" \
-            "Unknown harness '${harness}'. Valid: agents (default), claude." ;;
-    esac
+_knit_skills_link_claude() {
+    local sub container item name link target
+    for sub in skills commands; do
+        container=".claude/${sub}"
+        # Keep the container a directory; never replace it. A non-directory in the
+        # way (a real file, say) is left alone with a warning.
+        if [[ -e "${container}" && ! -d "${container}" ]]; then
+            knit_warning "%s" \
+                "Not linking into ${container}: it exists and is not a directory."
+            continue
+        fi
+        mkdir -p "${container}"
+        # Symlink each installed item into the container. The glob stays literal
+        # when the source directory is empty, so guard each match with -e.
+        for item in ".agents/${sub}"/*; do
+            [[ -e "${item}" ]] || continue
+            name="${item##*/}"
+            link="${container}/${name}"
+            target="${PWD}/.agents/${sub}/${name}"
+            if [[ -L "${link}" && "$(readlink "${link}")" == "${target}" ]]; then
+                continue    # already linked by us: idempotent, no warning
+            fi
+            if [[ -e "${link}" || -L "${link}" ]]; then
+                knit_warning "%s" \
+                    "Not linking ${link}: an entry already exists there."
+                continue
+            fi
+            ln -s "${target}" "${link}"
+        done
+    done
 }
 
 # ------------------------------------------------------------------------------
@@ -76,10 +104,15 @@ _knit_skills_download() {
 # @fn _knit_skills_install()
 #
 # Implementation of 'knit skills install'. Downloads the latest agent/ tree from
-# the knit repository and installs the skills and commands into the harness
-# layout. The copy merges into any existing skills/commands directory (so other,
-# non-knit skills there are preserved) and overwrites knit's own, which makes a
-# re-install idempotent.
+# the knit repository and installs the skills and commands into ".agents/", the
+# canonical cross-harness location. The copy merges into any existing
+# skills/commands directory (so other, non-knit skills there are preserved) and
+# overwrites knit's own, which makes a re-install idempotent.
+#
+# With --claude, Claude Code is pointed at that same install by symlinking knit's
+# skills and commands into ".claude" one item at a time (see
+# _knit_skills_link_claude), so there is one real copy on disk, not a per-harness
+# fork, and a project's own ".claude" items are left in place.
 #
 # It also drops the agent/AGENTS.md pointer at the project root so an agent
 # orients itself even before a skill is loaded. An existing project AGENTS.md is
@@ -87,13 +120,12 @@ _knit_skills_download() {
 # only when no AGENTS.md is present.
 # ------------------------------------------------------------------------------
 _knit_skills_install() {
-    local harness ref
-    harness="$(knit_get_parameter "harness" "$@")"
+    local ref claude
     ref="$(knit_get_parameter "ref" "$@")"
     [[ -z "${ref}" ]] && ref="${_KNIT_SKILLS_DEFAULT_REF}"
+    claude="$(knit_get_parameter "claude" "$@")" || claude="false"
 
-    local base
-    _knit_skills_harness_dir base "${harness}"
+    local base=".agents"
 
     local scratch
     scratch="$(mktemp -d)" || knit_fatal "%s" \
@@ -122,6 +154,11 @@ _knit_skills_install() {
 
     rm -rf "${scratch}"
     knit_info "%s" "Installed knit agent skills and commands into ${base}/."
+
+    if [[ "${claude}" == "true" ]]; then
+        _knit_skills_link_claude
+        knit_info "%s" "Linked knit skills and commands into .claude/."
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -134,11 +171,11 @@ knit_usable_before_bootstrap
 knit_done
 
 knit_register "skills:install" _knit_skills_install \
-    "Download knit's agent skills/commands from GitHub and install them into a harness layout (.agents/ by default, .claude/ with --harness claude)."
+    "Download knit's agent skills/commands from GitHub and install them into .agents/ (add --claude to also link .claude/ at it)."
 _knit_is_builtin
 knit_usable_before_bootstrap
-knit_with_optional "harness:string" "agents" \
-    "Target harness: 'agents' (default) installs to .agents/, 'claude' to .claude/."
+knit_with_flag "claude" \
+    "Also point Claude Code at the install by symlinking each skill and command into .claude/skills and .claude/commands."
 knit_with_optional "ref:string" "main" \
     "Git ref (branch, tag, or commit) of knit-sh/knit to install skills from."
 knit_done
