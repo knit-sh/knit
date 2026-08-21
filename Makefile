@@ -40,6 +40,7 @@ KNIT_SOURCE = src/global.sh   \
               src/describe.sh \
               src/ai.sh       \
               src/query.sh    \
+              src/skills.sh   \
               src/main.sh
 
 KNIT_OUTPUT = knit.sh
