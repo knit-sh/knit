@@ -106,6 +106,26 @@ _has_col() {
     [ "$(_col data_checksum cs_mut)" = "sha256:${expected}" ]
 }
 
+@test "every file/directory input of a command is enforced, not just the first" {
+    local f1="${BATS_TEST_TMPDIR}/one.txt"
+    local d2="${BATS_TEST_TMPDIR}/two"
+    printf '1\n' > "${f1}"
+    mkdir -p "${d2}"
+    printf '2\n' > "${d2}/x"
+    knit_register "cs_multi" fn_cs_multi "Test."
+    knit_with_table
+    knit_with_required "first:file" "The first input."
+    knit_with_required "second:directory" "The second input."
+    fn_cs_multi() { :; }
+    knit_done
+    _knit_invoke_command "cs_multi" "--first" "${f1}" "--second" "${d2}"
+    local e1 e2
+    _knit_sha256 e1 "${f1}"
+    _knit_sha256 e2 "${d2}"
+    [ "$(_col first_checksum cs_multi)" = "sha256:${e1}" ]
+    [ "$(_col second_checksum cs_multi)" = "sha256:${e2}" ]
+}
+
 # ---------- outputs ----------
 
 @test "a present file output records its digest" {

@@ -112,6 +112,19 @@ _knit_run() {
 
     _knit_check_command_arguments "${subcmd}" "${app_args[@]}"
 
+    # Verify existence of, and hash, the app's checksummed file/directory inputs
+    # once here, before any ranks are launched: a missing input fails fast, and
+    # each input is hashed exactly once (never per rank). The bare digests are
+    # forwarded to rank 0 through the launcher environment below so the app's row
+    # records them without any rank touching the filesystem.
+    declare -A input_digests=()
+    if _knit_set_exists "_KNIT_CMD_${subcmd}_fileparams"; then
+        local -a expanded_app_args
+        readarray -d '' -t expanded_app_args \
+            < <(_knit_expand_command_arguments "${subcmd}" "${app_args[@]}")
+        _knit_run_checksum_inputs input_digests "${subcmd}" "${expanded_app_args[@]}"
+    fi
+
     # Resolve placement into the launcher options (procs, procs-per-node,
     # hostnames), then add the raw --launcher-args passthrough. This single array
     # is exactly what the launcher backend reads (by name, in _knit_launch_exec).
@@ -201,6 +214,14 @@ _knit_run() {
         export KNIT_RUN_ID="${uuid}"
         export KNIT_SOURCE_ID="${uuid}"
         export KNIT_SOURCE_COMMAND=run
+        # Forward each input's precomputed digest so rank 0 records it verbatim
+        # (KNIT_CHECKSUM_<param> = bare 64-hex; the recorder re-applies the
+        # sha256: prefix). Exported inside this subshell so the digests reach the
+        # ranks through the launcher but never leak into the job body.
+        local _digest_param
+        for _digest_param in "${!input_digests[@]}"; do
+            export "KNIT_CHECKSUM_${_digest_param}=${input_digests[${_digest_param}]}"
+        done
         # Re-enter each rank from the directory holding the experiment script
         # (and knit.sh) so a bare `source knit.sh` resolves, then have the
         # framework jump back to the run's cwd once sourcing completes (see
@@ -329,6 +350,54 @@ _knit_run_resolve_placement() {
         joined="${joined%,}"
     fi
     _place["hostnames"]="${joined}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_run_checksum_inputs()
+#
+# Verify existence of, and hash, every checksummed file/directory input of an app
+# once, on the login side, before it is launched. A missing input then fails fast
+# — before an allocation is used or ranks are spawned — and each input is hashed
+# exactly once rather than once per rank. The bare digests are returned by name
+# (param -> 64-hex); the dispatcher forwards them to rank 0 through the launcher
+# environment (KNIT_CHECKSUM_<param>) so the app's row records the same digest
+# without any rank touching the filesystem. Existence is checked for every
+# file/directory input, even one that opted out of the digest with --no-checksum;
+# only a checksummed input is hashed.
+#
+# @param out_name Name of the associative array to fill (param -> bare 64-hex).
+# @param subcmd   Mangled app command name (run:<app>).
+# @param ...      The app's expanded invocation arguments.
+# ------------------------------------------------------------------------------
+_knit_run_checksum_inputs() {
+    # shellcheck disable=SC2178 # nameref to the caller's associative array
+    local -n _digests="$1"
+    shift
+    local subcmd="$1"
+    shift
+    local -a app_args=("$@")
+    local demangled
+    demangled=$(_knit_command_demangle "${subcmd}")
+    local param
+    while IFS= read -r param; do
+        [[ -z "${param}" ]] && continue
+        local marker_var="_KNIT_CMD_${subcmd}_fileparam_${param}"
+        local marker="${!marker_var:-}"
+        [[ "${marker}" == input:* ]] || continue
+        local rest="${marker#input:}"
+        local kind="${rest%%:*}"
+        local checksum="${rest##*:}"
+        local value
+        value="$(knit_get_parameter "${param}" "${app_args[@]}")" || value=""
+        # An absent optional input records no checksum and is not checked.
+        [[ -z "${value}" ]] && continue
+        _knit_checksum_require_exists "${demangled}" input "${param}" "${kind}" "${value}"
+        [[ "${checksum}" == "yes" ]] || continue
+        local hex
+        _knit_sha256 hex "${value}"
+        # shellcheck disable=SC2034 # written through the nameref
+        _digests["${param}"]="${hex}"
+    done < <(_knit_set_iter "_KNIT_CMD_${subcmd}_fileparams")
 }
 
 # ------------------------------------------------------------------------------

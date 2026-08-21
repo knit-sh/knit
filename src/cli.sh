@@ -1268,6 +1268,11 @@ _knit_register_checksum() {
     # --no-checksum. The "checksum" field says whether to also hash.
     local checksum="yes"
     [[ "${no_checksum}" == "true" ]] && checksum="no"
+    # Create the set as associative on first use (knit_register does not, since
+    # not every command has a file/directory declaration); a bare _knit_set_add
+    # would otherwise make it an indexed array and collapse every key to index 0.
+    _knit_set_exists "_KNIT_CMD_${cmd}_fileparams" \
+        || _knit_set_new "_KNIT_CMD_${cmd}_fileparams"
     _knit_set_add "_KNIT_CMD_${cmd}_fileparams" "${param}"
     printf -v "_KNIT_CMD_${cmd}_fileparam_${param}" '%s' "${direction}:${kind}:${checksum}"
 
@@ -2587,6 +2592,52 @@ _knit_checksum_stash() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_checksum_is_app_worker()
+#
+# Report whether the command about to run is an app executing as a launched
+# worker rank, rather than an ordinary single-process command. An app's inputs
+# are verified and hashed once by the `run` dispatcher on the login side, before
+# any rank is spawned; the ranks must not touch the filesystem for checksums. The
+# context is an app (the "app" command type) re-entered under a live run
+# (KNIT_RUN_ID, exported by the dispatcher into the launcher environment).
+#
+# @param cmd Mangled command name.
+# ------------------------------------------------------------------------------
+_knit_checksum_is_app_worker() {
+    local cmd="$1"
+    local type_var="_KNIT_CMD_${cmd}_type"
+    [[ "${!type_var:-}" == "app" && -v KNIT_RUN_ID ]]
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_checksum_stash_from_env()
+#
+# Recover forwarded input digests for a launched app worker. The `run` dispatcher
+# hashes each checksummed input once and forwards the bare digest to every rank
+# through the launcher environment (KNIT_CHECKSUM_<param>). Rank 0 stashes those
+# digests into its output store so its row records the same value the dispatcher
+# computed, without any rank hashing. Other ranks suppress recording, so the
+# stash is harmless there. An input with no forwarded digest (an absent optional,
+# or one that opted out with --no-checksum) is skipped.
+#
+# @param cmd Mangled command name.
+# ------------------------------------------------------------------------------
+_knit_checksum_stash_from_env() {
+    local cmd="$1"
+    local param
+    while IFS= read -r param; do
+        [[ -z "${param}" ]] && continue
+        local marker_var="_KNIT_CMD_${cmd}_fileparam_${param}"
+        local marker="${!marker_var:-}"
+        [[ "${marker}" == input:* ]] || continue
+        [[ "${marker##*:}" == "yes" ]] || continue
+        local env_var="KNIT_CHECKSUM_${param}"
+        [[ -v "${env_var}" ]] || continue
+        _knit_checksum_stash "${cmd}" "${param}" "${!env_var}"
+    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_fileparams")
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_checksum_inputs()
 #
 # For a command about to run, verify existence of every file/directory "input"
@@ -2599,6 +2650,11 @@ _knit_checksum_stash() {
 # body that overwrites its own input cannot corrupt the recorded input digest and
 # the hash time is excluded from the run.
 #
+# In a launched app worker the inputs were already verified and hashed once by
+# the `run` dispatcher before launch; no rank hashes. Rank 0 then recovers the
+# forwarded digests from the environment (other ranks suppress recording), so
+# this returns after that instead of touching the filesystem.
+#
 # @param cmd Mangled command name.
 # @param ... The expanded invocation arguments.
 # ------------------------------------------------------------------------------
@@ -2606,6 +2662,10 @@ _knit_checksum_inputs() {
     local cmd="$1"
     shift
     local -a args=("$@")
+    if _knit_checksum_is_app_worker "${cmd}"; then
+        _knit_checksum_stash_from_env "${cmd}"
+        return 0
+    fi
     local demangled_cmd
     demangled_cmd=$(_knit_command_demangle "${cmd}")
     local param
