@@ -93,8 +93,14 @@ _knit_download_jq() {
     local url="https://github.com/jqlang/jq/releases/download/jq-${_KNIT_JQ_VERSION}/${platform}"
     knit_trace "Downloading jq binary (${platform})..."
     mkdir -p "$(dirname "${_KNIT_JQ_EXE}")"
+    # -f turns a rate-limited/error GitHub response into a clean failure rather
+    # than a saved error body; --retry rides out a transient network error; a
+    # GITHUB_TOKEN/GH_TOKEN, when set, lifts the anonymous rate limit CI shares.
+    local -a curl_args=(-fL --retry 3 --retry-delay 2 -o "${_KNIT_JQ_EXE}")
+    local gh_token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+    [[ -n "${gh_token}" ]] && curl_args+=(-H "Authorization: Bearer ${gh_token}")
     if ! _knit_jq_framed_run "jq: download" \
-            curl -L -o "${_KNIT_JQ_EXE}" "${url}" ; then
+            curl "${curl_args[@]}" "${url}" ; then
         knit_fatal "Could not download jq binary. See ${_KNIT_TRACE_FILE} for more information."
     fi
     chmod +x "${_KNIT_JQ_EXE}"

@@ -121,8 +121,10 @@ _knit_build_sqlite() {
     knit_pushd "${_KNIT_PREFIX}"
 
     knit_trace "Downloading sqlite source..."
+    # -f makes an HTTP error a clean failure instead of a saved error page that
+    # would later fail to extract; --retry rides out a transient network error.
     if ! _knit_sqlite_framed_run "sqlite: download" \
-            curl -L -O "${_KNIT_SQLITE_SOURCE_URL}" ; then
+            curl -fL --retry 3 --retry-delay 2 -O "${_KNIT_SQLITE_SOURCE_URL}" ; then
         knit_fatal "Could not download sqlite sources. See ${_KNIT_TRACE_FILE} for more information."
     fi
 

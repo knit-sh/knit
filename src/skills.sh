@@ -91,7 +91,13 @@ _knit_skills_download() {
     local url="https://github.com/${_KNIT_SKILLS_REPO}/archive/${ref}.tar.gz"
     local tarball="${dest}/knit-${ref##*/}.tar.gz"
     knit_trace "Downloading knit ${ref} from ${url}..."
-    if ! curl -sSL -o "${tarball}" "${url}"; then
+    # -f turns a rate-limited/error GitHub response into a clean failure rather
+    # than a saved error body; --retry rides out a transient network error; a
+    # GITHUB_TOKEN/GH_TOKEN, when set, lifts the anonymous rate limit CI shares.
+    local -a curl_args=(-fsSL --retry 3 --retry-delay 2 -o "${tarball}")
+    local gh_token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+    [[ -n "${gh_token}" ]] && curl_args+=(-H "Authorization: Bearer ${gh_token}")
+    if ! curl "${curl_args[@]}" "${url}"; then
         knit_fatal "%s" "Could not download knit ${ref} from ${url}."
     fi
     if ! tar -xzf "${tarball}" -C "${dest}" --strip-components=1 2>/dev/null; then
