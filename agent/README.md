@@ -18,6 +18,7 @@ agent/
     SKILL.md          # the skill: YAML frontmatter + Markdown body
     <extra files>     # optional bundled scripts or resources
   commands/<name>.md  # a thin slash-command entry point that loads a skill
+  AGENTS.md           # project pointer dropped at the project root on install
 ```
 
 - **Skills** are the durable know-how. A harness loads a skill when its
@@ -77,3 +78,6 @@ repo and copies it into a harness layout:
 The `--harness` flag only selects the destination; the content is identical either
 way. Install is a layout mapping, not a rewrite. The skills are not embedded in
 `knit.sh`, so they track the published repo.
+
+Install also drops `AGENTS.md` at the project root so an agent orients itself even
+before a skill is loaded. An existing project `AGENTS.md` is never overwritten.

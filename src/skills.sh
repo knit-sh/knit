@@ -80,6 +80,11 @@ _knit_skills_download() {
 # layout. The copy merges into any existing skills/commands directory (so other,
 # non-knit skills there are preserved) and overwrites knit's own, which makes a
 # re-install idempotent.
+#
+# It also drops the agent/AGENTS.md pointer at the project root so an agent
+# orients itself even before a skill is loaded. An existing project AGENTS.md is
+# never overwritten (it may hold the user's own notes); the pointer is written
+# only when no AGENTS.md is present.
 # ------------------------------------------------------------------------------
 _knit_skills_install() {
     local harness ref
@@ -107,6 +112,13 @@ _knit_skills_install() {
     mkdir -p "${base}/skills" "${base}/commands"
     cp -R "${src_skills}/." "${base}/skills/"
     [[ -d "${src_commands}" ]] && cp -R "${src_commands}/." "${base}/commands/"
+
+    # Drop the AGENTS.md pointer at the project root, but never clobber one the
+    # project already has.
+    local src_agents="${scratch}/agent/AGENTS.md"
+    if [[ -f "${src_agents}" && ! -e "AGENTS.md" ]]; then
+        cp "${src_agents}" "AGENTS.md"
+    fi
 
     rm -rf "${scratch}"
     knit_info "%s" "Installed knit agent skills and commands into ${base}/."

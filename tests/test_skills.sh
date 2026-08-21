@@ -20,6 +20,7 @@ setup() {
         mkdir -p "${dest}/agent/skills/using-knit" "${dest}/agent/commands"
         printf 'SKILL\n' > "${dest}/agent/skills/using-knit/SKILL.md"
         printf 'CMD\n'   > "${dest}/agent/commands/knit-profile.md"
+        printf 'POINTER\n' > "${dest}/agent/AGENTS.md"
     }
 }
 
@@ -74,6 +75,20 @@ teardown() {
     [ "${status}" -eq 0 ]
     [ -f ".claude/skills/graphify/SKILL.md" ]
     [ -f ".claude/skills/using-knit/SKILL.md" ]
+}
+
+@test "install: drops the AGENTS.md pointer at the project root" {
+    run knit skills install
+    [ "${status}" -eq 0 ]
+    [ -f "AGENTS.md" ]
+    [ "$(cat AGENTS.md)" = "POINTER" ]
+}
+
+@test "install: never overwrites an existing project AGENTS.md" {
+    printf 'MINE\n' > "AGENTS.md"
+    run knit skills install
+    [ "${status}" -eq 0 ]
+    [ "$(cat AGENTS.md)" = "MINE" ]
 }
 
 @test "install: re-install is idempotent" {
