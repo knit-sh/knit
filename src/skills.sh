@@ -134,7 +134,7 @@ knit_usable_before_bootstrap
 knit_done
 
 knit_register "skills:install" _knit_skills_install \
-    "Download knit's agent skills/commands and install them into a harness layout."
+    "Download knit's agent skills/commands from GitHub and install them into a harness layout (.agents/ by default, .claude/ with --harness claude)."
 _knit_is_builtin
 knit_usable_before_bootstrap
 knit_with_optional "harness:string" "agents" \

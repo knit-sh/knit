@@ -87,3 +87,8 @@ summary = "Emitting messages at the right level and framing a long-running comma
 slug = "introspection"
 title = "Introspection"
 summary = "Inspecting the declared command tree with knit describe."
+
+[[category]]
+slug = "agent"
+title = "Agent skills"
+summary = "Installing Knit's agent skills and commands into an AI harness."
