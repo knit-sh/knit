@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 
 # Tests for resource checksum verification (M5): the sha256 helpers
-# (_knit_resource_sha256 / _knit_resource_check_sha), the "defaults still used"
+# (_knit_sha256 / _knit_resource_check_sha), the "defaults still used"
 # gate (_knit_resource_defaults_used), the url/local/git verification paths, and
 # the dispatcher requirements — a mismatch is fatal, removes the partial instance,
 # and leaves no row, while --ignore-checksum and an overridden source bypass the
@@ -53,24 +53,24 @@ _stub_git() {
     }
 }
 
-# ---------- _knit_resource_sha256 ----------
+# ---------- _knit_sha256 ----------
 
 @test "sha256 of a file matches sha256sum" {
     local got want
-    _knit_resource_sha256 got "${_FILE}"
+    _knit_sha256 got "${_FILE}"
     want=$(sha256sum "${_FILE}"); want="${want%% *}"
     [ "${got}" = "${want}" ]
 }
 
 @test "sha256 of a directory is stable and content-sensitive" {
     local first second
-    _knit_resource_sha256 first "${_DIR}"
-    _knit_resource_sha256 second "${_DIR}"
+    _knit_sha256 first "${_DIR}"
+    _knit_sha256 second "${_DIR}"
     [ -n "${first}" ]
     [ "${first}" = "${second}" ]
     printf 'changed\n' > "${_DIR}/sub/b"
     local third
-    _knit_resource_sha256 third "${_DIR}"
+    _knit_sha256 third "${_DIR}"
     [ "${first}" != "${third}" ]
 }
 
@@ -80,7 +80,7 @@ _stub_git() {
         builtin command "$@"
     }
     local got
-    run _knit_resource_sha256 got "${_FILE}"
+    run _knit_sha256 got "${_FILE}"
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"sha256sum is required"* ]]
 }
@@ -150,7 +150,7 @@ _stub_curl_archive() {
 }
 
 @test "local backend verifies a directory digest" {
-    local want; _knit_resource_sha256 want "${_DIR}"
+    local want; _knit_sha256 want "${_DIR}"
     local dest="${_KNIT_TEST_TMPDIR}/inst"
     run _knit_fetch_local "${dest}" "${_DIR}" "true" "${want}"
     [ "${status}" -eq 0 ]

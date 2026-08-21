@@ -156,22 +156,22 @@ _knit_resource_source_identity() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_resource_sha256()
+# @fn _knit_sha256()
 #
-# Compute the sha256 of a fetched artifact and store the 64-hex digest (with no
-# trailing filename) in the caller-named variable. A regular file is hashed
-# directly. A directory is hashed recursively into one digest: every regular file
-# under it is hashed together with its relative path (sha256sum prints
-# "<hash>  <path>"), the lines are sorted for a stable order independent of
-# readdir order, and the aggregate is hashed again — so both the tree structure
-# and every file's content contribute. A symlink is followed (so a `local`
-# symlink instance hashes its target). Returns non-zero (with a knit_error) when
-# sha256sum is unavailable or a step fails.
+# Compute the sha256 of a file or directory and store the 64-hex digest (with no
+# trailing filename and no algorithm prefix) in the caller-named variable. A
+# regular file is hashed directly. A directory is hashed recursively into one
+# digest: every regular file under it is hashed together with its relative path
+# (sha256sum prints "<hash>  <path>"), the lines are sorted for a stable order
+# independent of readdir order, and the aggregate is hashed again — so both the
+# tree structure and every file's content contribute. A symlink is followed (so a
+# `local` symlink instance hashes its target). Returns non-zero (with a
+# knit_error) when sha256sum is unavailable or a step fails.
 #
 # @param __knit_ret Name of the variable to hold the digest.
 # @param path       Path to the file or directory to hash.
 # ------------------------------------------------------------------------------
-_knit_resource_sha256() {
+_knit_sha256() {
     local -n __knit_ret=$1
     local path="$2"
     if ! command -v sha256sum >/dev/null 2>&1; then
@@ -308,7 +308,7 @@ _knit_fetch_url() {
     # Verify the archive against the pin before unpacking or removing it.
     if [[ -n "${expected}" ]]; then
         local actual
-        _knit_resource_sha256 actual "${archive}" || return 1
+        _knit_sha256 actual "${archive}" || return 1
         _knit_resource_check_sha "${expected}" "${actual}" "url archive" || return 1
     fi
     if [[ "${uncompress}" == "true" ]]; then
@@ -356,7 +356,7 @@ _knit_fetch_local() {
     # its target).
     if [[ -n "${expected}" ]]; then
         local actual
-        _knit_resource_sha256 actual "${dest}" || return 1
+        _knit_sha256 actual "${dest}" || return 1
         _knit_resource_check_sha "${expected}" "${actual}" "local source" || return 1
     fi
 }

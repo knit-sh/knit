@@ -79,6 +79,22 @@ _knit_bootstrap_warn_absolute_root() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_check_prerequisites()
+#
+# Verify the external tools that Knit needs at run time but does not itself
+# provision are present on PATH, and fail bootstrap early (with a clear message)
+# when one is missing. Currently checks sha256sum, which content checksums for
+# file/directory parameters and outputs depend on. Uses _knit_command_path so it
+# is stubbable in tests.
+# ------------------------------------------------------------------------------
+_knit_bootstrap_check_prerequisites() {
+    if [[ -z "$(_knit_command_path sha256sum)" ]]; then
+        knit_fatal "sha256sum is required by Knit but was not found on PATH." \
+            "It is normally part of GNU coreutils; install coreutils and retry."
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_on_exit()
 #
 # Clean up on exit if bootstrap did not complete successfully.
@@ -206,6 +222,10 @@ _knit_bootstrap() {
     ai_model_env="$(knit_get_parameter "ai-model-env" "$@")"
     ai_base_url="$(knit_get_parameter "ai-base-url" "$@")"
     ai_model="$(knit_get_parameter "ai-model" "$@")"
+
+    # Fail early on a missing run-time prerequisite (before creating .knit), so a
+    # fresh checkout does not appear bootstrapped when a required tool is absent.
+    _knit_bootstrap_check_prerequisites
 
     # Create directory
     if [ -d "${_KNIT_PREFIX}" ]; then

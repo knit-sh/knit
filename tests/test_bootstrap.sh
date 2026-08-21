@@ -48,6 +48,29 @@ teardown() {
     [ "$status" -eq 1 ]
 }
 
+# ---------- prerequisites: sha256sum ----------
+
+@test "prerequisite check passes when sha256sum is present" {
+    _knit_command_path() { printf '/usr/bin/sha256sum'; }
+    run _knit_bootstrap_check_prerequisites
+    [ "$status" -eq 0 ]
+}
+
+@test "prerequisite check fatals when sha256sum is absent" {
+    _knit_command_path() { printf ''; }
+    run _knit_bootstrap_check_prerequisites
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"sha256sum is required"* ]]
+}
+
+@test "bootstrap fatals early and creates no prefix when sha256sum is absent" {
+    _knit_command_path() { printf ''; }
+    run _knit_bootstrap --scheduler local --launcher none
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"sha256sum is required"* ]]
+    [ ! -e "${_KNIT_PREFIX}" ]
+}
+
 # ---------- sqlite: symlink vs build decision ----------
 
 # Fake system sqlite3 path handed back by the stubbed _knit_command_path.
