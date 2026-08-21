@@ -2701,10 +2701,18 @@ _knit_checksum_inputs() {
 # declared output whose path does not exist is fatal. Called after the run
 # duration has been captured, so hashing is excluded from the measured run time.
 #
+# In a launched app worker no rank hashes outputs: rank 0 records the output
+# paths with empty checksum columns, and the `run` dispatcher verifies existence
+# and hashes them once after the launcher returns, off every measured duration.
+# So this returns early there, leaving the checksum columns for the dispatcher.
+#
 # @param cmd Mangled command name.
 # ------------------------------------------------------------------------------
 _knit_checksum_outputs() {
     local cmd="$1"
+    if _knit_checksum_is_app_worker "${cmd}"; then
+        return 0
+    fi
     local demangled_cmd
     demangled_cmd=$(_knit_command_demangle "${cmd}")
     # shellcheck disable=SC2178 # nameref to the command's output-value array

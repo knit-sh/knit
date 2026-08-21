@@ -210,6 +210,7 @@ _knit_run() {
     # context so the rank-0 per-app body records a call edge run -> run:<app>
     # (the app body has no in-process caller across the launcher, so it reads
     # these carriers). Exporting in a subshell keeps them out of the job body.
+    local run_status
     (
         export KNIT_RUN_ID="${uuid}"
         export KNIT_SOURCE_ID="${uuid}"
@@ -236,6 +237,16 @@ _knit_run() {
         _knit_launch_exec "${resolved_backend}" launch_opts -- \
             "${KNIT_SCRIPT_PATH}" _run -- "${app_name}" "${app_args[@]}"
     )
+    run_status=$?
+
+    # After the launcher returns, on a successful run, verify existence of and
+    # hash the app's checksummed outputs once here (never on a rank) and update
+    # rank 0's per-app row. Rank 0 recorded only the output paths; hashing after
+    # launch keeps it off every rank and out of every measured duration.
+    if [[ "${run_status}" -eq 0 ]]; then
+        _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${uuid}"
+    fi
+    return "${run_status}"
 }
 knit_done
 
@@ -397,6 +408,80 @@ _knit_run_checksum_inputs() {
         _knit_sha256 hex "${value}"
         # shellcheck disable=SC2034 # written through the nameref
         _digests["${param}"]="${hex}"
+    done < <(_knit_set_iter "_KNIT_CMD_${subcmd}_fileparams")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_run_checksum_outputs()
+#
+# Verify existence of, and hash, every checksummed file/directory output of an
+# app once, on the login side, after the launcher returns — never on a rank. An
+# app's body runs on every rank, but only rank 0 records the per-app row, and it
+# records only the output paths (the checksum columns are left empty by the M4
+# output hook, which no-ops in an app worker). Hashing here, after launch, keeps
+# it off every rank and out of every measured duration: hashing on rank 0 would
+# keep the launcher blocked while the other ranks idle at finalize, inflating the
+# run's measured wall-clock.
+#
+# Rank 0's per-app row is found through the provenance graph: the "run -> run:app"
+# call edge (source_id is this run's UUID) points at the row's id. For each
+# checksummed output, the recorded path is read back from that row, its existence
+# verified (a missing output on a successful run is fatal), the digest computed,
+# and the row's companion "<param>_checksum" column updated. An output left with
+# no value, or one that opted out with --no-checksum, is skipped. When nothing
+# was recorded (recording disabled, or no such row) this is a no-op.
+#
+# @param subcmd   Mangled app command name (run:<app>).
+# @param app_name The app name (its table is named after it).
+# @param run_uuid This run's UUID (source of the provenance edge to the row).
+# ------------------------------------------------------------------------------
+_knit_run_checksum_outputs() {
+    local subcmd="$1"
+    local app_name="$2"
+    local run_uuid="$3"
+    _knit_is_bootstrapped || return 0
+    _knit_set_exists "_KNIT_CMD_${subcmd}_fileparams" || return 0
+
+    local demangled
+    demangled=$(_knit_command_demangle "${subcmd}")
+
+    # Locate rank 0's per-app row via the run -> run:<app> call edge. Its target
+    # is the row's id; absent when nothing was recorded (e.g. recording disabled).
+    local sid_esc tname_esc row_id
+    _knit_sql_escape sid_esc "${run_uuid}"
+    _knit_sql_escape tname_esc "${demangled}"
+    row_id=$(_knit_sqlite3 \
+        "SELECT target_id FROM ${_KNIT_PROV_TABLE} WHERE source_id='${sid_esc}' AND target_name='${tname_esc}' AND edge_type='call' LIMIT 1;" \
+        2>/dev/null) || row_id=""
+    [[ -n "${row_id}" ]] || return 0
+
+    local table_ident id_ident rid_esc
+    _knit_db_sql_ident table_ident "${app_name}"
+    _knit_db_sql_ident id_ident "id"
+    _knit_sql_escape rid_esc "${row_id}"
+
+    local param
+    while IFS= read -r param; do
+        [[ -z "${param}" ]] && continue
+        local marker_var="_KNIT_CMD_${subcmd}_fileparam_${param}"
+        local marker="${!marker_var:-}"
+        [[ "${marker}" == output:* ]] || continue
+        local rest="${marker#output:}"
+        local kind="${rest%%:*}"
+        local checksum="${rest##*:}"
+        [[ "${checksum}" == "yes" ]] || continue
+        # Read the recorded path back from rank 0's row.
+        local col_ident value
+        _knit_db_sql_ident col_ident "${param}"
+        value=$(_knit_sqlite3 \
+            "SELECT ${col_ident} FROM ${table_ident} WHERE ${id_ident}='${rid_esc}';" \
+            2>/dev/null) || value=""
+        # An output left with no value has no path to check or hash.
+        [[ -z "${value}" ]] && continue
+        _knit_checksum_require_exists "${demangled}" output "${param}" "${kind}" "${value}"
+        local hex
+        _knit_sha256 hex "${value}"
+        _knit_db_update_row "${app_name}" "${row_id}" "${param}_checksum=sha256:${hex}"
     done < <(_knit_set_iter "_KNIT_CMD_${subcmd}_fileparams")
 }
 
