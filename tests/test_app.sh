@@ -235,6 +235,31 @@ teardown() {
     [[ "$output" == *"SRCID=run-uuid-1 CMD=run"* ]]
 }
 
+@test "run exports the jump-back cwd to the launch subshell (survives a prior unset)" {
+    _app_fn() { :; }
+    knit_register_app "myapp" "_app_fn" "A test app."
+    knit_done
+    export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
+    _knit_uuidv7() { printf 'run-uuid-1\n'; }
+    _knit_launch_backend() { local -n __r=$1; __r='none'; }
+    _knit_launch_cmdline() { local -n _argv="$3"; _argv=(launcher); }
+    # A real job body re-enters through main.sh, which consumes and unsets
+    # _KNIT_JUMP_TO_DIR; unset strips its -gx export attribute, so a plain
+    # re-assignment in the dispatcher would not be exported. Reproduce that state.
+    unset _KNIT_JUMP_TO_DIR
+    # The launcher forwards only exported variables to the ranks, so a rank jumps
+    # back to the run's cwd only if the dispatcher exported it. Echo whether it did.
+    _knit_launch_exec() {
+        case "$(declare -p _KNIT_JUMP_TO_DIR 2>/dev/null)" in
+            "declare -x "*) printf 'JUMP=exported\n' ;;
+            *) printf 'JUMP=not-exported\n' ;;
+        esac
+    }
+    run _knit_invoke_command run --procs 2 -- myapp
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"JUMP=exported"* ]]
+}
+
 @test "run does not leak the run's provenance context into the caller" {
     _app_fn() { :; }
     knit_register_app "myapp" "_app_fn" "A test app."

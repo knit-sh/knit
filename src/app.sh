@@ -229,9 +229,11 @@ _knit_run() {
         # _KNIT_JUMP_TO_DIR). Using $PWD (not KNIT_JOB_PREFIX) preserves "ranks
         # run where knit run was called" even for a top-level run outside a job.
         # This is scoped to the launcher subshell, so the job body's cwd is
-        # untouched. _KNIT_JUMP_TO_DIR is declared -gx in main.sh, so this plain
-        # assignment is already exported (no export keyword needed here).
-        _KNIT_JUMP_TO_DIR="${PWD}"
+        # untouched. It must be exported so the launcher forwards it to every
+        # rank: main.sh consumes and unsets _KNIT_JUMP_TO_DIR on the job body's
+        # own re-entry, and unset strips the export attribute, so its -gx
+        # declaration no longer applies here.
+        export _KNIT_JUMP_TO_DIR="${PWD}"
         cd "$(dirname "${KNIT_SCRIPT_PATH}")" \
             || knit_fatal "cannot cd to the experiment script directory"
         _knit_launch_exec "${resolved_backend}" launch_opts -- \
