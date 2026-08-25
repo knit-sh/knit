@@ -296,9 +296,11 @@ _knit_bootstrap_update_profile() {
 # --resource-path), which relocate only when the current root is empty of its
 # kind. It also handles the constrained options: --spack/--spack-packages (add
 # Spack when absent, or re-provision on a changed ref only while no environment
-# is built) and --profile (a changed profile is out of scope and fatals). When no
-# handled option was typed, it reports that there is nothing to update and
-# succeeds.
+# is built) and --profile (a changed profile is out of scope and fatals), and the
+# tooling options: --ignore-system-sqlite/--ignore-system-jq (rebuild a
+# system-symlinked tool from source) and --knit-graph-version/--knit-graph-url
+# (re-provision knit-graph on a changed version or URL). When no handled option
+# was typed, it reports that there is nothing to update and succeeds.
 #
 # @param raw_args Name of an array holding the raw, pre-expansion argument tokens
 #                 (the caller's copy of _KNIT_INVOCATION_RAW_ARGS).
@@ -318,6 +320,7 @@ _knit_bootstrap_update() {
     local default_nodefile scheduler launcher
     local setup_path_opt job_path_opt resource_path_opt
     local spack_ref spack_packages_ref profile
+    local knitgraph_version knitgraph_url
     local ai_api_key_env ai_base_url_env ai_model_env ai_base_url ai_model
     project="$(knit_get_parameter "project" "$@")"
     platform="$(knit_get_parameter "platform" "$@")"
@@ -333,6 +336,8 @@ _knit_bootstrap_update() {
     spack_ref="$(knit_get_parameter "spack" "$@")"
     spack_packages_ref="$(knit_get_parameter "spack-packages" "$@")"
     profile="$(knit_get_parameter "profile" "$@")"
+    knitgraph_version="$(knit_get_parameter "knit-graph-version" "$@")"
+    knitgraph_url="$(knit_get_parameter "knit-graph-url" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
     ai_base_url_env="$(knit_get_parameter "ai-base-url-env" "$@")"
     ai_model_env="$(knit_get_parameter "ai-model-env" "$@")"
@@ -404,6 +409,14 @@ _knit_bootstrap_update() {
     # Spack: add it when absent, or re-provision on a changed ref only while no
     # environment is built (a built environment freezes the version, and fatals).
     _knit_bootstrap_update_spack "${spack_ref}" "${spack_packages_ref}" "${__knit_raw[@]}" && updated="true"
+
+    # Tooling: rebuild sqlite / re-download jq when a typed --ignore-system-*
+    # flag turns a system symlink into a private install, and re-provision
+    # knit-graph when a typed version/URL differs. sqlite runs before knit-graph
+    # since knit-graph links against it.
+    _knit_bootstrap_update_sqlite "${__knit_raw[@]}" && updated="true"
+    _knit_bootstrap_update_jq "${__knit_raw[@]}" && updated="true"
+    _knit_bootstrap_update_knitgraph "${knitgraph_version}" "${knitgraph_url}" "${__knit_raw[@]}" && updated="true"
 
     if [[ "${updated}" == "false" ]]; then
         knit_info "Knit is already bootstrapped; no updatable option was given, nothing to update."

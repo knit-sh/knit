@@ -82,6 +82,28 @@ _knit_bootstrap_jq() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_update_jq()
+#
+# Update-mode handler for --ignore-system-jq. The flag matters only when the
+# current jq install is a symlink to a system binary: it replaces the symlink
+# with a downloaded prebuilt jq. An install that was already downloaded is what
+# the flag asks for, so it is a no-op; an untyped flag leaves the install as is.
+#
+# @param ... Raw argument tokens of this invocation (see
+#            _KNIT_INVOCATION_RAW_ARGS), used to tell a typed flag from a
+#            defaulted one.
+# @return 0 when jq was re-downloaded, 1 when nothing changed.
+# ------------------------------------------------------------------------------
+_knit_bootstrap_update_jq() {
+    _knit_arg_was_provided "ignore-system-jq" "$@" || return 1
+    [[ -L "${_KNIT_JQ_EXE}" ]] || return 1
+    knit_info "Downloading jq..."
+    rm -f "${_KNIT_JQ_EXE}"
+    _knit_download_jq
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_download_jq()
 #
 # Download the prebuilt jq binary for the current platform and install it in

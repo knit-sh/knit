@@ -113,6 +113,31 @@ _knit_bootstrap_sqlite() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_update_sqlite()
+#
+# Update-mode handler for --ignore-system-sqlite. The flag matters only when the
+# current sqlite install is a symlink to a system binary: it replaces the symlink
+# with a from-source build (which also lays down the development files knit-graph
+# links against) and records the from-source prefix in _KNIT_SQLITE_PREFIX. An
+# install that is already built from source is what the flag asks for, so it is a
+# no-op; an untyped flag leaves the install as is.
+#
+# @param ... Raw argument tokens of this invocation (see
+#            _KNIT_INVOCATION_RAW_ARGS), used to tell a typed flag from a
+#            defaulted one.
+# @return 0 when sqlite was rebuilt from source, 1 when nothing changed.
+# ------------------------------------------------------------------------------
+_knit_bootstrap_update_sqlite() {
+    _knit_arg_was_provided "ignore-system-sqlite" "$@" || return 1
+    [[ -L "${_KNIT_SQLITE_EXE}" ]] || return 1
+    knit_info "Rebuilding sqlite from source..."
+    rm -rf "${_KNIT_PREFIX}/sqlite"
+    _knit_build_sqlite
+    _KNIT_SQLITE_PREFIX="${_KNIT_PREFIX}/sqlite"
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_build_sqlite()
 #
 # Download and build Sqlite3, and install it in the .knit directory.

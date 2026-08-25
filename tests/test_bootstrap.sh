@@ -979,3 +979,147 @@ _setup_profile_update() {
     [ ! -s "${__update_meta}" ]
     [[ "$output" == *"nothing to update"* ]]
 }
+
+# ---------- update mode: tooling (sqlite / jq re-provision) ----------
+
+# Prepare an sqlite install location under the prefix and stub the from-source
+# build to a marker. A test makes _KNIT_SQLITE_EXE a symlink (system) or a real
+# file (from-source) to drive the decision.
+_setup_sqlite_update() {
+    mkdir -p "${_KNIT_PREFIX}"
+    _KNIT_SQLITE_EXE="${_KNIT_PREFIX}/sqlite/bin/sqlite3"
+    mkdir -p "$(dirname "${_KNIT_SQLITE_EXE}")"
+    __sqlite_build_marker="${__TEST_TMPDIR}/sqlite-rebuilt"; rm -f "${__sqlite_build_marker}"
+    eval '_knit_build_sqlite() { : > "'"${__sqlite_build_marker}"'"; }'
+}
+
+@test "update mode rebuilds sqlite from source when the flag is typed over a symlink" {
+    _setup_sqlite_update
+    ln -s /usr/bin/true "${_KNIT_SQLITE_EXE}"      # a system symlink
+
+    run _knit_bootstrap_update_sqlite --ignore-system-sqlite
+    [ "$status" -eq 0 ]
+    [ -e "${__sqlite_build_marker}" ]
+    [ ! -L "${_KNIT_SQLITE_EXE}" ]                 # symlink removed before the build
+}
+
+@test "update mode leaves an already-from-source sqlite install alone" {
+    _setup_sqlite_update
+    printf '#!/bin/sh\n' > "${_KNIT_SQLITE_EXE}"   # a real binary, not a symlink
+    chmod +x "${_KNIT_SQLITE_EXE}"
+
+    run _knit_bootstrap_update_sqlite --ignore-system-sqlite
+    [ "$status" -eq 1 ]
+    [ ! -e "${__sqlite_build_marker}" ]
+    [ -f "${_KNIT_SQLITE_EXE}" ]                   # untouched
+}
+
+@test "update mode leaves sqlite alone when the flag is untyped" {
+    _setup_sqlite_update
+    ln -s /usr/bin/true "${_KNIT_SQLITE_EXE}"
+
+    run _knit_bootstrap_update_sqlite             # no flag typed
+    [ "$status" -eq 1 ]
+    [ ! -e "${__sqlite_build_marker}" ]
+    [ -L "${_KNIT_SQLITE_EXE}" ]                   # symlink untouched
+}
+
+# Prepare a jq install location under the prefix and stub the download to a
+# marker.
+_setup_jq_update() {
+    mkdir -p "${_KNIT_PREFIX}"
+    _KNIT_JQ_EXE="${_KNIT_PREFIX}/jq/bin/jq"
+    mkdir -p "$(dirname "${_KNIT_JQ_EXE}")"
+    __jq_download_marker="${__TEST_TMPDIR}/jq-redownloaded"; rm -f "${__jq_download_marker}"
+    eval '_knit_download_jq() { : > "'"${__jq_download_marker}"'"; }'
+}
+
+@test "update mode re-downloads jq when the flag is typed over a symlink" {
+    _setup_jq_update
+    ln -s /usr/bin/true "${_KNIT_JQ_EXE}"
+
+    run _knit_bootstrap_update_jq --ignore-system-jq
+    [ "$status" -eq 0 ]
+    [ -e "${__jq_download_marker}" ]
+    [ ! -L "${_KNIT_JQ_EXE}" ]                     # symlink removed before download
+}
+
+@test "update mode leaves an already-downloaded jq install alone" {
+    _setup_jq_update
+    printf '#!/bin/sh\n' > "${_KNIT_JQ_EXE}"       # a real binary, not a symlink
+    chmod +x "${_KNIT_JQ_EXE}"
+
+    run _knit_bootstrap_update_jq --ignore-system-jq
+    [ "$status" -eq 1 ]
+    [ ! -e "${__jq_download_marker}" ]
+    [ -f "${_KNIT_JQ_EXE}" ]                       # untouched
+}
+
+@test "update mode leaves jq alone when the flag is untyped" {
+    _setup_jq_update
+    ln -s /usr/bin/true "${_KNIT_JQ_EXE}"
+
+    run _knit_bootstrap_update_jq                  # no flag typed
+    [ "$status" -eq 1 ]
+    [ ! -e "${__jq_download_marker}" ]
+    [ -L "${_KNIT_JQ_EXE}" ]                       # symlink untouched
+}
+
+# ---------- update mode: knit-graph re-provision ----------
+
+# Prepare an already-bootstrapped experiment for the knit-graph update handler: a
+# real metadata table seeded with the stored version/url and a stub recording the
+# rebuild's arguments. Metadata writes hit the real database so they can be read
+# back.
+_setup_knitgraph_update() {
+    knit_test_require_sqlite
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="${__TEST_TMPDIR}/kg.db"
+    _KNIT_IS_BOOTSTRAPPED="1"
+    _knit_create_metadata_table
+    knit metadata store --key __knit_graph_version__ --value 0.2.1
+    knit metadata store --key __knit_graph_url__ \
+        --value "https://github.com/knit-sh/knit-graph/releases/download/v0.2.1/knit-graph-0.2.1.tar.gz"
+    __kg_build_marker="${__TEST_TMPDIR}/kg-rebuilt"; : > "${__kg_build_marker}"
+    eval '_knit_build_knitgraph() { printf "%s\n" "$*" > "'"${__kg_build_marker}"'"; }'
+}
+
+@test "update mode re-provisions knit-graph when the version changes" {
+    _setup_knitgraph_update
+
+    run _knit_bootstrap_update_knitgraph "0.3.0" "" --knit-graph-version 0.3.0
+    [ "$status" -eq 0 ]
+    # Rebuilt at the new version with the URL re-derived from it.
+    grep -q "0.3.0" "${__kg_build_marker}"
+    grep -q "knit-graph-0.3.0.tar.gz" "${__kg_build_marker}"
+    # Stored provenance updated.
+    local v; _knit_metadata_get v "__knit_graph_version__"; [ "$v" = "0.3.0" ]
+}
+
+@test "update mode re-provisions knit-graph when the url changes" {
+    _setup_knitgraph_update
+
+    run _knit_bootstrap_update_knitgraph "" "https://example.com/kg.tgz" \
+        --knit-graph-url https://example.com/kg.tgz
+    [ "$status" -eq 0 ]
+    # Rebuilt with the stored version but the new URL.
+    grep -q "0.2.1" "${__kg_build_marker}"
+    grep -q "https://example.com/kg.tgz" "${__kg_build_marker}"
+    local u; _knit_metadata_get u "__knit_graph_url__"; [ "$u" = "https://example.com/kg.tgz" ]
+}
+
+@test "a typed knit-graph version equal to the stored one is a no-op" {
+    _setup_knitgraph_update
+
+    run _knit_bootstrap_update_knitgraph "0.2.1" "" --knit-graph-version 0.2.1
+    [ "$status" -eq 1 ]
+    [ ! -s "${__kg_build_marker}" ]
+}
+
+@test "update mode leaves knit-graph unchanged when no option is typed" {
+    _setup_knitgraph_update
+
+    run _knit_bootstrap_update_knitgraph "" ""
+    [ "$status" -eq 1 ]
+    [ ! -s "${__kg_build_marker}" ]
+}

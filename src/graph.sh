@@ -146,6 +146,77 @@ _knit_bootstrap_knitgraph() {
     knit metadata store --key "__knit_graph_url__"     --value "${url}"
 }
 
+# ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_update_knitgraph()
+#
+# Update-mode handler for --knit-graph-version/--knit-graph-url. When a typed
+# option differs from the stored value, remove the knit-graph install, rebuild it
+# at the effective version/URL, and update the stored provenance
+# (__knit_graph_version__/__knit_graph_url__). A typed version with no explicit
+# URL re-derives the URL from that version, so a version bump also moves the
+# download. A typed option equal to the stored value, or an untyped option, is a
+# no-op.
+#
+# knit-graph links against Knit's own sqlite, so the sqlite build prefix is
+# reconstructed from the current install (a symlink means the system sqlite, a
+# real file the from-source build) before rebuilding.
+#
+# @param version Value typed for --knit-graph-version.
+# @param url     Value typed for --knit-graph-url.
+# @param ...     Raw argument tokens of this invocation (see
+#                _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option from a
+#                defaulted one.
+# @return 0 when knit-graph was re-provisioned, 1 when nothing changed.
+# ------------------------------------------------------------------------------
+_knit_bootstrap_update_knitgraph() {
+    local version="$1"
+    local url="$2"
+    shift 2
+
+    local version_typed="false" url_typed="false"
+    _knit_arg_was_provided "knit-graph-version" "$@" && version_typed="true"
+    _knit_arg_was_provided "knit-graph-url" "$@" && url_typed="true"
+    [[ "${version_typed}" == "false" && "${url_typed}" == "false" ]] && return 1
+
+    local stored_version stored_url
+    _knit_metadata_get stored_version "__knit_graph_version__"
+    _knit_metadata_get stored_url "__knit_graph_url__"
+
+    local eff_version="${stored_version}" eff_url="${stored_url}"
+    local differs="false"
+    if [[ "${version_typed}" == "true" && "${version}" != "${stored_version}" ]]; then
+        eff_version="${version}"
+        differs="true"
+    fi
+    if [[ "${url_typed}" == "true" ]]; then
+        if [[ "${url}" != "${stored_url}" ]]; then
+            eff_url="${url}"
+            differs="true"
+        fi
+    elif [[ "${differs}" == "true" ]]; then
+        # Version changed and no explicit URL: re-derive it from the new version.
+        eff_url="$(_knit_knitgraph_url "${eff_version}")"
+    fi
+
+    [[ "${differs}" == "false" ]] && return 1
+
+    # Reconstruct the sqlite build prefix knit-graph must link against: a symlink
+    # means the system sqlite (dev files on default paths, no --with-sqlite3), a
+    # real file the from-source install.
+    if [[ -L "${_KNIT_SQLITE_EXE}" ]]; then
+        _KNIT_SQLITE_PREFIX=""
+    else
+        _KNIT_SQLITE_PREFIX="${_KNIT_PREFIX}/sqlite"
+    fi
+
+    knit_info "Re-provisioning knit-graph..."
+    rm -rf "${_KNIT_PREFIX}/knit-graph"
+    _knit_build_knitgraph "${eff_version}" "${eff_url}"
+    knit metadata store --key "__knit_graph_version__" --value "${eff_version}" --force
+    knit metadata store --key "__knit_graph_url__"     --value "${eff_url}" --force
+    return 0
+}
+
 # shellcheck disable=SC2120
 # ------------------------------------------------------------------------------
 # @fn _knit_knit_graph()
