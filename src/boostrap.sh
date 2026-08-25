@@ -255,6 +255,32 @@ _knit_bootstrap_relocate_path() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_update_profile()
+#
+# Update-mode handler for --profile. Changing the machine profile is out of scope
+# for the re-runnable bootstrap: a typed profile that differs from the stored one
+# is a hard stop (fatal), while a typed profile equal to the stored one (or an
+# untyped profile) is a no-op. The stored profile is the resolved profile label
+# recorded at first bootstrap (__profile__).
+#
+# @param profile Value typed for --profile.
+# @param ...     Raw argument tokens of this invocation (see
+#                _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option from a
+#                defaulted one.
+# @return 1 when there is nothing to do (a differing profile fatals instead).
+# ------------------------------------------------------------------------------
+_knit_bootstrap_update_profile() {
+    local profile="$1"
+    shift
+    _knit_arg_was_provided "profile" "$@" || return 1
+    local stored
+    _knit_metadata_get stored "__profile__"
+    [[ "${profile}" == "${stored}" ]] && return 1
+    knit_fatal "Changing the profile is not supported yet (stored: %s, requested: %s).\nRe-create the experiment to change its profile." \
+        "${stored:-<none>}" "${profile}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_update()
 #
 # Run bootstrap in update mode on an experiment that is already bootstrapped. It
@@ -268,8 +294,11 @@ _knit_bootstrap_relocate_path() {
 # AI provider options (--ai-*), each written per key so one AI field can change
 # without clearing the rest, and the path-root options (--setup-path, --job-path,
 # --resource-path), which relocate only when the current root is empty of its
-# kind. When no handled option was typed, it reports that there is nothing to
-# update and succeeds.
+# kind. It also handles the constrained options: --spack/--spack-packages (add
+# Spack when absent, or re-provision on a changed ref only while no environment
+# is built) and --profile (a changed profile is out of scope and fatals). When no
+# handled option was typed, it reports that there is nothing to update and
+# succeeds.
 #
 # @param raw_args Name of an array holding the raw, pre-expansion argument tokens
 #                 (the caller's copy of _KNIT_INVOCATION_RAW_ARGS).
@@ -288,6 +317,7 @@ _knit_bootstrap_update() {
     local project platform account default_walltime cpus_flag
     local default_nodefile scheduler launcher
     local setup_path_opt job_path_opt resource_path_opt
+    local spack_ref spack_packages_ref profile
     local ai_api_key_env ai_base_url_env ai_model_env ai_base_url ai_model
     project="$(knit_get_parameter "project" "$@")"
     platform="$(knit_get_parameter "platform" "$@")"
@@ -300,11 +330,18 @@ _knit_bootstrap_update() {
     setup_path_opt="$(knit_get_parameter "setup-path" "$@")"
     job_path_opt="$(knit_get_parameter "job-path" "$@")"
     resource_path_opt="$(knit_get_parameter "resource-path" "$@")"
+    spack_ref="$(knit_get_parameter "spack" "$@")"
+    spack_packages_ref="$(knit_get_parameter "spack-packages" "$@")"
+    profile="$(knit_get_parameter "profile" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
     ai_base_url_env="$(knit_get_parameter "ai-base-url-env" "$@")"
     ai_model_env="$(knit_get_parameter "ai-model-env" "$@")"
     ai_base_url="$(knit_get_parameter "ai-base-url" "$@")"
     ai_model="$(knit_get_parameter "ai-model" "$@")"
+
+    # Changing the profile is out of scope: a differing --profile fatals before
+    # any other option is written, so a rejected update mutates nothing.
+    _knit_bootstrap_update_profile "${profile}" "${__knit_raw[@]}"
 
     local updated="false"
 
@@ -363,6 +400,10 @@ _knit_bootstrap_update() {
     _knit_bootstrap_relocate_path "setup"    "${setup_path_opt}"    "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_relocate_path "job"      "${job_path_opt}"      "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_relocate_path "resource" "${resource_path_opt}" "${__knit_raw[@]}" && updated="true"
+
+    # Spack: add it when absent, or re-provision on a changed ref only while no
+    # environment is built (a built environment freezes the version, and fatals).
+    _knit_bootstrap_update_spack "${spack_ref}" "${spack_packages_ref}" "${__knit_raw[@]}" && updated="true"
 
     if [[ "${updated}" == "false" ]]; then
         knit_info "Knit is already bootstrapped; no updatable option was given, nothing to update."

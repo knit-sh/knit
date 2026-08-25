@@ -247,6 +247,104 @@ _knit_bootstrap_spack() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_spack_env_built()
+#
+# Return 0 when at least one setup instance has a built Spack environment,
+# non-zero otherwise. A built environment is a "spack-env/spack.lock" lockfile
+# under a setup instance directory (see _knit_setup_spack_env_before_cb). Used by
+# update-mode Spack handling to freeze the Spack version once any environment has
+# been concretized, for reproducibility. A missing setup root reports "none
+# built".
+# ------------------------------------------------------------------------------
+_knit_bootstrap_spack_env_built() {
+    local root
+    _knit_setup_root root
+    [[ -d "${root}" ]] || return 1
+    local entry
+    for entry in "${root}"/*/; do
+        [[ -f "${entry}spack-env/spack.lock" ]] && return 0
+    done
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_update_spack()
+#
+# Update-mode handler for the Spack options (--spack, --spack-packages). Spack
+# anchors reproducibility, so its version is frozen once an environment is built:
+#
+#   - Spack not provisioned yet: provision it now when a ref was typed or a
+#     Spack-requiring setup is registered (the first-bootstrap condition). This
+#     adds Spack that the first bootstrap did not.
+#   - Spack already provisioned and a typed ref differs from the stored ref:
+#       * no Spack environment is built anywhere -> re-provision at the new
+#         ref(s) and update the stored ref/commit metadata;
+#       * a Spack environment is built -> fatal, for reproducibility.
+#   - A typed ref equal to the stored ref (or no ref typed) is a no-op.
+#
+# An untyped ref keeps its stored value across a re-provision, so changing only
+# --spack does not silently move spack-packages to the latest release.
+#
+# @param spack_ref    Value typed for --spack (may be empty).
+# @param packages_ref Value typed for --spack-packages (may be empty).
+# @param ...          Raw argument tokens of this invocation (see
+#                     _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option
+#                     from a defaulted one.
+# @return 0 when Spack was provisioned or re-provisioned, 1 when nothing changed.
+# ------------------------------------------------------------------------------
+_knit_bootstrap_update_spack() {
+    local spack_ref="$1"
+    local packages_ref="$2"
+    shift 2
+
+    # Not provisioned yet: provision now under the same condition as first
+    # bootstrap (a typed ref, or a registered Spack-requiring setup).
+    if [[ ! -d "${_KNIT_SPACK_ROOT}" ]]; then
+        _knit_bootstrap_need_spack "${spack_ref}" "${packages_ref}" || return 1
+        knit_info "Bootstrapping spack..."
+        _knit_bootstrap_spack "${spack_ref}" "${packages_ref}"
+        return 0
+    fi
+
+    # Already provisioned: only a typed ref can change anything.
+    local spack_typed="false" packages_typed="false"
+    _knit_arg_was_provided "spack" "$@" && spack_typed="true"
+    _knit_arg_was_provided "spack-packages" "$@" && packages_typed="true"
+    [[ "${spack_typed}" == "false" && "${packages_typed}" == "false" ]] && return 1
+
+    local stored_spack stored_packages
+    _knit_metadata_get stored_spack "__spack_ref__"
+    _knit_metadata_get stored_packages "__spack_packages_ref__"
+
+    # Effective refs: a typed ref replaces the stored one; an untyped ref keeps
+    # the stored value so a re-provision does not move an untouched repo to the
+    # latest release.
+    local eff_spack="${stored_spack}" eff_packages="${stored_packages}"
+    local differs="false"
+    if [[ "${spack_typed}" == "true" && "${spack_ref}" != "${stored_spack}" ]]; then
+        eff_spack="${spack_ref}"
+        differs="true"
+    fi
+    if [[ "${packages_typed}" == "true" && "${packages_ref}" != "${stored_packages}" ]]; then
+        eff_packages="${packages_ref}"
+        differs="true"
+    fi
+
+    # A typed ref equal to the stored ref is a no-op.
+    [[ "${differs}" == "false" ]] && return 1
+
+    # A different ref is refused once any setup has concretized an environment.
+    if _knit_bootstrap_spack_env_built; then
+        knit_fatal "Cannot change the Spack version: a Spack environment is already built under a setup.\nThe Spack version is frozen for reproducibility once an environment exists."
+    fi
+
+    knit_info "Re-provisioning spack..."
+    rm -rf "${_KNIT_SPACK_ROOT}" "${_KNIT_SPACK_PACKAGES_ROOT}"
+    _knit_bootstrap_spack "${eff_spack}" "${eff_packages}"
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_spack_ensure_provisioned()
 #
 # Ensure the knit-private Spack is present, provisioning it on demand when it is
