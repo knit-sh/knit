@@ -454,3 +454,184 @@ _bootstrap_launcher_stubs() {
     grep -q -- '--key __launcher__ --value none' "${meta}"
     [ ! -s "${calls}" ]
 }
+
+# ---------- update mode (re-runnable bootstrap): free-to-update options ----------
+
+# File capturing the (stubbed) "knit metadata store" calls of an update.
+__update_meta=""
+
+# Prepare a valid, already-bootstrapped experiment for an update-mode call: a
+# .knit/ directory with a (fake) database, the prerequisite check satisfied, and
+# a knit() stub that records only the metadata-store writes.
+_setup_update_mode() {
+    mkdir "${_KNIT_PREFIX}"
+    _KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
+    : > "${_KNIT_DATABASE}"
+    _KNIT_IS_BOOTSTRAPPED="1"
+    _knit_command_path() { printf '/usr/bin/sha256sum'; }
+    __update_meta="${__TEST_TMPDIR}/update-meta"
+    : > "${__update_meta}"
+    eval 'knit() { if [ "$1" = metadata ] && [ "$2" = store ]; then printf "%s\n" "$*" >> "'"${__update_meta}"'"; fi; }'
+}
+
+@test "update mode stores only the typed free option and leaves the rest" {
+    _setup_update_mode
+    _KNIT_INVOCATION_RAW_ARGS=(--account new-alloc)
+
+    run _knit_bootstrap --account new-alloc
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __account__ --value new-alloc --force' "${__update_meta}"
+    # Exactly one key was written; no other setting was touched.
+    [ "$(grep -c -- '--key' "${__update_meta}")" -eq 1 ]
+}
+
+@test "update mode updates every typed free option" {
+    _setup_update_mode
+    _KNIT_INVOCATION_RAW_ARGS=(--project demo --platform mymachine --account acct \
+        --default-walltime 01:00:00 --default-cpus-per-node 64)
+
+    run _knit_bootstrap --project demo --platform mymachine --account acct \
+        --default-walltime 01:00:00 --default-cpus-per-node 64
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __project__ --value demo --force' "${__update_meta}"
+    grep -q -- '--key __platform__ --value mymachine --force' "${__update_meta}"
+    grep -q -- '--key __account__ --value acct --force' "${__update_meta}"
+    grep -q -- '--key __default_walltime__ --value 01:00:00 --force' "${__update_meta}"
+    grep -q -- '--key __node_ncpus__ --value 64 --force' "${__update_meta}"
+}
+
+@test "a bare re-bootstrap is a no-op that succeeds" {
+    _setup_update_mode
+    _KNIT_INVOCATION_RAW_ARGS=()
+
+    run _knit_bootstrap
+    [ "$status" -eq 0 ]
+
+    # Nothing was written and the user was told there was nothing to update.
+    [ ! -s "${__update_meta}" ]
+    [[ "$output" == *"nothing to update"* ]]
+}
+
+@test "update mode fatals when .knit holds no database" {
+    mkdir "${_KNIT_PREFIX}"
+    _KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"   # deliberately not created -> malformed
+    _KNIT_IS_BOOTSTRAPPED="1"
+    _knit_command_path() { printf '/usr/bin/sha256sum'; }
+    _KNIT_INVOCATION_RAW_ARGS=(--account x)
+
+    run _knit_bootstrap --account x
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"no Knit database"* ]]
+    # A malformed directory is reported, never silently deleted.
+    [ -d "${_KNIT_PREFIX}" ]
+}
+
+@test "a failed update leaves .knit intact (no destructive exit trap)" {
+    _setup_update_mode
+    # A metadata write fatals partway through the update.
+    eval 'knit() { if [ "$1" = metadata ]; then knit_fatal "boom"; fi; }'
+    _KNIT_INVOCATION_RAW_ARGS=(--account x)
+
+    run _knit_bootstrap --account x
+    [ "$status" -ne 0 ]
+    # Update mode installs no cleanup trap, so the experiment survives.
+    [ -d "${_KNIT_PREFIX}" ]
+    [ -f "${_KNIT_DATABASE}" ]
+}
+
+@test "update mode preserves the database and untouched rows" {
+    knit_test_require_sqlite
+    mkdir "${_KNIT_PREFIX}"
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
+    _KNIT_IS_BOOTSTRAPPED="1"
+    _knit_command_path() { printf '/usr/bin/sha256sum'; }
+    # A real metadata table with two pre-existing rows and the real dispatcher.
+    _knit_create_metadata_table
+    knit metadata store --key __project__ --value old-project
+    knit metadata store --key __account__ --value old-account
+
+    _KNIT_INVOCATION_RAW_ARGS=(--account new-account)
+    run _knit_bootstrap --account new-account
+    [ "$status" -eq 0 ]
+
+    # The typed key changed, the untyped key kept its value, the DB survived.
+    [ "$(_knit_sqlite3 "SELECT value FROM metadata WHERE key='__account__';")" = "new-account" ]
+    [ "$(_knit_sqlite3 "SELECT value FROM metadata WHERE key='__project__';")" = "old-project" ]
+    [ -f "${_KNIT_DATABASE}" ]
+}
+
+@test "update mode --scheduler auto re-runs detection and stores the result" {
+    _setup_update_mode
+    eval '_knit_detect_job_manager() { printf "slurm"; }'
+    _KNIT_INVOCATION_RAW_ARGS=(--scheduler auto)
+
+    run _knit_bootstrap --scheduler auto
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __scheduler__ --value slurm --force' "${__update_meta}"
+}
+
+@test "update mode --scheduler auto maps an undetected scheduler to local" {
+    _setup_update_mode
+    eval '_knit_detect_job_manager() { printf "<unknown>"; }'
+    _KNIT_INVOCATION_RAW_ARGS=(--scheduler auto)
+
+    run _knit_bootstrap --scheduler auto
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __scheduler__ --value local --force' "${__update_meta}"
+}
+
+@test "update mode --scheduler stores an explicit value without detection" {
+    _setup_update_mode
+    eval '_knit_detect_job_manager() { printf "SHOULD-NOT-RUN"; }'
+    _KNIT_INVOCATION_RAW_ARGS=(--scheduler pbs)
+
+    run _knit_bootstrap --scheduler pbs
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __scheduler__ --value pbs --force' "${__update_meta}"
+}
+
+@test "update mode --launcher auto re-runs detection and stores the result" {
+    _setup_update_mode
+    eval '_knit_detect_launcher() { printf "mpich"; }'
+    _KNIT_INVOCATION_RAW_ARGS=(--launcher auto)
+
+    run _knit_bootstrap --launcher auto
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __launcher__ --value mpich --force' "${__update_meta}"
+}
+
+@test "update mode --default-nodefile is stored as an absolute path" {
+    _setup_update_mode
+    _KNIT_INVOCATION_RAW_ARGS=(--default-nodefile hosts.txt)
+
+    run _knit_bootstrap --default-nodefile hosts.txt
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key __default_nodefile__ --value /' "${__update_meta}"
+    grep -q -- 'hosts.txt --force' "${__update_meta}"
+}
+
+@test "update meta helper is a no-op for an untyped option" {
+    __update_meta="${__TEST_TMPDIR}/update-meta"; : > "${__update_meta}"
+    eval 'knit() { printf "%s\n" "$*" >> "'"${__update_meta}"'"; }'
+
+    run _knit_bootstrap_update_meta "account" "__account__" "v" "--project" "demo"
+    [ "$status" -eq 1 ]
+    [ ! -s "${__update_meta}" ]
+}
+
+@test "update meta helper writes and succeeds for a typed option" {
+    __update_meta="${__TEST_TMPDIR}/update-meta"; : > "${__update_meta}"
+    eval 'knit() { printf "%s\n" "$*" >> "'"${__update_meta}"'"; }'
+
+    run _knit_bootstrap_update_meta "account" "__account__" "v" "--account" "v"
+    [ "$status" -eq 0 ]
+    grep -q -- 'metadata store --key __account__ --value v --force' "${__update_meta}"
+}

@@ -108,6 +108,121 @@ _knit_bootstrap_on_exit() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_update_meta()
+#
+# Update-mode handler for a "free to update" bootstrap option: one stored as
+# metadata with no constraint (project, platform, account, ...). When the option
+# was typed on this bootstrap call, overwrite its stored value with
+# "metadata store --force" and report that a change was made; when the option was
+# not typed, do nothing and keep the stored value.
+#
+# @param opt   Option name as typed, without the leading "--" (e.g. "project").
+# @param key   Metadata key to write (e.g. "__project__").
+# @param value Resolved value to store for that option.
+# @param ...   Raw argument tokens of this invocation (see
+#              _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option from a
+#              defaulted one.
+# @return 0 when the option was typed and its value written, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_bootstrap_update_meta() {
+    local opt="$1"
+    local key="$2"
+    local value="$3"
+    shift 3
+    _knit_arg_was_provided "${opt}" "$@" || return 1
+    knit metadata store --key "${key}" --value "${value}" --force
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_update()
+#
+# Run bootstrap in update mode on an experiment that is already bootstrapped. It
+# changes only the options the user typed on this call and leaves the database
+# and every other setting untouched; it installs no destructive exit trap. A
+# .knit/ directory without a database is malformed and fatals with a hint to
+# remove it.
+#
+# This milestone handles the free-to-update options (project, platform, account,
+# default walltime, default cpus-per-node, default nodefile, scheduler,
+# launcher). When no handled option was typed, it reports that there is nothing
+# to update and succeeds.
+#
+# @param raw_args Name of an array holding the raw, pre-expansion argument tokens
+#                 (the caller's copy of _KNIT_INVOCATION_RAW_ARGS).
+# @param ...      The expanded argument list (defaults injected), as read with
+#                 knit_get_parameter.
+# ------------------------------------------------------------------------------
+_knit_bootstrap_update() {
+    local -n __knit_raw=$1
+    shift
+
+    if [[ ! -f "${_KNIT_DATABASE}" ]]; then
+        knit_fatal "Found %s but no Knit database at %s.\nThe directory looks incomplete. Remove it and bootstrap again:\n  rm -rf %s" \
+            "${_KNIT_PREFIX}" "${_KNIT_DATABASE}" "${_KNIT_PREFIX}"
+    fi
+
+    local project platform account default_walltime cpus_flag
+    local default_nodefile scheduler launcher
+    project="$(knit_get_parameter "project" "$@")"
+    platform="$(knit_get_parameter "platform" "$@")"
+    account="$(knit_get_parameter "account" "$@")"
+    default_walltime="$(knit_get_parameter "default-walltime" "$@")"
+    cpus_flag="$(knit_get_parameter "default-cpus-per-node" "$@")"
+    default_nodefile="$(knit_get_parameter "default-nodefile" "$@")"
+    scheduler="$(knit_get_parameter "scheduler" "$@")"
+    launcher="$(knit_get_parameter "launcher" "$@")"
+
+    local updated="false"
+
+    # Free-to-update metadata options: overwrite each one the user typed.
+    _knit_bootstrap_update_meta "project"               "__project__"          "${project}"          "${__knit_raw[@]}" && updated="true"
+    _knit_bootstrap_update_meta "platform"              "__platform__"         "${platform}"         "${__knit_raw[@]}" && updated="true"
+    _knit_bootstrap_update_meta "account"               "__account__"          "${account}"          "${__knit_raw[@]}" && updated="true"
+    _knit_bootstrap_update_meta "default-walltime"      "__default_walltime__" "${default_walltime}" "${__knit_raw[@]}" && updated="true"
+    _knit_bootstrap_update_meta "default-cpus-per-node" "__node_ncpus__"       "${cpus_flag}"        "${__knit_raw[@]}" && updated="true"
+
+    # --default-nodefile is stored as an absolute path, as at first bootstrap.
+    if _knit_arg_was_provided "default-nodefile" "${__knit_raw[@]}"; then
+        if [[ -n "${default_nodefile}" ]]; then
+            default_nodefile="$(realpath -m "${default_nodefile}" 2>/dev/null \
+                || printf '%s' "${default_nodefile}")"
+        fi
+        knit metadata store --key "__default_nodefile__" --value "${default_nodefile}" --force
+        updated="true"
+    fi
+
+    # --scheduler: an explicit "auto" re-runs detection (an undetected scheduler
+    # maps to local, as at first bootstrap), then stores the resolved value.
+    if _knit_arg_was_provided "scheduler" "${__knit_raw[@]}"; then
+        if [[ "${scheduler}" == "auto" ]]; then
+            scheduler="$(_knit_detect_job_manager)"
+            if [[ "${scheduler}" == "<unknown>" ]]; then
+                knit_warning "No job scheduler detected; using local process execution.\nPass --scheduler local to suppress this warning."
+                scheduler="local"
+            fi
+        fi
+        knit metadata store --key "__scheduler__" --value "${scheduler}" --force
+        updated="true"
+    fi
+
+    # --launcher: an explicit "auto" re-runs detection, then stores the resolved
+    # value.
+    if _knit_arg_was_provided "launcher" "${__knit_raw[@]}"; then
+        if [[ "${launcher}" == "auto" ]]; then
+            launcher="$(_knit_detect_launcher)"
+        fi
+        knit metadata store --key "__launcher__" --value "${launcher}" --force
+        updated="true"
+    fi
+
+    if [[ "${updated}" == "false" ]]; then
+        knit_info "Knit is already bootstrapped; no updatable option was given, nothing to update."
+    fi
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # Bootstrap the Knit framework.
 #
 # @param ... Arguments for bootstrap.
@@ -176,6 +291,13 @@ knit_with_optional "ai-model:string" "" \
 # @param ... Arguments for bootstrap.
 # ------------------------------------------------------------------------------
 _knit_bootstrap() {
+    # Copy the raw, pre-expansion arguments immediately. _KNIT_INVOCATION_RAW_ARGS
+    # is overwritten by every nested command (the "metadata store" and "setup"
+    # calls below), so update mode must read what the user typed before the first
+    # nested call. This is the copy-immediately contract of that global.
+    # shellcheck disable=SC2034 # read by name (nameref) in _knit_bootstrap_update
+    local -a raw_args=("${_KNIT_INVOCATION_RAW_ARGS[@]}")
+
     local project
     local setup_path_opt
     local job_path_opt
@@ -227,10 +349,18 @@ _knit_bootstrap() {
     # fresh checkout does not appear bootstrapped when a required tool is absent.
     _knit_bootstrap_check_prerequisites
 
-    # Create directory
+    # A present .knit/ means an earlier bootstrap finished (the first-bootstrap
+    # exit trap removes .knit/ on any failure), so re-running bootstrap enters
+    # update mode instead of failing. Update mode changes only the options typed
+    # on this call and leaves the database and every other setting untouched. A
+    # .knit/ that holds no database is malformed, so it fatals with a hint to
+    # remove it. Update mode installs no destructive exit trap, so a failed
+    # update never deletes a good experiment.
     if [ -d "${_KNIT_PREFIX}" ]; then
-        knit_fatal "Knit is already bootstrapped."
+        _knit_bootstrap_update raw_args "$@"
+        return $?
     fi
+
     knit_info "Creating ${_KNIT_PREFIX} directory"
     _knit_ensure_trace_file
     mkdir "${_KNIT_PREFIX}" > "${_KNIT_TRACE_FILE}" 2>&1
