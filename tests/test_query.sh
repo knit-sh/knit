@@ -3,6 +3,8 @@
 setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
     knit_test_db_setup
+    # Enum-typed parameters (e.g. --format) evaluate their constraint via jq.
+    _KNIT_JQ_EXE="jq"
     # Reset the live table registry so each test controls the alias map.
     _KNIT_DB_REGISTERED_TABLES=()
 }
@@ -259,10 +261,12 @@ setup:libs=setup:libs" ]
 }
 
 @test "query graph rejects --explain together with --ast" {
+    # Exclusivity is enforced declaratively by the --when constraint on --ast
+    # (see the registration), which rejects --ast whenever --explain is set.
     _knit_knit_graph() { return 0; }
     run knit query graph --explain --ast --exec "MATCH (n) RETURN n"
     [ "$status" -ne 0 ]
-    [[ "${output}" == *"mutually exclusive"* ]]
+    [[ "${output}" == *"--ast must not be provided"* ]]
 }
 
 @test "query graph propagates knit-graph's non-zero exit" {

@@ -4,6 +4,8 @@ setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
     knit_test_require_sqlite
     knit_test_db_setup
+    # Enum-typed parameters evaluate their constraint via jq.
+    _KNIT_JQ_EXE="jq"
 
     # Start from a clean run/job environment so nothing leaks between tests.
     unset KNIT_JOB_PREFIX KNIT_RUN_ID KNIT_SOURCE_ID KNIT_SOURCE_COMMAND
