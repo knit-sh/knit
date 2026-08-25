@@ -455,6 +455,39 @@ _bootstrap_launcher_stubs() {
     [ ! -s "${calls}" ]
 }
 
+# ---------- first bootstrap: AI provider (--ai-*) ----------
+
+# The body is called directly (not via the dispatcher), so CLI default injection
+# does not run; every value asserted here is passed explicitly.
+@test "bootstrap --ai-* writes the ai.* keys" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+
+    run _knit_bootstrap --scheduler local --launcher none \
+        --ai-api-key-env OPENAI_API_KEY \
+        --ai-base-url-env OPENAI_BASE_URL \
+        --ai-model-env KNIT_AI_MODEL \
+        --ai-base-url https://api.openai.com/v1 \
+        --ai-model gpt-4o
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key ai.api_key_env --value OPENAI_API_KEY' "${meta}"
+    grep -q -- '--key ai.base_url_env --value OPENAI_BASE_URL' "${meta}"
+    grep -q -- '--key ai.model_env --value KNIT_AI_MODEL' "${meta}"
+    grep -q -- '--key ai.base_url --value https://api.openai.com/v1' "${meta}"
+    grep -q -- '--key ai.model --value gpt-4o' "${meta}"
+}
+
+@test "bootstrap without --ai-api-key-env writes no ai.* keys" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+
+    run _knit_bootstrap --scheduler local --launcher none
+    [ "$status" -eq 0 ]
+
+    ! grep -q -- '--key ai\.' "${meta}"
+}
+
 # ---------- update mode (re-runnable bootstrap): free-to-update options ----------
 
 # File capturing the (stubbed) "knit metadata store" calls of an update.
@@ -634,4 +667,36 @@ _setup_update_mode() {
     run _knit_bootstrap_update_meta "account" "__account__" "v" "--account" "v"
     [ "$status" -eq 0 ]
     grep -q -- 'metadata store --key __account__ --value v --force' "${__update_meta}"
+}
+
+# ---------- update mode: AI provider (--ai-*) per-key ----------
+
+@test "update mode changes a single ai.* key and leaves the others" {
+    _setup_update_mode
+    _KNIT_INVOCATION_RAW_ARGS=(--ai-model gpt-4o-mini)
+
+    run _knit_bootstrap --ai-model gpt-4o-mini
+    [ "$status" -eq 0 ]
+
+    # Only ai.model is written; the other ai.* keys are untouched.
+    grep -q -- '--key ai.model --value gpt-4o-mini --force' "${__update_meta}"
+    [ "$(grep -c -- '--key' "${__update_meta}")" -eq 1 ]
+}
+
+@test "update mode writes every typed ai.* key" {
+    _setup_update_mode
+    _KNIT_INVOCATION_RAW_ARGS=(--ai-api-key-env OPENAI_API_KEY \
+        --ai-base-url-env OPENAI_BASE_URL --ai-model-env KNIT_AI_MODEL \
+        --ai-base-url http://localhost:11434/v1 --ai-model llama3)
+
+    run _knit_bootstrap --ai-api-key-env OPENAI_API_KEY \
+        --ai-base-url-env OPENAI_BASE_URL --ai-model-env KNIT_AI_MODEL \
+        --ai-base-url http://localhost:11434/v1 --ai-model llama3
+    [ "$status" -eq 0 ]
+
+    grep -q -- '--key ai.api_key_env --value OPENAI_API_KEY --force' "${__update_meta}"
+    grep -q -- '--key ai.base_url_env --value OPENAI_BASE_URL --force' "${__update_meta}"
+    grep -q -- '--key ai.model_env --value KNIT_AI_MODEL --force' "${__update_meta}"
+    grep -q -- '--key ai.base_url --value http://localhost:11434/v1 --force' "${__update_meta}"
+    grep -q -- '--key ai.model --value llama3 --force' "${__update_meta}"
 }

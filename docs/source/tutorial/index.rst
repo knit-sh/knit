@@ -587,14 +587,13 @@ it reads that variable at call time:
 .. code-block:: console
 
    $ export OPENAI_API_KEY=sk-...
-   $ ./exp.sh ai init --api-key-env OPENAI_API_KEY --model o4-mini
+   $ ./exp.sh bootstrap --ai-api-key-env OPENAI_API_KEY --ai-model o4-mini
 
 That records only non-secret configuration (env-var names and defaults) in the
-metadata table. ``--base-url`` defaults to ``https://api.openai.com/v1`` but can
-point at any OpenAI-compatible endpoint, and the same settings can be given at
-bootstrap with the ``--ai-*`` options (``bootstrap --ai-api-key-env
-OPENAI_API_KEY --ai-model gpt-4o-mini``). Use ``--force`` to overwrite an existing
-configuration.
+metadata table. ``--ai-base-url`` defaults to ``https://api.openai.com/v1`` but
+can point at any OpenAI-compatible endpoint. Re-running ``bootstrap`` updates only
+the ``--ai-*`` option you type (``bootstrap --ai-model gpt-4o-mini``), so one
+field can change without clearing the rest.
 
 **Open-ended questions, with** ``ai ask``. The AI model answers by calling Knit's own
 read-only tools --- ``describe``, ``--help``, ``metadata show``, read-only SQL, and
@@ -652,8 +651,8 @@ handy for pasting into ``query sql`` or ``query graph`` yourself:
    SELECT c_re, c_im, inside FROM render ORDER BY inside DESC;
 
 Both commands need a configured provider and a reachable key; without one they
-stop with a clear message pointing you back to ``ai init``. Provider setup,
-scope, and limits are covered in :doc:`the Stitch Guide <../stitch/index>`.
+stop with a clear message pointing you back to ``bootstrap --ai-*``. Provider
+setup, scope, and limits are covered in :doc:`the Stitch Guide <../stitch/index>`.
 
 Step 8 --- inspect and manage what you have built
 -------------------------------------------------

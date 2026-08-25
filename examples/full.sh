@@ -638,22 +638,20 @@
 # show, read-only SQL, job show) never modify anything, and any SQL it generates
 # is checked and rejected unless it is a read-only statement.
 #
-# First point knit at an OpenAI-compatible provider. knit never stores your API
-# key: you give it the NAME of the environment variable that holds the key, and
-# it reads that variable at call time.
+# First point knit at an OpenAI-compatible provider, at bootstrap with the --ai-*
+# options. knit never stores your API key: you give it the NAME of the
+# environment variable that holds the key, and it reads that variable at call
+# time.
 #
 #   export OPENAI_API_KEY=sk-...
-#   ./full.sh ai init --api-key-env OPENAI_API_KEY --model gpt-4o-mini
-#
-# The same thing can be configured at bootstrap with the --ai-* options:
-#
 #   ./full.sh bootstrap --project pi-demo \
 #       --ai-api-key-env OPENAI_API_KEY --ai-model gpt-4o-mini
 #
-# --base-url defaults to https://api.openai.com/v1; point it at any
+# --ai-base-url defaults to https://api.openai.com/v1; point it at any
 # OpenAI-compatible endpoint. If you would rather keep the base URL or model out
-# of the database too, store their env-var names instead (--base-url-env /
-# --model-env). Use --force to overwrite an existing configuration.
+# of the database too, store their env-var names instead (--ai-base-url-env /
+# --ai-model-env). Re-run bootstrap to change just the --ai-* option you type
+# (e.g. bootstrap --ai-model gpt-4o) without clearing the rest.
 #
 # `ai ask` answers open-ended questions, calling the read-only tools as needed:
 #
@@ -674,7 +672,7 @@
 #   ./full.sh ai query --question "..." --query-only # print the query, don't run it
 #
 # Both commands need a configured provider and a reachable API key; without one
-# they stop with a clear message pointing you back to `ai init`.
+# they stop with a clear message pointing you back to `bootstrap --ai-*`.
 #
 # -----------------------------------------------------------------------------
 # 15. Provenance and querying (knit_as + knit query)

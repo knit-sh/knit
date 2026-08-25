@@ -15,10 +15,26 @@ teardown() {
     knit_test_db_teardown
 }
 
-# Populate the ai.* metadata keys through the shared writer used by ai init.
+# Populate the ai.* metadata keys through the shared writer used by bootstrap.
 _store_ai() {
     # $1..$5 = api_key_env base_url_env model_env base_url model
     _knit_ai_store_config "$1" "$2" "$3" "$4" "$5" "true"
+}
+
+# ---------- ai init removed ----------
+
+@test "ai init is no longer a registered command" {
+    # Commands are stored under their mangled name (colons -> __1__).
+    run _knit_set_find _KNIT_COMMANDS "$(_knit_command_mangle "ai:init")"
+    [ "$status" -ne 0 ]
+    # The rest of the ai group is intact.
+    _knit_set_find _KNIT_COMMANDS "$(_knit_command_mangle "ai:ask")"
+    _knit_set_find _KNIT_COMMANDS "$(_knit_command_mangle "ai:query")"
+}
+
+@test "the ai init body function is gone" {
+    run declare -F _knit_ai_init
+    [ "$status" -ne 0 ]
 }
 
 # ---------- _knit_ai_resolve_config ----------
@@ -70,6 +86,9 @@ _store_ai() {
     run _knit_ai_resolve_config k u m
     [ "$status" -ne 0 ]
     [[ "$output" == *"not configured"* ]]
+    # The hint points at bootstrap, not the removed "ai init".
+    [[ "$output" == *"bootstrap --ai-api-key-env"* ]]
+    [[ "$output" != *"ai init"* ]]
 }
 
 @test "resolve fatals when the API key env var is empty" {
@@ -88,6 +107,9 @@ _store_ai() {
     run _knit_ai_resolve_config k u m
     [ "$status" -ne 0 ]
     [[ "$output" == *"No AI model configured"* ]]
+    # The hint points at bootstrap, not the removed "ai init".
+    [[ "$output" == *"bootstrap --ai-model"* ]]
+    [[ "$output" != *"ai init"* ]]
 }
 
 @test "resolve writes back to caller vars named like the internals (nameref shadow regression)" {

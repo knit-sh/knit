@@ -30,8 +30,8 @@ _KNIT_AI_TOOL_OUTPUT_MAX_BYTES=8192
 #
 # Write the provider-access configuration to the metadata table as `ai.*`
 # key/value pairs, through the same `metadata store` path used elsewhere. This
-# is the single writer shared by `ai init` and bootstrap's `--ai-*` options, so
-# both produce byte-for-byte identical metadata.
+# is the writer used by bootstrap's `--ai-*` options to store a full config in
+# one shot (update mode writes each key on its own).
 #
 # Only env-var *names* and non-secret defaults are stored; no API key ever
 # reaches the database.
@@ -76,10 +76,10 @@ _knit_ai_store_config() {
 #   - model:    the model_override argument if non-empty, else the value of the
 #               env var named by `ai.model_env`, else the `ai.model` literal.
 #
-# Fatals (with a hint mentioning both `ai init` and `bootstrap --ai-*`) when the
-# provider is unconfigured, the API key env var is empty/unset, or no model can
-# be resolved. The resolved API key is returned only through the caller-named
-# output variable; it is never logged, traced, or echoed.
+# Fatals (with a hint pointing at `bootstrap --ai-*`) when the provider is
+# unconfigured, the API key env var is empty/unset, or no model can be resolved.
+# The resolved API key is returned only through the caller-named output variable;
+# it is never logged, traced, or echoed.
 #
 # @param __knit_ret1 Name of the variable to hold the resolved API key.
 # @param __knit_ret2 Name of the variable to hold the resolved base URL.
@@ -100,7 +100,7 @@ _knit_ai_resolve_config() {
     _knit_metadata_get model_literal  "ai.model"
 
     if [[ -z "${api_key_env}" ]]; then
-        knit_fatal "AI provider is not configured. Run \"%s ai init --api-key-env <NAME>\" or bootstrap with --ai-api-key-env." \
+        knit_fatal "AI provider is not configured. Run \"%s bootstrap --ai-api-key-env <NAME>\" to configure it." \
             "${KNIT_SCRIPT_NAME}"
     fi
 
@@ -124,7 +124,7 @@ _knit_ai_resolve_config() {
     [[ -z "${__knit_model}" && -n "${model_env}" ]] && __knit_model="${!model_env}"
     [[ -z "${__knit_model}" ]] && __knit_model="${model_literal}"
     if [[ -z "${__knit_model}" ]]; then
-        knit_fatal "No AI model configured. Pass --model, set the model env var, or configure a default with \"%s ai init --model <id>\" (or bootstrap --ai-model)." \
+        knit_fatal "No AI model configured. Pass --model, set the model env var, or configure a default with \"%s bootstrap --ai-model <id>\"." \
             "${KNIT_SCRIPT_NAME}"
     fi
 
@@ -646,45 +646,6 @@ _knit_ai_loop() {
 knit_register ai knit_empty "Talk to your experiment in natural language."
 _knit_is_builtin
 knit_without_provenance
-knit_done
-
-# ------------------------------------------------------------------------------
-# Registration of 'ai init'.
-# ------------------------------------------------------------------------------
-knit_register "ai:init" _knit_ai_init \
-    "Configure the AI provider (env-var names and non-secret defaults)."
-_knit_is_builtin
-knit_without_provenance
-knit_with_required "api-key-env:string" \
-    "Name of the env var holding the API key (e.g. OPENAI_API_KEY)."
-knit_with_optional "base-url-env:string" "" \
-    "Name of the env var holding the endpoint base URL (e.g. OPENAI_BASE_URL)."
-knit_with_optional "model-env:string" "" \
-    "Name of the env var holding the model id (e.g. KNIT_AI_MODEL)."
-knit_with_optional "base-url:string" "https://api.openai.com/v1" \
-    "Literal fallback base URL used when the base-url env var is unset."
-knit_with_optional "model:string" "" \
-    "Literal fallback model id used when the model env var is unset."
-knit_with_flag "force" "Overwrite existing ai.* metadata keys."
-# ------------------------------------------------------------------------------
-# @fn _knit_ai_init()
-#
-# Body of 'ai init': record provider-access metadata as `ai.*` key/value pairs.
-# Delegates to _knit_ai_store_config so bootstrap-time and init-time config are
-# identical. --force overwrites existing keys.
-# ------------------------------------------------------------------------------
-_knit_ai_init() {
-    local api_key_env base_url_env model_env base_url model force
-    api_key_env="$(knit_get_parameter "api-key-env" "$@")"
-    base_url_env="$(knit_get_parameter "base-url-env" "$@")"
-    model_env="$(knit_get_parameter "model-env" "$@")"
-    base_url="$(knit_get_parameter "base-url" "$@")"
-    model="$(knit_get_parameter "model" "$@")"
-    force="$(knit_get_parameter "force" "$@")" || force="false"
-
-    _knit_ai_store_config "${api_key_env}" "${base_url_env}" "${model_env}" \
-        "${base_url}" "${model}" "${force}"
-}
 knit_done
 
 # ------------------------------------------------------------------------------

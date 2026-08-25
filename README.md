@@ -116,7 +116,7 @@ doxygen does not understand).
 
 ### Live AI tests
 
-The `ai` commands (`ai init`, `ai ask`, `ai query`) have fast, deterministic unit
+The `ai` commands (`ai ask`, `ai query`) have fast, deterministic unit
 tests that stub the network (`tests/test_ai*.sh`, run by `make check`). A separate
 suite under `tests/ai/` exercises the same commands against a **real** LLM served
 locally by [Ollama](https://ollama.com), to check the OpenAI-compatible

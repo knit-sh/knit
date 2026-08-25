@@ -34,8 +34,8 @@ knit_ai_live_require() {
 }
 
 # Source knit.sh and wire up a throwaway database (via the shared unit harness),
-# but do NOT configure the AI provider. Tests that exercise `ai init` itself use
-# this and then run the real command; others use knit_ai_live_setup below.
+# but do NOT configure the AI provider. Tests that configure the provider through
+# a real command use this; others use knit_ai_live_setup below.
 knit_ai_live_setup_noconfig() {
     knit_ai_live_require
 
@@ -54,7 +54,7 @@ knit_ai_live_setup_noconfig() {
 }
 
 # As above, then point knit's AI provider at the local Ollama endpoint through the
-# real config code path (the same one `ai init` and bootstrap use). Only the LLM
+# real config code path (the same one bootstrap --ai-* uses). Only the LLM
 # call is live; the database is the fast in-repo test DB the unit tests use.
 knit_ai_live_setup() {
     knit_ai_live_setup_noconfig
