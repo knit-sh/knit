@@ -499,6 +499,103 @@ teardown() {
     [[ "$output" == *"discarded"* ]]
 }
 
+# ---------- _knit_arg_was_provided / _KNIT_INVOCATION_RAW_ARGS ----------
+
+@test "_knit_arg_was_provided detects a bare flag" {
+    _knit_arg_was_provided "verbose" "--verbose"
+}
+
+@test "_knit_arg_was_provided detects the --name value form" {
+    _knit_arg_was_provided "name" "--name" "World"
+}
+
+@test "_knit_arg_was_provided detects the --name=value form" {
+    _knit_arg_was_provided "name" "--name=World"
+}
+
+@test "_knit_arg_was_provided folds hyphens and underscores both ways" {
+    _knit_arg_was_provided "default_nodefile" "--default-nodefile" "hosts"
+    _knit_arg_was_provided "default-nodefile" "--default_nodefile" "hosts"
+}
+
+@test "_knit_arg_was_provided accepts the option name with a leading --" {
+    _knit_arg_was_provided "--name" "--name" "World"
+}
+
+@test "_knit_arg_was_provided returns false for an absent option" {
+    run _knit_arg_was_provided "missing" "--name" "World"
+    [ "$status" -ne 0 ]
+}
+
+@test "_knit_arg_was_provided does not treat a value as an option name" {
+    # "--name count" must not be read as "--count" being provided.
+    run _knit_arg_was_provided "count" "--name" "count"
+    [ "$status" -ne 0 ]
+}
+
+@test "_knit_arg_was_provided stops scanning at a -- token" {
+    run _knit_arg_was_provided "foo" "--" "--foo"
+    [ "$status" -ne 0 ]
+}
+
+@test "_KNIT_INVOCATION_RAW_ARGS holds only the typed tokens, not injected defaults" {
+    knit_register "raw_cmd" fn_raw "Test."
+    knit_with_required "name:string" "A name."
+    knit_with_optional "count:integer" "10" "A count."
+    knit_with_flag "verbose" "Verbose."
+    fn_raw() { printf '%s\n' "${_KNIT_INVOCATION_RAW_ARGS[@]}"; }
+    knit_done
+    run _knit_invoke_command "raw_cmd" "--name" "World"
+    [ "$status" -eq 0 ]
+    # Exactly the typed tokens: no "--count 10" default, no "--verbose false".
+    [ "${lines[0]}" = "--name" ]
+    [ "${lines[1]}" = "World" ]
+    [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "_knit_arg_was_provided distinguishes typed options from defaulted ones in a body" {
+    knit_register "raw_cmd2" fn_raw2 "Test."
+    knit_with_required "name:string" "A name."
+    knit_with_optional "count:integer" "10" "A count."
+    knit_with_flag "verbose" "Verbose."
+    fn_raw2() {
+        local -a raw=("${_KNIT_INVOCATION_RAW_ARGS[@]}")
+        _knit_arg_was_provided "name" "${raw[@]}" && echo "name:yes" || echo "name:no"
+        _knit_arg_was_provided "verbose" "${raw[@]}" && echo "verbose:yes" || echo "verbose:no"
+        _knit_arg_was_provided "count" "${raw[@]}" && echo "count:yes" || echo "count:no"
+    }
+    knit_done
+    run _knit_invoke_command "raw_cmd2" "--name=World" "--verbose"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"name:yes"* ]]
+    [[ "$output" == *"verbose:yes"* ]]
+    [[ "$output" == *"count:no"* ]]
+}
+
+@test "a nested invocation overwrites _KNIT_INVOCATION_RAW_ARGS (copy-immediately contract)" {
+    knit_register "raw_child" fn_raw_child "Child."
+    knit_with_required "cval:string" "A child value."
+    fn_raw_child() { :; }
+    knit_done
+    knit_register "raw_parent" fn_raw_parent "Parent."
+    knit_with_required "pval:string" "A parent value."
+    fn_raw_parent() {
+        # Copy immediately, per the contract, before running a nested command.
+        local -a mine=("${_KNIT_INVOCATION_RAW_ARGS[@]}")
+        _knit_invoke_command "raw_child" "--cval" "kid"
+        # The global now reflects the nested call...
+        _knit_arg_was_provided "cval" "${_KNIT_INVOCATION_RAW_ARGS[@]}" \
+            && echo "global:child" || echo "global:parent"
+        # ...but the local copy still holds the parent's typed args.
+        _knit_arg_was_provided "pval" "${mine[@]}" && echo "copy:parent" || echo "copy:other"
+    }
+    knit_done
+    run _knit_invoke_command "raw_parent" "--pval" "mom"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"global:child"* ]]
+    [[ "$output" == *"copy:parent"* ]]
+}
+
 # ---------- knit_extra_index ----------
 
 @test "knit_extra_index returns array length when no -- is present" {

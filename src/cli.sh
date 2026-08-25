@@ -55,6 +55,21 @@ declare -ga _KNIT_EXECUTING_START_TIME=()
 declare -g _KNIT_INVOCATION_END_TIME=""
 
 # ------------------------------------------------------------------------------
+# Raw (pre-expansion) arguments of the current command invocation. Set by
+# _knit_invoke_command from the exact tokens the user typed, before optional
+# defaults and flag values are spliced in, so a command body can tell an option
+# the user typed apart from one that took its default. Read it with
+# _knit_arg_was_provided.
+#
+# The array is overwritten at the start of every invocation, including nested
+# ones. A command body that runs nested commands (for example "bootstrap", which
+# calls "knit setup" and "metadata store") MUST copy this global into a local at
+# the very top of its body, before any nested call, or the nested call overwrites
+# it. This is the copy-immediately contract.
+# ------------------------------------------------------------------------------
+declare -ga _KNIT_INVOCATION_RAW_ARGS=()
+
+# ------------------------------------------------------------------------------
 # Stack of call-site aliases, parallel to _KNIT_EXECUTING_COMMAND: entry i holds
 # the alias knit_as named frame i's invocation with, or empty for a plain call.
 # Captured when the frame is pushed (from _KNIT_CALL_ALIAS, which knit_as sets
@@ -185,6 +200,39 @@ _knit_arg_name() {
     local __ret
     _knit_str_hyphens_to_underscores __ret "${name}"
     printf '%s\n' "${__ret}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_arg_was_provided()
+#
+# Report whether a named option appears among a command invocation's raw
+# arguments. Used to tell an option the user typed apart from one that took its
+# default: the CLI engine splices optional defaults and flag values into the
+# argument list before a command body runs, so the body cannot see the raw
+# command line except through the tokens _knit_invoke_command publishes in
+# _KNIT_INVOCATION_RAW_ARGS.
+#
+# The bare-flag form ("--name"), the separate-value form ("--name value"), and
+# the joined form ("--name=value") are all recognized: only tokens starting with
+# "--" are compared, by normalized name, so a following value token is never
+# mistaken for the option. Hyphens and underscores in the option name are
+# interchangeable. Scanning stops at a "--" token, so an option name that appears
+# only after "--" (as an extra) does not count as provided.
+#
+# @param name Option name, with or without the leading "--".
+# @param ...  Raw argument tokens to scan (typically "${_KNIT_INVOCATION_RAW_ARGS[@]}").
+# ------------------------------------------------------------------------------
+_knit_arg_was_provided() {
+    local wanted
+    _knit_str_hyphens_to_underscores wanted "${1#--}"
+    shift
+    local a
+    for a in "$@"; do
+        [[ "${a}" == "--" ]] && break
+        [[ "${a}" == --* ]] || continue
+        [[ "$(_knit_arg_name "${a}")" == "${wanted}" ]] && return 0
+    done
+    return 1
 }
 
 # ------------------------------------------------------------------------------
@@ -2816,6 +2864,12 @@ _knit_invoke_command() {
     # get the name of the corresponding function
     local func_name_var="_KNIT_CMD_${cmd}_function"
     local func="${!func_name_var}"
+    # Publish the raw, pre-expansion arguments (the command-name tokens have
+    # already been shifted off, so these are exactly the option tokens the user
+    # typed) so a command body can tell a typed option from a defaulted one. Set
+    # for every path (wrapper, --help, normal) and overwritten by each nested
+    # invocation, so a body that runs nested commands must copy it immediately.
+    _KNIT_INVOCATION_RAW_ARGS=("$@")
     # A wrapper forwards its arguments verbatim to the underlying function: no
     # --help interception, no argument validation, expansion, or --when checks.
     # Callbacks still run around it, and the invocation is recorded (as a single
