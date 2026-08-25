@@ -700,3 +700,143 @@ _setup_update_mode() {
     grep -q -- '--key ai.base_url --value http://localhost:11434/v1 --force' "${__update_meta}"
     grep -q -- '--key ai.model --value llama3 --force' "${__update_meta}"
 }
+
+# ---------- update mode: path relocation (setup / job / resource) ----------
+
+# Small building-block helpers, exercised directly for full branch coverage.
+
+@test "dir-has-subdir is false when absent or empty, true when populated" {
+    run _knit_bootstrap_dir_has_subdir "${__TEST_TMPDIR}/nope"
+    [ "$status" -ne 0 ]
+    mkdir -p "${__TEST_TMPDIR}/empty"
+    run _knit_bootstrap_dir_has_subdir "${__TEST_TMPDIR}/empty"
+    [ "$status" -ne 0 ]
+    mkdir -p "${__TEST_TMPDIR}/full/child"
+    run _knit_bootstrap_dir_has_subdir "${__TEST_TMPDIR}/full"
+    [ "$status" -eq 0 ]
+}
+
+@test "jobs-recorded is false with no table or an empty table, true with a row" {
+    knit_test_require_sqlite
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="${__TEST_TMPDIR}/jr.db"
+    _knit_create_metadata_table
+
+    run _knit_bootstrap_jobs_recorded          # no jobs table yet
+    [ "$status" -ne 0 ]
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT);"
+    run _knit_bootstrap_jobs_recorded          # table exists but empty
+    [ "$status" -ne 0 ]
+    _knit_sqlite3_write "INSERT INTO jobs VALUES('j1');"
+    run _knit_bootstrap_jobs_recorded          # one recorded job
+    [ "$status" -eq 0 ]
+}
+
+# Prepare a valid, already-bootstrapped experiment with a real metadata table
+# holding the default path roots, and a knit() stub that records every call. The
+# stub lets path reads (_knit_metadata_get / _knit_*_root) hit the real database
+# while capturing the "metadata store" and "setup" writes the relocation issues.
+_setup_relocate_mode() {
+    knit_test_require_sqlite
+    mkdir "${_KNIT_PREFIX}"
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
+    _KNIT_IS_BOOTSTRAPPED="1"
+    _knit_command_path() { printf '/usr/bin/sha256sum'; }
+    _knit_create_metadata_table
+    knit metadata store --key __setup_path__    --value setups
+    knit metadata store --key __job_path__      --value jobs
+    knit metadata store --key __resource_path__ --value resources
+    __update_meta="${__TEST_TMPDIR}/update-meta"; : > "${__update_meta}"
+    eval 'knit() { printf "%s\n" "$*" >> "'"${__update_meta}"'"; }'
+}
+
+@test "update mode relocates setup-path when no user setup exists" {
+    _setup_relocate_mode
+    mkdir -p "${__TEST_TMPDIR}/setups/default"     # only the builtin default
+    _KNIT_INVOCATION_RAW_ARGS=(--setup-path newsetups)
+
+    run _knit_bootstrap --setup-path newsetups
+    [ "$status" -eq 0 ]
+
+    grep -q -- 'metadata store --key __setup_path__ --value newsetups --force' "${__update_meta}"
+    # The default setup is recreated under the new root, and the old tree is gone.
+    grep -q -- 'setup --name default -- default' "${__update_meta}"
+    [ ! -d "${__TEST_TMPDIR}/setups" ]
+}
+
+@test "update mode relocates job-path when no jobs are recorded" {
+    _setup_relocate_mode
+    mkdir -p "${__TEST_TMPDIR}/jobs"               # empty job root, no jobs table
+    _KNIT_INVOCATION_RAW_ARGS=(--job-path newjobs)
+
+    run _knit_bootstrap --job-path newjobs
+    [ "$status" -eq 0 ]
+
+    grep -q -- 'metadata store --key __job_path__ --value newjobs --force' "${__update_meta}"
+    # No default setup is recreated for a job-path move, and the old dir is gone.
+    ! grep -q -- 'setup --name default' "${__update_meta}"
+    [ ! -d "${__TEST_TMPDIR}/jobs" ]
+}
+
+@test "update mode relocates resource-path when no resources exist" {
+    _setup_relocate_mode
+    mkdir -p "${__TEST_TMPDIR}/resources"          # empty resource root
+    _KNIT_INVOCATION_RAW_ARGS=(--resource-path newres)
+
+    run _knit_bootstrap --resource-path newres
+    [ "$status" -eq 0 ]
+
+    grep -q -- 'metadata store --key __resource_path__ --value newres --force' "${__update_meta}"
+    [ ! -d "${__TEST_TMPDIR}/resources" ]
+}
+
+@test "update mode fatals relocating setup-path when a user setup exists" {
+    _setup_relocate_mode
+    mkdir -p "${__TEST_TMPDIR}/setups/default"
+    mkdir -p "${__TEST_TMPDIR}/setups/mysetup"     # a user setup blocks the move
+    _KNIT_INVOCATION_RAW_ARGS=(--setup-path newsetups)
+
+    run _knit_bootstrap --setup-path newsetups
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Cannot relocate --setup-path"* ]]
+    # Nothing was written and the old tree survives untouched.
+    [ ! -s "${__update_meta}" ]
+    [ -d "${__TEST_TMPDIR}/setups/mysetup" ]
+}
+
+@test "update mode fatals relocating job-path when a job is recorded" {
+    _setup_relocate_mode
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT);"
+    _knit_sqlite3_write "INSERT INTO jobs VALUES('j1');"
+    _KNIT_INVOCATION_RAW_ARGS=(--job-path newjobs)
+
+    run _knit_bootstrap --job-path newjobs
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Cannot relocate --job-path"* ]]
+}
+
+@test "update mode fatals relocating resource-path when a resource exists" {
+    _setup_relocate_mode
+    mkdir -p "${__TEST_TMPDIR}/resources/mydata"   # a fetched resource blocks it
+    _KNIT_INVOCATION_RAW_ARGS=(--resource-path newres)
+
+    run _knit_bootstrap --resource-path newres
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Cannot relocate --resource-path"* ]]
+    [ -d "${__TEST_TMPDIR}/resources/mydata" ]
+}
+
+@test "a typed path equal to the stored one is a no-op" {
+    _setup_relocate_mode
+    mkdir -p "${__TEST_TMPDIR}/setups/default"
+    _KNIT_INVOCATION_RAW_ARGS=(--setup-path setups)
+
+    run _knit_bootstrap --setup-path setups
+    [ "$status" -eq 0 ]
+
+    # Nothing changed and the root is left in place.
+    [ ! -s "${__update_meta}" ]
+    [[ "$output" == *"nothing to update"* ]]
+    [ -d "${__TEST_TMPDIR}/setups/default" ]
+}

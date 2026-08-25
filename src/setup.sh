@@ -13,6 +13,31 @@
 declare -gA _KNIT_SETUPS
 
 # ------------------------------------------------------------------------------
+# @fn _knit_has_user_setup()
+#
+# Return 0 when at least one user setup instance exists directly under the given
+# setup root, non-zero otherwise. A setup instance is a subdirectory of the root;
+# the builtin "default" instance is not a user setup and is ignored, so a root
+# that holds only "default" (or nothing) reports "no user setup". A missing root
+# also reports "no user setup".
+#
+# @param root Absolute setup root to scan (see _knit_setup_root).
+# ------------------------------------------------------------------------------
+_knit_has_user_setup() {
+    local root="$1"
+    [[ -d "${root}" ]] || return 1
+    local entry base
+    for entry in "${root}"/*/; do
+        [[ -d "${entry}" ]] || continue
+        base="${entry%/}"
+        base="${base##*/}"
+        [[ "${base}" == "default" ]] && continue
+        return 0
+    done
+    return 1
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_highlight_if_no_user_setup()
 #
 # Highlight predicate (see knit_highlight_if) for the builtin "setup" command:
@@ -29,15 +54,7 @@ _knit_highlight_if_no_user_setup() {
     _knit_is_bootstrapped || return 1
     local root
     _knit_setup_root root
-    [[ -d "${root}" ]] || return 0
-    local entry base
-    for entry in "${root}"/*/; do
-        [[ -d "${entry}" ]] || continue
-        base="${entry%/}"
-        base="${base##*/}"
-        [[ "${base}" == "default" ]] && continue
-        return 1
-    done
+    _knit_has_user_setup "${root}" && return 1
     return 0
 }
 

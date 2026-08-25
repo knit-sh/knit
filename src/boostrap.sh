@@ -135,6 +135,126 @@ _knit_bootstrap_update_meta() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_jobs_recorded()
+#
+# Return 0 when the "jobs" table exists and holds at least one row, non-zero
+# otherwise. Used by update-mode --job-path relocation to refuse moving a
+# job root that already holds submitted jobs. The table is created lazily on the
+# first submission, so an experiment that never submitted a job has no "jobs"
+# table at all; a missing table reports "no jobs".
+# ------------------------------------------------------------------------------
+_knit_bootstrap_jobs_recorded() {
+    local esc_table exists
+    _knit_sql_escape esc_table "${_KNIT_JOBS_TABLE}"
+    exists="$(_knit_sqlite3 \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='${esc_table}';")"
+    [[ "${exists}" -eq 0 ]] && return 1
+    local count
+    count="$(_knit_sqlite3 "SELECT COUNT(*) FROM ${_KNIT_JOBS_TABLE};")"
+    [[ "${count}" -gt 0 ]]
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_dir_has_subdir()
+#
+# Return 0 when the given directory holds at least one subdirectory, non-zero
+# otherwise (including when the directory itself is absent). Used by update-mode
+# --resource-path relocation to refuse moving a resource root that already holds
+# fetched resource instances (each is a subdirectory).
+#
+# @param dir Directory to scan.
+# ------------------------------------------------------------------------------
+_knit_bootstrap_dir_has_subdir() {
+    local dir="$1"
+    [[ -d "${dir}" ]] || return 1
+    local entry
+    for entry in "${dir}"/*/; do
+        [[ -d "${entry}" ]] && return 0
+    done
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_relocate_path()
+#
+# Update-mode handler for a path-root option (--setup-path, --job-path,
+# --resource-path). When the option is typed and its value differs from the
+# stored one, relocate the root — but only when the current root holds no
+# artifacts of its kind, since setups, jobs, and resources are not movable:
+#
+#   - setup:    no user setup exists (the builtin "default" does not count).
+#   - job:      no job row is recorded in the "jobs" table.
+#   - resource: no resource instance directory exists under the root.
+#
+# A non-empty root is a hard stop (fatal). On an allowed relocation it stores the
+# new value, recreates the builtin "default" setup under the new root (setup kind
+# only), and removes the old root directory (which, for the setup kind, still
+# holds the old "default", so a plain rmdir would not suffice). An untyped option
+# or a value equal to the stored one is a no-op.
+#
+# @param kind      One of "setup", "job", "resource".
+# @param new_value Resolved value typed for the option.
+# @param ...       Raw argument tokens of this invocation (see
+#                  _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option from a
+#                  defaulted one.
+# @return 0 when the root was relocated, 1 when nothing changed.
+# ------------------------------------------------------------------------------
+_knit_bootstrap_relocate_path() {
+    local kind="$1"
+    local new_value="$2"
+    shift 2
+
+    local opt key root_fn label
+    case "${kind}" in
+        setup)    opt="setup-path";    key="__setup_path__";    root_fn=_knit_setup_root;    label="--setup-path" ;;
+        job)      opt="job-path";      key="__job_path__";      root_fn=_knit_job_root;      label="--job-path" ;;
+        resource) opt="resource-path"; key="__resource_path__"; root_fn=_knit_resource_root; label="--resource-path" ;;
+    esac
+
+    _knit_arg_was_provided "${opt}" "$@" || return 1
+
+    local stored
+    _knit_metadata_get stored "${key}"
+    [[ "${new_value}" == "${stored}" ]] && return 1
+
+    # Resolve the current (old) root from the still-stored value before it is
+    # overwritten, both to run the emptiness check against it and to remove it.
+    local old_root
+    "${root_fn}" old_root
+
+    case "${kind}" in
+        setup)
+            if _knit_has_user_setup "${old_root}"; then
+                knit_fatal "Cannot relocate --setup-path: a user setup exists under %s.\nRelocation is only possible while no setup other than \"default\" has been created." \
+                    "${old_root}"
+            fi
+            ;;
+        job)
+            if _knit_bootstrap_jobs_recorded; then
+                knit_fatal "Cannot relocate --job-path: jobs are recorded in the database.\nRelocation is only possible while no job has been submitted."
+            fi
+            ;;
+        resource)
+            if _knit_bootstrap_dir_has_subdir "${old_root}"; then
+                knit_fatal "Cannot relocate --resource-path: a resource exists under %s.\nRelocation is only possible while no resource has been fetched." \
+                    "${old_root}"
+            fi
+            ;;
+    esac
+
+    _knit_bootstrap_warn_absolute_root "${label}" "${new_value}"
+    knit metadata store --key "${key}" --value "${new_value}" --force
+
+    # Recreate the builtin "default" setup under the new root (subshell so its
+    # exported KNIT_SETUP_PREFIX does not leak), then drop the old tree.
+    if [[ "${kind}" == "setup" ]]; then
+        ( knit setup --name default -- default )
+    fi
+    rm -rf "${old_root}"
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_update()
 #
 # Run bootstrap in update mode on an experiment that is already bootstrapped. It
@@ -144,10 +264,12 @@ _knit_bootstrap_update_meta() {
 # remove it.
 #
 # It handles the free-to-update options (project, platform, account, default
-# walltime, default cpus-per-node, default nodefile, scheduler, launcher) and the
+# walltime, default cpus-per-node, default nodefile, scheduler, launcher), the
 # AI provider options (--ai-*), each written per key so one AI field can change
-# without clearing the rest. When no handled option was typed, it reports that
-# there is nothing to update and succeeds.
+# without clearing the rest, and the path-root options (--setup-path, --job-path,
+# --resource-path), which relocate only when the current root is empty of its
+# kind. When no handled option was typed, it reports that there is nothing to
+# update and succeeds.
 #
 # @param raw_args Name of an array holding the raw, pre-expansion argument tokens
 #                 (the caller's copy of _KNIT_INVOCATION_RAW_ARGS).
@@ -165,6 +287,7 @@ _knit_bootstrap_update() {
 
     local project platform account default_walltime cpus_flag
     local default_nodefile scheduler launcher
+    local setup_path_opt job_path_opt resource_path_opt
     local ai_api_key_env ai_base_url_env ai_model_env ai_base_url ai_model
     project="$(knit_get_parameter "project" "$@")"
     platform="$(knit_get_parameter "platform" "$@")"
@@ -174,6 +297,9 @@ _knit_bootstrap_update() {
     default_nodefile="$(knit_get_parameter "default-nodefile" "$@")"
     scheduler="$(knit_get_parameter "scheduler" "$@")"
     launcher="$(knit_get_parameter "launcher" "$@")"
+    setup_path_opt="$(knit_get_parameter "setup-path" "$@")"
+    job_path_opt="$(knit_get_parameter "job-path" "$@")"
+    resource_path_opt="$(knit_get_parameter "resource-path" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
     ai_base_url_env="$(knit_get_parameter "ai-base-url-env" "$@")"
     ai_model_env="$(knit_get_parameter "ai-model-env" "$@")"
@@ -231,6 +357,12 @@ _knit_bootstrap_update() {
     _knit_bootstrap_update_meta "ai-model-env"    "ai.model_env"    "${ai_model_env}"    "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_meta "ai-base-url"     "ai.base_url"     "${ai_base_url}"     "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_meta "ai-model"        "ai.model"        "${ai_model}"        "${__knit_raw[@]}" && updated="true"
+
+    # Path roots relocate only when the current root is empty of its kind; a
+    # non-empty root is a hard stop inside the handler.
+    _knit_bootstrap_relocate_path "setup"    "${setup_path_opt}"    "${__knit_raw[@]}" && updated="true"
+    _knit_bootstrap_relocate_path "job"      "${job_path_opt}"      "${__knit_raw[@]}" && updated="true"
+    _knit_bootstrap_relocate_path "resource" "${resource_path_opt}" "${__knit_raw[@]}" && updated="true"
 
     if [[ "${updated}" == "false" ]]; then
         knit_info "Knit is already bootstrapped; no updatable option was given, nothing to update."
