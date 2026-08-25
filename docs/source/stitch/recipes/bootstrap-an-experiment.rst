@@ -15,7 +15,9 @@ SQLite database that records runs, plus the tools Knit relies on (it installs
 
    $ ./exp.sh bootstrap
 
-Bootstrap runs **once** per experiment; invoking it again while ``.knit/``
-already exists is an error. To start over, remove the ``.knit/`` directory first.
-The remaining Bootstrap recipes cover the options that pin project settings,
-paths, the scheduler and launcher, and the provisioned tool versions.
+Run ``bootstrap`` again to update the configuration in place --- it keeps the
+database, the tooling, and every recorded run (see
+:doc:`bootstrap-update-configuration`). To start over instead, remove the
+``.knit/`` directory first. The remaining Bootstrap recipes cover the options
+that pin project settings, paths, the scheduler and launcher, and the
+provisioned tool versions.

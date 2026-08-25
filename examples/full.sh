@@ -194,8 +194,24 @@
 # job's working directory (steps 7–8), and ./resources holds fetched inputs
 # (section 12).
 #
-# Bootstrap is one-shot: re-running it on an already-bootstrapped experiment is
-# an error. To start over, `rm -rf .knit setups jobs` first.
+# Bootstrap is re-runnable. Run it again on an already-bootstrapped experiment
+# to update the configuration in place: it keeps the database, the provisioned
+# tooling, and every recorded run. Only the options you TYPE change; every other
+# setting keeps its stored value. So you can add the AI provider later without
+# touching the rest:
+#
+#   ./full.sh bootstrap --ai-api-key-env OPENAI_API_KEY --ai-model gpt-4o-mini
+#
+# or move the default per-node core count:
+#
+#   ./full.sh bootstrap --default-cpus-per-node 128
+#
+# A bare re-`bootstrap` with no options changes nothing and reports that there is
+# nothing to update. Some changes are constrained. You can relocate a path
+# (--setup-path / --job-path / --resource-path) only while it is empty of its
+# kind — no user setup, no job, no resource yet; otherwise knit stops rather than
+# strand recorded work. Changing the machine --profile is not supported yet. To
+# start over completely, `rm -rf .knit setups jobs` first.
 #
 # -----------------------------------------------------------------------------
 # 3. Machine profiles

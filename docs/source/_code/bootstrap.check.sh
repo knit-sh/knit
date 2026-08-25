@@ -52,4 +52,20 @@ check_eq "$(exp metadata load --key __default_walltime__)" "01:30:00" \
 check_eq "$(exp metadata load --key __node_ncpus__)"       "64" \
     "bootstrap records the default cpus-per-node"
 
+# Re-running bootstrap updates only the option typed the second time and leaves
+# every other setting alone (the "Update configuration by re-running bootstrap"
+# recipe).
+exp bootstrap --default-cpus-per-node 128 >/dev/null
+check_eq "$(exp metadata load --key __node_ncpus__)"       "128" \
+    "re-bootstrap updates the typed cpus-per-node"
+check_eq "$(exp metadata load --key __project__)"          "PROJ-1234" \
+    "re-bootstrap leaves the untyped project unchanged"
+
+# A bare re-bootstrap changes nothing and reports there is nothing to update.
+rerun="$(exp bootstrap 2>&1)"
+check_contains "${rerun}" "nothing to update" \
+    "bare re-bootstrap reports nothing to update"
+check_eq "$(exp metadata load --key __node_ncpus__)"       "128" \
+    "bare re-bootstrap leaves settings unchanged"
+
 dc_summary
