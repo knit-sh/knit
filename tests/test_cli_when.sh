@@ -217,6 +217,49 @@ teardown() {
     _knit_invoke_command "multi_when_cmd2" "--x" "0" "--y" "2"
 }
 
+@test "empty optional numeric is treated as null in a constraint (condition false)" {
+    if ! command -v jq &>/dev/null; then skip "jq not available"; fi
+    _KNIT_JQ_EXE="jq"
+
+    # An omitted optional integer expands to "" and must serialize as JSON null,
+    # not break jq. With count absent, ".count > 0" is false, so --label must not
+    # be provided.
+    knit_register "empty_num_cmd1" knit_empty "A command."
+    knit_with_optional "count:integer" "" "A count."
+    knit_with_optional "label:string" "" "A label." --when ".count > 0"
+    knit_done
+
+    # count absent, label absent: condition false, param absent -> OK.
+    _knit_invoke_command "empty_num_cmd1"
+}
+
+@test "empty optional numeric is treated as null: guarded param provided is an error" {
+    if ! command -v jq &>/dev/null; then skip "jq not available"; fi
+    _KNIT_JQ_EXE="jq"
+
+    knit_register "empty_num_cmd2" knit_empty "A command."
+    knit_with_optional "count:integer" "" "A count."
+    knit_with_optional "label:string" "" "A label." --when ".count > 0"
+    knit_done
+
+    # count absent -> null -> condition false; providing --label must fatal.
+    run _knit_invoke_command "empty_num_cmd2" "--label" "hi"
+    [ "$status" -eq 1 ]
+}
+
+@test "empty optional numeric is treated as null: guarded param allowed when set" {
+    if ! command -v jq &>/dev/null; then skip "jq not available"; fi
+    _KNIT_JQ_EXE="jq"
+
+    knit_register "empty_num_cmd3" knit_empty "A command."
+    knit_with_optional "count:integer" "" "A count."
+    knit_with_optional "label:string" "" "A label." --when ".count > 0"
+    knit_done
+
+    # count set > 0 -> condition true; --label is allowed.
+    _knit_invoke_command "empty_num_cmd3" "--count" "5" "--label" "hi"
+}
+
 @test "non-boolean constraint expression produces a fatal error" {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
     _KNIT_JQ_EXE="jq"

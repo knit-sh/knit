@@ -44,7 +44,8 @@ knit_with_optional "bind:string" "" \
 knit_with_optional "gpus-per-proc:integer" "" \
     "GPUs reserved per rank."
 knit_with_optional "gpu-bind:string" "" \
-    "GPU binding policy (launcher-specific value, passed through)."
+    "GPU binding policy (launcher-specific value, passed through)." \
+    --when '.gpus_per_proc > 0'
 knit_with_dispatch "app" "User-provided app command to execute"
 knit_with_subcommand_title "Apps"
 # Record every run as a row in the "runs" table. The placement options above are

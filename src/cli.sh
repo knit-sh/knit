@@ -2507,7 +2507,13 @@ _knit_build_constraint_json() {
         local type_var="_KNIT_CMD_${cmd}_2_${key}_type"
         local param_type="${!type_var:-string}"
         case "${param_type}" in
-            integer|real|boolean) jq_args+=("--argjson" "${key}" "${val}") ;;
+            integer|real|boolean)
+                # An omitted optional numeric/boolean expands to the empty
+                # string; emit JSON null so a constraint can still test it
+                # (e.g. ".x > 0" is false when --x was not given) instead of
+                # feeding jq an invalid --argjson value.
+                [[ -z "${val}" ]] && val="null"
+                jq_args+=("--argjson" "${key}" "${val}") ;;
             *)                    jq_args+=("--arg"      "${key}" "${val}") ;;
         esac
     done

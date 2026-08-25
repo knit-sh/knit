@@ -240,15 +240,19 @@ knit_without_provenance
 knit_with_required "exec:string" \
     "The Cypher statement to run (passed verbatim to knit-graph)."
 knit_with_optional "format:query_format" "list" \
-    "Output mode: list, json, box, csv, markdown, table, line, html, ascii, column, tabs."
+    "Output mode: list, json, box, csv, markdown, table, line, html, ascii, column, tabs." \
+    --when '.explain != "true" and .ast != "true"'
 knit_with_flag "header" \
-    "Add a header row (off by default)."
+    "Add a header row (off by default)." \
+    --when '.explain != "true" and .ast != "true"'
 knit_with_optional "separator:string" "" \
-    "Column separator (defaults to knit-graph's default)."
+    "Column separator (defaults to knit-graph's default)." \
+    --when '.explain != "true" and .ast != "true"'
 knit_with_flag "explain" \
     "Print the generated SQL without running it."
 knit_with_flag "ast" \
-    "Print the parsed syntax tree (no database needed)."
+    "Print the parsed syntax tree (no database needed)." \
+    --when '.explain != "true"'
 knit_with_extra "Extra arguments forwarded verbatim to knit-graph after --."
 # ------------------------------------------------------------------------------
 # @fn _knit_query_graph()
@@ -268,14 +272,13 @@ knit_with_extra "Extra arguments forwarded verbatim to knit-graph after --."
 _knit_query_graph() {
     local args=("$@")
 
+    # --explain and --ast are mutually exclusive; that is enforced declaratively
+    # by the --when constraint on the --ast flag (see the registration above), so
+    # no imperative check is needed here.
     local exec_query explain ast
     exec_query="$(knit_get_parameter "exec" "${args[@]}")"
     explain="$(knit_get_parameter "explain" "${args[@]}")" || explain="false"
     ast="$(knit_get_parameter "ast" "${args[@]}")"         || ast="false"
-
-    if [[ "${explain}" == "true" && "${ast}" == "true" ]]; then
-        knit_fatal "knit query graph: --explain and --ast are mutually exclusive."
-    fi
 
     local extra_index
     extra_index=$(knit_extra_index "${args[@]}")
