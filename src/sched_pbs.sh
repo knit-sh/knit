@@ -13,8 +13,8 @@
 # stdout/stderr are fixed to <jobdir>/.stdout and <jobdir>/.stderr. Optional
 # fields (account, project, queue, gpus) are emitted only when set.
 #
-# @param arr_name Name of the resolved-options associative array.
-# @param jobdir   Job directory (for the -o/-e paths).
+# @param[in] arr_name Name of the resolved-options associative array.
+# @param[in] jobdir   Job directory (for the -o/-e paths).
 # ------------------------------------------------------------------------------
 _knit_sched_pbs_directives() {
     local -n resolved="$1"
@@ -55,7 +55,7 @@ _knit_sched_pbs_directives() {
 # Reduce a qsub job id to its bare sequence number by keeping the first output
 # line and stripping the server suffix, e.g. "98765.pbsserver" -> "98765".
 #
-# @param raw Raw stdout captured from qsub.
+# @param[in] raw Raw stdout captured from qsub.
 # ------------------------------------------------------------------------------
 _knit_sched_pbs_parse_jobid() {
     local raw="$1"
@@ -72,9 +72,9 @@ _knit_sched_pbs_parse_jobid() {
 # -o/-e redirection is carried by the script's directives, so the job directory
 # is not needed here.
 #
-# @param arr_name Name of the resolved-options associative array.
-# @param script   Path to the batch script to submit.
-# @param jobdir   Job directory (unused; redirection is set via directives).
+# @param[in] arr_name Name of the resolved-options associative array.
+# @param[in] script   Path to the batch script to submit.
+# @param[in] jobdir   Job directory (unused; redirection is set via directives).
 # ------------------------------------------------------------------------------
 _knit_sched_pbs_submit() {
     local arr_name="$1"
@@ -96,9 +96,9 @@ _knit_sched_pbs_submit() {
 # the resolved "wait" option is "true" (see _knit_sched_pbs_submit for its
 # effect).
 #
-# @param argv_name Name of the array to fill with the submission argv.
-# @param arr_name  Name of the resolved-options associative array.
-# @param script    Path to the batch script to submit.
+# @param[out] argv_name Name of the array to fill with the submission argv.
+# @param[in] arr_name  Name of the resolved-options associative array.
+# @param[in] script    Path to the batch script to submit.
 # ------------------------------------------------------------------------------
 _knit_sched_pbs_submit_cmdline() {
     # shellcheck disable=SC2178 # nameref to the caller's array
@@ -123,7 +123,7 @@ _knit_sched_pbs_submit_cmdline() {
 # running, and waiting for "F" would then block far longer than the job runs.
 # The job's knit terminal state is read from the DB by the caller afterwards.
 #
-# @param jobid PBS job id (from the job's .job.id).
+# @param[in] jobid PBS job id (from the job's .job.id).
 # ------------------------------------------------------------------------------
 _knit_sched_pbs_wait() {
     local jobid="$1"
@@ -145,7 +145,7 @@ _knit_sched_pbs_wait() {
 # _knit_job_killed_trap). A qdel of an already-finished/unknown job may print a
 # diagnostic; that is not treated as a knit-level failure since the job is gone.
 #
-# @param jobid PBS job id (from the job's .job.id).
+# @param[in] jobid PBS job id (from the job's .job.id).
 # ------------------------------------------------------------------------------
 _knit_sched_pbs_cancel() {
     local jobid="$1"

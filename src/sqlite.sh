@@ -61,8 +61,8 @@ _KNIT_SQLITE_BUSY_TIMEOUT_MS="10000"
 # when KNIT_LOG_LEVEL is trace, also displayed live in a 10-line frame.
 # Returns the exit status of the command.
 #
-# @param title Title shown on the frame's top border.
-# @param ... Command and arguments to execute.
+# @param[in] title Title shown on the frame's top border.
+# @param[in] ... Command and arguments to execute.
 # ------------------------------------------------------------------------------
 _knit_sqlite_framed_run() {
     local title="$1"
@@ -86,7 +86,7 @@ _knit_sqlite_framed_run() {
 # must build against (empty for the system, where the dev files are on the default
 # search paths). The metadata and provenance tables are created in either case.
 #
-# @param ignore_system When "true", always build from source even if a usable
+# @param[in] ignore_system When "true", always build from source even if a usable
 #        system sqlite3 is present.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_sqlite() {
@@ -122,7 +122,7 @@ _knit_bootstrap_sqlite() {
 # install that is already built from source is what the flag asks for, so it is a
 # no-op; an untyped flag leaves the install as is.
 #
-# @param ... Raw argument tokens of this invocation (see
+# @param[in] ... Raw argument tokens of this invocation (see
 #            _KNIT_INVOCATION_RAW_ARGS), used to tell a typed flag from a
 #            defaulted one.
 # @return 0 when sqlite was rebuilt from source, 1 when nothing changed.
@@ -209,8 +209,8 @@ EOF
 # local escaped; _knit_sql_escape escaped "it's"   # escaped == it''s
 # ```
 #
-# @param __knit_ret Name of the variable to hold the escaped string.
-# @param value String to escape.
+# @param[out] __knit_ret Name of the variable to hold the escaped string.
+# @param[in] value String to escape.
 # ------------------------------------------------------------------------------
 _knit_sql_escape() {
     local -n __knit_ret=$1
@@ -232,8 +232,8 @@ _knit_sql_escape() {
 # local quoted; _knit_sql_quote_identifier quoted "aaa:bbb"   # quoted == "aaa:bbb"
 # ```
 #
-# @param __knit_ret Name of the variable to hold the quoted identifier.
-# @param name Identifier to quote.
+# @param[out] __knit_ret Name of the variable to hold the quoted identifier.
+# @param[in] name Identifier to quote.
 # ------------------------------------------------------------------------------
 _knit_sql_quote_identifier() {
     local -n __knit_ret=$1
@@ -253,7 +253,7 @@ _knit_sql_quote_identifier() {
 # so neither needs anything from the caller's environment. `env` replaces itself
 # with the target binary, so this adds no extra process.
 #
-# @param ... Command and arguments to execute.
+# @param[in] ... Command and arguments to execute.
 # ------------------------------------------------------------------------------
 _knit_run_isolated() {
     env -u LD_LIBRARY_PATH -u LD_PRELOAD -u LD_AUDIT "$@"
@@ -270,7 +270,7 @@ _knit_run_isolated() {
 # cannot swap in a different libsqlite3. Use this for reads; route writes through
 # _knit_sqlite3_write so they are also serialized by the advisory lock.
 #
-# @param ... Parameters to forward to the sqlite3 command.
+# @param[in] ... Parameters to forward to the sqlite3 command.
 # ------------------------------------------------------------------------------
 _knit_sqlite3() {
     _knit_run_isolated "${_KNIT_SQLITE_EXE}" \
@@ -290,7 +290,7 @@ _knit_sqlite3() {
 # _knit_sqlite3 remains as a second line of defence. Standard input is inherited
 # by the subshell, so heredoc-fed statements work unchanged.
 #
-# @param ... Parameters to forward to _knit_sqlite3.
+# @param[in] ... Parameters to forward to _knit_sqlite3.
 # ------------------------------------------------------------------------------
 _knit_sqlite3_write() {
     local lock="${_KNIT_DATABASE}.lock"

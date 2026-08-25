@@ -13,10 +13,10 @@
 # header defaults OFF (query output is most often piped elsewhere, where a header
 # is noise); the separator defaults to empty (the backend's own default).
 #
-# @param __knit_ret1 Name of the variable to hold the format value.
-# @param __knit_ret2 Name of the variable to hold the header flag ("true"/"false").
-# @param __knit_ret3 Name of the variable to hold the separator value.
-# @param ... The command invocation arguments to read the options from.
+# @param[out] __knit_ret1 Name of the variable to hold the format value.
+# @param[out] __knit_ret2 Name of the variable to hold the header flag ("true"/"false").
+# @param[out] __knit_ret3 Name of the variable to hold the separator value.
+# @param[in] ... The command invocation arguments to read the options from.
 # ------------------------------------------------------------------------------
 _knit_query_read_output_opts() {
     local -n __knit_ret1=$1
@@ -39,8 +39,8 @@ _knit_query_read_output_opts() {
 # none. Read from the live registration state (_KNIT_DB_REGISTERED_TABLES), so
 # it can never go stale.
 #
-# @param __knit_ret Name of the variable to hold the alias (empty if none).
-# @param table The table name to look up.
+# @param[out] __knit_ret Name of the variable to hold the alias (empty if none).
+# @param[in] table The table name to look up.
 # ------------------------------------------------------------------------------
 _knit_query_table_alias() {
     local -n __knit_ret=$1
@@ -122,7 +122,7 @@ knit_with_optional "ref:string" "" \
 # knit-graph's non-zero exit on an unknown reference. Runs on the read-only
 # knit-graph binary; the query itself is not recorded.
 #
-# @param ... The command invocation arguments (an optional --ref TABLE[.COLUMN]).
+# @param[in] ... The command invocation arguments (an optional --ref TABLE[.COLUMN]).
 # @return The exit status of knit-graph.
 # ------------------------------------------------------------------------------
 _knit_query_catalog() {
@@ -150,7 +150,7 @@ knit_done
 # every invocation and never persisted, so it can never go stale. Entries are
 # sorted for a stable, traceable SPEC. Empty when no table is registered.
 #
-# @param __knit_ret Name of the variable to hold the newline-separated SPEC.
+# @param[out] __knit_ret Name of the variable to hold the newline-separated SPEC.
 # ------------------------------------------------------------------------------
 _knit_query_build_names() {
     local -n __knit_ret=$1
@@ -176,10 +176,10 @@ _knit_query_build_names() {
 # because knit-graph defaults it on while knit query defaults it off; a non-empty
 # separator adds `-separator <sep>`.
 #
-# @param __knit_ret Name of the array variable to fill with the knit-graph flags.
-# @param format The query_format enum value (e.g. "list", "json").
-# @param header "true" to emit a header row, anything else to suppress it.
-# @param separator Optional column separator.
+# @param[out] __knit_ret Name of the array variable to fill with the knit-graph flags.
+# @param[in] format The query_format enum value (e.g. "list", "json").
+# @param[in] header "true" to emit a header row, anything else to suppress it.
+# @param[in] separator Optional column separator.
 # ------------------------------------------------------------------------------
 _knit_query_graph_output_flags() {
     local -n __knit_ret=$1
@@ -208,8 +208,8 @@ _knit_query_graph_output_flags() {
 # catalog annotator can enrich each column line and so it is stubbable in unit
 # tests. The array is cleared first; an unknown table simply yields no entries.
 #
-# @param __knit_ret Name of the associative array to fill (name -> type).
-# @param table The table name to introspect.
+# @param[out] __knit_ret Name of the associative array to fill (name -> type).
+# @param[in] table The table name to introspect.
 # ------------------------------------------------------------------------------
 _knit_query_column_types() {
     # shellcheck disable=SC2178 # nameref to the caller's associative array
@@ -261,7 +261,7 @@ knit_with_extra "Extra arguments forwarded verbatim to knit-graph after --."
 # --explain and --ast are mutually exclusive. Anything after a trailing `--` is
 # forwarded to knit-graph verbatim. knit-graph's exit status is propagated.
 #
-# @param ... The command invocation arguments, plus optional knit-graph args
+# @param[in] ... The command invocation arguments, plus optional knit-graph args
 #        after `--`.
 # @return The exit status of knit-graph.
 # ------------------------------------------------------------------------------
@@ -334,7 +334,7 @@ knit_with_optional "separator:string" "" \
 # `ai query` uses, so SQL and Cypher results present identically. sqlite3's exit
 # status is propagated.
 #
-# @param ... The command invocation arguments.
+# @param[in] ... The command invocation arguments.
 # @return The exit status of sqlite3, or fatal on a non-read-only statement.
 # ------------------------------------------------------------------------------
 _knit_query_sql() {

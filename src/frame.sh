@@ -11,15 +11,15 @@
 #
 # Usage: `my-command arg1 arg2 ... | knit_framed [<height> [<width>]] [--title <title>] [--cleanup]`
 #
-# @param height Height of the frame (default: terminal height).
-# @param width Width of the frame (default: terminal width).
-# @param --title Optional title displayed centered on the top border.
-# @param --cleanup If present, erase the frame from the screen after completion.
-# @param --frame-color Foreground color of the frame borders (key in _KNIT_COLORS).
-# @param --frame-bg-color Background color of the frame borders (key in _KNIT_COLORS).
-# @param --text-color Foreground color of the text inside the frame (key in _KNIT_COLORS).
-# @param --text-bg-color Background color of the text inside the frame (key in _KNIT_COLORS).
-# @param --log-level Minimum log level required to display the frame (trace, debug, info,
+# @param[in] height Height of the frame (default: terminal height).
+# @param[in] width Width of the frame (default: terminal width).
+# @param[in] --title Optional title displayed centered on the top border.
+# @param[in] --cleanup If present, erase the frame from the screen after completion.
+# @param[in] --frame-color Foreground color of the frame borders (key in _KNIT_COLORS).
+# @param[in] --frame-bg-color Background color of the frame borders (key in _KNIT_COLORS).
+# @param[in] --text-color Foreground color of the text inside the frame (key in _KNIT_COLORS).
+# @param[in] --text-bg-color Background color of the text inside the frame (key in _KNIT_COLORS).
+# @param[in] --log-level Minimum log level required to display the frame (trace, debug, info,
 #                    warning, error, critical). If KNIT_LOG_LEVEL is above this level,
 #                    stdin is drained silently and nothing is output.
 # ------------------------------------------------------------------------------

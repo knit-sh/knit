@@ -81,9 +81,9 @@ _knit_uuidv7() {
 # knit_get_profile_field. The profile argument is retained as a gate so callers
 # can request a field unconditionally.
 #
-# @param __knit_ret Name of the variable to hold the field value.
-# @param profile Profile label (may be empty; empty means "no profile").
-# @param jq_path jq path expression, e.g. '.scheduler.default_queue'.
+# @param[out] __knit_ret Name of the variable to hold the field value.
+# @param[in] profile Profile label (may be empty; empty means "no profile").
+# @param[in] jq_path jq path expression, e.g. '.scheduler.default_queue'.
 # ------------------------------------------------------------------------------
 _knit_sched_profile_field() {
     local -n __knit_ret=$1
@@ -112,8 +112,8 @@ _knit_sched_profile_field() {
 # whole nodes). Job stdout/stderr are fixed to <job-dir>/.stdout and
 # <job-dir>/.stderr by the backend, so they are not resolved here.
 #
-# @param out_array Name of an associative array to populate (passed by name).
-# @param ...       The submission CLI arguments (everything before "--").
+# @param[out] out_array Name of an associative array to populate (passed by name).
+# @param[in] ...       The submission CLI arguments (everything before "--").
 # ------------------------------------------------------------------------------
 _knit_sched_resolve() {
     local -n resolved="$1"
@@ -214,9 +214,9 @@ _knit_sched_resolve() {
 # scheduler directive lines (e.g. "#SBATCH ..." / "#PBS ...") for the resolved
 # options. The local and none backends print nothing.
 #
-# @param backend  Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
-# @param arr_name Name of the resolved-options associative array.
-# @param jobdir   Job directory (used by backends for --output/--error paths).
+# @param[in] backend  Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
+# @param[in] arr_name Name of the resolved-options associative array.
+# @param[in] jobdir   Job directory (used by backends for --output/--error paths).
 # ------------------------------------------------------------------------------
 _knit_sched_directives() {
     local backend="$1"
@@ -241,10 +241,10 @@ _knit_sched_directives() {
 # This is built separately from _knit_sched_submit so the resolved submission
 # command can be recorded in the jobs table and logged before it is issued.
 #
-# @param backend   Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
-# @param arr_name  Name of the resolved-options associative array.
-# @param script    Path to the batch script to submit.
-# @param argv_name Name of the array to fill with the submission argv.
+# @param[in] backend   Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
+# @param[in] arr_name  Name of the resolved-options associative array.
+# @param[in] script    Path to the batch script to submit.
+# @param[in] argv_name Name of the array to fill with the submission argv.
 # ------------------------------------------------------------------------------
 _knit_sched_submit_cmdline() {
     local backend="$1"
@@ -268,10 +268,10 @@ _knit_sched_submit_cmdline() {
 # already-written batch script and prints the resulting scheduler job id (or, for
 # the local/none backend, the process id) to stdout.
 #
-# @param backend  Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
-# @param arr_name Name of the resolved-options associative array.
-# @param script   Path to the batch script to submit.
-# @param jobdir   Job directory (holds .stdout/.stderr for local/none backends).
+# @param[in] backend  Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
+# @param[in] arr_name Name of the resolved-options associative array.
+# @param[in] script   Path to the batch script to submit.
+# @param[in] jobdir   Job directory (holds .stdout/.stderr for local/none backends).
 # ------------------------------------------------------------------------------
 _knit_sched_submit() {
     local backend="$1"
@@ -296,8 +296,8 @@ _knit_sched_submit() {
 # kill, slurm: scancel, pbs: qdel). Cancelling a job that is already gone is not
 # an error. Knit's terminal state (killed) is recorded by the caller.
 #
-# @param backend Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
-# @param jobid   Backend job id (scheduler id, or a PID for local/none backends).
+# @param[in] backend Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
+# @param[in] jobid   Backend job id (scheduler id, or a PID for local/none backends).
 # ------------------------------------------------------------------------------
 _knit_sched_cancel() {
     local backend="$1"
@@ -322,7 +322,7 @@ _knit_sched_cancel() {
 # cluster driven without a scheduler) and flows through untouched. Returns one of
 # "local", "none", "slurm", "pbs", "flux".
 #
-# @param __knit_ret Name of the variable to hold the resolved backend name.
+# @param[out] __knit_ret Name of the variable to hold the resolved backend name.
 # ------------------------------------------------------------------------------
 _knit_sched_backend() {
     local -n __knit_ret=$1
@@ -342,8 +342,8 @@ _knit_sched_backend() {
 # functions); knit's own terminal state (completed/killed) is read from the jobs
 # table afterwards, so this only has to unblock when the job stops running.
 #
-# @param backend Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
-# @param jobid   Backend job id (scheduler id, or a PID for local/none backends).
+# @param[in] backend Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
+# @param[in] jobid   Backend job id (scheduler id, or a PID for local/none backends).
 # ------------------------------------------------------------------------------
 _knit_sched_wait() {
     local backend="$1"
@@ -392,20 +392,20 @@ _knit_sched_hostfile() {
 # `exp.sh submit <job-name> <args>`. Arguments are %q-quoted so they survive the
 # round-trip through the batch script unchanged.
 #
-# @param script_path Path of the batch script to create.
-# @param backend     Scheduler backend name.
-# @param arr_name    Name of the resolved-options associative array.
-# @param setup_path  Setup directory (exported as KNIT_SETUP_PREFIX; empty for
+# @param[in] script_path Path of the batch script to create.
+# @param[in] backend     Scheduler backend name.
+# @param[in] arr_name    Name of the resolved-options associative array.
+# @param[in] setup_path  Setup directory (exported as KNIT_SETUP_PREFIX; empty for
 #                    a setup-less job, in which case KNIT_SETUP_PREFIX is not
 #                    exported).
-# @param jobdir      Job directory (exported as KNIT_JOB_PREFIX; the cd target).
-# @param source_id   Submitting invocation's row id (exported as KNIT_SOURCE_ID
+# @param[in] jobdir      Job directory (exported as KNIT_JOB_PREFIX; the cd target).
+# @param[in] source_id   Submitting invocation's row id (exported as KNIT_SOURCE_ID
 #                    so the compute-side job body records a call edge back to the
 #                    submitter; empty to omit the export).
-# @param source_command Submitting invocation's command name (exported as
+# @param[in] source_command Submitting invocation's command name (exported as
 #                    KNIT_SOURCE_COMMAND; emitted only when source_id is set).
-# @param job_name    Registered job name to run.
-# @param ...         Arguments to pass to the job.
+# @param[in] job_name    Registered job name to run.
+# @param[in] ...         Arguments to pass to the job.
 # ------------------------------------------------------------------------------
 _knit_sched_write_jobscript() {
     local script_path="$1"

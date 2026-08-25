@@ -17,8 +17,8 @@ KNIT_LOG_LEVEL=${KNIT_LOG_LEVEL:-info}
 # caller-named variable. trace=0, debug=1, info=2, warning=3, error=4,
 # critical=5. Yields 2 (info) for unrecognized values.
 #
-# @param __knit_ret Name of the variable to hold the integer value.
-# @param level Log level string.
+# @param[out] __knit_ret Name of the variable to hold the integer value.
+# @param[in] level Log level string.
 # ------------------------------------------------------------------------------
 _knit_log_level_to_int() {
     local -n __knit_ret=$1
@@ -62,7 +62,7 @@ _knit_ensure_trace_file() {
 # Set the log level.
 # The level should be either trace, debug, info, warning, error, or critical.
 #
-# @param level Log level.
+# @param[in] level Log level.
 # @return 0 if the log level was set, 1 otherwise.
 # ------------------------------------------------------------------------------
 knit_log_set_level() {
@@ -89,8 +89,8 @@ knit_log_set_level() {
 # _knit_log info "Hello, Matthieu"
 # ```
 #
-# @param level Logging level.
-# @param ... Arguments for printf.
+# @param[in] level Logging level.
+# @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
 _knit_log() {
     local level="$1";
@@ -107,7 +107,7 @@ _knit_log() {
 # Logging function for trace-level messages. Works like echo but will only
 # print if the logging level was set to "trace".
 #
-# @param ... Arguments for printf.
+# @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_trace() {
     local __lvl
@@ -123,7 +123,7 @@ knit_trace() {
 # Logging function for debug-level messages. Works like echo but will only
 # print if the logging level was set to "debug".
 #
-# @param ... Arguments for printf.
+# @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_debug() {
     local __lvl
@@ -139,7 +139,7 @@ knit_debug() {
 # Logging function for info-level messages. Works like echo but will only
 # print if the logging level was set to "info".
 #
-# @param ... Arguments for printf.
+# @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_info() {
     local __lvl
@@ -155,7 +155,7 @@ knit_info() {
 # Logging function for warning-level messages. Works like echo but will only
 # print if the logging level was set to "warning".
 #
-# @param ... Arguments for printf.
+# @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_warning() {
     local __lvl
@@ -171,7 +171,7 @@ knit_warning() {
 # Logging function for error-level messages. Works like echo but will only
 # print if the logging level was set to "error".
 #
-# @param ... Arguments for printf.
+# @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_error() {
     local __lvl
@@ -187,7 +187,7 @@ knit_error() {
 # Logging function for critical-level messages. Works like echo but will only
 # print if the logging level was set to "critical".
 #
-# @param ... Arguments for printf.
+# @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_critical() {
     local __lvl
@@ -203,7 +203,7 @@ knit_critical() {
 # Logging function for fatal error messages. Will be printed no matter the log
 # level, and the program will exit with an error value.
 #
-# @param ... Arguments for printf.
+# @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_fatal() {
     _knit_log fatal "$@"

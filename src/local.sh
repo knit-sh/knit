@@ -8,7 +8,7 @@
 # Convert a wall-clock time string in HH:MM:SS format to an integer number of
 # seconds.
 #
-# @param walltime Wall-clock time in HH:MM:SS format.
+# @param[in] walltime Wall-clock time in HH:MM:SS format.
 # ------------------------------------------------------------------------------
 _knit_walltime_to_seconds() {
     local walltime="$1"
@@ -34,7 +34,7 @@ _knit_walltime_to_seconds() {
 # is not validated as a submission option. Options may be given either as
 # "--name value" or "--name=value".
 #
-# @param ... Submission options followed by -- and the command to run:
+# @param[in] ... Submission options followed by -- and the command to run:
 #   --stdout <file>      Redirect command stdout to <file>  (default: /dev/null)
 #   --stderr <file>      Redirect command stderr to <file>  (default: /dev/null)
 #   --stdin  <file>      Redirect command stdin from <file> (default: /dev/null)
@@ -98,7 +98,7 @@ _knit_submit_local() {
 # Uses kill -0 polling because wait(1) only works for child processes of the
 # current shell, and _knit_submit_local detaches the process via nohup.
 #
-# @param pid PID returned by _knit_submit_local.
+# @param[in] pid PID returned by _knit_submit_local.
 # ------------------------------------------------------------------------------
 _knit_wait_local() {
     local pid="$1"

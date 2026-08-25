@@ -11,8 +11,8 @@
 # Job stdout/stderr are fixed to <jobdir>/.stdout and <jobdir>/.stderr. Optional
 # fields (account, project/wckey, partition, gpus) are emitted only when set.
 #
-# @param arr_name Name of the resolved-options associative array.
-# @param jobdir   Job directory (for the --output/--error paths).
+# @param[in] arr_name Name of the resolved-options associative array.
+# @param[in] jobdir   Job directory (for the --output/--error paths).
 # ------------------------------------------------------------------------------
 _knit_sched_slurm_directives() {
     local -n resolved="$1"
@@ -54,7 +54,7 @@ _knit_sched_slurm_directives() {
 # Extract the numeric job id from sbatch's output line
 # "Submitted batch job <N>". Falls back to the last whitespace-separated token.
 #
-# @param raw Raw stdout captured from sbatch.
+# @param[in] raw Raw stdout captured from sbatch.
 # ------------------------------------------------------------------------------
 _knit_sched_slurm_parse_jobid() {
     local raw="$1"
@@ -74,9 +74,9 @@ _knit_sched_slurm_parse_jobid() {
 # --output/--error redirection is carried by the script's directives, so the job
 # directory is not needed here.
 #
-# @param arr_name Name of the resolved-options associative array.
-# @param script   Path to the batch script to submit.
-# @param jobdir   Job directory (unused; redirection is set via directives).
+# @param[in] arr_name Name of the resolved-options associative array.
+# @param[in] script   Path to the batch script to submit.
+# @param[in] jobdir   Job directory (unused; redirection is set via directives).
 # ------------------------------------------------------------------------------
 _knit_sched_slurm_submit() {
     local arr_name="$1"
@@ -97,9 +97,9 @@ _knit_sched_slurm_submit() {
 # name: "sbatch [--wait] <script>". The --wait flag is added when the resolved
 # "wait" option is "true" (see _knit_sched_slurm_submit for its effect).
 #
-# @param argv_name Name of the array to fill with the submission argv.
-# @param arr_name  Name of the resolved-options associative array.
-# @param script    Path to the batch script to submit.
+# @param[out] argv_name Name of the array to fill with the submission argv.
+# @param[in] arr_name  Name of the resolved-options associative array.
+# @param[in] script    Path to the batch script to submit.
 # ------------------------------------------------------------------------------
 _knit_sched_slurm_submit_cmdline() {
     # shellcheck disable=SC2178 # nameref to the caller's array
@@ -124,7 +124,7 @@ _knit_sched_slurm_submit_cmdline() {
 # CG job still lists). The job's knit terminal state is read from the DB by the
 # caller afterwards.
 #
-# @param jobid Slurm job id (from the job's .job.id).
+# @param[in] jobid Slurm job id (from the job's .job.id).
 # ------------------------------------------------------------------------------
 _knit_sched_slurm_wait() {
     local jobid="$1"
@@ -141,7 +141,7 @@ _knit_sched_slurm_wait() {
 # job "killed" (see _knit_job_killed_trap). scancel exits 0 even for a job that
 # has already finished, so no special-casing is needed here.
 #
-# @param jobid Slurm job id (from the job's .job.id).
+# @param[in] jobid Slurm job id (from the job's .job.id).
 # ------------------------------------------------------------------------------
 _knit_sched_slurm_cancel() {
     local jobid="$1"

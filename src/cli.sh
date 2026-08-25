@@ -129,7 +129,7 @@ knit_empty() {
 # "command__1__subcommand__1__subcommand" so the name can be used in variable
 # names. Also converts spaces into __1__.
 #
-# @param cmd Command to mangle.
+# @param[in] cmd Command to mangle.
 # ------------------------------------------------------------------------------
 _knit_command_mangle() {
     local cmd="$*"
@@ -144,7 +144,7 @@ _knit_command_mangle() {
 # Demangles a command, i.e. converts "command__1__subcommand__1__subcommand"
 # back into "command:subcommand:subcommand".
 #
-# @param cmd Command to demangle.
+# @param[in] cmd Command to demangle.
 # ------------------------------------------------------------------------------
 _knit_command_demangle() {
     local cmd="$1"
@@ -158,7 +158,7 @@ _knit_command_demangle() {
 # Prints a mangled command (or a command with ":" in it) with spaces between
 # subcommands.
 #
-# @param cmd Command to print with spaces.
+# @param[in] cmd Command to print with spaces.
 # ------------------------------------------------------------------------------
 _knit_command_with_space() {
     local cmd="${1//__1__/ }"
@@ -171,7 +171,7 @@ _knit_command_with_space() {
 # Normalizes a parameter or command name, i.e. converts its hyphens into
 # underscores.
 #
-# @param name Name to normalize.
+# @param[in] name Name to normalize.
 # ------------------------------------------------------------------------------
 _knit_name_normalize() {
     local __ret
@@ -192,7 +192,7 @@ _knit_name_normalize() {
 # The caller is responsible for only passing tokens that start with "--"; bare
 # values must not be passed, otherwise they may be mistaken for parameter names.
 #
-# @param token A raw argument token starting with "--".
+# @param[in] token A raw argument token starting with "--".
 # ------------------------------------------------------------------------------
 _knit_arg_name() {
     local name="${1#--}"
@@ -219,8 +219,8 @@ _knit_arg_name() {
 # interchangeable. Scanning stops at a "--" token, so an option name that appears
 # only after "--" (as an extra) does not count as provided.
 #
-# @param name Option name, with or without the leading "--".
-# @param ...  Raw argument tokens to scan (typically "${_KNIT_INVOCATION_RAW_ARGS[@]}").
+# @param[in] name Option name, with or without the leading "--".
+# @param[in] ...  Raw argument tokens to scan (typically "${_KNIT_INVOCATION_RAW_ARGS[@]}").
 # ------------------------------------------------------------------------------
 _knit_arg_was_provided() {
     local wanted
@@ -243,7 +243,7 @@ _knit_arg_was_provided() {
 # underscores. The names "true", "false", "null", "and", "or", and "not" are
 # reserved for use in --when constraint expressions and are not allowed.
 #
-# @param param Parameter name to normalize.
+# @param[in] param Parameter name to normalize.
 # ------------------------------------------------------------------------------
 _knit_name_is_valid() {
     if [[ ! "$1" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
@@ -262,9 +262,9 @@ _knit_name_is_valid() {
 # knit_with_required/optional/flag. The parameter name must include a type
 # annotation in the form "name:type" (e.g. "width:integer").
 #
-# @param suffix Suffix ("required", "optional", or "flag") to use for variables.
-# @param param Parameter name followed by ":type".
-# @param description Description of the parameter.
+# @param[in] suffix Suffix ("required", "optional", or "flag") to use for variables.
+# @param[in] param Parameter name followed by ":type".
+# @param[in] description Description of the parameter.
 # ------------------------------------------------------------------------------
 _knit_param_check_declaration() {
     local suffix="$1"
@@ -330,9 +330,9 @@ _knit_param_check_declaration() {
 #
 # This function returns the description of a parameter for a given command.
 #
-# @param __knit_ret Name of the variable to hold the description.
-# @param cmd Command to which the parameter belongs (must be mangled).
-# @param param Name of the parameter (must be normalized).
+# @param[out] __knit_ret Name of the variable to hold the description.
+# @param[in] cmd Command to which the parameter belongs (must be mangled).
+# @param[in] param Name of the parameter (must be normalized).
 # ------------------------------------------------------------------------------
 _knit_param_description() {
     local -n __knit_ret=$1
@@ -347,9 +347,9 @@ _knit_param_description() {
 #
 # This function returns the default value of a parameter for a given command.
 #
-# @param __knit_ret Name of the variable to hold the default value.
-# @param cmd Command to which the parameter belongs (must be mangled).
-# @param param Name of the parameter (must be normalized).
+# @param[out] __knit_ret Name of the variable to hold the default value.
+# @param[in] cmd Command to which the parameter belongs (must be mangled).
+# @param[in] param Name of the parameter (must be normalized).
 # ------------------------------------------------------------------------------
 _knit_param_default() {
     local -n __knit_ret=$1
@@ -367,7 +367,7 @@ _knit_param_default() {
 # including one that merely looks like ENV[...] but does not name a valid shell
 # variable, is returned unchanged, so ordinary defaults keep their literal value.
 #
-# @param raw Raw default value as declared with knit_with_optional.
+# @param[in] raw Raw default value as declared with knit_with_optional.
 # ------------------------------------------------------------------------------
 _knit_resolve_default() {
     local raw="$1"
@@ -384,9 +384,9 @@ _knit_resolve_default() {
 #
 # This function returns the type of a parameter for a given command.
 #
-# @param __knit_ret Name of the variable to hold the type.
-# @param cmd Command to which the parameter belongs (must be mangled).
-# @param param Name of the parameter (must be normalized).
+# @param[out] __knit_ret Name of the variable to hold the type.
+# @param[in] cmd Command to which the parameter belongs (must be mangled).
+# @param[in] param Name of the parameter (must be normalized).
 # ------------------------------------------------------------------------------
 _knit_param_type() {
     local -n __knit_ret=$1
@@ -399,9 +399,9 @@ _knit_param_type() {
 #
 # This function returns the description of an output for a given command.
 #
-# @param __knit_ret Name of the variable to hold the description.
-# @param cmd Command to which the output belongs (must be mangled).
-# @param output Name of the output (must be normalized).
+# @param[out] __knit_ret Name of the variable to hold the description.
+# @param[in] cmd Command to which the output belongs (must be mangled).
+# @param[in] output Name of the output (must be normalized).
 # ------------------------------------------------------------------------------
 _knit_output_description() {
     local -n __knit_ret=$1
@@ -414,9 +414,9 @@ _knit_output_description() {
 #
 # This function returns the default value of an output for a given command.
 #
-# @param __knit_ret Name of the variable to hold the default value.
-# @param cmd Command to which the output belongs (must be mangled).
-# @param output Name of the output (must be normalized).
+# @param[out] __knit_ret Name of the variable to hold the default value.
+# @param[in] cmd Command to which the output belongs (must be mangled).
+# @param[in] output Name of the output (must be normalized).
 # ------------------------------------------------------------------------------
 _knit_output_default() {
     local -n __knit_ret=$1
@@ -429,9 +429,9 @@ _knit_output_default() {
 #
 # This function returns the type of an output for a given command.
 #
-# @param __knit_ret Name of the variable to hold the output type.
-# @param cmd Command to which the output belongs (must be mangled).
-# @param output Name of the output (must be normalized).
+# @param[out] __knit_ret Name of the variable to hold the output type.
+# @param[in] cmd Command to which the output belongs (must be mangled).
+# @param[in] output Name of the output (must be normalized).
 # ------------------------------------------------------------------------------
 _knit_output_type() {
     local -n __knit_ret=$1
@@ -449,8 +449,8 @@ _knit_output_type() {
 # "aaa__1__bbb__1__cccc" and return the parent commands (e.g. "aaa:bbb" or
 # "aaa bbb" or "aaa__1__bbb".
 #
-# @param __knit_ret Name of the variable to hold the parent commands.
-# @param cmd Command name (colon/space/mangled).
+# @param[out] __knit_ret Name of the variable to hold the parent commands.
+# @param[in] cmd Command name (colon/space/mangled).
 # ------------------------------------------------------------------------------
 _knit_command_get_parents() {
     local -n __knit_ret=$1; shift
@@ -468,8 +468,8 @@ _knit_command_get_parents() {
 # "aaa__1__bbb__1__cccc" and return the last command (e.g. "ccc" in all the
 # cases above).
 #
-# @param __knit_ret Name of the variable to hold the last command.
-# @param cmd Command name (colon/space/mangled).
+# @param[out] __knit_ret Name of the variable to hold the last command.
+# @param[in] cmd Command name (colon/space/mangled).
 # ------------------------------------------------------------------------------
 _knit_command_get_last() {
     local -n __knit_ret=$1; shift
@@ -488,9 +488,9 @@ _knit_command_get_last() {
 # followed by any number of knit_with_* calls, followed by the declaration of
 # the function to register, then a call to knit_done.
 #
-# @param cmd Command (demangled).
-# @param name Name of the function to register.
-# @param description Description of the command.
+# @param[in] cmd Command (demangled).
+# @param[in] name Name of the function to register.
+# @param[in] description Description of the command.
 # ------------------------------------------------------------------------------
 knit_register() {
     local demangled_cmd="$1"  # e.g. "command:subcommand"
@@ -590,7 +590,7 @@ knit_done() {
 # mutually-exclusive kind: "command" (plain, the default), "wrapper", "setup",
 # "job", "app", or "resource".
 #
-# @param cmd Command (mangled name) to test.
+# @param[in] cmd Command (mangled name) to test.
 # @return 0 if the command is a wrapper, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_command_is_wrapper() {
@@ -616,9 +616,9 @@ _knit_command_is_wrapper() {
 # A call to this function must be followed by the definition of <fn>, an
 # optional knit_with_table, and a call to knit_done.
 #
-# @param name        Command name (used as the wrapper's invocation name).
-# @param fn          Name of the Bash function the wrapper forwards to.
-# @param description One-line description shown in "--help".
+# @param[in] name        Command name (used as the wrapper's invocation name).
+# @param[in] fn          Name of the Bash function the wrapper forwards to.
+# @param[in] description One-line description shown in "--help".
 #
 # Example:
 # ```
@@ -643,7 +643,7 @@ knit_register_wrapper() {
 # outputs, dispatch, parameter sets). A parameter-set definition is never a
 # wrapper, so the check is skipped when no command is being registered.
 #
-# @param directive Name of the calling directive (for the error message).
+# @param[in] directive Name of the calling directive (for the error message).
 # ------------------------------------------------------------------------------
 _knit_wrapper_reject_declaration() {
     if [[ -v _KNIT_CURRENT_COMMAND ]] \
@@ -660,7 +660,7 @@ _knit_wrapper_reject_declaration() {
 # knit_with_flag calls, then a call to knit_done. The resulting set can then be
 # imported into one or more commands with knit_with_parameter_set.
 #
-# @param name Name of the parameter set (letters, digits, hyphens, underscores).
+# @param[in] name Name of the parameter set (letters, digits, hyphens, underscores).
 # ------------------------------------------------------------------------------
 knit_define_parameter_set() {
     local set_name="$1"
@@ -766,8 +766,8 @@ knit_usable_before_bootstrap() {
 #
 # Any violation is fatal, naming the command and the specific reason.
 #
-# @param cmd Command (mangled name) being validated.
-# @param demangled Command name in demangled form (for messages).
+# @param[in] cmd Command (mangled name) being validated.
+# @param[in] demangled Command name in demangled form (for messages).
 # ------------------------------------------------------------------------------
 _knit_usable_before_bootstrap_validate() {
     local cmd="$1"
@@ -806,7 +806,7 @@ _knit_usable_before_bootstrap_validate() {
 # Test whether a command is usable before bootstrap, i.e. it was marked with
 # knit_usable_before_bootstrap during its registration.
 #
-# @param cmd Command (mangled name) to test.
+# @param[in] cmd Command (mangled name) to test.
 # @return 0 if the command is usable before bootstrap, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_command_is_usable_before_bootstrap() {
@@ -834,8 +834,8 @@ _knit_command_is_usable_before_bootstrap() {
 # per-command storage arrays (_usable_pred / _usable_desc) are declared lazily on
 # first use so commands that do not use this decorator pay no registration cost.
 #
-# @param predicate   Name of the predicate function.
-# @param description Message shown if the command is invoked while not usable.
+# @param[in] predicate   Name of the predicate function.
+# @param[in] description Message shown if the command is invoked while not usable.
 # ------------------------------------------------------------------------------
 knit_usable_if() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
@@ -875,8 +875,8 @@ knit_usable_if() {
 # does not exist is fatal: a usability guard that silently vanished would let an
 # unusable command run.
 #
-# @param __knit_ret Name of the variable to receive the failure reason (nameref).
-# @param cmd        Command (mangled name) to check.
+# @param[out] __knit_ret Name of the variable to receive the failure reason (nameref).
+# @param[in] cmd        Command (mangled name) to check.
 # @return 0 if usable, 1 if a predicate failed (with the reason set).
 # ------------------------------------------------------------------------------
 _knit_command_check_usable() {
@@ -923,7 +923,7 @@ _knit_command_check_usable() {
 # predicate would be meaningless, so this call emits a warning and is ignored. The
 # per-command storage array (_hidden_pred) is declared lazily on first use.
 #
-# @param predicate Name of the predicate function.
+# @param[in] predicate Name of the predicate function.
 # ------------------------------------------------------------------------------
 knit_hidden_if() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
@@ -975,7 +975,7 @@ knit_hidden_if_not_usable() {
 # returns 0 ("hide") when the command is not usable, and non-zero ("show") when it
 # is usable (or declares no usability predicates).
 #
-# @param demangled Demangled command name passed by _knit_command_hidden.
+# @param[in] demangled Demangled command name passed by _knit_command_hidden.
 # @return 0 if the command is not usable (hide it), non-zero otherwise.
 # ------------------------------------------------------------------------------
 _knit_hidden_if_not_usable_pred() {
@@ -1003,7 +1003,7 @@ _knit_hidden_if_not_usable_pred() {
 # fatal): hiding is guidance, not access control, so a vanished predicate is
 # treated as "no" (do not hide) and "--help" still renders.
 #
-# @param cmd Command (mangled name) to test.
+# @param[in] cmd Command (mangled name) to test.
 # @return 0 if the command should be hidden from "--help", non-zero otherwise.
 # ------------------------------------------------------------------------------
 _knit_command_hidden() {
@@ -1046,7 +1046,7 @@ _knit_command_hidden() {
 # highlighted if any of them returns 0 (logical OR). The per-command storage
 # array (_highlight_pred) is declared lazily on first use.
 #
-# @param predicate Name of the predicate function.
+# @param[in] predicate Name of the predicate function.
 # ------------------------------------------------------------------------------
 knit_highlight_if() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
@@ -1079,7 +1079,7 @@ knit_highlight_if() {
 # highlighting is cosmetic, so a vanished predicate is treated as "no" (do not
 # highlight) and "--help" still renders.
 #
-# @param cmd Command (mangled name) to test.
+# @param[in] cmd Command (mangled name) to test.
 # @return 0 if the command name should be highlighted, non-zero otherwise.
 # ------------------------------------------------------------------------------
 _knit_command_highlighted() {
@@ -1136,7 +1136,7 @@ _knit_is_builtin() {
 # Test whether a command is a framework builtin, i.e. it was marked with
 # _knit_is_builtin during its registration.
 #
-# @param cmd Command (mangled name) to test.
+# @param[in] cmd Command (mangled name) to test.
 # @return 0 if the command is a builtin, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_command_is_builtin() {
@@ -1237,8 +1237,8 @@ knit_with_subcommand_title() {
 # the following token as a value) is not suitable. Hyphens and underscores in the
 # flag name are interchangeable, and anything from "--" onwards is ignored.
 #
-# @param flag Flag name without the leading "--".
-# @param ...  Declaration arguments to scan.
+# @param[in] flag Flag name without the leading "--".
+# @param[in] ...  Declaration arguments to scan.
 # ------------------------------------------------------------------------------
 _knit_decl_flag_present() {
     local flag
@@ -1282,10 +1282,10 @@ _knit_decl_flag_present() {
 # already have been added to its declaration set before this is called, so the
 # collision check sees it.
 #
-# @param direction "input" (parameter) or "output".
-# @param type      The declared type (name or alias) of the parameter/output.
-# @param name      The declared (un-normalized) parameter/output name.
-# @param no_checksum "true" if --no-checksum was given, "false" otherwise.
+# @param[in] direction "input" (parameter) or "output".
+# @param[in] type      The declared type (name or alias) of the parameter/output.
+# @param[in] name      The declared (un-normalized) parameter/output name.
+# @param[in] no_checksum "true" if --no-checksum was given, "false" otherwise.
 # ------------------------------------------------------------------------------
 _knit_register_checksum() {
     local direction="$1"
@@ -1365,12 +1365,12 @@ _knit_register_checksum() {
 # Indicates that the command "greet" requires a parameter --name (string) and
 # --count (integer).
 #
-# @param param Parameter name followed by ":type".
-# @param description Description of the parameter.
-# @param --when Optional boolean constraint expression (jq syntax referring to
+# @param[in] param Parameter name followed by ":type".
+# @param[in] description Description of the parameter.
+# @param[in] --when Optional boolean constraint expression (jq syntax referring to
 #        the command's other parameters); the parameter only applies when the
 #        expression evaluates to true.
-# @param --no-checksum Optional flag; for a file/directory parameter, disable the
+# @param[in] --no-checksum Optional flag; for a file/directory parameter, disable the
 #        content checksum and its companion column.
 # ------------------------------------------------------------------------------
 knit_with_required() {
@@ -1431,13 +1431,13 @@ knit_with_required() {
 # by a `knit setup` (e.g. `knit_with_optional "seed:integer" "ENV[MC_SEED]" ...`)
 # picks up the value exported by that setup.
 #
-# @param param Parameter name followed by ":type".
-# @param default Default value (or "ENV[NAME]" to read the NAME env variable).
-# @param description Description of the parameter.
-# @param --when Optional boolean constraint expression (jq syntax referring to
+# @param[in] param Parameter name followed by ":type".
+# @param[in] default Default value (or "ENV[NAME]" to read the NAME env variable).
+# @param[in] description Description of the parameter.
+# @param[in] --when Optional boolean constraint expression (jq syntax referring to
 #        the command's other parameters); the parameter only applies when the
 #        expression evaluates to true.
-# @param --no-checksum Optional flag; for a file/directory parameter, disable the
+# @param[in] --no-checksum Optional flag; for a file/directory parameter, disable the
 #        content checksum and its companion column.
 # ------------------------------------------------------------------------------
 knit_with_optional() {
@@ -1488,9 +1488,9 @@ knit_with_optional() {
 # }
 # ```
 #
-# @param param Parameter name.
-# @param description Description of the parameter.
-# @param --when Optional boolean constraint expression (jq syntax referring to
+# @param[in] param Parameter name.
+# @param[in] description Description of the parameter.
+# @param[in] --when Optional boolean constraint expression (jq syntax referring to
 #        the command's other parameters); the parameter only applies when the
 #        expression evaluates to true.
 # ------------------------------------------------------------------------------
@@ -1527,7 +1527,7 @@ knit_with_flag() {
 # Conflicts between the set's parameters and parameters already declared for the
 # command are reported as fatal errors.
 #
-# @param name Name of the parameter set to import.
+# @param[in] name Name of the parameter set to import.
 # ------------------------------------------------------------------------------
 knit_with_parameter_set() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
@@ -1621,10 +1621,10 @@ knit_with_parameter_set() {
 # }
 # ```
 #
-# @param param Output name followed by ":type".
-# @param default Default value.
-# @param description Description of the output.
-# @param --no-checksum Optional flag; for a file/directory output, disable the
+# @param[in] param Output name followed by ":type".
+# @param[in] default Default value.
+# @param[in] description Description of the output.
+# @param[in] --no-checksum Optional flag; for a file/directory output, disable the
 #        content checksum and its companion column.
 # ------------------------------------------------------------------------------
 knit_with_output() {
@@ -1678,7 +1678,7 @@ knit_with_output() {
 #
 # Adds a description for extra parameters coming after "--".
 #
-# @param description Description of the extra parameters.
+# @param[in] description Description of the extra parameters.
 # ------------------------------------------------------------------------------
 knit_with_extra() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
@@ -1703,8 +1703,8 @@ knit_with_extra() {
 # --" argument check keep working. If no description is given, the placeholder
 # is used.
 #
-# @param placeholder  Name shown after "--" in the usage line (e.g. "job").
-# @param description  Optional description of the extra arguments.
+# @param[in] placeholder  Name shown after "--" in the usage line (e.g. "job").
+# @param[in] description  Optional description of the extra arguments.
 # ------------------------------------------------------------------------------
 knit_with_dispatch() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
@@ -1742,7 +1742,7 @@ knit_with_dispatch() {
 # knit_done
 # ```
 #
-# @param table_name Optional name of the database table. Defaults to the
+# @param[in] table_name Optional name of the database table. Defaults to the
 #                   colon-separated command name.
 # ------------------------------------------------------------------------------
 knit_with_table() {
@@ -1808,8 +1808,8 @@ _knit_run_before() {
 # returned so the caller (_knit_invoke_command) can abort the command rather than
 # run its body against an unmet precondition.
 #
-# @param cmd Command (mangled name) for which to execute the before callbacks.
-# @param ... Arguments of the command.
+# @param[in] cmd Command (mangled name) for which to execute the before callbacks.
+# @param[in] ... Arguments of the command.
 # @return 0 if all callbacks succeeded, the first non-zero status otherwise.
 # ------------------------------------------------------------------------------
 _knit_execute_before_commands() {
@@ -1866,8 +1866,8 @@ _knit_run_after() {
 # with the calling command name (demangled) as context, as well as the list of
 # parameters passed to the command.
 #
-# @param cmd Command (mangled name) for which to execute the after callbacks.
-# @param ... Arguments of the command.
+# @param[in] cmd Command (mangled name) for which to execute the after callbacks.
+# @param[in] ... Arguments of the command.
 # ------------------------------------------------------------------------------
 _knit_execute_after_commands() {
     local cmd="$1"
@@ -1891,7 +1891,7 @@ _knit_execute_after_commands() {
 # call to knit_done. Multiple callbacks may be pushed; they are all called in
 # reverse order of installation. The callback list is cleared after knit_done.
 #
-# @param ... Callback function and its arguments.
+# @param[in] ... Callback function and its arguments.
 # ------------------------------------------------------------------------------
 _knit_push_done_cb() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
@@ -1911,10 +1911,10 @@ _knit_push_done_cb() {
 # the message lists the accepted values. Parameters with no recorded type (e.g.
 # framework-internal ones) are left unchecked.
 #
-# @param cmd Command the parameter belongs to (mangled).
-# @param demangled_cmd Human-readable command name (used in messages).
-# @param name Parameter name (normalized).
-# @param value Value provided for the parameter.
+# @param[in] cmd Command the parameter belongs to (mangled).
+# @param[in] demangled_cmd Human-readable command name (used in messages).
+# @param[in] name Parameter name (normalized).
+# @param[in] value Value provided for the parameter.
 # ------------------------------------------------------------------------------
 _knit_check_argument_type() {
     local cmd="$1"
@@ -1946,8 +1946,8 @@ _knit_check_argument_type() {
 # argument is not provided, if an argument provided does not match any expected,
 # or if a value does not conform to its parameter's declared type.
 #
-# @param cmd Name of the command (mangled).
-# @param ... Arguments to pass to the command.
+# @param[in] cmd Name of the command (mangled).
+# @param[in] ... Arguments to pass to the command.
 # ------------------------------------------------------------------------------
 _knit_check_command_arguments() {
     local cmd="$1"
@@ -2019,8 +2019,8 @@ _knit_check_command_arguments() {
 # ```
 # will return 0 because "--help" was found.
 #
-# @param flag Flag to find.
-# @param ... List of arguments to search from.
+# @param[in] flag Flag to find.
+# @param[in] ... List of arguments to search from.
 # @return 0 if the flag was found, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_find_flag() {
@@ -2051,8 +2051,8 @@ _knit_find_flag() {
 # Adds optional arguments that are not provided in the arguments, and converts
 # flags into --flag true or --flag false.
 #
-# @param name Name of the command.
-# @param ... Arguments to pass to the command.
+# @param[in] name Name of the command.
+# @param[in] ... Arguments to pass to the command.
 # ------------------------------------------------------------------------------
 _knit_expand_command_arguments() {
     local cmd="$1"
@@ -2132,13 +2132,13 @@ _knit_expand_command_arguments() {
 # line ("<head><description>"), byte-for-byte identical to the pre-wrapping
 # output, so piped or redirected help stays unchanged.
 #
-# @param width       Terminal width in columns, or 0 for "no wrapping".
-# @param head        Literal leading text printed before the description on the
+# @param[in] width       Terminal width in columns, or 0 for "no wrapping".
+# @param[in] head        Literal leading text printed before the description on the
 #                    first line (may contain ANSI escape sequences).
-# @param head_len    Display width of <head> (escape bytes excluded), i.e. the
+# @param[in] head_len    Display width of <head> (escape bytes excluded), i.e. the
 #                    column at which the first-line description begins.
-# @param indent      Number of spaces used to indent continuation lines.
-# @param description Description text, wrapped at word boundaries.
+# @param[in] indent      Number of spaces used to indent continuation lines.
+# @param[in] description Description text, wrapped at word boundaries.
 # ------------------------------------------------------------------------------
 _knit_help_render_entry() {
     local width="$1"
@@ -2202,9 +2202,9 @@ _knit_help_render_entry() {
 # it can be printed both for a command's own options and, for a subcommand
 # invoked through a dispatcher, for the dispatcher's options as well.
 #
-# @param cmd       Mangled command name whose options to print.
-# @param title     Section title (e.g. "Options" or "submit options").
-# @param with_help "true" to include the "--help" entry, "false" otherwise.
+# @param[in] cmd       Mangled command name whose options to print.
+# @param[in] title     Section title (e.g. "Options" or "submit options").
+# @param[in] with_help "true" to include the "--help" entry, "false" otherwise.
 # ------------------------------------------------------------------------------
 _knit_print_options_block() {
     local cmd="$1"
@@ -2311,7 +2311,7 @@ _knit_print_options_block() {
 #
 # Print the help message for a command/subcommand.
 #
-# @param ...cmds Command and subcommand names
+# @param[in] ...cmds Command and subcommand names
 # ------------------------------------------------------------------------------
 _knit_print_command_usage() {
     local cmd
@@ -2481,8 +2481,8 @@ _knit_print_command_usage() {
 # strings. Each parameter may be given as "--name value" or "--name=value"
 # (flags already converted to "true"/"false" by _knit_expand_command_arguments).
 #
-# @param cmd Mangled command name (used for type lookups).
-# @param ... Expanded argument list.
+# @param[in] cmd Mangled command name (used for type lookups).
+# @param[in] ... Expanded argument list.
 # ------------------------------------------------------------------------------
 _knit_build_constraint_json() {
     local cmd="$1"
@@ -2525,9 +2525,9 @@ _knit_build_constraint_json() {
 #     original arguments, a fatal error is raised.
 # Returns 0 immediately when the experiment is not bootstrapped (jq unavailable).
 #
-# @param cmd Mangled command name.
-# @param orig_ref Name of bash array holding the original (pre-expansion) args.
-# @param exp_ref  Name of bash array holding the expanded args.
+# @param[in] cmd Mangled command name.
+# @param[in] orig_ref Name of bash array holding the original (pre-expansion) args.
+# @param[in] exp_ref  Name of bash array holding the expanded args.
 # ------------------------------------------------------------------------------
 _knit_check_constraints() {
     if ! _knit_is_bootstrapped; then return 0; fi
@@ -2592,11 +2592,11 @@ _knit_check_constraints() {
 # completion is a broken postcondition — both are fatal, so a run never records a
 # checksum for an artifact that was not there.
 #
-# @param demangled_cmd Human-readable command name (for the message).
-# @param direction     "input" or "output" (shapes the error message).
-# @param name          Normalized parameter/output name (for the message).
-# @param kind          "file" or "directory".
-# @param value         The path to check.
+# @param[in] demangled_cmd Human-readable command name (for the message).
+# @param[in] direction     "input" or "output" (shapes the error message).
+# @param[in] name          Normalized parameter/output name (for the message).
+# @param[in] kind          "file" or "directory".
+# @param[in] value         The path to check.
 # ------------------------------------------------------------------------------
 _knit_checksum_require_exists() {
     local demangled_cmd="$1"
@@ -2625,9 +2625,9 @@ _knit_checksum_require_exists() {
 # path feeds: the non-app input hook, the non-app output hook, and (later) the
 # app dispatcher all land a digest here for the same column writer.
 #
-# @param cmd   Mangled command name.
-# @param param Normalized parameter/output name whose companion column to set.
-# @param hex   The bare 64-hex digest (no algorithm prefix).
+# @param[in] cmd   Mangled command name.
+# @param[in] param Normalized parameter/output name whose companion column to set.
+# @param[in] hex   The bare 64-hex digest (no algorithm prefix).
 # ------------------------------------------------------------------------------
 _knit_checksum_stash() {
     local cmd="$1"
@@ -2649,7 +2649,7 @@ _knit_checksum_stash() {
 # context is an app (the "app" command type) re-entered under a live run
 # (KNIT_RUN_ID, exported by the dispatcher into the launcher environment).
 #
-# @param cmd Mangled command name.
+# @param[in] cmd Mangled command name.
 # ------------------------------------------------------------------------------
 _knit_checksum_is_app_worker() {
     local cmd="$1"
@@ -2668,7 +2668,7 @@ _knit_checksum_is_app_worker() {
 # stash is harmless there. An input with no forwarded digest (an absent optional,
 # or one that opted out with --no-checksum) is skipped.
 #
-# @param cmd Mangled command name.
+# @param[in] cmd Mangled command name.
 # ------------------------------------------------------------------------------
 _knit_checksum_stash_from_env() {
     local cmd="$1"
@@ -2703,8 +2703,8 @@ _knit_checksum_stash_from_env() {
 # forwarded digests from the environment (other ranks suppress recording), so
 # this returns after that instead of touching the filesystem.
 #
-# @param cmd Mangled command name.
-# @param ... The expanded invocation arguments.
+# @param[in] cmd Mangled command name.
+# @param[in] ... The expanded invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_checksum_inputs() {
     local cmd="$1"
@@ -2754,7 +2754,7 @@ _knit_checksum_inputs() {
 # and hashes them once after the launcher returns, off every measured duration.
 # So this returns early there, leaving the checksum columns for the dispatcher.
 #
-# @param cmd Mangled command name.
+# @param[in] cmd Mangled command name.
 # ------------------------------------------------------------------------------
 _knit_checksum_outputs() {
     local cmd="$1"
@@ -2801,8 +2801,8 @@ _knit_checksum_outputs() {
 # ```
 # Will invoke the command "say:hello" with arguments "--name" and "Matthieu".
 #
-# @param ...commands Commands and subcommands.
-# @param ...args Arguments for the command.
+# @param[in] ...commands Commands and subcommands.
+# @param[in] ...args Arguments for the command.
 # ------------------------------------------------------------------------------
 _knit_invoke_command() {
     # Capture the call-site alias (set by knit_as) for this invocation before any
@@ -3002,8 +3002,8 @@ _knit_invoke_command() {
 # The parameter value may be supplied either as two tokens ("--name value") or
 # inline with an equals sign ("--name=value"); both forms are recognized.
 #
-# @param param Parameter to search for (without the -- prefix).
-# @param ... Arguments in which to search for the parameter.
+# @param[in] param Parameter to search for (without the -- prefix).
+# @param[in] ... Arguments in which to search for the parameter.
 # ------------------------------------------------------------------------------
 knit_get_parameter() {
     local param
@@ -3046,8 +3046,8 @@ knit_get_parameter() {
 # Fails if called outside of an executing command, if the name was not declared
 # with knit_with_output, or if the value does not match the declared type.
 #
-# @param name  Output name (hyphens and underscores are interchangeable).
-# @param value Value to record.
+# @param[in] name  Output name (hyphens and underscores are interchangeable).
+# @param[in] value Value to record.
 # ------------------------------------------------------------------------------
 knit_output() {
     local name="$1"
@@ -3089,7 +3089,7 @@ knit_output() {
 # generated — instead of letting recording mint a fresh uuid. Must be called
 # from within an executing command function.
 #
-# @param id The uuid to record as the row's id.
+# @param[in] id The uuid to record as the row's id.
 # ------------------------------------------------------------------------------
 _knit_set_row_id() {
     local id="$1"
@@ -3116,7 +3116,7 @@ _knit_set_row_id() {
 # reuse its run's UUID (KNIT_RUN_ID) are gone — the provenance edge, not a shared
 # id, links a child back to its parent.
 #
-# @param cmd Mangled command name.
+# @param[in] cmd Mangled command name.
 # ------------------------------------------------------------------------------
 _knit_resolve_row_id() {
     local cmd="$1"
@@ -3139,7 +3139,7 @@ _knit_resolve_row_id() {
 # Recording is idempotent: the automatic recording afterwards sees this one and
 # does not insert a duplicate. Must be called from within an executing command.
 #
-# @param ... The invocation arguments (params/flags to record).
+# @param[in] ... The invocation arguments (params/flags to record).
 # ------------------------------------------------------------------------------
 _knit_record_row_now() {
     if [[ ${#_KNIT_EXECUTING_COMMAND[@]} -eq 0 ]]; then
@@ -3168,9 +3168,9 @@ _knit_record_row_now() {
 # with a node label in a query), and must not already have been used within the
 # current invocation (two edges sharing an alias would be indistinguishable).
 #
-# @param alias The name to record on the call edge.
-# @param cmd   The command to invoke (followed by its arguments).
-# @param ...   Arguments for the command.
+# @param[in] alias The name to record on the call edge.
+# @param[in] cmd   The command to invoke (followed by its arguments).
+# @param[in] ...   Arguments for the command.
 # ------------------------------------------------------------------------------
 knit_as() {
     local alias="$1"
@@ -3225,7 +3225,7 @@ knit_as() {
 #
 # Returns 0 (success) when the command participates, 1 otherwise.
 #
-# @param cmd Mangled command name.
+# @param[in] cmd Mangled command name.
 # ------------------------------------------------------------------------------
 _knit_provenance_enabled() {
     local cmd="$1"
@@ -3265,8 +3265,8 @@ _knit_provenance_enabled() {
 # The current frame is the top of the stacks (it is recorded before being
 # popped), so the in-process search starts one below the top.
 #
-# @param out_id   Name of the variable to receive the source row id.
-# @param out_name Name of the variable to receive the source command name.
+# @param[out] out_id   Name of the variable to receive the source row id.
+# @param[out] out_name Name of the variable to receive the source command name.
 # ------------------------------------------------------------------------------
 _knit_resolve_source_context() {
     local -n _knit_rsc_out_id="$1"
@@ -3323,8 +3323,8 @@ _knit_resolve_source_context() {
 # _KNIT_EXECUTING_START_TIME); its end_time is captured here, after the body and
 # after-callbacks.
 #
-# @param cmd Mangled command name.
-# @param ... The expanded invocation arguments.
+# @param[in] cmd Mangled command name.
+# @param[in] ... The expanded invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_record_invocation() {
     # Consume the pre-captured completion timestamp, if the normal invocation path
@@ -3435,7 +3435,7 @@ _knit_record_invocation() {
 # local extra=("${args[@]:extra_index}")
 # ```
 #
-# @param ... List of arguments.
+# @param[in] ... List of arguments.
 # ------------------------------------------------------------------------------
 knit_extra_index() {
     local list=("$@")
@@ -3478,9 +3478,9 @@ knit_extra_index() {
 # }
 # ```
 #
-# @param options Space-separated names of options that take a value.
-# @param flags   Space-separated names of flags that take no value.
-# @param ...     The arguments to validate (typically "$@").
+# @param[in] options Space-separated names of options that take a value.
+# @param[in] flags   Space-separated names of flags that take no value.
+# @param[in] ...     The arguments to validate (typically "$@").
 # ------------------------------------------------------------------------------
 knit_check_arguments() {
     local caller="${FUNCNAME[1]:-knit_check_arguments}"

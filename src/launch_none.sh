@@ -27,7 +27,7 @@
 # to the single local rank the backend runs. --launcher-args is ignored (there
 # is no launcher to pass it to).
 #
-# @param arr_name Name of the resolved placement-options associative array
+# @param[in] arr_name Name of the resolved placement-options associative array
 #                 (keys: procs, procs-per-node, hostnames).
 # ------------------------------------------------------------------------------
 _knit_launch_none_validate() {
@@ -57,8 +57,8 @@ _knit_launch_none_validate() {
 # placement is validated first so an over-specified request is still rejected on
 # this path.
 #
-# @param argv_name Name of the array to fill with the launcher argument vector.
-# @param opts_name Name of the resolved placement-options associative array.
+# @param[out] argv_name Name of the array to fill with the launcher argument vector.
+# @param[in] opts_name Name of the resolved placement-options associative array.
 # ------------------------------------------------------------------------------
 _knit_launch_none_cmdline() {
     local -n _launch_argv="$1"
@@ -74,9 +74,9 @@ _knit_launch_none_cmdline() {
 # placement is validated first (single local rank only). Returns the worker's
 # exit status.
 #
-# @param arr_name Name of the resolved placement-options associative array.
-# @param --       Literal separator.
-# @param ...      The worker command and its arguments.
+# @param[in] arr_name Name of the resolved placement-options associative array.
+# @param[in] --       Literal separator.
+# @param[in] ...      The worker command and its arguments.
 # ------------------------------------------------------------------------------
 _knit_launch_none_exec() {
     _knit_launch_none_validate "$1"

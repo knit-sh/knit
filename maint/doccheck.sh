@@ -9,6 +9,9 @@
 # must appear immediately before the function or variable declaration.
 # For functions, the block must also contain @fn function_name().
 #
+# Every @param tag must carry a direction marker: @param[in], @param[out], or
+# @param[in,out].
+#
 # Global variables are detected via:
 #   - 'declare' statements at column 0
 #   - Assignments at column 0 matching the KNIT naming convention
@@ -166,6 +169,22 @@ for ((i = 0; i < total; i++)); do
     # Reset prev_declare_var on non-blank, non-comment lines
     if [[ -n "$line" ]] && ! [[ "$line" =~ ^[[:space:]]*# ]]; then
         prev_declare_var=""
+    fi
+done
+
+# Every @param tag must carry an [in], [out], or [in,out] direction marker.
+param_tag_re='@param([^[:alnum:]_]|$)'
+param_ok_re='@param\[(in|out|in,out|out,in)\]([[:space:]]|$)'
+
+for ((i = 0; i < total; i++)); do
+    line="${lines[$i]}"
+
+    # Only Doxygen comment lines carry @param tags.
+    [[ "$line" =~ ^[[:space:]]*# ]] || continue
+
+    if [[ "$line" =~ $param_tag_re ]] && ! [[ "$line" =~ $param_ok_re ]]; then
+        echo "${file}:$((i + 1)): '@param' missing an [in]/[out] direction marker."
+        errors=$((errors + 1))
     fi
 done
 

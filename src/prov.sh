@@ -89,7 +89,7 @@ _knit_prov_ensure_table() {
 # which have no duration; SQLite's type affinity coerces the quoted number to a
 # REAL) and for the TEXT "alias" column (empty for a plain, unaliased edge).
 #
-# @param value Column value, or empty for NULL.
+# @param[in] value Column value, or empty for NULL.
 # ------------------------------------------------------------------------------
 _knit_prov_nullable_literal() {
     local value="$1"
@@ -110,17 +110,17 @@ _knit_prov_nullable_literal() {
 # (see _knit_prov_record_edge) or inside a transaction next to a data-row insert
 # (see _knit_db_record_invocation). Timestamps are rendered as NULL when empty.
 #
-# @param source_id   UUID of the source (caller for "call"; setup for "used_by");
+# @param[in] source_id   UUID of the source (caller for "call"; setup for "used_by");
 #                    empty for a root invocation.
-# @param source_name Demangled command name of the source (empty for a root).
-# @param target_id   UUID of the target (callee for "call"; consumer for
+# @param[in] source_name Demangled command name of the source (empty for a root).
+# @param[in] target_id   UUID of the target (callee for "call"; consumer for
 #                    "used_by").
-# @param target_name Demangled command name of the target.
-# @param edge_type   "call" (source invoked target) or "used_by" (target
+# @param[in] target_name Demangled command name of the target.
+# @param[in] edge_type   "call" (source invoked target) or "used_by" (target
 #                    references a setup, which is the source).
-# @param start_time  Epoch seconds when the call started (empty -> NULL).
-# @param end_time    Epoch seconds when the call returned (empty -> NULL).
-# @param alias       Call-site name from knit_as (empty -> NULL).
+# @param[in] start_time  Epoch seconds when the call started (empty -> NULL).
+# @param[in] end_time    Epoch seconds when the call returned (empty -> NULL).
+# @param[in] alias       Call-site name from knit_as (empty -> NULL).
 # ------------------------------------------------------------------------------
 _knit_prov_edge_sql() {
     local source_id="$1"
@@ -160,13 +160,13 @@ _knit_prov_edge_sql() {
 # (a table-less command) and for "used_by" edges; a target that also records a
 # data row writes both in one transaction via _knit_db_record_invocation instead.
 #
-# @param source_id   See _knit_prov_edge_sql.
-# @param source_name See _knit_prov_edge_sql.
-# @param target_id   See _knit_prov_edge_sql.
-# @param target_name See _knit_prov_edge_sql.
-# @param edge_type   See _knit_prov_edge_sql.
-# @param start_time  See _knit_prov_edge_sql.
-# @param end_time    See _knit_prov_edge_sql.
+# @param[in] source_id   See _knit_prov_edge_sql.
+# @param[in] source_name See _knit_prov_edge_sql.
+# @param[in] target_id   See _knit_prov_edge_sql.
+# @param[in] target_name See _knit_prov_edge_sql.
+# @param[in] edge_type   See _knit_prov_edge_sql.
+# @param[in] start_time  See _knit_prov_edge_sql.
+# @param[in] end_time    See _knit_prov_edge_sql.
 # ------------------------------------------------------------------------------
 _knit_prov_record_edge() {
     _knit_sqlite3_write "$(_knit_prov_edge_sql "$@")"
@@ -187,10 +187,10 @@ _knit_prov_record_edge() {
 # does not participate in the graph, or when the source id is empty (e.g. a setup
 # or resource materialized before provenance shipped).
 #
-# @param source_id   Resolved row id of the source node (empty -> no edge).
-# @param source_name Node name of the source ("setup:<type>" / "resource:<type>").
-# @param target_cmd  Mangled command name of the consumer (the edge target).
-# @param target_id   Resolved row id of the consumer (the edge target).
+# @param[in] source_id   Resolved row id of the source node (empty -> no edge).
+# @param[in] source_name Node name of the source ("setup:<type>" / "resource:<type>").
+# @param[in] target_cmd  Mangled command name of the consumer (the edge target).
+# @param[in] target_id   Resolved row id of the consumer (the edge target).
 # ------------------------------------------------------------------------------
 _knit_record_used_by_edge() {
     local source_id="$1"

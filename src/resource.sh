@@ -11,7 +11,7 @@
 # resolves it against the experiment root via _knit_resolve_experiment_path.
 # Mirrors _knit_setup_root / _knit_job_root.
 #
-# @param __knit_ret Name of the variable to hold the resolved resource root.
+# @param[out] __knit_ret Name of the variable to hold the resolved resource root.
 # ------------------------------------------------------------------------------
 _knit_resource_root() {
     local -n __knit_ret=$1
@@ -41,7 +41,7 @@ _knit_resource_root() {
 # resource that was never fetched. Called at most a handful of times per body (one
 # per declared resource), so it returns via stdout rather than a nameref.
 #
-# @param name The resource instance name (as passed to `knit fetch --name`).
+# @param[in] name The resource instance name (as passed to `knit fetch --name`).
 # ------------------------------------------------------------------------------
 knit_resource_path() {
     local name="$1"
@@ -75,7 +75,7 @@ declare -gA _KNIT_RESOURCES
 # local backend's --copy path; a symlinked local instance is deliberately left
 # alone (its target stays owned and writable by whoever staged it).
 #
-# @param dir Path to the instance tree (or file) to make read-only.
+# @param[in] dir Path to the instance tree (or file) to make read-only.
 # ------------------------------------------------------------------------------
 _knit_resource_make_readonly() {
     local dir="$1"
@@ -90,7 +90,7 @@ _knit_resource_make_readonly() {
 # instance is unlinked without touching its target. A no-op when <dir> is empty or
 # does not exist, so it is safe to call unconditionally on any failure path.
 #
-# @param dir Path to the instance to remove.
+# @param[in] dir Path to the instance to remove.
 # ------------------------------------------------------------------------------
 _knit_resource_cleanup_dir() {
     local dir="$1"
@@ -122,9 +122,9 @@ _knit_resource_cleanup_dir() {
 # The commit a git ref resolves to is deliberately not part of the identity: a
 # mutable ref (e.g. main) still identifies the same source between fetches.
 #
-# @param __knit_ret Name of the variable to hold the identity string.
-# @param method     The backend method ("git", "url", or "local").
-# @param ...        The fetch's arguments (read via knit_get_parameter).
+# @param[out] __knit_ret Name of the variable to hold the identity string.
+# @param[in] method     The backend method ("git", "url", or "local").
+# @param[in] ...        The fetch's arguments (read via knit_get_parameter).
 # ------------------------------------------------------------------------------
 _knit_resource_source_identity() {
     local -n __knit_ret=$1; shift
@@ -168,8 +168,8 @@ _knit_resource_source_identity() {
 # `local` symlink instance hashes its target). Returns non-zero (with a
 # knit_error) when sha256sum is unavailable or a step fails.
 #
-# @param __knit_ret Name of the variable to hold the digest.
-# @param path       Path to the file or directory to hash.
+# @param[out] __knit_ret Name of the variable to hold the digest.
+# @param[in] path       Path to the file or directory to hash.
 # ------------------------------------------------------------------------------
 _knit_sha256() {
     local -n __knit_ret=$1
@@ -196,9 +196,9 @@ _knit_sha256() {
 # knit_error naming what failed and returns 1, so the caller aborts the fetch and
 # removes the partial instance; on a match it returns 0.
 #
-# @param expected The expected value (the knit_with_checksum pin).
-# @param actual   The computed value.
-# @param what     Short label for the artifact (for the error message).
+# @param[in] expected The expected value (the knit_with_checksum pin).
+# @param[in] actual   The computed value.
+# @param[in] what     Short label for the artifact (for the error message).
 # ------------------------------------------------------------------------------
 _knit_resource_check_sha() {
     local expected="$1"
@@ -222,9 +222,9 @@ _knit_resource_check_sha() {
 # (defaults in use), 1 otherwise. The uncompress/copy flags are not compared: they
 # do not change the archive/file content the pin covers.
 #
-# @param cmd    The resource type's command (mangled name).
-# @param method The backend method ("git", "url", or "local").
-# @param ...    The fetch's expanded arguments (read via knit_get_parameter).
+# @param[in] cmd    The resource type's command (mangled name).
+# @param[in] method The backend method ("git", "url", or "local").
+# @param[in] ...    The fetch's expanded arguments (read via knit_get_parameter).
 # ------------------------------------------------------------------------------
 _knit_resource_defaults_used() {
     local cmd="$1"; shift
@@ -255,9 +255,9 @@ _knit_resource_defaults_used() {
 # read-only. Returns non-zero (leaving cleanup to the caller) if git is missing or
 # any step fails.
 #
-# @param dest Directory to create and clone into (must not already exist).
-# @param url  Repository URL to clone.
-# @param ref  Ref (branch, tag, or commit) to check out.
+# @param[in] dest Directory to create and clone into (must not already exist).
+# @param[in] url  Repository URL to clone.
+# @param[in] ref  Ref (branch, tag, or commit) to check out.
 # ------------------------------------------------------------------------------
 _knit_fetch_git() {
     local dest="$1"
@@ -287,10 +287,10 @@ _knit_fetch_git() {
 # removed) and a mismatch fails the fetch. The resulting instance is made
 # read-only. Returns non-zero (leaving cleanup to the caller) on any failed step.
 #
-# @param dest       Directory to create and download into (must not already exist).
-# @param url        URL of the artifact to download.
-# @param uncompress "true" to unpack the downloaded archive, "false" to keep it.
-# @param expected   Expected archive sha256 to verify, or "" to skip verification.
+# @param[in] dest       Directory to create and download into (must not already exist).
+# @param[in] url        URL of the artifact to download.
+# @param[in] uncompress "true" to unpack the downloaded archive, "false" to keep it.
+# @param[in] expected   Expected archive sha256 to verify, or "" to skip verification.
 # ------------------------------------------------------------------------------
 _knit_fetch_url() {
     local dest="$1"
@@ -331,10 +331,10 @@ _knit_fetch_url() {
 # against it and a mismatch fails the fetch. Returns non-zero (leaving cleanup to
 # the caller) if the source is missing or a step fails.
 #
-# @param dest     Path to create for the instance (must not already exist).
-# @param src      Local source path (file or directory) to link or copy.
-# @param copy     "true" to copy a read-only snapshot, "false" to symlink the source.
-# @param expected Expected sha256 to verify, or "" to skip verification.
+# @param[in] dest     Path to create for the instance (must not already exist).
+# @param[in] src      Local source path (file or directory) to link or copy.
+# @param[in] copy     "true" to copy a read-only snapshot, "false" to symlink the source.
+# @param[in] expected Expected sha256 to verify, or "" to skip verification.
 # ------------------------------------------------------------------------------
 _knit_fetch_local() {
     local dest="$1"
@@ -611,7 +611,7 @@ knit_done
 # use on any other kind of command. Reads the command kind from the
 # _KNIT_CMD_<cmd>_type field (see knit_register).
 #
-# @param cmd Command (mangled name) to test.
+# @param[in] cmd Command (mangled name) to test.
 # @return 0 if the command is a resource type, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_command_is_resource() {
@@ -626,7 +626,7 @@ _knit_command_is_resource() {
 # between knit_register_resource and knit_done). Shared by the download decorators
 # and knit_with_checksum, which are valid only on a resource type.
 #
-# @param directive Name of the calling directive (for the error message).
+# @param[in] directive Name of the calling directive (for the error message).
 # ------------------------------------------------------------------------------
 _knit_resource_require_registration() {
     local directive="$1"
@@ -645,7 +645,7 @@ _knit_resource_require_registration() {
 # the same decorator twice or two different backends) is fatal. Mirrors the
 # _KNIT_CMD_<cmd>_spack_env at-most-once marker pattern.
 #
-# @param method The backend name ("git", "url", or "local").
+# @param[in] method The backend name ("git", "url", or "local").
 # ------------------------------------------------------------------------------
 _knit_resource_set_method() {
     local method="$1"
@@ -664,7 +664,7 @@ _knit_resource_set_method() {
 # completed registration without declaring a download method, so a type must
 # declare exactly one of knit_with_git / knit_with_url / knit_with_local.
 #
-# @param cmd The resource type's command (mangled name).
+# @param[in] cmd The resource type's command (mangled name).
 # ------------------------------------------------------------------------------
 _knit_resource_check_method() {
     local cmd="$1"
@@ -691,8 +691,8 @@ _knit_resource_check_method() {
 # and a call to knit_done. It must run before any knit_with_resource that
 # references the type.
 #
-# @param type        Short name for the resource type (used as the dispatch target).
-# @param description One-line description shown in `--help`.
+# @param[in] type        Short name for the resource type (used as the dispatch target).
+# @param[in] description One-line description shown in `--help`.
 #
 # Example:
 # ```
@@ -736,8 +736,8 @@ knit_register_resource() {
 # which the fetch records the commit SHA the ref resolved to. Valid only on a
 # resource type, at most one download decorator per type.
 #
-# @param url The default git repository URL.
-# @param ref The default git ref (branch, tag, or commit) to check out.
+# @param[in] url The default git repository URL.
+# @param[in] ref The default git ref (branch, tag, or commit) to check out.
 # ------------------------------------------------------------------------------
 knit_with_git() {
     _knit_resource_require_registration "knit_with_git"
@@ -764,7 +764,7 @@ knit_with_git() {
 # flag (unpack the archive after download). Valid only on a resource type, at most
 # one download decorator per type.
 #
-# @param url The default URL of the artifact to download.
+# @param[in] url The default URL of the artifact to download.
 # ------------------------------------------------------------------------------
 knit_with_url() {
     _knit_resource_require_registration "knit_with_url"
@@ -786,7 +786,7 @@ knit_with_url() {
 # (default <path>) and the --copy flag. Valid only on a resource type, at most one
 # download decorator per type.
 #
-# @param path The default local source path to link or copy.
+# @param[in] path The default local source path to link or copy.
 # ------------------------------------------------------------------------------
 knit_with_local() {
     _knit_resource_require_registration "knit_with_local"
@@ -810,7 +810,7 @@ knit_with_local() {
 # a local directory (local), or the expected commit SHA the default ref resolves
 # to (git). A mismatch fails the fetch and removes the partial instance.
 #
-# @param sha256 The expected sha256 (a commit SHA for the git backend).
+# @param[in] sha256 The expected sha256 (a commit SHA for the git backend).
 # ------------------------------------------------------------------------------
 knit_with_checksum() {
     _knit_resource_require_registration "knit_with_checksum"
@@ -845,8 +845,8 @@ knit_with_checksum() {
 # and carried as the first two arguments; the trailing arguments are the
 # command's own runtime arguments, scanned for the parameter value.
 #
-# @param param Normalized name of the resource parameter to read.
-# @param type  Resource type the named instance must have been fetched as.
+# @param[in] param Normalized name of the resource parameter to read.
+# @param[in] type  Resource type the named instance must have been fetched as.
 # ------------------------------------------------------------------------------
 _knit_resource_dep_before_cb() {
     local param="$1"
@@ -890,9 +890,9 @@ _knit_resource_dep_before_cb() {
 # participate in the graph, or when the sidecar has no id (e.g. an instance
 # fetched before provenance shipped).
 #
-# @param name        Resource instance name (as passed to `knit fetch --name`).
-# @param target_cmd  Mangled command name of the consumer (the edge target).
-# @param target_id   Resolved row id of the consumer (the edge target).
+# @param[in] name        Resource instance name (as passed to `knit fetch --name`).
+# @param[in] target_cmd  Mangled command name of the consumer (the edge target).
+# @param[in] target_id   Resolved row id of the consumer (the edge target).
 # ------------------------------------------------------------------------------
 _knit_resource_record_used_by_edge() {
     local name="$1"
@@ -927,8 +927,8 @@ _knit_resource_record_used_by_edge() {
 # skipped: the before-callback already fataled on it, so this is only reached with
 # a valid instance.
 #
-# @param param Normalized name of the resource parameter to read.
-# @param type  Resource type of the named instance (unused; kept for symmetry with
+# @param[in] param Normalized name of the resource parameter to read.
+# @param[in] type  Resource type of the named instance (unused; kept for symmetry with
 #              the before-callback's bound arguments).
 # ------------------------------------------------------------------------------
 _knit_resource_dep_after_cb() {
@@ -977,8 +977,8 @@ _knit_resource_dep_after_cb() {
 # knit_done
 # ```
 #
-# @param spec        The dependency as "<param>:<type>".
-# @param description One-line description of the resource parameter.
+# @param[in] spec        The dependency as "<param>:<type>".
+# @param[in] description One-line description of the resource parameter.
 # ------------------------------------------------------------------------------
 knit_with_resource() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
@@ -1032,9 +1032,9 @@ knit_with_resource() {
 # registration tables alone (no database read). The parameter name must be
 # normalized, as it is stored in the parameter sets.
 #
-# @param __knit_ret Name of the variable to hold the resource type (empty if none).
-# @param cmd        Mangled command name.
-# @param param      Normalized parameter name.
+# @param[out] __knit_ret Name of the variable to hold the resource type (empty if none).
+# @param[in] cmd        Mangled command name.
+# @param[in] param      Normalized parameter name.
 # ------------------------------------------------------------------------------
 _knit_resource_param_type() {
     local -n __knit_ret=$1

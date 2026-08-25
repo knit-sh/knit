@@ -40,7 +40,7 @@ _knit_stdout_is_terminal() {
 # help destination. A command substitution would replace fd 1 with a pipe and so
 # always report "not a terminal", disabling wrapping even on a real terminal.
 #
-# @param __knit_ret Name of the variable to receive the width (or "0").
+# @param[out] __knit_ret Name of the variable to receive the width (or "0").
 # ------------------------------------------------------------------------------
 _knit_terminal_width() {
     local -n __knit_ret=$1

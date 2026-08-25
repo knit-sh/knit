@@ -58,8 +58,8 @@ _KNIT_MODULE_INIT_CANDIDATES=(
 # Fetch a URL and, on HTTP 200, store the body in the named variable. Records
 # the HTTP status in _KNIT_PROFILE_LAST_HTTP. Returns 0 only on HTTP 200.
 #
-# @param __knit_ret1 Name of the variable to hold the response body.
-# @param url         URL to fetch.
+# @param[out] __knit_ret1 Name of the variable to hold the response body.
+# @param[in] url         URL to fetch.
 # ------------------------------------------------------------------------------
 _knit_profile_http_get() {
     local -n __knit_ret1=$1
@@ -99,8 +99,8 @@ _knit_profile_latest_ref() {
 # raw host (not github.com/.../blob/...) so the response is the JSON itself, not
 # an HTML page.
 #
-# @param path Profile path under src/profiles, e.g. "anl/improv".
-# @param ref  Git ref (tag, branch, or SHA).
+# @param[in] path Profile path under src/profiles, e.g. "anl/improv".
+# @param[in] ref  Git ref (tag, branch, or SHA).
 # ------------------------------------------------------------------------------
 _knit_profile_github_url() {
     local path="$1"
@@ -128,9 +128,9 @@ _knit_profile_github_url() {
 # "<path>@<ref>"). If nothing resolves, fatal with a message enumerating every
 # source that was tried.
 #
-# @param __knit_ret1 Name of the variable to hold the resolved JSON content.
-# @param __knit_ret2 Name of the variable to hold the resolved label.
-# @param spec        The --profile argument.
+# @param[out] __knit_ret1 Name of the variable to hold the resolved JSON content.
+# @param[out] __knit_ret2 Name of the variable to hold the resolved label.
+# @param[in] spec        The --profile argument.
 # ------------------------------------------------------------------------------
 _knit_resolve_profile() {
     local -n __knit_ret1=$1
@@ -214,8 +214,8 @@ _knit_resolve_profile() {
 # containing no literal '"', which the generator guarantees for shipped
 # descriptions.
 #
-# @param __knit_ret1 Name of the variable to hold the newline-separated list.
-# @param body        The index.json content.
+# @param[out] __knit_ret1 Name of the variable to hold the newline-separated list.
+# @param[in] body        The index.json content.
 # ------------------------------------------------------------------------------
 _knit_profile_parse_index() {
     local -n __knit_ret1=$1
@@ -238,7 +238,7 @@ _knit_profile_parse_index() {
 # filtering. Both the hidden check and the description read are jq-free (a
 # grep/sed for the marker) so listing keeps working before bootstrap.
 #
-# @param __knit_ret1 Name of the variable to hold the newline-separated entries.
+# @param[out] __knit_ret1 Name of the variable to hold the newline-separated entries.
 # ------------------------------------------------------------------------------
 _knit_profile_admin_entries() {
     local -n __knit_ret1=$1
@@ -264,8 +264,8 @@ _knit_profile_admin_entries() {
 # `"description": "..."` occurrence; relies on the value containing no literal
 # '"'. The result is empty when the field is absent.
 #
-# @param __knit_ret1 Name of the variable to hold the description.
-# @param file        Path to the profile JSON file.
+# @param[out] __knit_ret1 Name of the variable to hold the description.
+# @param[in] file        Path to the profile JSON file.
 # ------------------------------------------------------------------------------
 _knit_profile_file_description() {
     local -n __knit_ret1=$1
@@ -282,7 +282,7 @@ _knit_profile_file_description() {
 # jq-free grep so it works before bootstrap (jq may be absent), tolerating the
 # usual JSON spacing around the colon.
 #
-# @param file Path to the profile JSON file.
+# @param[in] file Path to the profile JSON file.
 # ------------------------------------------------------------------------------
 _knit_profile_is_hidden() {
     local file="$1"
@@ -308,7 +308,7 @@ _knit_profile_is_hidden() {
 # helpers "--help" uses), so alignment, wrap-around, and the pipe/redirect
 # single-line fallback all match option listings.
 #
-# @param show_hidden "true" to also list hidden profiles (default "false").
+# @param[in] show_hidden "true" to also list hidden profiles (default "false").
 # ------------------------------------------------------------------------------
 knit_list_profiles() {
     local show_hidden="${1:-false}"
@@ -394,7 +394,7 @@ knit_list_profiles() {
 # for strings) or an empty string when no profile is configured or the field is
 # absent.
 #
-# @param jq_path jq path expression, e.g. '.scheduler.type'.
+# @param[in] jq_path jq path expression, e.g. '.scheduler.type'.
 # ------------------------------------------------------------------------------
 knit_get_profile_field() {
     local jq_path="$1"
@@ -437,7 +437,7 @@ knit_platform_name() {
 #   _KNIT_PROFILE_CORES_PER_NODE
 #   _KNIT_PROFILE_GPUS_PER_NODE
 #
-# @param json The resolved profile JSON content.
+# @param[in] json The resolved profile JSON content.
 # ------------------------------------------------------------------------------
 _knit_load_profile() {
     local json="$1"
@@ -476,9 +476,9 @@ _knit_load_profile() {
 # command in this environment, no init line is needed (empty result). Returns
 # non-zero when none applies, so the caller can fatal.
 #
-# @param __knit_ret1 Name of the variable to hold the resolved init path (empty
+# @param[out] __knit_ret1 Name of the variable to hold the resolved init path (empty
 #                    when `module` is already available and no script is needed).
-# @param json        The resolved profile JSON content.
+# @param[in] json        The resolved profile JSON content.
 # ------------------------------------------------------------------------------
 _knit_resolve_module_init() {
     local -n __knit_ret1=$1
@@ -522,8 +522,8 @@ _knit_resolve_module_init() {
 # is left absent (not created) when the profile has neither `modules` nor
 # `environment`. Fatal when `modules` is present but no module init resolves.
 #
-# @param json    The resolved profile JSON content.
-# @param outfile Path of the platform.sh file to write.
+# @param[in] json    The resolved profile JSON content.
+# @param[in] outfile Path of the platform.sh file to write.
 # ------------------------------------------------------------------------------
 _knit_render_platform_sh() {
     local json="$1"
@@ -582,8 +582,8 @@ _knit_render_platform_sh() {
 # wrapper lets a single file carry every section at once. Nothing is written when
 # the profile declares no `spack` object (or an empty one).
 #
-# @param json    The resolved profile JSON content.
-# @param outfile Path of the spack-config file to write.
+# @param[in] json    The resolved profile JSON content.
+# @param[in] outfile Path of the spack-config file to write.
 # ------------------------------------------------------------------------------
 _knit_render_spack_config() {
     local json="$1"
@@ -604,7 +604,7 @@ _knit_render_spack_config() {
 # `spack` object). Either file is left absent when the profile omits the
 # corresponding fields. Called by bootstrap after the profile is resolved.
 #
-# @param json The resolved profile JSON content.
+# @param[in] json The resolved profile JSON content.
 # ------------------------------------------------------------------------------
 _knit_render_platform_files() {
     local json="$1"

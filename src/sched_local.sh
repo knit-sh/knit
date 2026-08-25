@@ -9,8 +9,8 @@
 # job as a background process with no scheduler, so there are no directives and
 # this prints nothing. It exists so every backend honours the same contract.
 #
-# @param arr_name Name of the resolved-options associative array (unused).
-# @param jobdir   Job directory (unused).
+# @param[in] arr_name Name of the resolved-options associative array (unused).
+# @param[in] jobdir   Job directory (unused).
 # ------------------------------------------------------------------------------
 _knit_sched_local_directives() {
     :
@@ -25,9 +25,9 @@ _knit_sched_local_directives() {
 # (if any) caps the run. When the resolved "wait" flag is "true", block until the
 # process finishes. Prints the process id to stdout.
 #
-# @param arr_name Name of the resolved-options associative array.
-# @param script   Path to the batch script to run.
-# @param jobdir   Job directory holding .stdout/.stderr.
+# @param[in] arr_name Name of the resolved-options associative array.
+# @param[in] script   Path to the batch script to run.
+# @param[in] jobdir   Job directory holding .stdout/.stderr.
 # ------------------------------------------------------------------------------
 _knit_sched_local_submit() {
     local -n resolved="$1"
@@ -61,9 +61,9 @@ _knit_sched_local_submit() {
 # walltime cap; those are knit-managed conveniences rather than part of the job
 # command, so the recorded/traced command is the bare "bash <script>".
 #
-# @param argv_name Name of the array to fill with the submission argv.
-# @param arr_name  Name of the resolved-options associative array (unused).
-# @param script    Path to the batch script to run.
+# @param[out] argv_name Name of the array to fill with the submission argv.
+# @param[in] arr_name  Name of the resolved-options associative array (unused).
+# @param[in] script    Path to the batch script to run.
 # ------------------------------------------------------------------------------
 _knit_sched_local_submit_cmdline() {
     # shellcheck disable=SC2178 # nameref to the caller's array
@@ -82,7 +82,7 @@ _knit_sched_local_submit_cmdline() {
 # _KNIT_SCHED_POLL_INTERVAL seconds until the process is gone. A pid that is not
 # a positive integer, or is already gone, returns immediately.
 #
-# @param pid Process id recorded in the job's .job.id by the local backend.
+# @param[in] pid Process id recorded in the job's .job.id by the local backend.
 # ------------------------------------------------------------------------------
 _knit_sched_local_wait() {
     local pid="$1"
@@ -101,7 +101,7 @@ _knit_sched_local_wait() {
 # that is not a positive integer, or a process that is already gone, is treated
 # as nothing to do.
 #
-# @param pid Process id recorded in the job's .job.id by the local backend.
+# @param[in] pid Process id recorded in the job's .job.id by the local backend.
 # ------------------------------------------------------------------------------
 _knit_sched_local_cancel() {
     local pid="$1"

@@ -49,8 +49,8 @@ export SPACK_USER_CONFIG_PATH="${_KNIT_PREFIX}/.spack"
 # when the user gave a non-empty --spack or --spack-packages ref, or when a
 # registered setup declared a Spack environment (_KNIT_SPACK_REQUIRED).
 #
-# @param spack_ref Value of the --spack option (may be empty).
-# @param packages_ref Value of the --spack-packages option (may be empty).
+# @param[in] spack_ref Value of the --spack option (may be empty).
+# @param[in] packages_ref Value of the --spack-packages option (may be empty).
 # @return 0 if Spack is needed, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_need_spack() {
@@ -64,8 +64,8 @@ _knit_bootstrap_need_spack() {
 # when KNIT_LOG_LEVEL is trace, also displayed live in a 10-line frame. Returns
 # the exit status of the command.
 #
-# @param title Title shown on the frame's top border.
-# @param ... Command and arguments to execute.
+# @param[in] title Title shown on the frame's top border.
+# @param[in] ... Command and arguments to execute.
 # ------------------------------------------------------------------------------
 _knit_spack_framed_run() {
     local title="$1"
@@ -89,7 +89,7 @@ _knit_spack_framed_run() {
 # abort a bootstrap, and "-f" makes an HTTP error status a clean failure (empty
 # output) instead of a non-JSON body that would confuse the caller's parser.
 #
-# @param url The api.github.com URL to fetch.
+# @param[in] url The api.github.com URL to fetch.
 # @return Prints the response body; non-zero on a hard failure or HTTP error.
 # ------------------------------------------------------------------------------
 _knit_spack_github_api() {
@@ -108,7 +108,7 @@ _knit_spack_github_api() {
 # Resolve the latest release tag of a Spack repository via the GitHub API. Used
 # when the user did not pin a ref: knit provisions the newest published release.
 #
-# @param repo Repository name under the spack org ("spack" or "spack-packages").
+# @param[in] repo Repository name under the spack org ("spack" or "spack-packages").
 # @return Prints the newest release tag; fatal if none can be resolved.
 # ------------------------------------------------------------------------------
 _knit_spack_latest_release() {
@@ -130,8 +130,8 @@ _knit_spack_latest_release() {
 # GitHub API. Resolving upstream gives a single download path (the archive URL
 # takes a SHA) and the exact commit for provenance, without needing git.
 #
-# @param repo Repository name under the spack org ("spack" or "spack-packages").
-# @param ref Tag, branch, or commit SHA to resolve.
+# @param[in] repo Repository name under the spack org ("spack" or "spack-packages").
+# @param[in] ref Tag, branch, or commit SHA to resolve.
 # @return Prints the commit SHA; fatal if it cannot be resolved.
 # ------------------------------------------------------------------------------
 _knit_spack_resolve_commit() {
@@ -156,9 +156,9 @@ _knit_spack_resolve_commit() {
 # archive/<sha>.tar.gz, whose single top-level "<repo>-<sha>/" directory is
 # stripped so files land directly in the destination.
 #
-# @param repo Repository name under the spack org ("spack" or "spack-packages").
-# @param dest Destination directory.
-# @param sha Commit SHA to download.
+# @param[in] repo Repository name under the spack org ("spack" or "spack-packages").
+# @param[in] dest Destination directory.
+# @param[in] sha Commit SHA to download.
 # ------------------------------------------------------------------------------
 _knit_spack_download() {
     local repo="$1"
@@ -210,8 +210,8 @@ EOF
 # write a local-path repos.yaml, and record provenance metadata (requested refs
 # and resolved commits). No git dependency.
 #
-# @param spack_ref Spack ref (tag/branch/commit); empty uses the latest release.
-# @param packages_ref spack-packages ref; empty uses the latest release.
+# @param[in] spack_ref Spack ref (tag/branch/commit); empty uses the latest release.
+# @param[in] packages_ref spack-packages ref; empty uses the latest release.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_spack() {
     local spack_ref="${1:-}"
@@ -285,9 +285,9 @@ _knit_bootstrap_spack_env_built() {
 # An untyped ref keeps its stored value across a re-provision, so changing only
 # --spack does not silently move spack-packages to the latest release.
 #
-# @param spack_ref    Value typed for --spack (may be empty).
-# @param packages_ref Value typed for --spack-packages (may be empty).
-# @param ...          Raw argument tokens of this invocation (see
+# @param[in] spack_ref    Value typed for --spack (may be empty).
+# @param[in] packages_ref Value typed for --spack-packages (may be empty).
+# @param[in] ...          Raw argument tokens of this invocation (see
 #                     _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option
 #                     from a defaulted one.
 # @return 0 when Spack was provisioned or re-provisioned, 1 when nothing changed.
@@ -373,7 +373,7 @@ _knit_spack_ensure_provisioned() {
 #
 # Install the specified specs using spack.
 #
-# @param ... Specs to install.
+# @param[in] ... Specs to install.
 # ------------------------------------------------------------------------------
 _knit_spack_install() {
     (
@@ -399,7 +399,7 @@ _knit_spack_install() {
 # "knit spack" from running; instead we call the (sourced) spack function and
 # return its exit status.
 #
-# @param ... Arguments forwarded verbatim to spack (including --help).
+# @param[in] ... Arguments forwarded verbatim to spack (including --help).
 # @return The exit status of spack.
 # ------------------------------------------------------------------------------
 _knit_spack_exec() {
@@ -438,8 +438,8 @@ _knit_spack_exec() {
 # and returns non-zero (it does NOT knit_fatal) so the setup dispatcher can
 # remove the half-built setup directory and avoid recording it.
 #
-# @param env_dir Directory in which to create the Spack environment.
-# @param yaml    Path to the spack.yaml manifest describing the environment.
+# @param[in] env_dir Directory in which to create the Spack environment.
+# @param[in] yaml    Path to the spack.yaml manifest describing the environment.
 # @return 0 if the environment was created and installed, non-zero otherwise.
 # ------------------------------------------------------------------------------
 _knit_spack_env_install() {
@@ -478,7 +478,7 @@ knit_with_table
 #
 # Body of the "knit spack" wrapper command.
 #
-# @param ... Arguments forwarded verbatim to spack.
+# @param[in] ... Arguments forwarded verbatim to spack.
 # ------------------------------------------------------------------------------
 _knit_spack() {
     _knit_spack_exec "$@"

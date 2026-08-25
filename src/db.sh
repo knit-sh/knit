@@ -22,8 +22,8 @@ declare -gA _KNIT_DB_REGISTERED_TABLES
 # local q; _knit_db_sql_ident q 'a"b'        # q == "a""b"
 # ```
 #
-# @param __knit_ret Name of the variable to hold the quoted identifier.
-# @param name Identifier to quote.
+# @param[out] __knit_ret Name of the variable to hold the quoted identifier.
+# @param[in] name Identifier to quote.
 # ------------------------------------------------------------------------------
 _knit_db_sql_ident() {
     local -n __knit_ret=$1
@@ -44,8 +44,8 @@ _knit_db_sql_ident() {
 # local d; _knit_db_type_default d "string"   # d == (empty)
 # ```
 #
-# @param __knit_ret Name of the variable to hold the default value.
-# @param type Knit type name or alias.
+# @param[out] __knit_ret Name of the variable to hold the default value.
+# @param[in] type Knit type name or alias.
 # ------------------------------------------------------------------------------
 _knit_db_type_default() {
     local -n __knit_ret=$1
@@ -74,8 +74,8 @@ _knit_db_type_default() {
 # _knit_db_create_table "runs" "id:uuid" "duration:real" "label:string"
 # ```
 #
-# @param table_name Name of the table to create.
-# @param ...specs   One or more "column-name:type" specifications.
+# @param[in] table_name Name of the table to create.
+# @param[in] ...specs   One or more "column-name:type" specifications.
 # ------------------------------------------------------------------------------
 _knit_db_create_table() {
     local table_name="$1"
@@ -129,8 +129,8 @@ _knit_db_create_table() {
 # # returns 0, 1, or 2
 # ```
 #
-# @param table_name Name of the table to check.
-# @param ...specs   One or more "column-name:type" specifications.
+# @param[in] table_name Name of the table to check.
+# @param[in] ...specs   One or more "column-name:type" specifications.
 # @return 0 if the table matches, 1 if absent, 2 if schema differs.
 # ------------------------------------------------------------------------------
 _knit_db_check_table() {
@@ -202,8 +202,8 @@ _knit_db_check_table() {
 # _knit_db_migrate_table "runs" "id:uuid" "count:integer=0" "label:string"
 # ```
 #
-# @param table_name Name of the table to migrate.
-# @param ...specs   One or more "name:type" or "name:type=default" specs.
+# @param[in] table_name Name of the table to migrate.
+# @param[in] ...specs   One or more "name:type" or "name:type=default" specs.
 # @return 0 if the migration was applied or no migration was needed.
 # ------------------------------------------------------------------------------
 _knit_db_migrate_table() {
@@ -360,8 +360,8 @@ EOF
 # - Outputs use their declared default value.
 # - Required parameters and flags use a type-based default (0, false, or "").
 #
-# @param cmd        Mangled command name (as used in _KNIT_CMD_* variables).
-# @param table_name Name of the database table to create or migrate.
+# @param[in] cmd        Mangled command name (as used in _KNIT_CMD_* variables).
+# @param[in] table_name Name of the database table to create or migrate.
 # ------------------------------------------------------------------------------
 _knit_db_setup_table() {
     # Runs at knit_done time, which may be before bootstrap (e.g. built-in
@@ -462,16 +462,16 @@ _knit_db_setup_table() {
 # provenance existed. A non-empty edge_type (e.g. "call") writes both the row and
 # the edge atomically, so a partial state cannot be observed.
 #
-# @param cmd         Mangled command name (as used in _KNIT_CMD_* variables).
-# @param table       Table to insert into.
-# @param id          Value for the "id" column (the target's uuid).
-# @param source_id   Provenance edge source id (empty for a root); see prov.sh.
-# @param source_name Provenance edge source name (empty for a root).
-# @param edge_type   Edge type (e.g. "call"), or empty to record no edge.
-# @param start_time  Edge start_time (epoch seconds, empty -> NULL).
-# @param end_time    Edge end_time (epoch seconds, empty -> NULL).
-# @param alias       Edge call-site alias (empty -> NULL); see prov.sh.
-# @param ...         The expanded invocation arguments (params/flags to read).
+# @param[in] cmd         Mangled command name (as used in _KNIT_CMD_* variables).
+# @param[in] table       Table to insert into.
+# @param[in] id          Value for the "id" column (the target's uuid).
+# @param[in] source_id   Provenance edge source id (empty for a root); see prov.sh.
+# @param[in] source_name Provenance edge source name (empty for a root).
+# @param[in] edge_type   Edge type (e.g. "call"), or empty to record no edge.
+# @param[in] start_time  Edge start_time (epoch seconds, empty -> NULL).
+# @param[in] end_time    Edge end_time (epoch seconds, empty -> NULL).
+# @param[in] alias       Edge call-site alias (empty -> NULL); see prov.sh.
+# @param[in] ...         The expanded invocation arguments (params/flags to read).
 # ------------------------------------------------------------------------------
 _knit_db_record_invocation() {
     local cmd="$1"
@@ -573,9 +573,9 @@ EOF
 # to match the schema). Used to record later state transitions of a recorded
 # invocation (e.g. a job moving to "completed").
 #
-# @param table Table to update.
-# @param id    Value of the "id" column identifying the row.
-# @param ...   One or more "column=value" assignments.
+# @param[in] table Table to update.
+# @param[in] id    Value of the "id" column identifying the row.
+# @param[in] ...   One or more "column=value" assignments.
 # ------------------------------------------------------------------------------
 _knit_db_update_row() {
     local table="$1"

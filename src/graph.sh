@@ -19,8 +19,8 @@ _KNIT_KNITGRAPH_EXE="${_KNIT_PREFIX}/knit-graph/bin/knit-graph"
 # when KNIT_LOG_LEVEL is trace, also displayed live in a 10-line frame.
 # Returns the exit status of the command.
 #
-# @param title Title shown on the frame's top border.
-# @param ... Command and arguments to execute.
+# @param[in] title Title shown on the frame's top border.
+# @param[in] ... Command and arguments to execute.
 # ------------------------------------------------------------------------------
 _knit_knitgraph_framed_run() {
     local title="$1"
@@ -39,7 +39,7 @@ _knit_knitgraph_framed_run() {
 # release tag is the version prefixed with "v" and the asset is named after the
 # version, e.g. version 0.2.0 -> .../download/v0.2.0/knit-graph-0.2.0.tar.gz.
 #
-# @param version knit-graph release version (without the leading "v").
+# @param[in] version knit-graph release version (without the leading "v").
 # ------------------------------------------------------------------------------
 _knit_knitgraph_url() {
     local version="$1"
@@ -60,8 +60,8 @@ _knit_knitgraph_url() {
 # (_KNIT_SQLITE_PREFIX empty) its dev files are on the default search paths, so no
 # --with-sqlite3 is passed.
 #
-# @param version knit-graph release version to build.
-# @param url URL of the knit-graph release tarball.
+# @param[in] version knit-graph release version to build.
+# @param[in] url URL of the knit-graph release tarball.
 # ------------------------------------------------------------------------------
 _knit_build_knitgraph() {
     local version="$1"
@@ -126,8 +126,8 @@ _knit_build_knitgraph() {
 # and URL provisioned). knit-graph links against Knit's own sqlite, so the caller
 # must have built sqlite from source first.
 #
-# @param version knit-graph version to provision; empty uses the pinned default.
-# @param url Override URL for the release tarball; empty derives it from version.
+# @param[in] version knit-graph version to provision; empty uses the pinned default.
+# @param[in] url Override URL for the release tarball; empty derives it from version.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_knitgraph() {
     local version="${1:-}"
@@ -161,9 +161,9 @@ _knit_bootstrap_knitgraph() {
 # reconstructed from the current install (a symlink means the system sqlite, a
 # real file the from-source build) before rebuilding.
 #
-# @param version Value typed for --knit-graph-version.
-# @param url     Value typed for --knit-graph-url.
-# @param ...     Raw argument tokens of this invocation (see
+# @param[in] version Value typed for --knit-graph-version.
+# @param[in] url     Value typed for --knit-graph-url.
+# @param[in] ...     Raw argument tokens of this invocation (see
 #                _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option from a
 #                defaulted one.
 # @return 0 when knit-graph was re-provisioned, 1 when nothing changed.
@@ -225,7 +225,7 @@ _knit_bootstrap_update_knitgraph() {
 # scrubbed (via _knit_run_isolated) so an active user environment cannot make
 # knit-graph load a different libsqlite3 than the one it was built against.
 #
-# @param ... Parameters to forward to the knit-graph command.
+# @param[in] ... Parameters to forward to the knit-graph command.
 # ------------------------------------------------------------------------------
 _knit_knit_graph() {
     _knit_run_isolated "${_KNIT_KNITGRAPH_EXE}" "$@"

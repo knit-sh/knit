@@ -70,8 +70,8 @@ _KNIT_LAST_ENUM=''
 # local t; _knit_type_resolve_alias t "color"    # t == "color" (if enum defined)
 # ```
 #
-# @param __knit_ret Name of the variable to hold the resolved type name.
-# @param type_name Type name or alias to resolve.
+# @param[out] __knit_ret Name of the variable to hold the resolved type name.
+# @param[in] type_name Type name or alias to resolve.
 # @return 0 if resolved successfully, 1 if the name is unknown.
 # ------------------------------------------------------------------------------
 _knit_type_resolve_alias() {
@@ -105,7 +105,7 @@ _knit_type_resolve_alias() {
 # knit_type_exists "unknown"    # returns 1
 # ```
 #
-# @param type_name Type name to check.
+# @param[in] type_name Type name to check.
 # @return 0 if the type exists, 1 otherwise.
 # ------------------------------------------------------------------------------
 knit_type_exists() {
@@ -123,8 +123,8 @@ knit_type_exists() {
 # knit_define_enum "color" "red" "green" "blue"
 # ```
 #
-# @param name Name of the enum type to define.
-# @param ...values Possible values for the enum.
+# @param[in] name Name of the enum type to define.
+# @param[in] ...values Possible values for the enum.
 # ------------------------------------------------------------------------------
 knit_define_enum() {
     local name="$1"
@@ -148,8 +148,8 @@ knit_define_enum() {
 # knit_enum_values "color" ", "     # prints "red, green, blue"
 # ```
 #
-# @param name Name of the enum type.
-# @param separator Optional separator (default: newline).
+# @param[in] name Name of the enum type.
+# @param[in] separator Optional separator (default: newline).
 # @return 1 if the enum does not exist.
 # ------------------------------------------------------------------------------
 knit_enum_values() {
@@ -183,7 +183,7 @@ knit_enum_values() {
 #
 # Validate that a string is a date in YYYY-MM-DD format with valid ranges.
 #
-# @param value String to validate.
+# @param[in] value String to validate.
 # @return 0 if valid, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_type_check_date() {
@@ -200,7 +200,7 @@ _knit_type_check_date() {
 #
 # Validate that a string is a time in hh:mm:ss format with valid ranges.
 #
-# @param value String to validate.
+# @param[in] value String to validate.
 # @return 0 if valid, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_type_check_time() {
@@ -239,8 +239,8 @@ _knit_type_check_time() {
 # knit_type_check "color" "red"           # returns 0 (if color enum defined)
 # ```
 #
-# @param type Type name (or alias) to check against.
-# @param value Value to validate.
+# @param[in] type Type name (or alias) to check against.
+# @param[in] value Value to validate.
 # @return 0 if the value is valid for the type, 1 otherwise.
 # ------------------------------------------------------------------------------
 knit_type_check() {
@@ -309,8 +309,8 @@ knit_type_check() {
 # local t; _knit_type_to_sqlite t "int"      # t == INTEGER (alias resolved)
 # ```
 #
-# @param __knit_ret Name of the variable to hold the SQLite type affinity.
-# @param type_name Knit type name or alias.
+# @param[out] __knit_ret Name of the variable to hold the SQLite type affinity.
+# @param[in] type_name Knit type name or alias.
 # @return 0 on success, 1 if the type is unknown.
 # ------------------------------------------------------------------------------
 _knit_type_to_sqlite() {
@@ -333,7 +333,7 @@ _knit_type_to_sqlite() {
 # predicate the declaration and recording paths consult to decide whether a
 # parameter or output gains a companion checksum column.
 #
-# @param type_name Type name or alias to test.
+# @param[in] type_name Type name or alias to test.
 # @return 0 if checksummable, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_type_is_checksummable() {

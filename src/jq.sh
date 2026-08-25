@@ -41,8 +41,8 @@ _knit_jq_platform() {
 # when KNIT_LOG_LEVEL is trace, also displayed live in a 10-line frame.
 # Returns the exit status of the command.
 #
-# @param title Title shown on the frame's top border.
-# @param ... Command and arguments to execute.
+# @param[in] title Title shown on the frame's top border.
+# @param[in] ... Command and arguments to execute.
 # ------------------------------------------------------------------------------
 _knit_jq_framed_run() {
     local title="$1"
@@ -62,7 +62,7 @@ _knit_jq_framed_run() {
 # instead of downloading; otherwise download the prebuilt jq binary for the
 # current platform.
 #
-# @param ignore_system When "true", always download jq even if a system jq is
+# @param[in] ignore_system When "true", always download jq even if a system jq is
 #        present.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_jq() {
@@ -89,7 +89,7 @@ _knit_bootstrap_jq() {
 # with a downloaded prebuilt jq. An install that was already downloaded is what
 # the flag asks for, so it is a no-op; an untyped flag leaves the install as is.
 #
-# @param ... Raw argument tokens of this invocation (see
+# @param[in] ... Raw argument tokens of this invocation (see
 #            _KNIT_INVOCATION_RAW_ARGS), used to tell a typed flag from a
 #            defaulted one.
 # @return 0 when jq was re-downloaded, 1 when nothing changed.
@@ -135,7 +135,7 @@ _knit_download_jq() {
 #
 # Invoke Knit's jq installation.
 #
-# @param ... Parameters to forward to the jq command.
+# @param[in] ... Parameters to forward to the jq command.
 # ------------------------------------------------------------------------------
 _knit_jq() {
     "${_KNIT_JQ_EXE}" "$@"

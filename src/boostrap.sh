@@ -52,7 +52,7 @@ _knit_is_bootstrapped() {
 # non-zero once it has. This bolds "bootstrap" in the root "--help" on a fresh
 # checkout — the one command to run first — and leaves it plain afterwards.
 #
-# @param cmd The demangled command name (unused; the predicate is state-only).
+# @param[in] cmd The demangled command name (unused; the predicate is state-only).
 # ------------------------------------------------------------------------------
 _knit_highlight_if_not_bootstrapped() {
     ! _knit_is_bootstrapped
@@ -67,8 +67,8 @@ _knit_highlight_if_not_bootstrapped() {
 # resolves against the experiment root and stays portable. A no-op for relative
 # values. Factored out of _knit_bootstrap so it can be unit-tested directly.
 #
-# @param label The option name to name in the warning (e.g. "--setup-path").
-# @param value The value the user supplied for that option.
+# @param[in] label The option name to name in the warning (e.g. "--setup-path").
+# @param[in] value The value the user supplied for that option.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_warn_absolute_root() {
     local label="$1"
@@ -116,10 +116,10 @@ _knit_bootstrap_on_exit() {
 # "metadata store --force" and report that a change was made; when the option was
 # not typed, do nothing and keep the stored value.
 #
-# @param opt   Option name as typed, without the leading "--" (e.g. "project").
-# @param key   Metadata key to write (e.g. "__project__").
-# @param value Resolved value to store for that option.
-# @param ...   Raw argument tokens of this invocation (see
+# @param[in] opt   Option name as typed, without the leading "--" (e.g. "project").
+# @param[in] key   Metadata key to write (e.g. "__project__").
+# @param[in] value Resolved value to store for that option.
+# @param[in] ...   Raw argument tokens of this invocation (see
 #              _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option from a
 #              defaulted one.
 # @return 0 when the option was typed and its value written, 1 otherwise.
@@ -162,7 +162,7 @@ _knit_bootstrap_jobs_recorded() {
 # --resource-path relocation to refuse moving a resource root that already holds
 # fetched resource instances (each is a subdirectory).
 #
-# @param dir Directory to scan.
+# @param[in] dir Directory to scan.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_dir_has_subdir() {
     local dir="$1"
@@ -192,9 +192,9 @@ _knit_bootstrap_dir_has_subdir() {
 # holds the old "default", so a plain rmdir would not suffice). An untyped option
 # or a value equal to the stored one is a no-op.
 #
-# @param kind      One of "setup", "job", "resource".
-# @param new_value Resolved value typed for the option.
-# @param ...       Raw argument tokens of this invocation (see
+# @param[in] kind      One of "setup", "job", "resource".
+# @param[in] new_value Resolved value typed for the option.
+# @param[in] ...       Raw argument tokens of this invocation (see
 #                  _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option from a
 #                  defaulted one.
 # @return 0 when the root was relocated, 1 when nothing changed.
@@ -263,8 +263,8 @@ _knit_bootstrap_relocate_path() {
 # untyped profile) is a no-op. The stored profile is the resolved profile label
 # recorded at first bootstrap (__profile__).
 #
-# @param profile Value typed for --profile.
-# @param ...     Raw argument tokens of this invocation (see
+# @param[in] profile Value typed for --profile.
+# @param[in] ...     Raw argument tokens of this invocation (see
 #                _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option from a
 #                defaulted one.
 # @return 1 when there is nothing to do (a differing profile fatals instead).
@@ -302,9 +302,9 @@ _knit_bootstrap_update_profile() {
 # (re-provision knit-graph on a changed version or URL). When no handled option
 # was typed, it reports that there is nothing to update and succeeds.
 #
-# @param raw_args Name of an array holding the raw, pre-expansion argument tokens
+# @param[in] raw_args Name of an array holding the raw, pre-expansion argument tokens
 #                 (the caller's copy of _KNIT_INVOCATION_RAW_ARGS).
-# @param ...      The expanded argument list (defaults injected), as read with
+# @param[in] ...      The expanded argument list (defaults injected), as read with
 #                 knit_get_parameter.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_update() {
@@ -427,7 +427,7 @@ _knit_bootstrap_update() {
 # ------------------------------------------------------------------------------
 # Bootstrap the Knit framework.
 #
-# @param ... Arguments for bootstrap.
+# @param[in] ... Arguments for bootstrap.
 # ------------------------------------------------------------------------------
 knit_define_enum "__scheduler__" "auto" "slurm" "pbs" "flux" "local" "none"
 _knit_is_builtin
@@ -491,7 +491,7 @@ knit_with_optional "ai-model:string" "" \
 #
 # Bootstrap the Knit framework.
 #
-# @param ... Arguments for bootstrap.
+# @param[in] ... Arguments for bootstrap.
 # ------------------------------------------------------------------------------
 _knit_bootstrap() {
     # Copy the raw, pre-expansion arguments immediately. _KNIT_INVOCATION_RAW_ARGS

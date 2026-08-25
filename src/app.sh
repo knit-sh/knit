@@ -277,8 +277,8 @@ knit_done
 #      the first kreq hosts of A. n given without p but with explicit H => require
 #      n%k==0 (p=n/k).
 #
-# @param out_name Name of the associative array to fill.
-# @param ...      The dispatcher's invocation arguments (read via knit_get_parameter).
+# @param[out] out_name Name of the associative array to fill.
+# @param[in] ...      The dispatcher's invocation arguments (read via knit_get_parameter).
 # ------------------------------------------------------------------------------
 _knit_run_resolve_placement() {
     # shellcheck disable=SC2178 # nameref to the caller's associative array
@@ -378,9 +378,9 @@ _knit_run_resolve_placement() {
 # file/directory input, even one that opted out of the digest with --no-checksum;
 # only a checksummed input is hashed.
 #
-# @param out_name Name of the associative array to fill (param -> bare 64-hex).
-# @param subcmd   Mangled app command name (run:<app>).
-# @param ...      The app's expanded invocation arguments.
+# @param[out] out_name Name of the associative array to fill (param -> bare 64-hex).
+# @param[in] subcmd   Mangled app command name (run:<app>).
+# @param[in] ...      The app's expanded invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_run_checksum_inputs() {
     # shellcheck disable=SC2178 # nameref to the caller's associative array
@@ -433,9 +433,9 @@ _knit_run_checksum_inputs() {
 # no value, or one that opted out with --no-checksum, is skipped. When nothing
 # was recorded (recording disabled, or no such row) this is a no-op.
 #
-# @param subcmd   Mangled app command name (run:<app>).
-# @param app_name The app name (its table is named after it).
-# @param run_uuid This run's UUID (source of the provenance edge to the row).
+# @param[in] subcmd   Mangled app command name (run:<app>).
+# @param[in] app_name The app name (its table is named after it).
+# @param[in] run_uuid This run's UUID (source of the provenance edge to the row).
 # ------------------------------------------------------------------------------
 _knit_run_checksum_outputs() {
     local subcmd="$1"
@@ -601,9 +601,9 @@ _knit_app_before_cb() {
 # A call to this function must be followed by any knit_with_* declarations, the
 # definition of <fn>, and a call to knit_done.
 #
-# @param name        Short name for the app (used as the subcommand name).
-# @param fn          Name of the Bash function implementing the app.
-# @param description One-line description shown in `--help`.
+# @param[in] name        Short name for the app (used as the subcommand name).
+# @param[in] fn          Name of the Bash function implementing the app.
+# @param[in] description One-line description shown in `--help`.
 #
 # Example:
 # ```

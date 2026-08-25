@@ -64,9 +64,9 @@
 # so procs ranks spread across the hosts. When neither procs-per-node nor procs
 # is known, the hosts are emitted unannotated (nothing to size them by).
 #
-# @param hosts Comma-separated host list (the resolved --hostnames value).
-# @param ppn   Resolved --procs-per-node value (may be empty).
-# @param procs Resolved --procs value (may be empty).
+# @param[in] hosts Comma-separated host list (the resolved --hostnames value).
+# @param[in] ppn   Resolved --procs-per-node value (may be empty).
+# @param[in] procs Resolved --procs value (may be empty).
 # ------------------------------------------------------------------------------
 _knit_launch_openmpi_host_slots() {
     local hosts="$1"
@@ -103,8 +103,8 @@ _knit_launch_openmpi_host_slots() {
 # _knit_launch_openmpi_host_slots, and any --launcher-args string is word-split
 # and appended verbatim.
 #
-# @param argv_name Name of the array to fill with the launcher argument vector.
-# @param opts_name Name of the resolved placement-options associative array
+# @param[out] argv_name Name of the array to fill with the launcher argument vector.
+# @param[in] opts_name Name of the resolved placement-options associative array
 #                  (keys: procs, procs-per-node, hostnames, launcher-args).
 # ------------------------------------------------------------------------------
 _knit_launch_openmpi_cmdline() {
@@ -168,7 +168,7 @@ _knit_launch_openmpi_cmdline() {
 # The per-rank KNIT_MPI_RANK/SIZE/LOCAL_RANK are likewise skipped; the worker
 # derives them from the launcher-native variables on each rank.
 #
-# @param argv_name Name of the array to fill with the "-x NAME" flags.
+# @param[out] argv_name Name of the array to fill with the "-x NAME" flags.
 # ------------------------------------------------------------------------------
 _knit_launch_openmpi_env_forward() {
     local -n _fwd_argv="$1"
@@ -198,9 +198,9 @@ _knit_launch_openmpi_env_forward() {
 # environment. The forwarding flags are intentionally left out of the recorded
 # native command (which stays the clean placement command).
 #
-# @param arr_name Name of the resolved placement-options associative array.
-# @param --       Literal separator.
-# @param ...      The worker command and its arguments.
+# @param[in] arr_name Name of the resolved placement-options associative array.
+# @param[in] --       Literal separator.
+# @param[in] ...      The worker command and its arguments.
 # ------------------------------------------------------------------------------
 _knit_launch_openmpi_exec() {
     local arr_name="$1"

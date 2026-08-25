@@ -64,8 +64,8 @@ _KNIT_DESCRIBE_JSON_IND='  '
 # "\uXXXX" escape. The surrounding quotes are NOT added (see
 # _knit_describe_json_str).
 #
-# @param __knit_ret Name of the variable to hold the escaped string.
-# @param string String to escape.
+# @param[out] __knit_ret Name of the variable to hold the escaped string.
+# @param[in] string String to escape.
 # ------------------------------------------------------------------------------
 _knit_describe_json_escape() {
     local -n __knit_ret=$1
@@ -97,8 +97,8 @@ _knit_describe_json_escape() {
 #
 # Return a value as a quoted, escaped JSON string literal.
 #
-# @param __knit_ret Name of the variable to hold the JSON string literal.
-# @param string Value to render.
+# @param[out] __knit_ret Name of the variable to hold the JSON string literal.
+# @param[in] string Value to render.
 # ------------------------------------------------------------------------------
 _knit_describe_json_str() {
     local -n __knit_ret=$1
@@ -115,8 +115,8 @@ _knit_describe_json_str() {
 # each entry must already carry its own indentation; the closing brace is printed
 # at the given indent. An empty entry list yields "{}".
 #
-# @param indent    Indentation string for the closing brace.
-# @param ...entries Pre-rendered "key": value fragments (indented).
+# @param[in] indent    Indentation string for the closing brace.
+# @param[in] ...entries Pre-rendered "key": value fragments (indented).
 # ------------------------------------------------------------------------------
 _knit_describe_emit_object() {
     local indent="$1"
@@ -144,8 +144,8 @@ _knit_describe_emit_object() {
 # closing bracket is printed at the given indent. An empty element list yields
 # "[]".
 #
-# @param indent      Indentation string for the closing bracket.
-# @param ...elements Pre-rendered array elements (indented).
+# @param[in] indent      Indentation string for the closing bracket.
+# @param[in] ...elements Pre-rendered array elements (indented).
 # ------------------------------------------------------------------------------
 _knit_describe_emit_array() {
     local indent="$1"
@@ -175,8 +175,8 @@ _knit_describe_emit_array() {
 # per-command "_KNIT_CMD_<cmd>_subcommands" arrays), so it is fork-free and needs
 # no per-invocation build/teardown.
 #
-# @param __knit_ret Name of the array variable to populate (nameref output).
-# @param parent Mangled parent command name, or "" for top-level commands.
+# @param[out] __knit_ret Name of the array variable to populate (nameref output).
+# @param[in] parent Mangled parent command name, or "" for top-level commands.
 # ------------------------------------------------------------------------------
 _knit_describe_children() {
     # The output nameref is an indexed array. The sibling describe helpers all use
@@ -205,8 +205,8 @@ _knit_describe_children() {
 # jobs and ordinary subcommands (submit prepared / submit next), so a child of a
 # dispatcher is not necessarily a job.
 #
-# @param __knit_ret Name of the variable to hold the command kind.
-# @param cmd Mangled command name.
+# @param[out] __knit_ret Name of the variable to hold the command kind.
+# @param[in] cmd Mangled command name.
 # ------------------------------------------------------------------------------
 _knit_describe_command_kind() {
     local -n __knit_ret=$1
@@ -220,7 +220,7 @@ _knit_describe_command_kind() {
 # Return success if the named boolean filter is enabled for the current
 # invocation. Unknown or unset keys are treated as disabled.
 #
-# @param name Filter key (see _KNIT_DESCRIBE_FILTERS).
+# @param[in] name Filter key (see _KNIT_DESCRIBE_FILTERS).
 # ------------------------------------------------------------------------------
 _knit_describe_filter_on() {
     [[ "${_KNIT_DESCRIBE_FILTERS[$1]:-false}" == "true" ]]
@@ -233,7 +233,7 @@ _knit_describe_filter_on() {
 # any "--only" selection: hidden commands are dropped unless "--include-hidden"
 # is set, and builtin commands are dropped when "--exclude-builtins" is set.
 #
-# @param cmd Mangled command name.
+# @param[in] cmd Mangled command name.
 # ------------------------------------------------------------------------------
 _knit_describe_visible() {
     local cmd="$1"
@@ -258,8 +258,8 @@ _knit_describe_visible() {
 #   - it has a descendant that is itself emitted (so it is kept as a container
 #     that preserves the path down to a selected command).
 #
-# @param cmd          Mangled command name.
-# @param sel_ancestor "true" if an ancestor of the command is in the "--only"
+# @param[in] cmd          Mangled command name.
+# @param[in] sel_ancestor "true" if an ancestor of the command is in the "--only"
 #                     selection, "false" otherwise.
 # ------------------------------------------------------------------------------
 _knit_describe_should_emit() {
@@ -293,7 +293,7 @@ _knit_describe_should_emit() {
 # is emitted, and a builtin's body is knit implementation detail that is never
 # dumped. Every formatter consults this so the rule is applied in one place.
 #
-# @param cmd Mangled command name.
+# @param[in] cmd Mangled command name.
 # ------------------------------------------------------------------------------
 _knit_describe_implementation() {
     local cmd="$1"
@@ -311,8 +311,8 @@ _knit_describe_implementation() {
 # Return the values of an enum as an inline JSON array of strings (sorted for a
 # stable order).
 #
-# @param __knit_ret Name of the variable to hold the JSON array.
-# @param name Enum type name.
+# @param[out] __knit_ret Name of the variable to hold the JSON array.
+# @param[in] name Enum type name.
 # ------------------------------------------------------------------------------
 _knit_describe_enum_values_json() {
     local -n __knit_ret=$1
@@ -340,10 +340,10 @@ _knit_describe_enum_values_json() {
 # parameter (knit_with_resource) adds its "resource" type, and a "--when"
 # constraint is included when present.
 #
-# @param cmd    Mangled command name.
-# @param group  Parameter group ("required", "optional", or "flags").
-# @param param  Normalized parameter name.
-# @param indent Indentation of the object's opening brace.
+# @param[in] cmd    Mangled command name.
+# @param[in] group  Parameter group ("required", "optional", or "flags").
+# @param[in] param  Normalized parameter name.
+# @param[in] indent Indentation of the object's opening brace.
 # ------------------------------------------------------------------------------
 _knit_describe_json_param() {
     local cmd="$1"
@@ -402,8 +402,8 @@ _knit_describe_json_param() {
 # Render a command's "parameters" object (required, optional, flags arrays, and
 # the extra description). Printed inline (object value: no leading indent).
 #
-# @param cmd    Mangled command name.
-# @param indent Indentation of the object's opening brace.
+# @param[in] cmd    Mangled command name.
+# @param[in] indent Indentation of the object's opening brace.
 # ------------------------------------------------------------------------------
 _knit_describe_json_params() {
     local cmd="$1"
@@ -444,9 +444,9 @@ _knit_describe_json_params() {
 #
 # Render one output as a JSON object (array element: leading indent included).
 #
-# @param cmd    Mangled command name.
-# @param output Normalized output name.
-# @param indent Indentation of the object's opening brace.
+# @param[in] cmd    Mangled command name.
+# @param[in] output Normalized output name.
+# @param[in] indent Indentation of the object's opening brace.
 # ------------------------------------------------------------------------------
 _knit_describe_json_output() {
     local cmd="$1"
@@ -478,8 +478,8 @@ _knit_describe_json_output() {
 # Render a command's "outputs" array. Printed inline (object value: no leading
 # indent).
 #
-# @param cmd    Mangled command name.
-# @param indent Indentation of the array's opening bracket.
+# @param[in] cmd    Mangled command name.
+# @param[in] indent Indentation of the array's opening bracket.
 # ------------------------------------------------------------------------------
 _knit_describe_json_outputs() {
     local cmd="$1"
@@ -502,9 +502,9 @@ _knit_describe_json_outputs() {
 # are pruned by the active filters (hidden/builtin/"--only"), matching the
 # top-level command list.
 #
-# @param cmd          Mangled command name.
-# @param indent       Indentation of the object's opening brace.
-# @param sel_ancestor "true" if an ancestor of the command is in the "--only"
+# @param[in] cmd          Mangled command name.
+# @param[in] indent       Indentation of the object's opening brace.
+# @param[in] sel_ancestor "true" if an ancestor of the command is in the "--only"
 #                     selection.
 # ------------------------------------------------------------------------------
 _knit_describe_json_command() {
@@ -592,7 +592,7 @@ _knit_describe_json_command() {
 # Render the top-level "enums" object: every user-defined (non-builtin) enum
 # mapped to its values. Printed inline (object value: no leading indent).
 #
-# @param indent Indentation of the object's opening brace.
+# @param[in] indent Indentation of the object's opening brace.
 # ------------------------------------------------------------------------------
 _knit_describe_json_enums() {
     local indent="$1"
@@ -670,7 +670,7 @@ _knit_describe_json_compact() {
 # Double-quoting an already-safe value is harmless, so the predicate errs toward
 # quoting. Multi-line values are handled separately as block scalars.
 #
-# @param value String value to test.
+# @param[in] value String value to test.
 # ------------------------------------------------------------------------------
 _knit_describe_yaml_needs_quote() {
     local v="$1"
@@ -704,9 +704,9 @@ _knit_describe_yaml_needs_quote() {
 # double-quoted (reusing the JSON escaper, whose escapes YAML's double-quoted
 # style shares); anything else is emitted verbatim.
 #
-# @param __knit_ret  Name of the variable to hold the rendered scalar.
-# @param value       String value to render.
-# @param cont_indent Indentation prepended to each line of a block scalar.
+# @param[out] __knit_ret  Name of the variable to hold the rendered scalar.
+# @param[in] value       String value to render.
+# @param[in] cont_indent Indentation prepended to each line of a block scalar.
 # ------------------------------------------------------------------------------
 _knit_describe_yaml_scalar() {
     local -n __knit_ret=$1
@@ -736,8 +736,8 @@ _knit_describe_yaml_scalar() {
 # when it would be unsafe or coerced as a plain flow scalar (the plain-scalar
 # rules plus the flow indicators , [ ] { }). An empty list yields "[]".
 #
-# @param __knit_ret Name of the variable to hold the flow sequence.
-# @param ...values Scalar values.
+# @param[out] __knit_ret Name of the variable to hold the flow sequence.
+# @param[in] ...values Scalar values.
 # ------------------------------------------------------------------------------
 _knit_describe_yaml_flow_seq() {
     local -n __knit_ret=$1; shift
@@ -767,10 +767,10 @@ _knit_describe_yaml_flow_seq() {
 # are boolean with no default, a resource parameter (knit_with_resource) adds its
 # "resource" type, and a "--when" constraint is included when present.
 #
-# @param cmd         Mangled command name.
-# @param group       Parameter group ("required", "optional", or "flags").
-# @param param       Normalized parameter name.
-# @param item_indent Indentation of the "- " sequence indicator.
+# @param[in] cmd         Mangled command name.
+# @param[in] group       Parameter group ("required", "optional", or "flags").
+# @param[in] param       Normalized parameter name.
+# @param[in] item_indent Indentation of the "- " sequence indicator.
 # ------------------------------------------------------------------------------
 _knit_describe_yaml_param() {
     local cmd="$1" group="$2" param="$3" item_indent="$4"
@@ -827,8 +827,8 @@ _knit_describe_yaml_param() {
 # group keys at keys_indent. The "parameters:" key line itself is printed by the
 # caller.
 #
-# @param cmd         Mangled command name.
-# @param keys_indent Indentation of the required/optional/flags keys.
+# @param[in] cmd         Mangled command name.
+# @param[in] keys_indent Indentation of the required/optional/flags keys.
 # ------------------------------------------------------------------------------
 _knit_describe_yaml_params() {
     local cmd="$1" keys_indent="$2"
@@ -862,9 +862,9 @@ _knit_describe_yaml_params() {
 # Render one output as a YAML block-sequence element (the first key carries the
 # "- " indicator at item_indent).
 #
-# @param cmd         Mangled command name.
-# @param output      Normalized output name.
-# @param item_indent Indentation of the "- " sequence indicator.
+# @param[in] cmd         Mangled command name.
+# @param[in] output      Normalized output name.
+# @param[in] item_indent Indentation of the "- " sequence indicator.
 # ------------------------------------------------------------------------------
 _knit_describe_yaml_output() {
     local cmd="$1" output="$2" item_indent="$3"
@@ -893,9 +893,9 @@ _knit_describe_yaml_output() {
 # item_indent). Subcommands are pruned by the active filters
 # (hidden/builtin/"--only"), matching the top-level command list.
 #
-# @param cmd          Mangled command name.
-# @param item_indent  Indentation of the "- " sequence indicator.
-# @param sel_ancestor "true" if an ancestor of the command is in the "--only"
+# @param[in] cmd          Mangled command name.
+# @param[in] item_indent  Indentation of the "- " sequence indicator.
+# @param[in] sel_ancestor "true" if an ancestor of the command is in the "--only"
 #                     selection.
 # ------------------------------------------------------------------------------
 _knit_describe_yaml_command() {
@@ -1060,9 +1060,9 @@ _knit_describe_yaml() {
 # is rendered bold and underlined on its own line; without color it is followed
 # by an "---" hrule of matching width (the style "--help" uses).
 #
-# @param text      Header text.
-# @param use_color "true" to emit ANSI styling, "false" for an hrule.
-# @param indent    Leading indentation (defaults to none).
+# @param[in] text      Header text.
+# @param[in] use_color "true" to emit ANSI styling, "false" for an hrule.
+# @param[in] indent    Leading indentation (defaults to none).
 # ------------------------------------------------------------------------------
 _knit_describe_default_heading() {
     local text="$1"
@@ -1087,9 +1087,9 @@ _knit_describe_default_heading() {
 # the empty string when the parameter's type is not an enum. Values are sorted to
 # match the other formatters.
 #
-# @param __knit_ret Name of the variable to hold the constraint string.
-# @param cmd   Mangled command name.
-# @param param Normalized parameter name.
+# @param[out] __knit_ret Name of the variable to hold the constraint string.
+# @param[in] cmd   Mangled command name.
+# @param[in] param Normalized parameter name.
 # ------------------------------------------------------------------------------
 _knit_describe_enum_constraint() {
     local -n __knit_ret=$1
@@ -1120,9 +1120,9 @@ _knit_describe_enum_constraint() {
 # its enum constraint, "resource:" type (for a knit_with_resource parameter), and
 # "when:" clause when present.
 #
-# @param cmd       Mangled command name.
-# @param use_color "true" to emit ANSI styling in the header.
-# @param indent    Leading indentation for the section header (defaults to none);
+# @param[in] cmd       Mangled command name.
+# @param[in] use_color "true" to emit ANSI styling in the header.
+# @param[in] indent    Leading indentation for the section header (defaults to none);
 #                  entries are indented two further spaces.
 # ------------------------------------------------------------------------------
 _knit_describe_default_options() {
@@ -1208,9 +1208,9 @@ _knit_describe_default_options() {
 # "[type, default: '…'] description"). Prints nothing when the command declares
 # no outputs.
 #
-# @param cmd       Mangled command name.
-# @param use_color "true" to emit ANSI styling in the header.
-# @param indent    Leading indentation for the section header (defaults to none);
+# @param[in] cmd       Mangled command name.
+# @param[in] use_color "true" to emit ANSI styling in the header.
+# @param[in] indent    Leading indentation for the section header (defaults to none);
 #                  entries are indented two further spaces.
 # ------------------------------------------------------------------------------
 _knit_describe_default_outputs() {
@@ -1251,9 +1251,9 @@ _knit_describe_default_outputs() {
 # section (the function body) is printed for a user command when
 # "--include-implementation" is set.
 #
-# @param cmd          Mangled command name.
-# @param use_color    "true" to emit ANSI styling.
-# @param sel_ancestor "true" if an ancestor of the command is in the "--only"
+# @param[in] cmd          Mangled command name.
+# @param[in] use_color    "true" to emit ANSI styling.
+# @param[in] sel_ancestor "true" if an ancestor of the command is in the "--only"
 #                     selection.
 # ------------------------------------------------------------------------------
 _knit_describe_default_command() {
@@ -1322,7 +1322,7 @@ _knit_describe_default_command() {
 # command, walked depth-first so a subcommand follows its parent. Color is
 # enabled only when stdout is a terminal and "--no-color" is not given.
 #
-# @param ... Command arguments (expanded by the CLI framework).
+# @param[in] ... Command arguments (expanded by the CLI framework).
 # ------------------------------------------------------------------------------
 _knit_describe_default() {
     local no_color use_color
@@ -1351,8 +1351,8 @@ _knit_describe_default() {
 # escaped (they otherwise start a new column) and newlines/carriage returns are
 # folded to spaces (a table row must stay on one line).
 #
-# @param __knit_ret Name of the variable to hold the escaped value.
-# @param value Value to escape.
+# @param[out] __knit_ret Name of the variable to hold the escaped value.
+# @param[in] value Value to escape.
 # ------------------------------------------------------------------------------
 _knit_describe_md_cell() {
     local -n __knit_ret=$1
@@ -1371,8 +1371,8 @@ _knit_describe_md_cell() {
 # a declared value is shown as code and an empty-string default leaves a blank
 # cell.
 #
-# @param __knit_ret Name of the variable to hold the rendered code span.
-# @param value Value to render.
+# @param[out] __knit_ret Name of the variable to hold the rendered code span.
+# @param[in] value Value to render.
 # ------------------------------------------------------------------------------
 _knit_describe_md_code() {
     local -n __knit_ret=$1
@@ -1395,9 +1395,9 @@ _knit_describe_md_code() {
 # expression in inline code), joined by "; ". Returns the empty string when the
 # parameter is unconstrained.
 #
-# @param __knit_ret Name of the variable to hold the constraints text.
-# @param cmd   Mangled command name.
-# @param param Normalized parameter name.
+# @param[out] __knit_ret Name of the variable to hold the constraints text.
+# @param[in] cmd   Mangled command name.
+# @param[in] param Normalized parameter name.
 # ------------------------------------------------------------------------------
 _knit_describe_md_constraints() {
     local -n __knit_ret=$1
@@ -1429,7 +1429,7 @@ _knit_describe_md_constraints() {
 # a "Kind" column marking the group. Prints "*None.*" when the command declares no
 # parameters. The universal "--help" flag is intentionally omitted.
 #
-# @param cmd Mangled command name.
+# @param[in] cmd Mangled command name.
 # ------------------------------------------------------------------------------
 _knit_describe_md_params() {
     local cmd="$1"
@@ -1499,7 +1499,7 @@ _knit_describe_md_params() {
 # Print a command's "#### Outputs" sub-section as a Markdown table (one row per
 # output, sorted). Prints "*None.*" when the command declares no outputs.
 #
-# @param cmd Mangled command name.
+# @param[in] cmd Mangled command name.
 # ------------------------------------------------------------------------------
 _knit_describe_md_outputs() {
     local cmd="$1"
@@ -1542,8 +1542,8 @@ _knit_describe_md_outputs() {
 # "--include-implementation" is set), then recurse (flat, depth-first) into its
 # emitted subcommands so each command is its own "###" section regardless of depth.
 #
-# @param cmd          Mangled command name.
-# @param sel_ancestor "true" if an ancestor of the command is in the "--only"
+# @param[in] cmd          Mangled command name.
+# @param[in] sel_ancestor "true" if an ancestor of the command is in the "--only"
 #                     selection.
 # ------------------------------------------------------------------------------
 _knit_describe_md_command() {
@@ -1627,7 +1627,7 @@ _knit_describe_markdown() {
 # model/traversal layer applies the requested filtering. Called by _knit_describe
 # before any formatter runs.
 #
-# @param ... Command arguments (expanded by the CLI framework).
+# @param[in] ... Command arguments (expanded by the CLI framework).
 # ------------------------------------------------------------------------------
 _knit_describe_read_filters() {
     _KNIT_DESCRIBE_FILTERS=()
@@ -1659,9 +1659,9 @@ _knit_describe_read_filters() {
 # "--output" without duplicating the format dispatch. "--compact" selects the
 # single-line JSON variant and applies only to the "json" format.
 #
-# @param format  Output format ("default", "json", "yaml", or "markdown").
-# @param compact "true" to emit compact single-line JSON (json format only).
-# @param ...     Command arguments (expanded by the CLI framework).
+# @param[in] format  Output format ("default", "json", "yaml", or "markdown").
+# @param[in] compact "true" to emit compact single-line JSON (json format only).
+# @param[in] ...     Command arguments (expanded by the CLI framework).
 # ------------------------------------------------------------------------------
 _knit_describe_emit() {
     local format="$1"
@@ -1698,7 +1698,7 @@ _knit_describe_emit() {
 # written to that file instead of standard output (which also disables the
 # default format's auto-color, since the destination is not a terminal).
 #
-# @param ... Command arguments (expanded by the CLI framework).
+# @param[in] ... Command arguments (expanded by the CLI framework).
 # ------------------------------------------------------------------------------
 _knit_describe() {
     local format output compact

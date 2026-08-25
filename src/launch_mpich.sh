@@ -31,8 +31,8 @@
 # passed by name. Each placement flag is added only when the corresponding
 # option is set; any --launcher-args string is word-split and appended verbatim.
 #
-# @param argv_name Name of the array to fill with the launcher argument vector.
-# @param opts_name Name of the resolved placement-options associative array
+# @param[out] argv_name Name of the array to fill with the launcher argument vector.
+# @param[in] opts_name Name of the resolved placement-options associative array
 #                  (keys: procs, procs-per-node, hostnames, launcher-args).
 # ------------------------------------------------------------------------------
 _knit_launch_mpich_cmdline() {
@@ -78,9 +78,9 @@ _knit_launch_mpich_cmdline() {
 # and return its exit status. The worker command is everything after a literal
 # "--". The launcher argv is built by _knit_launch_mpich_cmdline.
 #
-# @param arr_name Name of the resolved placement-options associative array.
-# @param --       Literal separator.
-# @param ...      The worker command and its arguments.
+# @param[in] arr_name Name of the resolved placement-options associative array.
+# @param[in] --       Literal separator.
+# @param[in] ...      The worker command and its arguments.
 # ------------------------------------------------------------------------------
 _knit_launch_mpich_exec() {
     local arr_name="$1"

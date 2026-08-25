@@ -153,12 +153,12 @@ knit_done
 #
 # Output namerefs come first, then the target state, then the submit CLI args.
 #
-# @param __knit_ret1  Out: the job UUID (the jobs row id).
-# @param __knit_ret2  Out: the job directory <job-root>/<uuid>.
-# @param __knit_ret3  Out: the --name alias symlink path (empty when none).
-# @param __knit_ret4  Out: the job name (the token after --).
-# @param target_state Lifecycle state to record ("submitted" or "prepared").
-# @param ...          The submit CLI arguments (everything, including -- job args).
+# @param[out] __knit_ret1  Out: the job UUID (the jobs row id).
+# @param[out] __knit_ret2  Out: the job directory <job-root>/<uuid>.
+# @param[out] __knit_ret3  Out: the --name alias symlink path (empty when none).
+# @param[out] __knit_ret4  Out: the job name (the token after --).
+# @param[in] target_state Lifecycle state to record ("submitted" or "prepared").
+# @param[in] ...          The submit CLI arguments (everything, including -- job args).
 # ------------------------------------------------------------------------------
 _knit_prepare_build() {
     local -n __knit_ret1=$1
@@ -413,12 +413,12 @@ _knit_prepare_build() {
 # handles a scheduler rejection (removing the never-run job, exactly as a direct
 # submit does). On success it records the backend job id in .job.id.
 #
-# @param uuid          The job UUID (the jobs row id).
-# @param jobdir        The job directory holding .submit and .job.sh.
-# @param job_name      The job name (for log and error messages).
-# @param alias_link    The --name alias symlink path, or empty when none (removed
+# @param[in] uuid          The job UUID (the jobs row id).
+# @param[in] jobdir        The job directory holding .submit and .job.sh.
+# @param[in] job_name      The job name (for log and error messages).
+# @param[in] alias_link    The --name alias symlink path, or empty when none (removed
 #                      on rejection).
-# @param wait_override Optional: "true"/"false" to override the frozen "wait"
+# @param[in] wait_override Optional: "true"/"false" to override the frozen "wait"
 #                      option at release time (empty keeps the value frozen at
 #                      build time). `submit` freezes --wait into .submit, so it
 #                      passes nothing; `submit prepared`/`submit next` accept
@@ -503,9 +503,9 @@ _knit_submit_dispatch() {
 # rest of its line, so it may contain "=" or spaces but not a newline (no
 # scheduler option does).
 #
-# @param file     Path of the .submit file to write.
-# @param backend  Scheduler backend name.
-# @param arr_name Name of the resolved-options associative array to persist.
+# @param[in] file     Path of the .submit file to write.
+# @param[in] backend  Scheduler backend name.
+# @param[in] arr_name Name of the resolved-options associative array to persist.
 # ------------------------------------------------------------------------------
 _knit_submit_meta_write() {
     local file="$1"
@@ -528,9 +528,9 @@ _knit_submit_meta_write() {
 # is written to the first named variable; each recorded option is written into
 # the named associative array, which the caller declares.
 #
-# @param file        Path of the .submit file to read.
-# @param out_backend Name of the variable to receive the backend name.
-# @param arr_name    Name of the associative array to populate with the options.
+# @param[in] file        Path of the .submit file to read.
+# @param[out] out_backend Name of the variable to receive the backend name.
+# @param[out] arr_name    Name of the associative array to populate with the options.
 # ------------------------------------------------------------------------------
 _knit_submit_meta_read() {
     local file="$1"
@@ -558,9 +558,9 @@ _knit_submit_meta_read() {
 # at it, the --name alias symlink (if any), and the job directory. Each step is
 # best-effort (the provenance table may not exist for a setup-less job).
 #
-# @param uuid       The submission's job UUID (its row id and edge target_id).
-# @param jobdir     The job directory to remove.
-# @param alias_link Path to the --name alias symlink, or empty when none.
+# @param[in] uuid       The submission's job UUID (its row id and edge target_id).
+# @param[in] jobdir     The job directory to remove.
+# @param[in] alias_link Path to the --name alias symlink, or empty when none.
 # ------------------------------------------------------------------------------
 _knit_submit_cleanup_rejected() {
     local uuid="$1"
@@ -595,7 +595,7 @@ _knit_submit_cleanup_rejected() {
 # job directory). Best-effort: status tracking must never take down the job
 # itself, so a failure is downgraded to a warning.
 #
-# @param state New state value (e.g. running, completed, killed).
+# @param[in] state New state value (e.g. running, completed, killed).
 # ------------------------------------------------------------------------------
 _knit_job_set_state() {
     local state="$1"
@@ -701,13 +701,13 @@ _knit_job_after_cb() {
 #
 # Usage: `knit_job_hostnames [--json] [--separator <sep>] [--raw] [--select <s>:<n>]`
 #
-# @param --json      Print the hostnames as a JSON array of strings.
-# @param --separator Separator used to join hostnames (default: a newline).
+# @param[in] --json      Print the hostnames as a JSON array of strings.
+# @param[in] --separator Separator used to join hostnames (default: a newline).
 #                    Ignored when --json is given.
-# @param --raw       Print the raw hostfile entries verbatim (no ":N" stripping,
+# @param[in] --raw       Print the raw hostfile entries verbatim (no ":N" stripping,
 #                    no deduplication); only the separator / JSON wrapping is
 #                    applied.
-# @param --select    Print only a slice of the resulting list: <start>:<length>,
+# @param[in] --select    Print only a slice of the resulting list: <start>:<length>,
 #                    where <start> is a 0-based index and <length> is the number
 #                    of hostnames to print. The slice is taken after the raw or
 #                    deduplication step, so it counts the entries that would
@@ -809,7 +809,7 @@ knit_job_nodecount() {
 # row can consult this to reject a job. Reads the command kind from the
 # _KNIT_CMD_<cmd>_type field (see knit_register).
 #
-# @param cmd Command (mangled name) to test.
+# @param[in] cmd Command (mangled name) to test.
 # @return 0 if the command is a job, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_command_is_job() {
@@ -831,9 +831,9 @@ _knit_command_is_job() {
 # registered under one of these would mangle to the same command name and shadow
 # the release/plan subcommand. Registering such a job is fatal.
 #
-# @param name        Short name for the job (used as the subcommand name).
-# @param fn          Name of the Bash function implementing the job.
-# @param description One-line description shown in `--help`.
+# @param[in] name        Short name for the job (used as the subcommand name).
+# @param[in] fn          Name of the Bash function implementing the job.
+# @param[in] description One-line description shown in `--help`.
 #
 # Example:
 # ```

@@ -82,8 +82,8 @@ _knit_skills_link_claude() {
 # directory without having to resolve the ref to a commit first. GitHub serves
 # any ref at archive/<ref>.tar.gz.
 #
-# @param dest Destination directory (already created by the caller).
-# @param ref  Git ref (branch, tag, or commit SHA) to download.
+# @param[in] dest Destination directory (already created by the caller).
+# @param[in] ref  Git ref (branch, tag, or commit SHA) to download.
 # ------------------------------------------------------------------------------
 _knit_skills_download() {
     local dest="$1"

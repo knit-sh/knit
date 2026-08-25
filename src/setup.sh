@@ -21,7 +21,7 @@ declare -gA _KNIT_SETUPS
 # that holds only "default" (or nothing) reports "no user setup". A missing root
 # also reports "no user setup".
 #
-# @param root Absolute setup root to scan (see _knit_setup_root).
+# @param[in] root Absolute setup root to scan (see _knit_setup_root).
 # ------------------------------------------------------------------------------
 _knit_has_user_setup() {
     local root="$1"
@@ -48,7 +48,7 @@ _knit_has_user_setup() {
 # Before bootstrap it never highlights (the setup root does not exist yet, and
 # the command is filtered from "--help" anyway).
 #
-# @param cmd The demangled command name (unused; the predicate is state-only).
+# @param[in] cmd The demangled command name (unused; the predicate is state-only).
 # ------------------------------------------------------------------------------
 _knit_highlight_if_no_user_setup() {
     _knit_is_bootstrapped || return 1
@@ -292,9 +292,9 @@ _knit_setup_after_cb() {
 # A call to this function must be followed by any knit_with_* declarations,
 # the definition of <fn>, and a call to knit_done.
 #
-# @param name        Short name for the setup (used as the subcommand name).
-# @param fn          Name of the Bash function implementing the setup.
-# @param description One-line description shown in `--help`.
+# @param[in] name        Short name for the setup (used as the subcommand name).
+# @param[in] fn          Name of the Bash function implementing the setup.
+# @param[in] description One-line description shown in `--help`.
 #
 # Example:
 # ```
@@ -326,7 +326,7 @@ knit_register_setup() {
 # stripping the trailing "/.knit" component, so it stays correct even after a
 # compute-side cd into a job directory. Uses parameter expansion (no fork).
 #
-# @param __knit_ret Name of the variable to hold the experiment root.
+# @param[out] __knit_ret Name of the variable to hold the experiment root.
 # ------------------------------------------------------------------------------
 _knit_experiment_root() {
     local -n __knit_ret=$1
@@ -341,8 +341,8 @@ _knit_experiment_root() {
 # unchanged; a relative value is resolved against the experiment root, so an
 # experiment with relative roots stays portable across machines and clones.
 #
-# @param __knit_ret Name of the variable to hold the resolved path.
-# @param stored     The stored path value (as typed at bootstrap).
+# @param[out] __knit_ret Name of the variable to hold the resolved path.
+# @param[in] stored     The stored path value (as typed at bootstrap).
 # ------------------------------------------------------------------------------
 _knit_resolve_experiment_path() {
     local -n __knit_ret=$1
@@ -364,7 +364,7 @@ _knit_resolve_experiment_path() {
 # metadata table (falling back to "setups" when unset, for robustness) and
 # resolves it against the experiment root via _knit_resolve_experiment_path.
 #
-# @param __knit_ret Name of the variable to hold the resolved setup root.
+# @param[out] __knit_ret Name of the variable to hold the resolved setup root.
 # ------------------------------------------------------------------------------
 _knit_setup_root() {
     local -n __knit_ret=$1
@@ -384,7 +384,7 @@ _knit_setup_root() {
 # (falling back to "jobs" when unset, for robustness) and resolves it against
 # the experiment root via _knit_resolve_experiment_path.
 #
-# @param __knit_ret Name of the variable to hold the resolved job root.
+# @param[out] __knit_ret Name of the variable to hold the resolved job root.
 # ------------------------------------------------------------------------------
 _knit_job_root() {
     local -n __knit_ret=$1
@@ -403,7 +403,7 @@ _knit_job_root() {
 # it matches ^[A-Za-z0-9._-]+$ (letters, digits, dot, underscore, hyphen; no
 # slashes). Fatals with guidance on anything else; returns normally on a match.
 #
-# @param name The instance name to validate.
+# @param[in] name The instance name to validate.
 # ------------------------------------------------------------------------------
 _knit_validate_instance_name() {
     local name="$1"
@@ -421,8 +421,8 @@ _knit_validate_instance_name() {
 # is resolved for jobs, plain commands, and apps: users refer to a setup by the
 # name they gave `knit setup --name`, not by its on-disk path.
 #
-# @param __knit_ret Name of the variable to hold the resolved setup directory.
-# @param name       The setup instance name (as passed to --setup).
+# @param[out] __knit_ret Name of the variable to hold the resolved setup directory.
+# @param[in] name       The setup instance name (as passed to --setup).
 # ------------------------------------------------------------------------------
 _knit_setup_name_to_path() {
     local -n __knit_ret=$1
@@ -499,8 +499,8 @@ knit_done
 # generic setup-dependency before-callback used for every other command that
 # declares knit_with_setup.
 #
-# @param setup_path Path to the setup directory to check.
-# @param required   Setup type the directory must have been built by.
+# @param[in] setup_path Path to the setup directory to check.
+# @param[in] required   Setup type the directory must have been built by.
 # ------------------------------------------------------------------------------
 _knit_setup_check_type() {
     local setup_path="$1"
@@ -528,7 +528,7 @@ _knit_setup_check_type() {
 # nothing resolves). Shared by the before- and after-callbacks so they always
 # agree on which directory is referenced.
 #
-# @param required Setup type the dependency must have been built by. Remaining
+# @param[in] required Setup type the dependency must have been built by. Remaining
 #                 arguments are the command's own runtime arguments, scanned for
 #                 --setup.
 # ------------------------------------------------------------------------------
@@ -563,7 +563,7 @@ _knit_setup_dep_resolve_path() {
 # option, else the ambient KNIT_SETUP_PREFIX, else the builtin default path when
 # the required type is "default").
 #
-# @param required Setup type the dependency must have been built by. Remaining
+# @param[in] required Setup type the dependency must have been built by. Remaining
 #                 arguments are the command's own runtime arguments, scanned for
 #                 --setup.
 # ------------------------------------------------------------------------------
@@ -605,9 +605,9 @@ _knit_setup_dep_before_cb() {
 # participate in the graph). A setup directory with no .setup.id (e.g. built before
 # provenance shipped) yields no edge.
 #
-# @param setup_path  Path to the setup directory the consumer references.
-# @param target_cmd  Mangled command name of the consumer (the edge target).
-# @param target_id   Resolved row id of the consumer (the edge target).
+# @param[in] setup_path  Path to the setup directory the consumer references.
+# @param[in] target_cmd  Mangled command name of the consumer (the edge target).
+# @param[in] target_id   Resolved row id of the consumer (the edge target).
 # ------------------------------------------------------------------------------
 _knit_setup_record_used_by_edge() {
     local setup_path="$1"
@@ -636,7 +636,7 @@ _knit_setup_record_used_by_edge() {
 # It resolves the same setup directory the before-callback used (via
 # _knit_setup_dep_resolve_path), so the two always agree.
 #
-# @param required Setup type the dependency must have been built by. Remaining
+# @param[in] required Setup type the dependency must have been built by. Remaining
 #                 arguments are the command's own runtime arguments, scanned for
 #                 --setup.
 # ------------------------------------------------------------------------------
@@ -680,7 +680,7 @@ _knit_setup_dep_after_cb() {
 # knit_done
 # ```
 #
-# @param type Name of the required setup type.
+# @param[in] type Name of the required setup type.
 # ------------------------------------------------------------------------------
 knit_with_setup() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
@@ -785,9 +785,9 @@ knit_without_setup() {
 # callback arguments (mode + source); trailing arguments are the setup's own
 # runtime arguments and are ignored.
 #
-# @param mode   "file" (source is an absolute path to copy) or "stdin" (source
+# @param[in] mode   "file" (source is an absolute path to copy) or "stdin" (source
 #               is the literal manifest content captured from a here-doc).
-# @param source Manifest path (mode=file) or manifest content (mode=stdin).
+# @param[in] source Manifest path (mode=file) or manifest content (mode=stdin).
 # ------------------------------------------------------------------------------
 _knit_setup_spack_env_before_cb() {
     local mode="$1"
@@ -899,7 +899,7 @@ _knit_stdin_is_terminal() {
 # knit_done
 # ```
 #
-# @param file Optional path to a spack.yaml manifest. If omitted, the manifest
+# @param[in] file Optional path to a spack.yaml manifest. If omitted, the manifest
 #             is read from stdin.
 # ------------------------------------------------------------------------------
 knit_with_spack_env() {
@@ -966,7 +966,7 @@ knit_with_spack_env() {
 # knit_done
 # ```
 #
-# @param ... One or more Spack specs.
+# @param[in] ... One or more Spack specs.
 # ------------------------------------------------------------------------------
 knit_with_spack_specs() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]] \

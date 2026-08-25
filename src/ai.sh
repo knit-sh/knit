@@ -36,12 +36,12 @@ _KNIT_AI_TOOL_OUTPUT_MAX_BYTES=8192
 # Only env-var *names* and non-secret defaults are stored; no API key ever
 # reaches the database.
 #
-# @param api_key_env Name of the env var holding the API key.
-# @param base_url_env Name of the env var holding the endpoint base URL.
-# @param model_env Name of the env var holding the model id.
-# @param base_url Literal fallback base URL.
-# @param model Literal fallback model id.
-# @param overwrite "true" to overwrite existing keys, anything else to fail on
+# @param[in] api_key_env Name of the env var holding the API key.
+# @param[in] base_url_env Name of the env var holding the endpoint base URL.
+# @param[in] model_env Name of the env var holding the model id.
+# @param[in] base_url Literal fallback base URL.
+# @param[in] model Literal fallback model id.
+# @param[in] overwrite "true" to overwrite existing keys, anything else to fail on
 #        a duplicate key.
 # ------------------------------------------------------------------------------
 _knit_ai_store_config() {
@@ -81,10 +81,10 @@ _knit_ai_store_config() {
 # The resolved API key is returned only through the caller-named output variable;
 # it is never logged, traced, or echoed.
 #
-# @param __knit_ret1 Name of the variable to hold the resolved API key.
-# @param __knit_ret2 Name of the variable to hold the resolved base URL.
-# @param __knit_ret3 Name of the variable to hold the resolved model id.
-# @param model_override Optional model id that takes precedence over metadata.
+# @param[out] __knit_ret1 Name of the variable to hold the resolved API key.
+# @param[out] __knit_ret2 Name of the variable to hold the resolved base URL.
+# @param[out] __knit_ret3 Name of the variable to hold the resolved model id.
+# @param[in] model_override Optional model id that takes precedence over metadata.
 # ------------------------------------------------------------------------------
 _knit_ai_resolve_config() {
     local -n __knit_ret1=$1
@@ -146,11 +146,11 @@ _knit_ai_resolve_config() {
 # surfaced through the logging system and turned into a fatal; the request body
 # is never dumped.
 #
-# @param base_url Endpoint base URL (without a trailing /chat/completions).
-# @param api_key Resolved API key (kept local; never logged).
-# @param model Model id.
-# @param messages_json JSON array of chat messages.
-# @param tools_json Optional JSON array of tool definitions (omitted when empty).
+# @param[in] base_url Endpoint base URL (without a trailing /chat/completions).
+# @param[in] api_key Resolved API key (kept local; never logged).
+# @param[in] model Model id.
+# @param[in] messages_json JSON array of chat messages.
+# @param[in] tools_json Optional JSON array of tool definitions (omitted when empty).
 # ------------------------------------------------------------------------------
 _knit_ai_chat_request() {
     local base_url="$1"
@@ -243,7 +243,7 @@ _knit_ai_chat_request() {
 # avoids relying on the non-POSIX `\b` regex escape and never misfires on a
 # column named e.g. `created_at` (the underscore keeps it one token).
 #
-# @param sql The SQL statement to check.
+# @param[in] sql The SQL statement to check.
 # @return 0 if the statement is read-only, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_ai_sql_is_readonly() {
@@ -270,7 +270,7 @@ _knit_ai_sql_is_readonly() {
 # "…(truncated)" marker appended when it is longer. Used to bound every tool
 # result handed back to the model.
 #
-# @param text The text to bound.
+# @param[in] text The text to bound.
 # ------------------------------------------------------------------------------
 _knit_ai_truncate() {
     local text="$1"
@@ -288,8 +288,8 @@ _knit_ai_truncate() {
 # Tool handler: structured introspection of the command tree, as YAML. Optional
 # `only` (comma-separated command list) and `recursive` narrow/expand the scope.
 #
-# @param only Optional comma-separated command list (colon form, e.g. "a,b:c").
-# @param recursive "true" to also include the selected commands' subcommands.
+# @param[in] only Optional comma-separated command list (colon form, e.g. "a,b:c").
+# @param[in] recursive "true" to also include the selected commands' subcommands.
 # ------------------------------------------------------------------------------
 _knit_ai_tool_describe() {
     local only="${1:-}"
@@ -307,7 +307,7 @@ _knit_ai_tool_describe() {
 # contain spaces for a nested command (e.g. "job show stdout"); it is split into
 # words before being passed to knit.
 #
-# @param command The command whose help to show (space-separated for nesting).
+# @param[in] command The command whose help to show (space-separated for nesting).
 # ------------------------------------------------------------------------------
 _knit_ai_tool_help() {
     local command="$1"
@@ -339,7 +339,7 @@ _knit_ai_tool_metadata_show() {
 # back to the model) rather than being run. The query always runs on the read
 # path (_knit_sqlite3, never _knit_sqlite3_write), so it can never mutate the DB.
 #
-# @param sql The SQL statement to run.
+# @param[in] sql The SQL statement to run.
 # ------------------------------------------------------------------------------
 _knit_ai_tool_db_query() {
     local sql="$1"
@@ -361,8 +361,8 @@ _knit_ai_tool_db_query() {
 # script, via the `job show <stream>` subcommands (there is no top-level `knit
 # stdout` command).
 #
-# @param id The job UUID.
-# @param stream One of "stdout" (default), "stderr", or "script".
+# @param[in] id The job UUID.
+# @param[in] stream One of "stdout" (default), "stderr", or "script".
 # ------------------------------------------------------------------------------
 _knit_ai_tool_job_output() {
     local id="$1"
@@ -440,8 +440,8 @@ _knit_ai_tools_schema() {
 # tool-command would record exactly as if the user had run it directly. The `ai`
 # command's own non-recording state never leaks into the commands it drives.
 #
-# @param name The tool name (e.g. "knit_describe").
-# @param args_json JSON object string of the tool's arguments.
+# @param[in] name The tool name (e.g. "knit_describe").
+# @param[in] args_json JSON object string of the tool's arguments.
 # ------------------------------------------------------------------------------
 _knit_ai_dispatch_tool() {
     local name="$1"
@@ -548,14 +548,14 @@ EOF
 #
 # Stops after max_iterations rounds with a warning if no final answer is reached.
 #
-# @param base_url Resolved endpoint base URL.
-# @param api_key Resolved API key (passed straight to the request helper).
-# @param model Resolved model id.
-# @param question The user's natural-language question.
-# @param system_prompt The system prompt to seed the conversation with.
-# @param max_iterations Hard cap on tool-call rounds.
-# @param raw "true" to print the raw final message JSON instead of its text.
-# @param verbose "true" to stream each tool call and result to stderr.
+# @param[in] base_url Resolved endpoint base URL.
+# @param[in] api_key Resolved API key (passed straight to the request helper).
+# @param[in] model Resolved model id.
+# @param[in] question The user's natural-language question.
+# @param[in] system_prompt The system prompt to seed the conversation with.
+# @param[in] max_iterations Hard cap on tool-call rounds.
+# @param[in] raw "true" to print the raw final message JSON instead of its text.
+# @param[in] verbose "true" to stream each tool call and result to stderr.
 # @return 0 when a final answer is produced, 1 on hitting the iteration cap.
 # ------------------------------------------------------------------------------
 _knit_ai_loop() {
@@ -705,10 +705,10 @@ knit_done
 # lookup table is needed. Headers are on by default (`.headers on`) and turned
 # off by `--no-header`; a non-empty separator overrides the mode default.
 #
-# @param __knit_ret Name of the array variable to fill with the sqlite3 args.
-# @param format The query_format enum value (e.g. "box", "csv").
-# @param no_header "true" to omit column headers.
-# @param separator Optional column separator for csv/list modes.
+# @param[out] __knit_ret Name of the array variable to fill with the sqlite3 args.
+# @param[in] format The query_format enum value (e.g. "box", "csv").
+# @param[in] no_header "true" to omit column headers.
+# @param[in] separator Optional column separator for csv/list modes.
 # ------------------------------------------------------------------------------
 _knit_ai_query_mode_args() {
     local -n __knit_ret=$1
@@ -739,9 +739,9 @@ _knit_ai_query_mode_args() {
 # cypher, SELECT/WITH/EXPLAIN/PRAGMA ⇒ sql, anything else ⇒ sql. Leading and
 # trailing whitespace is trimmed from the query.
 #
-# @param lang_out (nameref) receives the detected language ("sql" or "cypher").
-# @param query_out (nameref) receives the trimmed query text.
-# @param text The raw model reply.
+# @param[out] lang_out (nameref) receives the detected language ("sql" or "cypher").
+# @param[out] query_out (nameref) receives the trimmed query text.
+# @param[in] text The raw model reply.
 # ------------------------------------------------------------------------------
 _knit_ai_extract_query() {
     local -n __knit_ret1=$1
@@ -793,7 +793,7 @@ _knit_ai_extract_query() {
 # model isn't tempted to use the other backend; with `auto` (the default) both
 # halves and the when-to-prefer-each guidance are emitted and the model chooses.
 #
-# @param lang Pinned language ("auto"/"sql"/"cypher"); defaults to "auto".
+# @param[in] lang Pinned language ("auto"/"sql"/"cypher"); defaults to "auto".
 # ------------------------------------------------------------------------------
 _knit_ai_query_system_prompt() {
     local lang="${1:-auto}"
@@ -925,20 +925,20 @@ ${summary}"
 # printed (the query on stdout, the language on stderr) and the loop returns
 # without touching either backend.
 #
-# @param base_url Resolved endpoint base URL.
-# @param api_key Resolved API key (passed straight to the request helper).
-# @param model Resolved model id.
-# @param question The user's natural-language question.
-# @param system_prompt The system prompt to seed the conversation with.
-# @param max_iterations Cap on generate→run→fix rounds.
-# @param verbose "true" to stream the chosen language, each generated query, and
+# @param[in] base_url Resolved endpoint base URL.
+# @param[in] api_key Resolved API key (passed straight to the request helper).
+# @param[in] model Resolved model id.
+# @param[in] question The user's natural-language question.
+# @param[in] system_prompt The system prompt to seed the conversation with.
+# @param[in] max_iterations Cap on generate→run→fix rounds.
+# @param[in] verbose "true" to stream the chosen language, each generated query, and
 #                any backend error to stderr.
-# @param query_only "true" to print the generated query and its language and
+# @param[in] query_only "true" to print the generated query and its language and
 #                   return without running either backend.
-# @param format The query_format enum value for the output mode.
-# @param no_header "true" to omit column headers.
-# @param separator Optional column separator for csv/list modes.
-# @param lang Pinned language ("auto"/"sql"/"cypher"); "auto" defers to the
+# @param[in] format The query_format enum value for the output mode.
+# @param[in] no_header "true" to omit column headers.
+# @param[in] separator Optional column separator for csv/list modes.
+# @param[in] lang Pinned language ("auto"/"sql"/"cypher"); "auto" defers to the
 #             per-statement detection, sql/cypher override it.
 # @return 0 on a successful (or --query-only) run; fatals on hitting the cap.
 # ------------------------------------------------------------------------------

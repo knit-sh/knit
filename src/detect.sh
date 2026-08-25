@@ -335,7 +335,7 @@ _knit_detect_node_ncpus() {
 # bootstrap a single, easily stubbable resolution point for the system
 # binaries (sqlite3, jq) it may symlink instead of building from source.
 #
-# @param name Name of the executable to look up.
+# @param[in] name Name of the executable to look up.
 # ------------------------------------------------------------------------------
 _knit_command_path() {
     command -v "$1" 2>/dev/null

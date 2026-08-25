@@ -20,8 +20,8 @@
 # job runs as a background process with no scheduler, so there are no directives.
 # Delegates to _knit_sched_local_directives.
 #
-# @param arr_name Name of the resolved-options associative array.
-# @param jobdir   Job directory.
+# @param[in] arr_name Name of the resolved-options associative array.
+# @param[in] jobdir   Job directory.
 # ------------------------------------------------------------------------------
 _knit_sched_none_directives() {
     _knit_sched_local_directives "$@"
@@ -35,9 +35,9 @@ _knit_sched_none_directives() {
 # Delegates to _knit_sched_local_submit, which handles stdout/stderr redirection,
 # walltime, and optional blocking, and prints the process id.
 #
-# @param arr_name Name of the resolved-options associative array.
-# @param script   Path to the batch script to run.
-# @param jobdir   Job directory holding .stdout/.stderr.
+# @param[in] arr_name Name of the resolved-options associative array.
+# @param[in] script   Path to the batch script to run.
+# @param[in] jobdir   Job directory holding .stdout/.stderr.
 # ------------------------------------------------------------------------------
 _knit_sched_none_submit() {
     _knit_sched_local_submit "$@"
@@ -50,9 +50,9 @@ _knit_sched_none_submit() {
 # (the job runs as a background "bash <script>" on this host). Delegates to
 # _knit_sched_local_submit_cmdline.
 #
-# @param argv_name Name of the array to fill with the submission argv.
-# @param arr_name  Name of the resolved-options associative array.
-# @param script    Path to the batch script to run.
+# @param[in] argv_name Name of the array to fill with the submission argv.
+# @param[in] arr_name  Name of the resolved-options associative array.
+# @param[in] script    Path to the batch script to run.
 # ------------------------------------------------------------------------------
 _knit_sched_none_submit_cmdline() {
     _knit_sched_local_submit_cmdline "$@"
@@ -65,7 +65,7 @@ _knit_sched_none_submit_cmdline() {
 # (the job is a background process on this host). Delegates to
 # _knit_sched_local_wait.
 #
-# @param pid Process id recorded in the job's .job.id.
+# @param[in] pid Process id recorded in the job's .job.id.
 # ------------------------------------------------------------------------------
 _knit_sched_none_wait() {
     _knit_sched_local_wait "$@"
@@ -77,7 +77,7 @@ _knit_sched_none_wait() {
 # Cancel a none-backend job by signalling its process, identically to the local
 # backend. Delegates to _knit_sched_local_cancel.
 #
-# @param pid Process id recorded in the job's .job.id.
+# @param[in] pid Process id recorded in the job's .job.id.
 # ------------------------------------------------------------------------------
 _knit_sched_none_cancel() {
     _knit_sched_local_cancel "$@"

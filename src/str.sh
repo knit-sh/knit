@@ -8,8 +8,8 @@
 # Convert hyphens to underscores, storing the result in the caller-named
 # variable.
 #
-# @param __knit_ret Name of the variable to hold the result.
-# @param input String to convert.
+# @param[out] __knit_ret Name of the variable to hold the result.
+# @param[in] input String to convert.
 # ------------------------------------------------------------------------------
 _knit_str_hyphens_to_underscores() {
   local -n __knit_ret=$1
@@ -22,8 +22,8 @@ _knit_str_hyphens_to_underscores() {
 # Convert underscores to hyphens, storing the result in the caller-named
 # variable.
 #
-# @param __knit_ret Name of the variable to hold the result.
-# @param input String to convert.
+# @param[out] __knit_ret Name of the variable to hold the result.
+# @param[in] input String to convert.
 # ------------------------------------------------------------------------------
 _knit_str_underscores_to_hyphens() {
   local -n __knit_ret=$1
@@ -39,7 +39,7 @@ _knit_str_underscores_to_hyphens() {
 # scheduler commands for the "native_cmd" columns of the runs and jobs tables and
 # for the trace log emitted before each command is issued.
 #
-# @param argv_name Name of the array holding the command and its arguments.
+# @param[in] argv_name Name of the array holding the command and its arguments.
 # ------------------------------------------------------------------------------
 _knit_str_render_cmd() {
   # shellcheck disable=SC2178 # nameref to the caller's array

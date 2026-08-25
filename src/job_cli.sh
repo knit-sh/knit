@@ -51,8 +51,8 @@ knit_done
 # nothing is printed when the list has no non-empty value, so the caller can test
 # for an empty result and skip the condition entirely.
 #
-# @param column Column name to match (interpolated verbatim, so a trusted name).
-# @param csv    Comma-separated list of values.
+# @param[in] column Column name to match (interpolated verbatim, so a trusted name).
+# @param[in] csv    Comma-separated list of values.
 # ------------------------------------------------------------------------------
 _knit_job_in_clause() {
     local column="$1" csv="$2"
@@ -172,7 +172,7 @@ knit_done
 # is resolved from bootstrap metadata (__job_path__) against the experiment root
 # (see _knit_job_root).
 #
-# @param id Job UUID.
+# @param[in] id Job UUID.
 # ------------------------------------------------------------------------------
 _knit_job_dir() {
     local id="$1"
@@ -345,11 +345,11 @@ knit_done
 # the caller). A parameter whose column is absent from the table is skipped, so a
 # job whose per-job table predates a newly added parameter still replays.
 #
-# @param out_name Name of the array variable to append the reconstructed args to.
-# @param cmd      Mangled command whose schema drives the reconstruction.
-# @param table    Table holding the recorded row.
-# @param id       Value of the row's "id" column.
-# @param skip     Space-separated normalized names to omit.
+# @param[out] out_name Name of the array variable to append the reconstructed args to.
+# @param[in] cmd      Mangled command whose schema drives the reconstruction.
+# @param[in] table    Table holding the recorded row.
+# @param[in] id       Value of the row's "id" column.
+# @param[in] skip     Space-separated normalized names to omit.
 # ------------------------------------------------------------------------------
 _knit_job_reconstruct_args_from_db_row() {
     # shellcheck disable=SC2178 # nameref to the caller's args array
@@ -563,10 +563,10 @@ knit_done
 # for the output streams it usually means the job has not produced that output
 # yet).
 #
-# @param id       Job UUID.
-# @param filename Name of the file within the job directory (e.g. ".stdout",
+# @param[in] id       Job UUID.
+# @param[in] filename Name of the file within the job directory (e.g. ".stdout",
 #                 ".stderr", ".job.sh").
-# @param label    Human-readable name of the file for error messages (e.g.
+# @param[in] label    Human-readable name of the file for error messages (e.g.
 #                 "stdout", "stderr", "script").
 # ------------------------------------------------------------------------------
 _knit_job_show_file() {
@@ -595,7 +595,7 @@ _knit_job_show_file() {
 # (including an unknown id, which yields an empty result) returns non-zero. Used
 # by the follow loop as a backend-agnostic "job is done" signal.
 #
-# @param id Job UUID.
+# @param[in] id Job UUID.
 # ------------------------------------------------------------------------------
 _knit_job_state_is_terminal() {
     local state esc_id
@@ -628,9 +628,9 @@ _knit_job_state_is_terminal() {
 #     without ever producing the file, that is fatal (as for the non-following
 #     form).
 #
-# @param id       Job UUID.
-# @param filename Name of the file within the job directory (".stdout"/".stderr").
-# @param label    Human-readable name of the file for error messages.
+# @param[in] id       Job UUID.
+# @param[in] filename Name of the file within the job directory (".stdout"/".stderr").
+# @param[in] label    Human-readable name of the file for error messages.
 # ------------------------------------------------------------------------------
 _knit_job_follow_file() {
     local id="$1" filename="$2" label="$3"

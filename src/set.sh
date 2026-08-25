@@ -18,7 +18,7 @@
 # _knit_set_new MY_SET
 # ```
 #
-# @param set_name Name of the set to create.
+# @param[in] set_name Name of the set to create.
 # ------------------------------------------------------------------------------
 _knit_set_new() {
     declare -gA "$1"
@@ -36,7 +36,7 @@ _knit_set_new() {
 # _knit_set_exists MY_SET
 # ```
 #
-# @param set_name Name of the set.
+# @param[in] set_name Name of the set.
 # ------------------------------------------------------------------------------
 _knit_set_exists() {
     local set_name="$1"
@@ -55,8 +55,8 @@ _knit_set_exists() {
 # _knit_set_find MY_SET "Phil"
 # ```
 #
-# @param set_name Name of the set in which to search.
-# @param item Item to find.
+# @param[in] set_name Name of the set in which to search.
+# @param[in] item Item to find.
 # @return 0 if the element is found, 1 otherwise.
 # ------------------------------------------------------------------------------
 _knit_set_find() {
@@ -79,8 +79,8 @@ _knit_set_find() {
 # _knit_set_add MY_SET "Shane" "Matthieu" "Rob"
 # ```
 #
-# @param set_name Name of the set in which to add the element.
-# @param ...items Elements to add to the set.
+# @param[in] set_name Name of the set in which to add the element.
+# @param[in] ...items Elements to add to the set.
 # ------------------------------------------------------------------------------
 _knit_set_add() {
     # shellcheck disable=SC2178 # nameref to associative array
@@ -110,7 +110,7 @@ _knit_set_add() {
 # done
 # ```
 #
-# @param set_name Name of the set to iterate over.
+# @param[in] set_name Name of the set to iterate over.
 # ------------------------------------------------------------------------------
 _knit_set_iter() {
     # shellcheck disable=SC2178 # nameref to indexed array
@@ -134,8 +134,8 @@ _knit_set_iter() {
 # _knit_set_array members MY_SET
 # ```
 #
-# @param out Name of the array variable to populate (nameref output).
-# @param set_name Name of the set to read.
+# @param[out] out Name of the array variable to populate (nameref output).
+# @param[in] set_name Name of the set to read.
 # ------------------------------------------------------------------------------
 _knit_set_array() {
     local -n __knit_ret=$1
@@ -155,8 +155,8 @@ _knit_set_array() {
 # _knit_set_remove MY_SET "Shane" "Matthieu"
 # ```
 #
-# @param set_name Name of the set from which to remove the elements.
-# @param ...items Elements to remove from the set.
+# @param[in] set_name Name of the set from which to remove the elements.
+# @param[in] ...items Elements to remove from the set.
 # ------------------------------------------------------------------------------
 _knit_set_remove() {
     # shellcheck disable=SC2178 # nameref to associative array

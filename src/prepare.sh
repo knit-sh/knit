@@ -65,8 +65,8 @@ knit_done
 # releases in prepare order. Prints the claimed UUID, or nothing when no prepared
 # job matches (queue drained, or the race was lost).
 #
-# @param job   Optional job-name filter (the "job" column); empty means any.
-# @param group Optional group filter (the "group" column); empty means any.
+# @param[in] job   Optional job-name filter (the "job" column); empty means any.
+# @param[in] group Optional group filter (the "group" column); empty means any.
 # ------------------------------------------------------------------------------
 _knit_prepare_claim_next() {
     local job="$1" group="$2"
@@ -117,7 +117,7 @@ _knit_prepare_claim_next() {
 # the row is no longer prepared. Prints the claimed UUID, or nothing when the row
 # is absent or not in state "prepared".
 #
-# @param uuid The job UUID to claim.
+# @param[in] uuid The job UUID to claim.
 # ------------------------------------------------------------------------------
 _knit_prepare_claim_id() {
     local uuid="$1"
@@ -150,8 +150,8 @@ _knit_prepare_claim_id() {
 # scheduler rejection exactly as a direct submit does). Prints the released job's
 # UUID.
 #
-# @param uuid      The claimed job UUID.
-# @param wait_flag "true"/"false": block until the job completes (see
+# @param[in] uuid      The claimed job UUID.
+# @param[in] wait_flag "true"/"false": block until the job completes (see
 #                  _knit_submit_dispatch's wait override).
 # ------------------------------------------------------------------------------
 _knit_prepare_release() {
@@ -188,7 +188,7 @@ _knit_prepare_release() {
 # "prepared" branch of `job cancel`. The --name alias is reconstructed from the
 # row's "name" column, as _knit_prepare_release reconstructs it on dispatch.
 #
-# @param uuid The prepared job UUID.
+# @param[in] uuid The prepared job UUID.
 # ------------------------------------------------------------------------------
 _knit_prepare_remove() {
     local uuid="$1"
@@ -389,7 +389,7 @@ knit_done
 # not a list, a non-array "exclude"/"include") raises a jq error naming the
 # offending entry, so the whole expansion fails and nothing is prepared.
 #
-# @param plan The plan JSON text (already checked to be an object with a "jobs"
+# @param[in] plan The plan JSON text (already checked to be an object with a "jobs"
 #             array).
 # ------------------------------------------------------------------------------
 _knit_prepare_matrix_expand() {
@@ -457,8 +457,8 @@ def expand_matrix($i; $block):
 # (or in "defaults"), the command-line --group override, the plan's top-level
 # "group".
 #
-# @param plan           The plan JSON text.
-# @param group_override Command-line --group value ("" when not given).
+# @param[in] plan           The plan JSON text.
+# @param[in] group_override Command-line --group value ("" when not given).
 # ------------------------------------------------------------------------------
 _knit_prepare_from_file() {
     local plan="$1"

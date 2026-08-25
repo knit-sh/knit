@@ -53,8 +53,8 @@ knit_done
 # internal hot-path callers that would otherwise capture the value with a
 # forking command substitution.
 #
-# @param __knit_ret Name of the variable to hold the value.
-# @param key Metadata key to look up.
+# @param[out] __knit_ret Name of the variable to hold the value.
+# @param[in] key Metadata key to look up.
 # ------------------------------------------------------------------------------
 _knit_metadata_get() {
     local -n __knit_ret=$1

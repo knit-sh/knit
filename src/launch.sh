@@ -36,10 +36,10 @@
 # a launcher-specific binding this vocabulary does not cover. Returns the
 # translated value.
 #
-# @param __knit_ret Name of the variable to hold the translated value.
-# @param backend Launcher backend name ("openmpi", "mpich", "slurm", "pals",
+# @param[out] __knit_ret Name of the variable to hold the translated value.
+# @param[in] backend Launcher backend name ("openmpi", "mpich", "slurm", "pals",
 #                "flux").
-# @param value   The knit --bind value to translate.
+# @param[in] value   The knit --bind value to translate.
 # ------------------------------------------------------------------------------
 _knit_launch_bind_value() {
     local -n __knit_ret=$1
@@ -119,8 +119,8 @@ _knit_launch_bind_value() {
 # "none" backend that does NOT fall through to a setup contract.
 # Returns one of "none", "openmpi", "mpich", "pals", "slurm", "pbs", "flux".
 #
-# @param __knit_ret Name of the variable to hold the resolved backend name.
-# @param override Optional explicit launcher name (a per-run --launcher value);
+# @param[out] __knit_ret Name of the variable to hold the resolved backend name.
+# @param[in] override Optional explicit launcher name (a per-run --launcher value);
 #                 empty to fall back to the metadata then the setup contract.
 # ------------------------------------------------------------------------------
 _knit_launch_backend() {
@@ -146,10 +146,10 @@ _knit_launch_backend() {
 # launcher executable and its placement flags) for the resolved placement
 # options. The "none" backend has no launcher, so it leaves the array empty.
 #
-# @param backend   Launcher backend name ("none", "openmpi", "mpich", ...).
-# @param opts_name Name of the resolved placement-options associative array
+# @param[in] backend   Launcher backend name ("none", "openmpi", "mpich", ...).
+# @param[in] opts_name Name of the resolved placement-options associative array
 #                  (keys: procs, procs-per-node, hostnames, launcher-args).
-# @param argv_name Name of the array to fill with the launcher argument vector.
+# @param[in] argv_name Name of the array to fill with the launcher argument vector.
 # ------------------------------------------------------------------------------
 _knit_launch_cmdline() {
     local backend="$1"
@@ -176,10 +176,10 @@ _knit_launch_cmdline() {
 # literal "--". The "none" backend runs the worker command directly, with no
 # launcher.
 #
-# @param backend  Launcher backend name ("none", "openmpi", "mpich", ...).
-# @param arr_name Name of the resolved placement-options associative array.
-# @param --       Literal separator.
-# @param ...      The worker command and its arguments.
+# @param[in] backend  Launcher backend name ("none", "openmpi", "mpich", ...).
+# @param[in] arr_name Name of the resolved placement-options associative array.
+# @param[in] --       Literal separator.
+# @param[in] ...      The worker command and its arguments.
 # ------------------------------------------------------------------------------
 _knit_launch_exec() {
     local backend="$1"

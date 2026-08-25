@@ -11,7 +11,7 @@
 # ambiguity. A value that is not HH:MM:SS is printed verbatim so a site that
 # already writes a valid FSD (e.g. "30m") is passed through unchanged.
 #
-# @param walltime Walltime string, normally "HH:MM:SS".
+# @param[in] walltime Walltime string, normally "HH:MM:SS".
 # ------------------------------------------------------------------------------
 _knit_sched_flux_walltime_fsd() {
     local walltime="$1"
@@ -36,8 +36,8 @@ _knit_sched_flux_walltime_fsd() {
 # exclusive, so per-node task sizing belongs to the launcher (flux run), not the
 # allocation. Optional fields (bank, queue, gpus) are emitted only when set.
 #
-# @param arr_name Name of the resolved-options associative array.
-# @param jobdir   Job directory (for the --output/--error paths).
+# @param[in] arr_name Name of the resolved-options associative array.
+# @param[in] jobdir   Job directory (for the --output/--error paths).
 # ------------------------------------------------------------------------------
 _knit_sched_flux_directives() {
     local -n resolved="$1"
@@ -77,7 +77,7 @@ _knit_sched_flux_directives() {
 # trimming surrounding whitespace. The id is a single opaque FLUID token (e.g.
 # "f2QzoR8xF"), so no further splitting is done.
 #
-# @param raw Raw stdout captured from flux batch.
+# @param[in] raw Raw stdout captured from flux batch.
 # ------------------------------------------------------------------------------
 _knit_sched_flux_parse_jobid() {
     local raw="$1"
@@ -96,9 +96,9 @@ _knit_sched_flux_parse_jobid() {
 # _knit_sched_flux_submit for how the wait option is honoured), so the argv does
 # not depend on the resolved "wait" option.
 #
-# @param argv_name Name of the array to fill with the submission argv.
-# @param arr_name  Name of the resolved-options associative array (unused).
-# @param script    Path to the batch script to submit.
+# @param[out] argv_name Name of the array to fill with the submission argv.
+# @param[in] arr_name  Name of the resolved-options associative array (unused).
+# @param[in] script    Path to the batch script to submit.
 # ------------------------------------------------------------------------------
 _knit_sched_flux_submit_cmdline() {
     # shellcheck disable=SC2178 # nameref to the caller's array
@@ -118,9 +118,9 @@ _knit_sched_flux_submit_cmdline() {
 # --output/--error redirection is carried by the script's directives, so the job
 # directory is not needed here.
 #
-# @param arr_name Name of the resolved-options associative array.
-# @param script   Path to the batch script to submit.
-# @param jobdir   Job directory (unused; redirection is set via directives).
+# @param[in] arr_name Name of the resolved-options associative array.
+# @param[in] script   Path to the batch script to submit.
+# @param[in] jobdir   Job directory (unused; redirection is set via directives).
 # ------------------------------------------------------------------------------
 _knit_sched_flux_submit() {
     local arr_name="$1"
@@ -151,7 +151,7 @@ _knit_sched_flux_submit() {
 # Slurm/PBS backends this is a single blocking call, not a poll loop. The job's
 # knit terminal state is read from the DB by the caller afterwards.
 #
-# @param jobid Flux job id (from the job's .job.id).
+# @param[in] jobid Flux job id (from the job's .job.id).
 # ------------------------------------------------------------------------------
 _knit_sched_flux_wait() {
     local jobid="$1"
@@ -167,7 +167,7 @@ _knit_sched_flux_wait() {
 # unknown job may print a diagnostic; that is not treated as a knit-level failure
 # since the job is gone.
 #
-# @param jobid Flux job id (from the job's .job.id).
+# @param[in] jobid Flux job id (from the job's .job.id).
 # ------------------------------------------------------------------------------
 _knit_sched_flux_cancel() {
     local jobid="$1"
