@@ -114,8 +114,8 @@ _register_fixture() {
     run knit describe --format markdown --only greet
     [ "$status" -eq 0 ]
     [[ "${output}" == *$'#### Outputs\n'* ]]
-    [[ "${output}" == *'| Name | Type | Default | Description |'* ]]
-    [[ "${output}" == *'| `greeting` | string |  | The produced greeting. |'* ]]
+    [[ "${output}" == *'| Name | Type | Default | Result | Description |'* ]]
+    [[ "${output}" == *'| `greeting` | string |  |  | The produced greeting. |'* ]]
 }
 
 # ---------- extra ----------

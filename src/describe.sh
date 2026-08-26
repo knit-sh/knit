@@ -215,6 +215,35 @@ _knit_describe_command_kind() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_describe_is_result()
+#
+# Return success if an output of a command carries the "--result" mark (it is a
+# member of the command's results set). The set does not exist for a command with
+# no result, in which case the membership test simply fails.
+#
+# @param[in] cmd    Mangled command name.
+# @param[in] output Normalized output name.
+# ------------------------------------------------------------------------------
+_knit_describe_is_result() {
+    _knit_set_find "_KNIT_CMD_${1}_results" "${2}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_is_artifact()
+#
+# Return success if an output of a command is an artifact (it was declared with
+# knit_with_artifact and so is a member of the command's artifacts set). The set
+# does not exist for a command with no artifact, in which case the membership test
+# simply fails.
+#
+# @param[in] cmd    Mangled command name.
+# @param[in] output Normalized output name.
+# ------------------------------------------------------------------------------
+_knit_describe_is_artifact() {
+    _knit_set_find "_KNIT_CMD_${1}_artifacts" "${2}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_describe_filter_on()
 #
 # Return success if the named boolean filter is enabled for the current
@@ -443,6 +472,8 @@ _knit_describe_json_params() {
 # @fn _knit_describe_json_output()
 #
 # Render one output as a JSON object (array element: leading indent included).
+# The "result" boolean says the output carries the "--result" mark; the
+# "artifact" boolean says it was declared with knit_with_artifact.
 #
 # @param[in] cmd    Mangled command name.
 # @param[in] output Normalized output name.
@@ -468,6 +499,11 @@ _knit_describe_json_output() {
     printf -v e '%s"default":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     _knit_describe_json_str s "${desc}"
     printf -v e '%s"description":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
+    local is_result=false is_artifact=false
+    _knit_describe_is_result "${cmd}" "${output}" && is_result=true
+    _knit_describe_is_artifact "${cmd}" "${output}" && is_artifact=true
+    printf -v e '%s"result":%s%s' "${inner}" "${cs}" "${is_result}"; entries+=("${e}")
+    printf -v e '%s"artifact":%s%s' "${inner}" "${cs}" "${is_artifact}"; entries+=("${e}")
     printf '%s' "${indent}"
     _knit_describe_emit_object "${indent}" "${entries[@]}"
 }
@@ -860,7 +896,9 @@ _knit_describe_yaml_params() {
 # @fn _knit_describe_yaml_output()
 #
 # Render one output as a YAML block-sequence element (the first key carries the
-# "- " indicator at item_indent).
+# "- " indicator at item_indent). The "result" boolean says the output carries
+# the "--result" mark; the "artifact" boolean says it was declared with
+# knit_with_artifact.
 #
 # @param[in] cmd         Mangled command name.
 # @param[in] output      Normalized output name.
@@ -883,6 +921,11 @@ _knit_describe_yaml_output() {
     printf '%sdefault: %s\n' "${key}" "${sc}"
     _knit_describe_yaml_scalar sc "${desc}" "${cont}"
     printf '%sdescription: %s\n' "${key}" "${sc}"
+    local is_result=false is_artifact=false
+    _knit_describe_is_result "${cmd}" "${output}" && is_result=true
+    _knit_describe_is_artifact "${cmd}" "${output}" && is_artifact=true
+    printf '%sresult: %s\n' "${key}" "${is_result}"
+    printf '%sartifact: %s\n' "${key}" "${is_artifact}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1205,8 +1248,10 @@ _knit_describe_default_options() {
 # @fn _knit_describe_default_outputs()
 #
 # Print a command's "Outputs" section for the human-readable format (name, then
-# "[type, default: '…'] description"). Prints nothing when the command declares
-# no outputs.
+# "[type, default: '…'] description", with a trailing ", result" in the bracket
+# for an output that carries "--result"). Artifacts are omitted here; they get
+# their own "Artifacts" section. Prints nothing when the command declares no
+# non-artifact output.
 #
 # @param[in] cmd       Mangled command name.
 # @param[in] use_color "true" to emit ANSI styling in the header.
@@ -1224,19 +1269,64 @@ _knit_describe_default_outputs() {
     local -a __items
     _knit_set_array __items "${outs_var}"
     for o in "${__items[@]}"; do
+        _knit_describe_is_artifact "${cmd}" "${o}" && continue
         _knit_str_underscores_to_hyphens o2 "${o}"
         len=${#o2}; (( len > max )) && max=${len}
     done
 
     _knit_describe_default_heading "Outputs" "${use_color}" "${indent}"
-    local type dflt desc
+    local type dflt desc ann
     for o in "${__items[@]}"; do
+        _knit_describe_is_artifact "${cmd}" "${o}" && continue
         _knit_str_underscores_to_hyphens o2 "${o}"
         _knit_output_type type "${cmd}" "${o}"
         _knit_output_default dflt "${cmd}" "${o}"
         _knit_output_description desc "${cmd}" "${o}"
-        printf '%s%-*s  [%s, default: '\''%s'\''] %s\n' \
-            "${cind}" "${max}" "${o2}" "${type}" "${dflt}" "${desc}"
+        ann="${type}, default: '${dflt}'"
+        _knit_describe_is_result "${cmd}" "${o}" && ann+=", result"
+        printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${o2}" "${ann}" "${desc}"
+    done
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_default_artifacts()
+#
+# Print a command's "Artifacts" section for the human-readable format (name, then
+# "[type] description", with a trailing ", result" in the bracket for an artifact
+# that carries "--result"). An artifact has no default, so none is shown. Prints
+# nothing when the command declares no artifact.
+#
+# @param[in] cmd       Mangled command name.
+# @param[in] use_color "true" to emit ANSI styling in the header.
+# @param[in] indent    Leading indentation for the section header (defaults to none);
+#                  entries are indented two further spaces.
+# ------------------------------------------------------------------------------
+_knit_describe_default_artifacts() {
+    local cmd="$1"
+    local use_color="$2"
+    local indent="${3:-}"
+    local cind="${indent}  "
+    local outs_var="_KNIT_CMD_${cmd}_outputs"
+
+    local max=0 o o2 len
+    local -a __items
+    _knit_set_array __items "${outs_var}"
+    for o in "${__items[@]}"; do
+        _knit_describe_is_artifact "${cmd}" "${o}" || continue
+        _knit_str_underscores_to_hyphens o2 "${o}"
+        len=${#o2}; (( len > max )) && max=${len}
+    done
+
+    _knit_describe_default_heading "Artifacts" "${use_color}" "${indent}"
+    local type desc ann
+    for o in "${__items[@]}"; do
+        _knit_describe_is_artifact "${cmd}" "${o}" || continue
+        _knit_str_underscores_to_hyphens o2 "${o}"
+        _knit_output_type type "${cmd}" "${o}"
+        _knit_output_description desc "${cmd}" "${o}"
+        ann="${type}"
+        _knit_describe_is_result "${cmd}" "${o}" && ann+=", result"
+        printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${o2}" "${ann}" "${desc}"
     done
 }
 
@@ -1278,11 +1368,25 @@ _knit_describe_default_command() {
         _knit_describe_default_options "${cmd}" "${use_color}" "${sec}"
     fi
 
-    local -a __outs
-    _knit_set_array __outs "_KNIT_CMD_${cmd}_outputs"
-    if ! _knit_describe_filter_on no_output_params && (( ${#__outs[@]} )); then
-        printf '\n'
-        _knit_describe_default_outputs "${cmd}" "${use_color}" "${sec}"
+    if ! _knit_describe_filter_on no_output_params; then
+        local -a __outs
+        _knit_set_array __outs "_KNIT_CMD_${cmd}_outputs"
+        local __o __n_value=0 __n_artifact=0
+        for __o in "${__outs[@]}"; do
+            if _knit_describe_is_artifact "${cmd}" "${__o}"; then
+                __n_artifact=$(( __n_artifact + 1 ))
+            else
+                __n_value=$(( __n_value + 1 ))
+            fi
+        done
+        if (( __n_value )); then
+            printf '\n'
+            _knit_describe_default_outputs "${cmd}" "${use_color}" "${sec}"
+        fi
+        if (( __n_artifact )); then
+            printf '\n'
+            _knit_describe_default_artifacts "${cmd}" "${use_color}" "${sec}"
+        fi
     fi
 
     local extra_var="_KNIT_CMD_${cmd}_extra"
@@ -1497,7 +1601,9 @@ _knit_describe_md_params() {
 # @fn _knit_describe_md_outputs()
 #
 # Print a command's "#### Outputs" sub-section as a Markdown table (one row per
-# output, sorted). Prints "*None.*" when the command declares no outputs.
+# non-artifact output). A "Result" column shows "result" for an output that
+# carries "--result". Artifacts are omitted; they get their own "#### Artifacts"
+# sub-section. Prints "*None.*" when the command declares no non-artifact output.
 #
 # @param[in] cmd Mangled command name.
 # ------------------------------------------------------------------------------
@@ -1505,20 +1611,23 @@ _knit_describe_md_outputs() {
     local cmd="$1"
     printf '#### Outputs\n\n'
     local -a rows=()
-    local o dname type dflt desc dcell row c_name c_type c_desc
+    local o dname type dflt desc dcell row c_name c_type c_desc res
     local -a __items
     _knit_set_array __items "_KNIT_CMD_${cmd}_outputs"
     for o in "${__items[@]}"; do
+        _knit_describe_is_artifact "${cmd}" "${o}" && continue
         _knit_str_underscores_to_hyphens dname "${o}"
         _knit_output_type type "${cmd}" "${o}"
         _knit_output_default dflt "${cmd}" "${o}"
         _knit_output_description desc "${cmd}" "${o}"
+        res=""
+        _knit_describe_is_result "${cmd}" "${o}" && res="result"
         _knit_describe_md_code dcell "${dflt}"
         _knit_describe_md_code c_name "${dname}"
         _knit_describe_md_cell c_type "${type}"
         _knit_describe_md_cell c_desc "${desc}"
-        printf -v row '| %s | %s | %s | %s |' \
-            "${c_name}" "${c_type}" "${dcell}" "${c_desc}"
+        printf -v row '| %s | %s | %s | %s | %s |' \
+            "${c_name}" "${c_type}" "${dcell}" "${res}" "${c_desc}"
         rows+=("${row}")
     done
 
@@ -1526,8 +1635,50 @@ _knit_describe_md_outputs() {
         printf '*None.*\n'
         return
     fi
-    printf '| Name | Type | Default | Description |\n'
-    printf '|------|------|---------|-------------|\n'
+    printf '| Name | Type | Default | Result | Description |\n'
+    printf '|------|------|---------|--------|-------------|\n'
+    local r
+    for r in "${rows[@]}"; do printf '%s\n' "${r}"; done
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_md_artifacts()
+#
+# Print a command's "#### Artifacts" sub-section as a Markdown table (one row per
+# artifact). A "Result" column shows "result" for an artifact that carries
+# "--result". An artifact has no default, so no Default column is shown. Prints
+# "*None.*" when the command declares no artifact.
+#
+# @param[in] cmd Mangled command name.
+# ------------------------------------------------------------------------------
+_knit_describe_md_artifacts() {
+    local cmd="$1"
+    printf '#### Artifacts\n\n'
+    local -a rows=()
+    local o dname type desc row c_name c_type c_desc res
+    local -a __items
+    _knit_set_array __items "_KNIT_CMD_${cmd}_outputs"
+    for o in "${__items[@]}"; do
+        _knit_describe_is_artifact "${cmd}" "${o}" || continue
+        _knit_str_underscores_to_hyphens dname "${o}"
+        _knit_output_type type "${cmd}" "${o}"
+        _knit_output_description desc "${cmd}" "${o}"
+        res=""
+        _knit_describe_is_result "${cmd}" "${o}" && res="result"
+        _knit_describe_md_code c_name "${dname}"
+        _knit_describe_md_cell c_type "${type}"
+        _knit_describe_md_cell c_desc "${desc}"
+        printf -v row '| %s | %s | %s | %s |' \
+            "${c_name}" "${c_type}" "${res}" "${c_desc}"
+        rows+=("${row}")
+    done
+
+    if (( ${#rows[@]} == 0 )); then
+        printf '*None.*\n'
+        return
+    fi
+    printf '| Name | Type | Result | Description |\n'
+    printf '|------|------|--------|-------------|\n'
     local r
     for r in "${rows[@]}"; do printf '%s\n' "${r}"; done
 }
@@ -1570,6 +1721,18 @@ _knit_describe_md_command() {
     if ! _knit_describe_filter_on no_output_params; then
         printf '\n'
         _knit_describe_md_outputs "${cmd}"
+        # The Artifacts sub-section is emitted only for a command that declares an
+        # artifact, so an ordinary command is not padded with an empty section.
+        local -a __outs
+        _knit_set_array __outs "_KNIT_CMD_${cmd}_outputs"
+        local __o
+        for __o in "${__outs[@]}"; do
+            if _knit_describe_is_artifact "${cmd}" "${__o}"; then
+                printf '\n'
+                _knit_describe_md_artifacts "${cmd}"
+                break
+            fi
+        done
     fi
 
     local impl
