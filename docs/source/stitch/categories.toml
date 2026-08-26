@@ -54,6 +54,11 @@ title = "Recording"
 summary = "Recording command invocations, their parameters, and their outputs in per-command tables."
 
 [[category]]
+slug = "artifacts"
+title = "Results & artifacts"
+summary = "Marking the headline result of a command and declaring the files it produces as exportable artifacts."
+
+[[category]]
 slug = "provenance"
 title = "Provenance"
 summary = "Linking recorded rows across tables through the __provenance__ graph of call and used_by edges."

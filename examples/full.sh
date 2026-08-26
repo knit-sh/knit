@@ -8,7 +8,9 @@
 # with a Monte-Carlo method, and along the way it exercises every feature knit
 # currently implements: bootstrapping, machine profiles, metadata, typed
 # command parameters (including file/directory inputs and outputs whose paths and
-# sha256 content checksums are recorded), downloadable input artifacts fetched as named resources
+# sha256 content checksums are recorded), declaring the headline result and the
+# exportable artifacts of a command (knit_with_output --result / knit_with_artifact
+# / knit_artifact), downloadable input artifacts fetched as named resources
 # (knit fetch / knit_with_resource), setups (reproducible environments, optionally
 # backed by a Spack environment), job submission to a batch scheduler (Slurm/PBS/Flux) — or to
 # local background processes when no scheduler is present — MPI application
@@ -832,12 +834,63 @@
 #       "SELECT id, job, state, \"group\" FROM jobs WHERE \"group\"='pi-sweep'"
 #
 # -----------------------------------------------------------------------------
-# 17. Clean up
+# 17. Results and artifacts
 # -----------------------------------------------------------------------------
-#   rm -rf .knit setups jobs
+#   ./full.sh tabulate --runs 3
 #
-# Removes knit's private tooling and database (.knit), every setup (setups/), and
-# every job's working directory (jobs/).
+# A command records everything it produces, but two things deserve to be called
+# out: the *result* (what the experiment was for) and the *artifacts* (the files
+# to package for a reviewer or a repository such as Zenodo). `tabulate` shows
+# both. It marks its `mean` output as the headline result with --result, and it
+# declares three file artifacts with knit_with_artifact, binding each a
+# different way:
+#
+#   knit_with_output   "mean:real" "0" "..." --result   # a value result
+#   knit_with_artifact "table:file"  "..." --result      # artifact + result
+#   knit_with_artifact "figure:file" "..." --result      # artifact + result
+#   knit_with_artifact "dump:file"   "..."               # artifact, not a result
+#
+# --result is orthogonal to type: it flags importance on any output (a scalar
+# such as `mean`, or a file) and moves nothing. Artifacts live under an
+# `artifacts/` root beside setups/ and jobs/, reported by knit_artifact_dir. The
+# body puts each file there, then binds it with knit_artifact, whose recorded
+# value is always the artifacts-relative path — so the database holds no absolute
+# machine path and the record stays relocatable:
+#
+#   knit_artifact "table"  "table.csv"                 # written straight into artifacts/
+#   knit_artifact "figure" "summary.txt" --copy-from … # snapshot a copy in for durability
+#   knit_artifact "dump"   "raw.log"     --link-from … # reference a file in place (a symlink)
+#
+# --copy-from does `cp -r`; --link-from makes an absolute-target symlink, so a
+# large file on a fast filesystem is referenced at zero copy cost and stays where
+# it is. Either way its content is checksummed (following the symlink), recorded
+# next to the path in a `<name>_checksum` column. Inspect the recorded row and
+# the on-disk layout:
+#
+#   ./full.sh query sql --format column --header --exec \
+#       "SELECT mean, \"table\", table_checksum, dump FROM tabulate"
+#   ls -l artifacts/                # table.csv and summary.txt are real files,
+#                                   # raw.log is a symlink to the raw log
+#
+# Artifacts are write-once: knit never overwrites an existing entry, so re-running
+# `tabulate` with the same names is refused. Give it a fresh --runs value (the
+# artifact names include it) or clear artifacts/ first. `knit describe` reports
+# all of this statically — a dedicated Artifacts section and a `result` tag:
+#
+#   ./full.sh describe --only tabulate
+#   ./full.sh describe --only tabulate --format json   # "result"/"artifact" per output
+#
+# Packaging artifacts/ into a relocatable archive (a future `knit export`) builds
+# directly on this layout, symlink handling, and per-artifact checksums.
+#
+# -----------------------------------------------------------------------------
+# 18. Clean up
+# -----------------------------------------------------------------------------
+#   rm -rf .knit setups jobs artifacts
+#
+# Removes knit's private tooling and database (.knit), every setup (setups/),
+# every job's working directory (jobs/), and every recorded artifact
+# (artifacts/).
 #
 # =============================================================================
 
@@ -1264,6 +1317,75 @@ _batch() {
         pi=$(_pi_monte_carlo "${samples}" "${seed}" decimal)
         printf 'seed %-4s pi ~= %s\n' "${seed}" "${pi}"
     done < "${seeds_dir}/seeds.txt"
+}
+knit_done
+
+# -----------------------------------------------------------------------------
+# tabulate — a command with a value result and file artifacts (guided-tour 17).
+#
+# It computes a few quick estimates, then records both what the run was for and
+# the files it produced:
+#
+#   * a VALUE RESULT: `mean` is an ordinary output flagged --result, so knit
+#     describe highlights it as the headline number;
+#   * three ARTIFACTS declared with knit_with_artifact and bound three ways —
+#     `table` written straight into artifacts/, `figure` copied in with
+#     --copy-from, and `dump` referenced in place with --link-from.
+#
+# knit_artifact records each artifact's value as its path relative to the
+# artifacts root (from knit_artifact_dir), never an absolute machine path, and
+# always records the target's checksum in a companion column. Artifacts are
+# write-once, so the artifact names embed --runs to keep re-runs distinct.
+# -----------------------------------------------------------------------------
+knit_register "tabulate" _tabulate "Tabulate pi estimates into exportable artifacts."
+knit_with_optional "runs:integer" "3"     "How many quick estimates to tabulate."
+knit_with_table
+knit_with_output   "mean:real" "0"        "Mean of the tabulated estimates (the headline result)." --result
+knit_with_artifact "table:file"  "The tabulated estimates (CSV)." --result
+knit_with_artifact "figure:file" "A one-line textual summary."    --result
+knit_with_artifact "dump:file"   "Raw run log, referenced in place (not the headline result)."
+_tabulate() {
+    local runs
+    runs=$(knit_get_parameter "runs" "$@")
+
+    # knit_artifact_dir is the artifacts/ root: write into it, then declare.
+    local out
+    out="$(knit_artifact_dir)"
+    mkdir -p "${out}"
+
+    # (1) Direct-write form: compute a CSV straight into artifacts/, then bind it.
+    local i pi sum=0
+    printf 'run,pi\n' > "${out}/table-${runs}.csv"
+    for (( i = 1; i <= runs; i++ )); do
+        pi=$(_pi_monte_carlo 2000 "$(( 42 + i ))" decimal)
+        printf '%s,%s\n' "${i}" "${pi}" >> "${out}/table-${runs}.csv"
+        sum=$(awk -v s="${sum}" -v p="${pi}" 'BEGIN { printf "%.5f", s + p }')
+    done
+    knit_artifact "table" "table-${runs}.csv"
+
+    local mean
+    mean=$(awk -v s="${sum}" -v n="${runs}" 'BEGIN { printf "%.5f", s / n }')
+
+    # A scratch tree holds the sources for the two shortcut forms below.
+    local scratch="tabulate-scratch-${runs}"
+    mkdir -p "${scratch}"
+
+    # (2) --copy-from form: write a summary to scratch, snapshot it into
+    #     artifacts/ for durability (missing parents are created automatically).
+    printf 'mean pi ~= %s over %s run(s)\n' "${mean}" "${runs}" \
+        > "${scratch}/summary.txt"
+    knit_artifact "figure" "summary-${runs}.txt" --copy-from "${scratch}/summary.txt"
+
+    # (3) --link-from form: a raw log that could live on a fast scratch
+    #     filesystem is referenced in place by an absolute-target symlink (no
+    #     copy); its content is still checksummed.
+    printf 'raw log for %s estimates (seed base 42)\n' "${runs}" \
+        > "${PWD}/${scratch}/raw.log"
+    knit_artifact "dump" "raw-${runs}.log" --link-from "${PWD}/${scratch}/raw.log"
+
+    # The headline value result, recorded in the DB row beside the artifacts.
+    knit_output "mean" "${mean}"
+    printf 'mean pi ~= %s  (%s runs; artifacts under %s)\n' "${mean}" "${runs}" "${out}"
 }
 knit_done
 
