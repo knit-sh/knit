@@ -155,6 +155,56 @@ teardown() {
     knit_done
 }
 
+# ---------- knit_with_output --result ----------
+
+@test "knit_with_output --result marks the output as a result" {
+    knit_register "res_cmd_1" knit_empty "A test command."
+    knit_with_output "score:real" "0.0" "The score." --result
+    knit_done
+    _knit_set_find "_KNIT_CMD_res_cmd_1_results" "score"
+}
+
+@test "knit_with_output without --result leaves the results set unpopulated" {
+    knit_register "res_cmd_2" knit_empty "A test command."
+    knit_with_output "score:real" "0.0" "The score."
+    knit_done
+    run _knit_set_find "_KNIT_CMD_res_cmd_2_results" "score"
+    [ "$status" -ne 0 ]
+}
+
+@test "knit_with_output --result is valid on any type" {
+    knit_register "res_cmd_3" knit_empty "A test command."
+    knit_with_output "note:string"  ""    "A note."  --result
+    knit_with_output "count:integer" "0"  "A count." --result
+    knit_done
+    _knit_set_find "_KNIT_CMD_res_cmd_3_results" "note"
+    _knit_set_find "_KNIT_CMD_res_cmd_3_results" "count"
+}
+
+@test "knit_with_output --result marks only the flagged output" {
+    knit_register "res_cmd_4" knit_empty "A test command."
+    knit_with_output "kept:real"    "0.0" "Kept."    --result
+    knit_with_output "dropped:real" "0.0" "Dropped."
+    knit_done
+    _knit_set_find "_KNIT_CMD_res_cmd_4_results" "kept"
+    run _knit_set_find "_KNIT_CMD_res_cmd_4_results" "dropped"
+    [ "$status" -ne 0 ]
+}
+
+@test "knit_with_output --result normalizes hyphen to underscore" {
+    knit_register "res_cmd_5" knit_empty "A test command."
+    knit_with_output "my-score:real" "0.0" "The score." --result
+    knit_done
+    _knit_set_find "_KNIT_CMD_res_cmd_5_results" "my_score"
+}
+
+@test "knit_with_output rejects an unexpected flag" {
+    knit_register "res_cmd_6" knit_empty "A test command."
+    run knit_with_output "score:real" "0.0" "The score." --bogus
+    [ "$status" -eq 1 ]
+    knit_done
+}
+
 # ---------- knit_output ----------
 
 @test "knit_output fails outside of registered command" {

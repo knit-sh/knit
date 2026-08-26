@@ -1346,6 +1346,35 @@ _knit_register_checksum() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_register_result()
+#
+# Mark an output of the command being registered as a result: something that
+# constitutes what the experiment was for, as opposed to an incidental output.
+# The mark is importance only; it carries no runtime behavior beyond how the
+# command is described. It is valid on an output of any type.
+#
+# The output is added to a per-command _KNIT_CMD_<cmd>_results set, created as
+# associative on first use (knit_register does not create it, since not every
+# command has a result).
+#
+# Only meaningful in a command context; a call in a parameter set is a no-op.
+# The output must already have been added to the outputs set before this is
+# called.
+#
+# @param[in] name The declared (un-normalized) output name.
+# ------------------------------------------------------------------------------
+_knit_register_result() {
+    local name="$1"
+    [[ -v _KNIT_CURRENT_COMMAND ]] || return 0
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local output
+    output=$(_knit_name_normalize "${name}")
+    _knit_set_exists "_KNIT_CMD_${cmd}_results" \
+        || _knit_set_new "_KNIT_CMD_${cmd}_results"
+    _knit_set_add "_KNIT_CMD_${cmd}_results" "${output}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_with_required()
 #
 # This function should be called right after a call to knit_register (or one of
@@ -1626,14 +1655,16 @@ knit_with_parameter_set() {
 # @param[in] description Description of the output.
 # @param[in] --no-checksum Optional flag; for a file/directory output, disable the
 #        content checksum and its companion column.
+# @param[in] --result Optional flag; mark the output as a result (what the
+#        experiment was for). Valid on an output of any type.
 # ------------------------------------------------------------------------------
 knit_with_output() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_output should be used after a call to \"knit_register\"."
     fi
     _knit_wrapper_reject_declaration "knit_with_output"
-    knit_check_arguments "" "no-checksum" "${@:4}" \
-        || knit_fatal "knit_with_output takes an output, a default, a description, and an optional --no-checksum."
+    knit_check_arguments "" "no-checksum result" "${@:4}" \
+        || knit_fatal "knit_with_output takes an output, a default, a description, and an optional --no-checksum and --result."
     local param_spec="$1"
     if [[ "${param_spec}" != *:* ]]; then
         knit_fatal "Output \"${param_spec}\" is missing a type annotation (expected \"name:type\")."
@@ -1671,6 +1702,9 @@ knit_with_output() {
     local no_checksum="false"
     _knit_decl_flag_present "no-checksum" "${@:4}" && no_checksum="true"
     _knit_register_checksum "output" "${param_type}" "${param_name}" "${no_checksum}"
+    if _knit_decl_flag_present "result" "${@:4}"; then
+        _knit_register_result "${param_name}"
+    fi
 }
 
 # ------------------------------------------------------------------------------
