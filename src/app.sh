@@ -469,6 +469,12 @@ _knit_run_checksum_outputs() {
         local marker_var="_KNIT_CMD_${subcmd}_fileparam_${param}"
         local marker="${!marker_var:-}"
         [[ "${marker}" == output:* ]] || continue
+        # An artifact is bound, existence-checked and hashed by knit_artifact on
+        # rank 0 at bind time; its recorded value is artifacts-relative, not a
+        # path to hash here, so leave it to that path.
+        if _knit_set_find "_KNIT_CMD_${subcmd}_artifacts" "${param}"; then
+            continue
+        fi
         local rest="${marker#output:}"
         local kind="${rest%%:*}"
         local checksum="${rest##*:}"

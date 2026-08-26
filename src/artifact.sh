@@ -161,3 +161,136 @@ knit_with_artifact() {
         _knit_register_result "${param_name}"
     fi
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_artifact_resolve_path()
+#
+# Resolve a user-supplied <linked-path> into the artifact entry's absolute
+# location and its artifacts-relative form, enforcing containment on the entry's
+# OWN location, not its target. A relative <linked-path> is taken against the
+# artifacts root; an absolute one is used as given. The parent directory is
+# resolved to its real path (so a symlink in the parent chain is followed), while
+# the final component is kept verbatim (a symlink there is not followed, so a
+# symlink artifact stays inside the artifacts root even when its target is
+# elsewhere). Containment holds when that real parent is the artifacts root or a
+# directory below it.
+#
+# @param[out] __knit_ret1 Name of the variable to hold the absolute entry path.
+# @param[out] __knit_ret2 Name of the variable to hold the artifacts-relative path.
+# @param[in] root         The resolved (absolute) artifacts root.
+# @param[in] linked_path  The user-supplied <linked-path>.
+# @return 0 on success (contained); 1 when <linked-path> is outside the root.
+# ------------------------------------------------------------------------------
+_knit_artifact_resolve_path() {
+    local -n __knit_ret1=$1
+    local -n __knit_ret2=$2
+    local root="$3"
+    local linked_path="$4"
+    # Interpret a relative <linked-path> against the artifacts root.
+    local input="${linked_path}"
+    [[ "${input}" == /* ]] || input="${root}/${input}"
+    # Resolve the parent's real path but keep the final component, so a symlink
+    # entry is not followed for the containment test.
+    local parent base parent_real root_real
+    parent=$(dirname "${input}")
+    base=$(basename "${input}")
+    parent_real=$(realpath -m "${parent}")
+    root_real=$(realpath -m "${root}")
+    if [[ "${parent_real}" != "${root_real}" \
+       && "${parent_real}" != "${root_real}/"* ]]; then
+        return 1
+    fi
+    __knit_ret1="${parent_real}/${base}"
+    __knit_ret2="${__knit_ret1#"${root_real}/"}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_artifact()
+#
+# Bind a declared artifact of the currently executing command to a path inside
+# the artifacts root. It is the file/directory counterpart of knit_output: the
+# body first puts the file (or a symlink to it) under the artifacts root, then
+# declares it here.
+#
+# ```
+# out="$(knit_artifact_dir)"
+# compute > "${out}/table.csv"
+# knit_artifact "table" "table.csv"
+# ```
+#
+# <linked-path> is either relative to the artifacts root or absolute and inside
+# it. The entry's own location (not its target) must sit inside the artifacts
+# root; a symlink entry is allowed and its target may be anywhere. The entry must
+# exist and match the declared type (a symlink is followed to its target for this
+# check). The content digest of the resolved target is recorded automatically in
+# the companion "<name>-checksum" column, and the recorded value of the artifact
+# is always the artifacts-relative path, whatever form was passed, so the record
+# holds no absolute machine path. Binding the same artifacts-relative path twice
+# in one invocation is fatal: artifacts are write-once.
+#
+# Fails if called outside an executing command, if <name> is not a declared
+# artifact of that command, if <linked-path> is empty or outside the artifacts
+# root, if the entry does not exist or has the wrong type, or if the path was
+# already bound in this invocation.
+#
+# @param[in] name        Artifact name (hyphens and underscores are interchangeable).
+# @param[in] linked_path Path inside the artifacts root where the entry lives.
+# ------------------------------------------------------------------------------
+knit_artifact() {
+    local name="$1"
+    local linked_path="$2"
+    # Suppressed on non-root ranks of a run: discard the binding but warn, so the
+    # user learns to guard knit_artifact with a rank-0 check (only rank 0 records).
+    if [[ -n "${_KNIT_RECORDING_SUPPRESSED}" ]]; then
+        knit_warning "Recording is suppressed on this rank; artifact \"${name}\" is discarded. Guard knit_artifact with a rank-0 check (e.g. [[ \"\${KNIT_MPI_RANK}\" == 0 ]])."
+        return 0
+    fi
+    if [[ ${#_KNIT_EXECUTING_COMMAND[@]} -eq 0 ]]; then
+        knit_fatal "knit_artifact should be called from within a registered command function."
+    fi
+    local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
+    local demangled_cmd
+    demangled_cmd=$(_knit_command_demangle "${cmd}")
+    local normalized
+    normalized=$(_knit_name_normalize "${name}")
+    if ! _knit_set_find "_KNIT_CMD_${cmd}_artifacts" "${normalized}"; then
+        knit_fatal "\"${name}\" is not a declared artifact of command \"${demangled_cmd}\"."
+    fi
+    if [[ -z "${linked_path}" ]]; then
+        knit_fatal "knit_artifact requires a path inside the artifacts directory for \"${name}\"."
+    fi
+    local root
+    _knit_artifact_root root
+    local abs rel
+    if ! _knit_artifact_resolve_path abs rel "${root}" "${linked_path}"; then
+        knit_fatal "Artifact \"${name}\" path \"${linked_path}\" is outside the artifacts directory \"${root}\"."
+    fi
+    # Write-once: an artifacts-relative path may be bound only once per invocation.
+    _knit_set_exists "_KNIT_CMD_${cmd}_artifact_bound" \
+        || declare -gA "_KNIT_CMD_${cmd}_artifact_bound=()"
+    # shellcheck disable=SC2178 # nameref to the command's bound-path set
+    local -n bound_ref="_KNIT_CMD_${cmd}_artifact_bound"
+    if [[ -v bound_ref["${rel}"] ]]; then
+        knit_fatal "Artifact path \"${rel}\" is already recorded for \"${demangled_cmd}\"; artifacts are write-once."
+    fi
+    # Existence and declared-type match, following a symlink to its target. The
+    # fileparam marker holds the alias-resolved kind as "output:<kind>:yes".
+    local marker_var="_KNIT_CMD_${cmd}_fileparam_${normalized}"
+    local marker="${!marker_var:-}"
+    local kind="${marker#output:}"
+    kind="${kind%%:*}"
+    _knit_checksum_require_exists "${demangled_cmd}" output "${name}" "${kind}" "${abs}"
+    # Checksum the resolved target (recursive for a directory) and stash the
+    # digest in the companion checksum column, reusing the file-checksums path.
+    local hex
+    _knit_sha256 hex "${abs}"
+    _knit_checksum_stash "${cmd}" "${normalized}" "${hex}"
+    # Record the artifacts-relative path as the output value and mark it bound.
+    knit_trace "Binding artifact \"${name}\" = \"${rel}\" for command \"${demangled_cmd}\"."
+    # shellcheck disable=SC2178 # nameref to the command's output-value array
+    local -n output_ref="_KNIT_CMD_${cmd}_output_value"
+    # shellcheck disable=SC2034 # written through the nameref
+    output_ref["${normalized}"]="${rel}"
+    # shellcheck disable=SC2034 # written through the nameref
+    bound_ref["${rel}"]=1
+}

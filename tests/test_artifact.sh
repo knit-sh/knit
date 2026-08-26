@@ -199,3 +199,208 @@ teardown() {
     [ "${status}" -ne 0 ]
     knit_done
 }
+
+# ---------- knit_artifact (bind) ----------
+
+# Read one column of the single recorded row of a table.
+_col() {
+    _knit_sqlite3 "SELECT \"${1}\" FROM '${2}';"
+}
+
+# Point the artifacts root at an absolute directory under the test tmpdir, so a
+# body can write into it and its resolved root is predictable.
+_use_artifacts_root() {
+    _ART_ROOT="${_KNIT_TEST_TMPDIR}/artifacts"
+    _knit_metadata_store --key "__artifact_path__" --value "${_ART_ROOT}"
+}
+
+@test "knit_artifact stores a relative path artifacts-relative and records its checksum" {
+    _use_artifacts_root
+    knit_register "bind_rel" fn_bind_rel "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "The results table."
+    fn_bind_rel() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}"
+        printf 'hello\n' > "${out}/table.csv"
+        knit_artifact "table" "table.csv"
+    }
+    knit_done
+    _knit_invoke_command "bind_rel"
+    [ "$(_col table bind_rel)" = "table.csv" ]
+    local expected
+    _knit_sha256 expected "${_ART_ROOT}/table.csv"
+    [ "$(_col table_checksum bind_rel)" = "sha256:${expected}" ]
+}
+
+@test "knit_artifact accepts an absolute-inside path and stores it artifacts-relative" {
+    _use_artifacts_root
+    knit_register "bind_abs" fn_bind_abs "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "The results table."
+    fn_bind_abs() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}/aaa/bbb"
+        printf 'hello\n' > "${out}/aaa/bbb/table.csv"
+        knit_artifact "table" "${out}/aaa/bbb/table.csv"
+    }
+    knit_done
+    _knit_invoke_command "bind_abs"
+    [ "$(_col table bind_abs)" = "aaa/bbb/table.csv" ]
+}
+
+@test "knit_artifact accepts a relative path in a nested subdirectory" {
+    _use_artifacts_root
+    knit_register "bind_nest" fn_bind_nest "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "The results table."
+    fn_bind_nest() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}/aaa/bbb"
+        printf 'hello\n' > "${out}/aaa/bbb/table.csv"
+        knit_artifact "table" "aaa/bbb/table.csv"
+    }
+    knit_done
+    _knit_invoke_command "bind_nest"
+    [ "$(_col table bind_nest)" = "aaa/bbb/table.csv" ]
+}
+
+@test "knit_artifact rejects a path outside the artifacts directory" {
+    _use_artifacts_root
+    local outside="${_KNIT_TEST_TMPDIR}/outside.csv"
+    printf 'hello\n' > "${outside}"
+    knit_register "bind_out" fn_bind_out "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "The results table."
+    # shellcheck disable=SC2317 # invoked through _knit_invoke_command
+    fn_bind_out() { knit_artifact "table" "${_KNIT_TEST_TMPDIR}/outside.csv"; }
+    knit_done
+    run _knit_invoke_command "bind_out"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"outside the artifacts directory"* ]]
+}
+
+@test "knit_artifact accepts a symlink entry whose target is outside and checksums the target" {
+    _use_artifacts_root
+    local target="${_KNIT_TEST_TMPDIR}/real.csv"
+    printf 'payload\n' > "${target}"
+    knit_register "bind_link" fn_bind_link "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "The results table."
+    fn_bind_link() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}"
+        ln -s "${_KNIT_TEST_TMPDIR}/real.csv" "${out}/table.csv"
+        knit_artifact "table" "table.csv"
+    }
+    knit_done
+    _knit_invoke_command "bind_link"
+    [ "$(_col table bind_link)" = "table.csv" ]
+    local expected
+    _knit_sha256 expected "${target}"
+    [ "$(_col table_checksum bind_link)" = "sha256:${expected}" ]
+}
+
+@test "knit_artifact records a directory checksum recursively" {
+    _use_artifacts_root
+    knit_register "bind_dir" fn_bind_dir "Test."
+    knit_with_table
+    knit_with_artifact "report:directory" "The report tree."
+    fn_bind_dir() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}/report/sub"
+        printf 'a\n' > "${out}/report/a.txt"
+        printf 'b\n' > "${out}/report/sub/b.txt"
+        knit_artifact "report" "report"
+    }
+    knit_done
+    _knit_invoke_command "bind_dir"
+    [ "$(_col report bind_dir)" = "report" ]
+    local expected
+    _knit_sha256 expected "${_ART_ROOT}/report"
+    [ "$(_col report_checksum bind_dir)" = "sha256:${expected}" ]
+}
+
+@test "knit_artifact is fatal when the entry does not exist" {
+    _use_artifacts_root
+    knit_register "bind_miss" fn_bind_miss "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "The results table."
+    # shellcheck disable=SC2317 # invoked through _knit_invoke_command
+    fn_bind_miss() { knit_artifact "table" "table.csv"; }
+    knit_done
+    run _knit_invoke_command "bind_miss"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"was not produced"* ]]
+}
+
+@test "knit_artifact is fatal on a type mismatch" {
+    _use_artifacts_root
+    knit_register "bind_type" fn_bind_type "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "The results table."
+    fn_bind_type() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}/table.csv"
+        knit_artifact "table" "table.csv"
+    }
+    knit_done
+    run _knit_invoke_command "bind_type"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"was not produced"* ]]
+}
+
+@test "knit_artifact is fatal on a second bind to the same path" {
+    _use_artifacts_root
+    knit_register "bind_twice" fn_bind_twice "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "The results table."
+    knit_with_artifact "copy:file" "A second name for the same path."
+    fn_bind_twice() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}"
+        printf 'hello\n' > "${out}/table.csv"
+        knit_artifact "table" "table.csv"
+        knit_artifact "copy" "table.csv"
+    }
+    knit_done
+    run _knit_invoke_command "bind_twice"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"write-once"* ]]
+}
+
+@test "knit_artifact is fatal for an undeclared artifact name" {
+    _use_artifacts_root
+    knit_register "bind_undecl" fn_bind_undecl "Test."
+    knit_with_table
+    knit_with_output "value:string" "" "An ordinary output."
+    fn_bind_undecl() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}"
+        printf 'hello\n' > "${out}/table.csv"
+        knit_artifact "table" "table.csv"
+    }
+    knit_done
+    run _knit_invoke_command "bind_undecl"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"is not a declared artifact"* ]]
+}
+
+@test "knit_artifact fails outside of a command" {
+    _use_artifacts_root
+    run knit_artifact "table" "table.csv"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"within a registered command function"* ]]
+}
+
+@test "knit_artifact rejects an empty path" {
+    _use_artifacts_root
+    knit_register "bind_empty" fn_bind_empty "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "The results table."
+    # shellcheck disable=SC2317 # invoked through _knit_invoke_command
+    fn_bind_empty() { knit_artifact "table" ""; }
+    knit_done
+    run _knit_invoke_command "bind_empty"
+    [ "${status}" -ne 0 ]
+}

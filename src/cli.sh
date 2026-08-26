@@ -2811,6 +2811,12 @@ _knit_checksum_outputs() {
         local marker_var="_KNIT_CMD_${cmd}_fileparam_${param}"
         local marker="${!marker_var:-}"
         [[ "${marker}" == output:* ]] || continue
+        # An artifact is existence-checked and hashed by knit_artifact at bind
+        # time (its recorded value is artifacts-relative, not a path to hash
+        # here), so leave it to that path.
+        if _knit_set_find "_KNIT_CMD_${cmd}_artifacts" "${param}"; then
+            continue
+        fi
         local rest="${marker#output:}"
         local kind="${rest%%:*}"
         local checksum="${rest##*:}"
@@ -2982,8 +2988,10 @@ _knit_invoke_command() {
         return 1
     fi
     # Start each invocation with a clean recording slate (outputs + row id) so a
-    # previous invocation in the same process cannot leak stale values.
+    # previous invocation in the same process cannot leak stale values. The
+    # artifact-bound set is reset too, so write-once is scoped per invocation.
     declare -gA "_KNIT_CMD_${cmd}_output_value=()"
+    declare -gA "_KNIT_CMD_${cmd}_artifact_bound=()"
     unset "_KNIT_CMD_${cmd}_row_id"
     unset "_KNIT_CMD_${cmd}_recorded"
     # Verify existence of, and hash, every checksummed file/directory input
