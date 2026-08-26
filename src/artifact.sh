@@ -228,13 +228,32 @@ _knit_artifact_resolve_path() {
 # holds no absolute machine path. Binding the same artifacts-relative path twice
 # in one invocation is fatal: artifacts are write-once.
 #
+# The optional --link-from / --copy-from shortcuts create the entry from a source
+# that lives elsewhere, so the body does not have to place it by hand. They are
+# mutually exclusive. Both create the parent directories inside the artifacts
+# root and refuse to overwrite an on-disk entry. --link-from resolves <real-path>
+# to an absolute path and makes an absolute-target symlink at <linked-path> (the
+# real bytes stay where they are, at zero copy cost); --copy-from does "cp -r"
+# into <linked-path>. Either way <real-path> must exist, and the created entry
+# then goes through the same existence, type, and checksum path as the
+# direct-write form.
+#
+# ```
+# knit_artifact "dataset" "dataset.h5" --link-from /fast/aaa/bigfile
+# knit_artifact "figure"  "figure.svg" --copy-from "${out}/figure.svg"
+# ```
+#
 # Fails if called outside an executing command, if <name> is not a declared
 # artifact of that command, if <linked-path> is empty or outside the artifacts
-# root, if the entry does not exist or has the wrong type, or if the path was
-# already bound in this invocation.
+# root, if the entry does not exist or has the wrong type, if the path was
+# already bound in this invocation, if both shortcuts are given, if a shortcut's
+# <real-path> is missing or does not exist, or if a shortcut would overwrite an
+# on-disk entry.
 #
 # @param[in] name        Artifact name (hyphens and underscores are interchangeable).
 # @param[in] linked_path Path inside the artifacts root where the entry lives.
+# @param[in] --link-from Optional; symlink <linked-path> to this <real-path>.
+# @param[in] --copy-from Optional; copy this <real-path> to <linked-path>.
 # ------------------------------------------------------------------------------
 knit_artifact() {
     local name="$1"
@@ -244,6 +263,42 @@ knit_artifact() {
     if [[ -n "${_KNIT_RECORDING_SUPPRESSED}" ]]; then
         knit_warning "Recording is suppressed on this rank; artifact \"${name}\" is discarded. Guard knit_artifact with a rank-0 check (e.g. [[ \"\${KNIT_MPI_RANK}\" == 0 ]])."
         return 0
+    fi
+    # Parse the optional --link-from / --copy-from shortcuts by hand: these are
+    # direct user-facing arguments, not the CLI framework's "--flag true" form.
+    local link_src="" copy_src="" have_link=0 have_copy=0
+    local extra=( "${@:3}" )
+    local i=0
+    while [[ ${i} -lt ${#extra[@]} ]]; do
+        case "${extra[${i}]}" in
+            --link-from)
+                have_link=1
+                link_src="${extra[$((i + 1))]:-}"
+                i=$((i + 2))
+                ;;
+            --copy-from)
+                have_copy=1
+                copy_src="${extra[$((i + 1))]:-}"
+                i=$((i + 2))
+                ;;
+            *)
+                knit_fatal "knit_artifact: unexpected argument \"${extra[${i}]}\"."
+                ;;
+        esac
+    done
+    if [[ ${have_link} -eq 1 && ${have_copy} -eq 1 ]]; then
+        knit_fatal "knit_artifact: --link-from and --copy-from are mutually exclusive."
+    fi
+    local shortcut="" src=""
+    if [[ ${have_link} -eq 1 ]]; then
+        shortcut="link"
+        src="${link_src}"
+    elif [[ ${have_copy} -eq 1 ]]; then
+        shortcut="copy"
+        src="${copy_src}"
+    fi
+    if [[ -n "${shortcut}" && -z "${src}" ]]; then
+        knit_fatal "knit_artifact: --${shortcut}-from requires a path argument."
     fi
     if [[ ${#_KNIT_EXECUTING_COMMAND[@]} -eq 0 ]]; then
         knit_fatal "knit_artifact should be called from within a registered command function."
@@ -272,6 +327,32 @@ knit_artifact() {
     local -n bound_ref="_KNIT_CMD_${cmd}_artifact_bound"
     if [[ -v bound_ref["${rel}"] ]]; then
         knit_fatal "Artifact path \"${rel}\" is already recorded for \"${demangled_cmd}\"; artifacts are write-once."
+    fi
+    # Shortcut: materialize the entry from a source elsewhere, then fall through
+    # to the same existence/type/checksum path as the direct-write form.
+    if [[ -n "${shortcut}" ]]; then
+        if [[ ! -e "${src}" ]]; then
+            knit_fatal "knit_artifact: source \"${src}\" for artifact \"${name}\" does not exist."
+        fi
+        # Never overwrite an on-disk entry (artifacts are write-once); the -L test
+        # also catches a dangling symlink, which -e alone would miss.
+        if [[ -e "${abs}" || -L "${abs}" ]]; then
+            knit_fatal "knit_artifact: artifact path \"${rel}\" already exists on disk for \"${demangled_cmd}\"; artifacts are write-once."
+        fi
+        local parent_dir
+        parent_dir=$(dirname "${abs}")
+        mkdir -p "${parent_dir}" \
+            || knit_fatal "knit_artifact: could not create \"${parent_dir}\" for artifact \"${name}\"."
+        if [[ "${shortcut}" == "link" ]]; then
+            # An absolute target keeps the symlink valid regardless of the cwd.
+            local src_abs
+            src_abs=$(realpath -m "${src}")
+            ln -s "${src_abs}" "${abs}" \
+                || knit_fatal "knit_artifact: could not link \"${abs}\" to \"${src_abs}\" for artifact \"${name}\"."
+        else
+            cp -r "${src}" "${abs}" \
+                || knit_fatal "knit_artifact: could not copy \"${src}\" to \"${abs}\" for artifact \"${name}\"."
+        fi
     fi
     # Existence and declared-type match, following a symlink to its target. The
     # fileparam marker holds the alias-resolved kind as "output:<kind>:yes".

@@ -404,3 +404,150 @@ _use_artifacts_root() {
     run _knit_invoke_command "bind_empty"
     [ "${status}" -ne 0 ]
 }
+
+# ---------- knit_artifact --link-from / --copy-from ----------
+
+@test "knit_artifact --link-from makes an absolute-target symlink, creates parents, and checksums the target" {
+    _use_artifacts_root
+    local target="${_KNIT_TEST_TMPDIR}/big.dat"
+    printf 'payload\n' > "${target}"
+    knit_register "sc_link" fn_sc_link "Test."
+    knit_with_table
+    knit_with_artifact "dataset:file" "Big dataset."
+    fn_sc_link() {
+        knit_artifact "dataset" "sub/dataset.h5" \
+            --link-from "${_KNIT_TEST_TMPDIR}/big.dat"
+    }
+    knit_done
+    _knit_invoke_command "sc_link"
+    [ "$(_col dataset sc_link)" = "sub/dataset.h5" ]
+    [ -L "${_ART_ROOT}/sub/dataset.h5" ]
+    local tgt want
+    tgt="$(readlink "${_ART_ROOT}/sub/dataset.h5")"
+    want="$(realpath -m "${target}")"
+    [ "${tgt}" = "${want}" ]
+    [[ "${tgt}" == /* ]]
+    local expected
+    _knit_sha256 expected "${target}"
+    [ "$(_col dataset_checksum sc_link)" = "sha256:${expected}" ]
+}
+
+@test "knit_artifact --copy-from copies a file, creates parents, and checksums the copy" {
+    _use_artifacts_root
+    local src="${_KNIT_TEST_TMPDIR}/src.svg"
+    printf 'figure\n' > "${src}"
+    knit_register "sc_copy" fn_sc_copy "Test."
+    knit_with_table
+    knit_with_artifact "figure:file" "A figure."
+    fn_sc_copy() {
+        knit_artifact "figure" "out/figure.svg" \
+            --copy-from "${_KNIT_TEST_TMPDIR}/src.svg"
+    }
+    knit_done
+    _knit_invoke_command "sc_copy"
+    [ "$(_col figure sc_copy)" = "out/figure.svg" ]
+    [ -f "${_ART_ROOT}/out/figure.svg" ]
+    [ ! -L "${_ART_ROOT}/out/figure.svg" ]
+    local expected
+    _knit_sha256 expected "${_ART_ROOT}/out/figure.svg"
+    [ "$(_col figure_checksum sc_copy)" = "sha256:${expected}" ]
+}
+
+@test "knit_artifact --copy-from copies a directory recursively" {
+    _use_artifacts_root
+    mkdir -p "${_KNIT_TEST_TMPDIR}/tree/sub"
+    printf 'a\n' > "${_KNIT_TEST_TMPDIR}/tree/a.txt"
+    printf 'b\n' > "${_KNIT_TEST_TMPDIR}/tree/sub/b.txt"
+    knit_register "sc_copydir" fn_sc_copydir "Test."
+    knit_with_table
+    knit_with_artifact "report:directory" "A report tree."
+    fn_sc_copydir() {
+        knit_artifact "report" "report" --copy-from "${_KNIT_TEST_TMPDIR}/tree"
+    }
+    knit_done
+    _knit_invoke_command "sc_copydir"
+    [ "$(_col report sc_copydir)" = "report" ]
+    [ -d "${_ART_ROOT}/report" ]
+    [ -f "${_ART_ROOT}/report/a.txt" ]
+    [ -f "${_ART_ROOT}/report/sub/b.txt" ]
+    local expected
+    _knit_sha256 expected "${_ART_ROOT}/report"
+    [ "$(_col report_checksum sc_copydir)" = "sha256:${expected}" ]
+}
+
+@test "knit_artifact rejects --link-from and --copy-from together" {
+    _use_artifacts_root
+    printf 'x\n' > "${_KNIT_TEST_TMPDIR}/x"
+    knit_register "sc_both" fn_sc_both "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "A table."
+    fn_sc_both() {
+        knit_artifact "table" "table.csv" \
+            --link-from "${_KNIT_TEST_TMPDIR}/x" \
+            --copy-from "${_KNIT_TEST_TMPDIR}/x"
+    }
+    knit_done
+    run _knit_invoke_command "sc_both"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"mutually exclusive"* ]]
+}
+
+@test "knit_artifact shortcut refuses to overwrite an existing on-disk entry" {
+    _use_artifacts_root
+    printf 'new\n' > "${_KNIT_TEST_TMPDIR}/src.csv"
+    knit_register "sc_over" fn_sc_over "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "A table."
+    fn_sc_over() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}"
+        printf 'old\n' > "${out}/table.csv"
+        knit_artifact "table" "table.csv" \
+            --copy-from "${_KNIT_TEST_TMPDIR}/src.csv"
+    }
+    knit_done
+    run _knit_invoke_command "sc_over"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"already exists on disk"* ]]
+}
+
+@test "knit_artifact shortcut is fatal when the source does not exist" {
+    _use_artifacts_root
+    knit_register "sc_nosrc" fn_sc_nosrc "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "A table."
+    fn_sc_nosrc() {
+        knit_artifact "table" "table.csv" \
+            --link-from "${_KNIT_TEST_TMPDIR}/nope.dat"
+    }
+    knit_done
+    run _knit_invoke_command "sc_nosrc"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"does not exist"* ]]
+}
+
+@test "knit_artifact is fatal when a shortcut has no path argument" {
+    _use_artifacts_root
+    knit_register "sc_noarg" fn_sc_noarg "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "A table."
+    # shellcheck disable=SC2317 # invoked through _knit_invoke_command
+    fn_sc_noarg() { knit_artifact "table" "table.csv" --copy-from; }
+    knit_done
+    run _knit_invoke_command "sc_noarg"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"requires a path argument"* ]]
+}
+
+@test "knit_artifact rejects an unexpected argument" {
+    _use_artifacts_root
+    knit_register "sc_bogus" fn_sc_bogus "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "A table."
+    # shellcheck disable=SC2317 # invoked through _knit_invoke_command
+    fn_sc_bogus() { knit_artifact "table" "table.csv" --bogus; }
+    knit_done
+    run _knit_invoke_command "sc_bogus"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"unexpected argument"* ]]
+}
