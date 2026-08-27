@@ -28,5 +28,6 @@ source ``<real-path>`` must exist, and the two shortcuts are mutually exclusive.
 Either way the entry then goes through the same existence, type, and checksum path
 as a hand-placed one: the digest is taken from the **resolved target** (following
 the symlink, recursing into a directory), so a linked artifact is checksummed as
-if it were physically present. The recorded value is still the artifacts-relative
-``<linked-path>`` (see *Declare and bind an artifact*).
+if it were physically present. It is recorded exactly like a hand-placed artifact --- an ``artifacts`` row whose
+``path`` is the artifacts-relative ``<linked-path>`` (see *Declare and bind an
+artifact*).

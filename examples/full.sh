@@ -292,11 +292,13 @@
 # Re-running with the same --samples and --seed always yields the same estimate:
 # reproducibility is knit's reason for existing.
 #
-# `estimate` also produces two artifacts: a report FILE and a scratch DIRECTORY.
-# A file/directory parameter (input or output) is checked for existence and, by
-# default, fingerprinted with a sha256 that knit records next to its path. An
-# input is hashed before the body runs (so the digest reflects the artifact as
-# consumed); an output is hashed after the body returns, off the timed path. Add
+# `estimate` also produces two file/directory outputs: a report FILE and a
+# scratch DIRECTORY. A file/directory parameter (input or output) is checked for
+# existence and, by default, fingerprinted with a sha256 that knit records next
+# to its path. An input is hashed before the body runs (so the digest reflects
+# the input as consumed); an output is hashed after the body returns, off the
+# timed path. (These stay columns of the command's own table; the formal
+# artifacts of section 17 are the ones that move to the `artifacts` table.) Add
 # --no-checksum to any file/directory declaration to record the path only:
 #
 #   printf 'my run notes\n' > notes.txt
@@ -863,14 +865,32 @@
 #
 # --copy-from does `cp -r`; --link-from makes an absolute-target symlink, so a
 # large file on a fast filesystem is referenced at zero copy cost and stays where
-# it is. Either way its content is checksummed (following the symlink), recorded
-# next to the path in a `<name>_checksum` column. Inspect the recorded row and
+# it is. Either way its content is checksummed (following the symlink).
+#
+# The value result stays a column of tabulate's own table, but each artifact is
+# recorded as one row in the framework-owned `artifacts` table (path, name, type,
+# checksum, result) — not a column of tabulate — and a `produced` provenance edge
+# links tabulate's row to each artifact. Inspect the result, the artifacts, and
 # the on-disk layout:
 #
 #   ./full.sh query sql --format column --header --exec \
-#       "SELECT mean, \"table\", table_checksum, dump FROM tabulate"
+#       "SELECT mean FROM tabulate"
+#   ./full.sh query sql --format column --header --exec \
+#       "SELECT name, type, path, result, checksum FROM artifacts"
 #   ls -l artifacts/                # table.csv and summary.txt are real files,
 #                                   # raw.log is a symlink to the raw log
+#
+# Because each artifact is its own node, you can walk the `produced` edge the
+# other way to answer "which invocation produced this file?" — keyed on the
+# artifacts-relative path, in Cypher or in SQL:
+#
+#   ./full.sh query graph --format column --header --exec \
+#       "MATCH (t)-[e:produced]->(a:artifacts)
+#          WHERE a.path = 'table-3.csv' RETURN e.source_name, e.source_id"
+#   ./full.sh query sql --format column --header --exec \
+#       "SELECT p.source_name, p.source_id FROM artifacts a
+#          JOIN __provenance__ p ON p.target_id = a.id AND p.edge_type = 'produced'
+#         WHERE a.path = 'table-3.csv'"
 #
 # Artifacts are write-once: knit never overwrites an existing entry, so re-running
 # `tabulate` with the same names is refused. Give it a fresh --runs value (the
@@ -878,7 +898,7 @@
 # all of this statically — a dedicated Artifacts section and a `result` tag:
 #
 #   ./full.sh describe --only tabulate
-#   ./full.sh describe --only tabulate --format json   # "result"/"artifact" per output
+#   ./full.sh describe --only tabulate --format json   # separate "artifacts" array
 #
 # Packaging artifacts/ into a relocatable archive (a future `knit export`) builds
 # directly on this layout, symlink handling, and per-artifact checksums.
@@ -1332,9 +1352,10 @@ knit_done
 #     `table` written straight into artifacts/, `figure` copied in with
 #     --copy-from, and `dump` referenced in place with --link-from.
 #
-# knit_artifact records each artifact's value as its path relative to the
-# artifacts root (from knit_artifact_dir), never an absolute machine path, and
-# always records the target's checksum in a companion column. Artifacts are
+# knit_artifact records each artifact as a row in the framework-owned `artifacts`
+# table — its path (relative to the artifacts root from knit_artifact_dir, never
+# an absolute machine path), name, type, checksum, and result — linked to this
+# invocation's row by a `produced` edge, not a column of tabulate. Artifacts are
 # write-once, so the artifact names embed --runs to keep re-runs distinct.
 # -----------------------------------------------------------------------------
 knit_register "tabulate" _tabulate "Tabulate pi estimates into exportable artifacts."

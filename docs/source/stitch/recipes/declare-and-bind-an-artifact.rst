@@ -23,12 +23,17 @@ the root is fatal. knit records the artifact's value as that
 the record stays relocatable. Add ``--result`` (as on ``table`` here) to mark the
 artifact as the headline result too (see *Mark an output as the result*).
 
-An artifact is an output, so with ``knit_with_table`` it becomes a recorded
-column, and its content digest is **always** recorded in a companion
-``<name>_checksum`` column (there is no ``--no-checksum`` opt-out for an
-artifact). The entry must exist and match its declared type when you bind it.
-Artifacts are **write-once**: binding the same path twice is fatal, so a command
-re-run that produces a fixed-named artifact needs a distinct ``<linked-path>``
-per run. To create the entry from a file that lives elsewhere, use the
-``--link-from`` / ``--copy-from`` shortcuts (see *Link or copy an artifact into
-place*).
+knit records each artifact as one row in the framework-owned ``artifacts`` table
+--- its ``path``, ``name``, ``type``, content ``checksum``, and ``result`` flag
+--- **not** as a column of the producing command's own table, and links that row
+to the producing invocation with a ``produced`` provenance edge. The content
+digest is **always** recorded (there is no ``--no-checksum`` opt-out for an
+artifact). Because each artifact is its own node, *which invocation produced this
+file?* is a reverse walk of the ``produced`` edge (see *Trace an artifact back to
+its producer*), and ``knit describe`` lists artifacts in a dedicated Artifacts
+section, separate from the value outputs. The entry must exist and match its
+declared type when you bind it. Artifacts are **write-once**: binding the same
+path twice is fatal, so a command re-run that produces a fixed-named artifact
+needs a distinct ``<linked-path>`` per run. To create the entry from a file that
+lives elsewhere, use the ``--link-from`` / ``--copy-from`` shortcuts (see *Link
+or copy an artifact into place*).
