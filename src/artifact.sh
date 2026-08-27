@@ -129,59 +129,63 @@ _knit_artifacts_row_sql() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_record_produced_artifact()
+# @fn _knit_artifacts_record_sql()
 #
-# Record one produced artifact: insert its artifacts row and the "producer
-# --produced--> artifact" edge together, in a single transaction, so a reader
-# never sees a row without its edge (or vice versa). The source of the edge is the
-# producing invocation; the target is the new artifacts row.
+# Build (into the caller's variable, without executing) the SQL that records every
+# artifact the given command bound during this invocation: one artifacts row plus
+# one "producer --produced--> artifact" edge per stashed binding. The result is
+# spliced into the producing row's own transaction (see _knit_db_record_invocation)
+# so the row, its "call" edge, and its produced artifacts are written atomically.
 #
-# Best-effort and gated with the other provenance writes: it records nothing when
-# recording is disabled, on a suppressed (non-root) rank, before bootstrap, or
-# when the producer does not participate in the graph. The artifacts and
-# provenance tables are ensured first, so a database bootstrapped before this
-# feature still records.
+# Each binding was stashed by knit_artifact keyed on the artifacts-relative path;
+# the name and content digest come from that stash, while the type ("file" or
+# "directory") and the "result" flag are recovered from registration state (the
+# fileparam marker and the results set). A fresh uuid identifies each artifacts
+# row (the target of its "produced" edge). The caller's variable is left empty
+# when the command bound no artifact.
 #
-# @param[in] producer_cmd Mangled command name of the producer (the edge source).
-# @param[in] producer_id  Row id of the producing invocation (the edge source id).
-# @param[in] artifact_id  UUID of the new artifacts row (the edge target id).
-# @param[in] path         Artifacts-relative path of the artifact (UNIQUE).
-# @param[in] name         Declared artifact name.
-# @param[in] type         "file" or "directory".
-# @param[in] checksum     Content digest of the resolved target.
-# @param[in] result       "1" for a declared result, else 0.
+# @param[out] __knit_ret     Name of the variable to hold the built SQL.
+# @param[in]  cmd            Mangled command name of the producer.
+# @param[in]  producer_id    Row id of the producing invocation (the edge source).
+# @param[in]  producer_name  Demangled producer name (the edge source_name).
 # ------------------------------------------------------------------------------
-_knit_record_produced_artifact() {
-    local producer_cmd="$1"
-    local producer_id="$2"
-    local artifact_id="$3"
-    local path="$4"
-    local name="$5"
-    local type="$6"
-    local checksum="$7"
-    local result="$8"
-    [[ "${KNIT_DISABLE_RECORDING:-}" == "true" ]] && return 0
-    [[ -n "${_KNIT_RECORDING_SUPPRESSED}" ]] && return 0
-    _knit_is_bootstrapped || return 0
-    _knit_provenance_enabled "${producer_cmd}" || return 0
-    _knit_prov_ensure_table
-    _knit_artifacts_ensure_table
-
-    local producer_name row_sql edge_sql
-    producer_name="$(_knit_command_demangle "${producer_cmd}")"
-    row_sql="$(_knit_artifacts_row_sql \
-        "${artifact_id}" "${path}" "${name}" "${type}" "${checksum}" "${result}")"
-    edge_sql="$(_knit_produced_edge_sql \
-        "${producer_id}" "${producer_name}" "${artifact_id}")"
-    # ".bail on" rolls the transaction back if the edge insert fails, so the row
-    # and its edge stay atomic (see _knit_db_record_invocation).
-    _knit_sqlite3_write <<EOF
-.bail on
-BEGIN;
-${row_sql}
-${edge_sql}
-COMMIT;
-EOF
+_knit_artifacts_record_sql() {
+    local -n __knit_ret=$1
+    local cmd="$2"
+    local producer_id="$3"
+    local producer_name="$4"
+    __knit_ret=""
+    _knit_set_exists "_KNIT_CMD_${cmd}_artifact_name" || return 0
+    # shellcheck disable=SC2178 # nameref to the command's binding stash
+    local -n _knit_ar_names="_KNIT_CMD_${cmd}_artifact_name"
+    # shellcheck disable=SC2178 # nameref to the command's binding stash
+    local -n _knit_ar_sums="_KNIT_CMD_${cmd}_artifact_checksum"
+    # Test the results set only when it exists: _knit_set_find on a missing set
+    # would arithmetic-evaluate a subscript that names an in-scope variable,
+    # recursing (see _knit_db_record_invocation).
+    local has_results=""
+    _knit_set_exists "_KNIT_CMD_${cmd}_results" && has_results=1
+    local rel normalized kind marker marker_var result aid row_sql edge_sql
+    local parts=""
+    for rel in "${!_knit_ar_names[@]}"; do
+        normalized="${_knit_ar_names[${rel}]}"
+        # Recover the declared kind ("file"/"directory") from the fileparam marker
+        # ("output:<kind>:yes") and the result flag from the results set.
+        marker_var="_KNIT_CMD_${cmd}_fileparam_${normalized}"
+        marker="${!marker_var:-}"
+        kind="${marker#output:}"
+        kind="${kind%%:*}"
+        result=0
+        [[ -n "${has_results}" ]] \
+            && _knit_set_find "_KNIT_CMD_${cmd}_results" "${normalized}" && result=1
+        aid="$(_knit_uuidv7)"
+        row_sql="$(_knit_artifacts_row_sql \
+            "${aid}" "${rel}" "${normalized}" "${kind}" "${_knit_ar_sums[${rel}]}" "${result}")"
+        edge_sql="$(_knit_produced_edge_sql \
+            "${producer_id}" "${producer_name}" "${aid}")"
+        parts+="${row_sql}"$'\n'"${edge_sql}"$'\n'
+    done
+    __knit_ret="${parts}"
 }
 
 # ------------------------------------------------------------------------------
@@ -279,12 +283,18 @@ _knit_register_artifact() {
 # }
 # ```
 #
-# Like an ordinary output, an artifact becomes a recorded column of the command's
-# table, together with an automatic "<name>-checksum" companion column (the
-# content digest is always recorded for artifacts, so there is no --no-checksum
-# opt-out here). The artifact is additionally added to the command's artifacts
-# set. It has no default value; its recorded value is the artifacts-relative path
-# set by knit_artifact at runtime.
+# Unlike an ordinary output, an artifact is NOT a column of the command's own
+# table. Each binding is recorded at runtime as one row in the framework-owned
+# artifacts table (its artifacts-relative path, name, type, content checksum, and
+# result flag) with a "produced" edge from the producing invocation, so a file
+# can be traced back to what made it. The content digest is always recorded for
+# an artifact, so there is no --no-checksum opt-out here. The artifact is added to
+# the command's artifacts set, and its type/description are kept in registration
+# state so knit describe can report it.
+#
+# Because a "produced" edge needs the producing invocation's row as its source, a
+# command that declares an artifact records an invocation row even if it declared
+# no table of its own: a table is ensured automatically at knit_done time.
 #
 # @param[in] param Artifact name followed by ":type" ("file" or "directory").
 # @param[in] description Description of the artifact.
@@ -335,13 +345,70 @@ knit_with_artifact() {
     printf -v "_KNIT_CMD_${cmd}_3_${output}_default"     '%s' ""
     printf -v "_KNIT_CMD_${cmd}_3_${output}_type"        '%s' "${param_type}"
     _knit_set_add "_KNIT_CMD_${cmd}_outputs" "${output}"
-    # Artifacts are always checksummed (no --no-checksum opt-out); this also adds
-    # the companion "<name>-checksum" column via the shared output machinery.
-    _knit_register_checksum "output" "${param_type}" "${param_name}" "false"
+    # An artifact is recorded as a row in the artifacts table (with a "produced"
+    # edge), not as a column of the command's own table, so register only the
+    # existence/type marker the runtime reads. Unlike an ordinary file output, it
+    # gets no "<name>" or "<name>-checksum" column: the schema builder and the row
+    # recorder skip an output that is an artifact (see _knit_db_setup_table and
+    # _knit_db_record_invocation). It stays in the outputs set only so knit
+    # describe still lists it (as an artifact) from registration state.
+    _knit_register_fileparam "output" "${param_type}" "${param_name}" "yes"
     _knit_register_artifact "${param_name}"
     if _knit_decl_flag_present "result" "${@:3}"; then
         _knit_register_result "${param_name}"
     fi
+    # A "produced" edge needs the producing invocation's row as its source, so
+    # make sure the command records one even if it declared no table of its own.
+    _knit_artifact_require_table
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_artifact_require_table()
+#
+# Guarantee that the command currently being registered will record an invocation
+# row, so a "produced" edge from it has a source. Called by knit_with_artifact.
+# The row comes from the command's table; if the command declares its own table
+# (knit_with_table) nothing more is needed, so this only pushes a knit_done
+# callback (_knit_artifact_ensure_table_cb) that creates a default table when none
+# was declared. The callback is pushed at most once per command, however many
+# artifacts it declares.
+# ------------------------------------------------------------------------------
+_knit_artifact_require_table() {
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local guard="_KNIT_CMD_${cmd}_artifact_table_cb"
+    [[ -n "${!guard:-}" ]] && return 0
+    printf -v "${guard}" '%s' "1"
+    _knit_push_done_cb _knit_artifact_ensure_table_cb "${cmd}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_artifact_ensure_table_cb()
+#
+# knit_done callback (installed by _knit_artifact_require_table) that gives an
+# artifact-producing command a table when it declared none, so its invocation is
+# recorded and can be the source of a "produced" edge. A command that declared
+# its own table with knit_with_table is left untouched. The auto-created table
+# takes the command's own (demangled) name, mirroring knit_with_table's default,
+# is registered in the names map, and is set up immediately (deferred to first use
+# when the experiment is not yet bootstrapped, exactly like knit_with_table).
+#
+# @param[in] cmd Mangled command name.
+# ------------------------------------------------------------------------------
+_knit_artifact_ensure_table_cb() {
+    local cmd="$1"
+    local table_var="_KNIT_CMD_${cmd}_table"
+    # The command declared its own table: its row already anchors the edge.
+    [[ -n "${!table_var:-}" ]] && return 0
+    local demangled
+    demangled=$(_knit_command_demangle "${cmd}")
+    # The default table name (the command name) should be free, since the command
+    # declared no table; guard anyway to fail loudly rather than clash silently.
+    if [[ -v _KNIT_DB_REGISTERED_TABLES["${demangled}"] ]]; then
+        knit_fatal "Cannot auto-create a table for artifact-producing command \"${demangled}\": table \"${demangled}\" is already used by \"${_KNIT_DB_REGISTERED_TABLES[${demangled}]}\"."
+    fi
+    _KNIT_DB_REGISTERED_TABLES["${demangled}"]="${demangled}"
+    printf -v "${table_var}" '%s' "${demangled}"
+    _knit_db_setup_table "${cmd}" "${demangled}"
 }
 
 # ------------------------------------------------------------------------------
@@ -503,11 +570,16 @@ knit_artifact() {
         knit_fatal "Artifact \"${name}\" path \"${linked_path}\" is outside the artifacts directory \"${root}\"."
     fi
     # Write-once: an artifacts-relative path may be bound only once per invocation.
-    _knit_set_exists "_KNIT_CMD_${cmd}_artifact_bound" \
-        || declare -gA "_KNIT_CMD_${cmd}_artifact_bound=()"
-    # shellcheck disable=SC2178 # nameref to the command's bound-path set
-    local -n bound_ref="_KNIT_CMD_${cmd}_artifact_bound"
-    if [[ -v bound_ref["${rel}"] ]]; then
+    # The binding stash keys on that path (its presence is the write-once guard)
+    # and holds the declared name and, below, the content digest; at record time
+    # each entry becomes one artifacts row plus a "produced" edge.
+    _knit_set_exists "_KNIT_CMD_${cmd}_artifact_name" \
+        || declare -gA "_KNIT_CMD_${cmd}_artifact_name=()"
+    _knit_set_exists "_KNIT_CMD_${cmd}_artifact_checksum" \
+        || declare -gA "_KNIT_CMD_${cmd}_artifact_checksum=()"
+    # shellcheck disable=SC2178 # nameref to the command's binding stash
+    local -n names_ref="_KNIT_CMD_${cmd}_artifact_name"
+    if [[ -v names_ref["${rel}"] ]]; then
         knit_fatal "Artifact path \"${rel}\" is already recorded for \"${demangled_cmd}\"; artifacts are write-once."
     fi
     # Shortcut: materialize the entry from a source elsewhere, then fall through
@@ -543,17 +615,16 @@ knit_artifact() {
     local kind="${marker#output:}"
     kind="${kind%%:*}"
     _knit_checksum_require_exists "${demangled_cmd}" output "${name}" "${kind}" "${abs}"
-    # Checksum the resolved target (recursive for a directory) and stash the
-    # digest in the companion checksum column, reusing the file-checksums path.
+    # Checksum the resolved target (recursive for a directory).
     local hex
     _knit_sha256 hex "${abs}"
-    _knit_checksum_stash "${cmd}" "${normalized}" "${hex}"
-    # Record the artifacts-relative path as the output value and mark it bound.
+    # Stash the binding for record time: the recording path emits one artifacts
+    # row (path, name, type, checksum, result) and one "produced" edge per entry.
     knit_trace "Binding artifact \"${name}\" = \"${rel}\" for command \"${demangled_cmd}\"."
-    # shellcheck disable=SC2178 # nameref to the command's output-value array
-    local -n output_ref="_KNIT_CMD_${cmd}_output_value"
+    # shellcheck disable=SC2178 # nameref to the command's binding stash
+    local -n sums_ref="_KNIT_CMD_${cmd}_artifact_checksum"
     # shellcheck disable=SC2034 # written through the nameref
-    output_ref["${normalized}"]="${rel}"
+    names_ref["${rel}"]="${normalized}"
     # shellcheck disable=SC2034 # written through the nameref
-    bound_ref["${rel}"]=1
+    sums_ref["${rel}"]="sha256:${hex}"
 }

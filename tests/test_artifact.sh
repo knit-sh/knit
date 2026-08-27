@@ -76,10 +76,12 @@ teardown() {
 
 # ---------- knit_with_artifact ----------
 
-@test "knit_with_artifact adds the output to both the outputs and artifacts sets" {
+@test "knit_with_artifact adds the artifact to both the outputs and artifacts sets" {
     knit_register "art_cmd_1" knit_empty "A test command."
     knit_with_artifact "table:file" "The results table."
     knit_done
+    # It stays in the outputs set (so knit describe lists it), but it contributes
+    # no column to the command's own table (see the schema-builder test below).
     _knit_set_find "_KNIT_CMD_art_cmd_1_outputs"   "table"
     _knit_set_find "_KNIT_CMD_art_cmd_1_artifacts" "table"
 }
@@ -93,11 +95,47 @@ teardown() {
     [ "${_KNIT_CMD_art_cmd_2_3_report_default}" = "" ]
 }
 
-@test "knit_with_artifact adds the companion checksum column" {
+@test "knit_with_artifact adds no companion checksum column" {
     knit_register "art_cmd_3" knit_empty "A test command."
     knit_with_artifact "table:file" "The results table."
     knit_done
-    _knit_set_find "_KNIT_CMD_art_cmd_3_outputs" "table_checksum"
+    # The digest lives in the artifacts table, so no "<name>_checksum" companion
+    # column is synthesized (unlike an ordinary file output).
+    run _knit_set_find "_KNIT_CMD_art_cmd_3_outputs" "table_checksum"
+    [ "${status}" -ne 0 ]
+}
+
+@test "an artifact contributes no column to the command's own table" {
+    _knit_metadata_store --key "__artifact_path__" \
+        --value "${_KNIT_TEST_TMPDIR}/artifacts"
+    knit_register "art_cols" fn_art_cols "Test."
+    knit_with_table
+    knit_with_output "note:string" "" "A plain output."
+    knit_with_artifact "table:file" "The results table."
+    fn_art_cols() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}"
+        printf 'x\n' > "${out}/table.csv"
+        knit_artifact "table" "table.csv"
+    }
+    knit_done
+    _knit_invoke_command "art_cols"
+    # The plain output "note" is a column; the artifact "table" and any
+    # "table_checksum" companion are NOT.
+    local cols
+    cols=$(sqlite3 "${_KNIT_DATABASE}" \
+        "PRAGMA table_info('art_cols');" | cut -d'|' -f2 | tr '\n' ',')
+    [[ "${cols}" == *"note"* ]]
+    [[ "${cols}" != *"table"* ]]
+}
+
+@test "knit_with_artifact records the file/directory existence marker" {
+    knit_register "art_cmd_3b" knit_empty "A test command."
+    knit_with_artifact "report:dir" "The report tree."
+    knit_done
+    # The runtime existence/type check reads this marker even though there is no
+    # companion checksum column.
+    [ "${_KNIT_CMD_art_cmd_3b_fileparam_report}" = "output:directory:yes" ]
 }
 
 @test "knit_with_artifact accepts the dir alias" {
@@ -175,6 +213,43 @@ teardown() {
     _knit_set_find "_KNIT_CMD_art_cmd_11_outputs"   "my_table"
 }
 
+@test "knit_with_artifact ensures a table when the command declared none" {
+    knit_register "art_cmd_15" knit_empty "A test command."
+    knit_with_artifact "table:file" "The results table."
+    knit_done
+    # A produced edge needs a producing row, so an artifact-only command gets a
+    # default table named after the command.
+    [ "${_KNIT_CMD_art_cmd_15_table}" = "art_cmd_15" ]
+    [ "${_KNIT_DB_REGISTERED_TABLES[art_cmd_15]}" = "art_cmd_15" ]
+}
+
+@test "knit_with_artifact leaves an explicitly declared table alone" {
+    knit_register "art_cmd_16" knit_empty "A test command."
+    knit_with_table "custom_tbl"
+    knit_with_artifact "table:file" "The results table."
+    knit_done
+    [ "${_KNIT_CMD_art_cmd_16_table}" = "custom_tbl" ]
+}
+
+@test "knit_with_output rejects a name already used by an artifact" {
+    knit_register "art_cmd_17" knit_empty "A test command."
+    knit_with_artifact "table:file" "The results table."
+    # The artifact shares the outputs name space, so the name is already taken.
+    run knit_with_output "table:string" "" "Collides."
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"already declared"* ]]
+    knit_done
+}
+
+@test "knit_with_artifact rejects a name already used by an output" {
+    knit_register "art_cmd_18" knit_empty "A test command."
+    knit_with_output "table:string" "" "An ordinary output."
+    run knit_with_artifact "table:file" "Collides."
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"already declared"* ]]
+    knit_done
+}
+
 # ---------- knit_with_artifact --result ----------
 
 @test "knit_with_artifact --result also marks the artifact as a result" {
@@ -202,9 +277,15 @@ teardown() {
 
 # ---------- knit_artifact (bind) ----------
 
-# Read one column of the single recorded row of a table.
-_col() {
-    _knit_sqlite3 "SELECT \"${1}\" FROM '${2}';"
+# Read one column of the single recorded artifacts row.
+_art() {
+    _knit_sqlite3 "SELECT \"${1}\" FROM artifacts;"
+}
+
+# Read the source_name of the single "produced" edge.
+_produced_source() {
+    _knit_sqlite3 \
+        "SELECT source_name FROM __provenance__ WHERE edge_type='produced';"
 }
 
 # Point the artifacts root at an absolute directory under the test tmpdir, so a
@@ -227,10 +308,51 @@ _use_artifacts_root() {
     }
     knit_done
     _knit_invoke_command "bind_rel"
-    [ "$(_col table bind_rel)" = "table.csv" ]
+    # The artifact is recorded as a row in the artifacts table (not a column of
+    # the command's own table), with the artifacts-relative path and the digest.
+    [ "$(_art path)" = "table.csv" ]
+    [ "$(_art name)" = "table" ]
+    [ "$(_art type)" = "file" ]
+    [ "$(_art result)" = "0" ]
     local expected
     _knit_sha256 expected "${_ART_ROOT}/table.csv"
-    [ "$(_col table_checksum bind_rel)" = "sha256:${expected}" ]
+    [ "$(_art checksum)" = "sha256:${expected}" ]
+    # A "produced" edge links the producing invocation to the artifact row, and
+    # its source id joins to the producer's own row.
+    [ "$(_produced_source)" = "bind_rel" ]
+    [ "$(_knit_sqlite3 \
+        "SELECT target_name FROM __provenance__ WHERE edge_type='produced';")" \
+        = "artifacts" ]
+    [ "$(_knit_sqlite3 \
+        "SELECT target_id FROM __provenance__ WHERE edge_type='produced';")" \
+        = "$(_art id)" ]
+    [ "$(_knit_sqlite3 \
+        "SELECT source_id FROM __provenance__ WHERE edge_type='produced';")" \
+        = "$(_knit_sqlite3 "SELECT id FROM bind_rel;")" ]
+}
+
+@test "knit_artifact reverse lookup recovers the producer from a file path" {
+    _use_artifacts_root
+    knit_register "bind_lookup" fn_bind_lookup "Test."
+    knit_with_table
+    knit_with_artifact "figure:file" "A figure." --result
+    fn_bind_lookup() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}"
+        printf 'img\n' > "${out}/figure.png"
+        knit_artifact "figure" "figure.png"
+    }
+    knit_done
+    _knit_invoke_command "bind_lookup"
+    # "How was artifacts/figure.png produced?" — one hop along the produced edge.
+    local producer
+    producer=$(_knit_sqlite3 \
+        "SELECT p.source_name FROM __provenance__ p \
+         JOIN artifacts a ON a.id = p.target_id \
+         WHERE p.edge_type='produced' AND a.path='figure.png';")
+    [ "${producer}" = "bind_lookup" ]
+    # --result carried onto the artifacts row.
+    [ "$(_art result)" = "1" ]
 }
 
 @test "knit_artifact accepts an absolute-inside path and stores it artifacts-relative" {
@@ -246,7 +368,7 @@ _use_artifacts_root() {
     }
     knit_done
     _knit_invoke_command "bind_abs"
-    [ "$(_col table bind_abs)" = "aaa/bbb/table.csv" ]
+    [ "$(_art path)" = "aaa/bbb/table.csv" ]
 }
 
 @test "knit_artifact accepts a relative path in a nested subdirectory" {
@@ -262,7 +384,7 @@ _use_artifacts_root() {
     }
     knit_done
     _knit_invoke_command "bind_nest"
-    [ "$(_col table bind_nest)" = "aaa/bbb/table.csv" ]
+    [ "$(_art path)" = "aaa/bbb/table.csv" ]
 }
 
 @test "knit_artifact rejects a path outside the artifacts directory" {
@@ -295,10 +417,10 @@ _use_artifacts_root() {
     }
     knit_done
     _knit_invoke_command "bind_link"
-    [ "$(_col table bind_link)" = "table.csv" ]
+    [ "$(_art path)" = "table.csv" ]
     local expected
     _knit_sha256 expected "${target}"
-    [ "$(_col table_checksum bind_link)" = "sha256:${expected}" ]
+    [ "$(_art checksum)" = "sha256:${expected}" ]
 }
 
 @test "knit_artifact records a directory checksum recursively" {
@@ -315,10 +437,11 @@ _use_artifacts_root() {
     }
     knit_done
     _knit_invoke_command "bind_dir"
-    [ "$(_col report bind_dir)" = "report" ]
+    [ "$(_art path)" = "report" ]
+    [ "$(_art type)" = "directory" ]
     local expected
     _knit_sha256 expected "${_ART_ROOT}/report"
-    [ "$(_col report_checksum bind_dir)" = "sha256:${expected}" ]
+    [ "$(_art checksum)" = "sha256:${expected}" ]
 }
 
 @test "knit_artifact is fatal when the entry does not exist" {
@@ -420,7 +543,7 @@ _use_artifacts_root() {
     }
     knit_done
     _knit_invoke_command "sc_link"
-    [ "$(_col dataset sc_link)" = "sub/dataset.h5" ]
+    [ "$(_art path)" = "sub/dataset.h5" ]
     [ -L "${_ART_ROOT}/sub/dataset.h5" ]
     local tgt want
     tgt="$(readlink "${_ART_ROOT}/sub/dataset.h5")"
@@ -429,7 +552,7 @@ _use_artifacts_root() {
     [[ "${tgt}" == /* ]]
     local expected
     _knit_sha256 expected "${target}"
-    [ "$(_col dataset_checksum sc_link)" = "sha256:${expected}" ]
+    [ "$(_art checksum)" = "sha256:${expected}" ]
 }
 
 @test "knit_artifact --copy-from copies a file, creates parents, and checksums the copy" {
@@ -445,12 +568,12 @@ _use_artifacts_root() {
     }
     knit_done
     _knit_invoke_command "sc_copy"
-    [ "$(_col figure sc_copy)" = "out/figure.svg" ]
+    [ "$(_art path)" = "out/figure.svg" ]
     [ -f "${_ART_ROOT}/out/figure.svg" ]
     [ ! -L "${_ART_ROOT}/out/figure.svg" ]
     local expected
     _knit_sha256 expected "${_ART_ROOT}/out/figure.svg"
-    [ "$(_col figure_checksum sc_copy)" = "sha256:${expected}" ]
+    [ "$(_art checksum)" = "sha256:${expected}" ]
 }
 
 @test "knit_artifact --copy-from copies a directory recursively" {
@@ -466,13 +589,13 @@ _use_artifacts_root() {
     }
     knit_done
     _knit_invoke_command "sc_copydir"
-    [ "$(_col report sc_copydir)" = "report" ]
+    [ "$(_art path)" = "report" ]
     [ -d "${_ART_ROOT}/report" ]
     [ -f "${_ART_ROOT}/report/a.txt" ]
     [ -f "${_ART_ROOT}/report/sub/b.txt" ]
     local expected
     _knit_sha256 expected "${_ART_ROOT}/report"
-    [ "$(_col report_checksum sc_copydir)" = "sha256:${expected}" ]
+    [ "$(_art checksum)" = "sha256:${expected}" ]
 }
 
 @test "knit_artifact rejects --link-from and --copy-from together" {
@@ -550,6 +673,78 @@ _use_artifacts_root() {
     run _knit_invoke_command "sc_bogus"
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"unexpected argument"* ]]
+}
+
+# ---------- knit_artifact recording (multiple / gated) ----------
+
+@test "knit_artifact records one row and one produced edge per bound artifact" {
+    _use_artifacts_root
+    knit_register "bind_many" fn_bind_many "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "A table."
+    knit_with_artifact "report:directory" "A report tree."
+    fn_bind_many() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}/report"
+        printf 'a\n' > "${out}/table.csv"
+        printf 'b\n' > "${out}/report/b.txt"
+        knit_artifact "table" "table.csv"
+        knit_artifact "report" "report"
+    }
+    knit_done
+    _knit_invoke_command "bind_many"
+    [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM artifacts;")" -eq 2 ]
+    [ "$(_knit_sqlite3 \
+        "SELECT COUNT(*) FROM __provenance__ WHERE edge_type='produced';")" -eq 2 ]
+    # Both edges hang off the single producing row; each targets a distinct row.
+    local rid
+    rid=$(_knit_sqlite3 "SELECT id FROM bind_many;")
+    [ "$(_knit_sqlite3 \
+        "SELECT COUNT(*) FROM __provenance__ \
+         WHERE edge_type='produced' AND source_id='${rid}';")" -eq 2 ]
+    [ "$(_knit_sqlite3 \
+        "SELECT COUNT(DISTINCT target_id) FROM __provenance__ \
+         WHERE edge_type='produced';")" -eq 2 ]
+}
+
+@test "knit_artifact records the row, its call edge, and its produced edge atomically" {
+    _use_artifacts_root
+    knit_register "bind_atomic" fn_bind_atomic "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "A table."
+    fn_bind_atomic() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}"
+        printf 'a\n' > "${out}/table.csv"
+        knit_artifact "table" "table.csv"
+    }
+    knit_done
+    _knit_invoke_command "bind_atomic"
+    # The producing row, its "call" edge, and its "produced" edge all landed.
+    [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM bind_atomic;")" -eq 1 ]
+    [ "$(_knit_sqlite3 \
+        "SELECT COUNT(*) FROM __provenance__ WHERE edge_type='call';")" -eq 1 ]
+    [ "$(_knit_sqlite3 \
+        "SELECT COUNT(*) FROM __provenance__ WHERE edge_type='produced';")" -eq 1 ]
+}
+
+@test "knit_artifact records nothing on a suppressed rank" {
+    _use_artifacts_root
+    knit_register "bind_suppressed" fn_bind_suppressed "Test."
+    knit_with_table
+    knit_with_artifact "table:file" "A table."
+    fn_bind_suppressed() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}"
+        printf 'a\n' > "${out}/table.csv"
+        knit_artifact "table" "table.csv"
+    }
+    knit_done
+    _KNIT_RECORDING_SUPPRESSED=1 _knit_invoke_command "bind_suppressed"
+    # A suppressed (non-root) rank records neither the row nor any artifact.
+    [ "$(_knit_sqlite3 \
+        "SELECT COUNT(*) FROM sqlite_master \
+         WHERE type='table' AND name='artifacts';")" -eq 0 ]
 }
 
 # ==========================================================================
@@ -671,74 +866,90 @@ _use_artifacts_root() {
     [[ "$sql" == *"'a''b'"* ]]
 }
 
-# ---------- _knit_record_produced_artifact ----------
+# ---------- _knit_artifacts_record_sql ----------
 
-@test "record produced artifact writes the row and the produced edge together" {
-    _knit_record_produced_artifact \
-        "producer" "pid" "aid" "figure.png" "figure" "file" "sha256:abc" "1"
+# Set up one bound artifact for a synthetic command: the fileparam marker (for
+# the kind), the per-path binding stash (name + digest), and an optional
+# results-set entry, exactly as knit_with_artifact / knit_artifact would leave
+# them at record time.
+_stash_binding() {
+    local cmd="$1" rel="$2" name="$3" kind="$4" checksum="$5" is_result="${6:-0}"
+    printf -v "_KNIT_CMD_${cmd}_fileparam_${name}" '%s' "output:${kind}:yes"
+    _knit_set_exists "_KNIT_CMD_${cmd}_artifact_name" \
+        || declare -gA "_KNIT_CMD_${cmd}_artifact_name=()"
+    _knit_set_exists "_KNIT_CMD_${cmd}_artifact_checksum" \
+        || declare -gA "_KNIT_CMD_${cmd}_artifact_checksum=()"
+    local -n _n="_KNIT_CMD_${cmd}_artifact_name"
+    local -n _s="_KNIT_CMD_${cmd}_artifact_checksum"
+    _n["${rel}"]="${name}"
+    _s["${rel}"]="${checksum}"
+    if [[ "${is_result}" == "1" ]]; then
+        _knit_set_exists "_KNIT_CMD_${cmd}_results" \
+            || _knit_set_new "_KNIT_CMD_${cmd}_results"
+        _knit_set_add "_KNIT_CMD_${cmd}_results" "${name}"
+    fi
+}
 
+@test "artifacts record sql is empty when the command bound no artifact" {
+    local sql
+    _knit_artifacts_record_sql sql "noart" "pid" "producer"
+    [ -z "${sql}" ]
+}
+
+@test "artifacts record sql builds a row and a produced edge for one binding" {
+    _stash_binding "prod1" "figure.png" "figure" "file" "sha256:abc" 0
+    local sql
+    _knit_artifacts_record_sql sql "prod1" "pid" "producer"
+    _knit_prov_create_table
+    _knit_artifacts_create_table
+    _knit_sqlite3_write <<EOF
+${sql}
+EOF
     local row
     row=$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT id,path,name,type,checksum,result FROM artifacts;")
-    [ "$row" = "aid|figure.png|figure|file|sha256:abc|1" ]
-
+        "SELECT path,name,type,checksum,result FROM artifacts;")
+    [ "${row}" = "figure.png|figure|file|sha256:abc|0" ]
     local edge
     edge=$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT source_id,source_name,target_id,target_name,edge_type FROM __provenance__;")
-    [ "$edge" = "pid|producer|aid|artifacts|produced" ]
+        "SELECT source_id,source_name,target_name,edge_type FROM __provenance__;")
+    [ "${edge}" = "pid|producer|artifacts|produced" ]
+    # The edge targets the artifacts row it created.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT target_id FROM __provenance__;")" \
+        = "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM artifacts;")" ]
 }
 
-@test "record produced artifact leaves the produced edge timestamps and alias NULL" {
-    _knit_record_produced_artifact \
-        "producer" "pid" "aid" "figure.png" "figure" "file" "sha256:abc" "0"
-
-    local nulls
-    nulls=$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT COUNT(*) FROM __provenance__ \
-         WHERE start_time IS NULL AND end_time IS NULL AND alias IS NULL;")
-    [ "$nulls" -eq 1 ]
+@test "artifacts record sql derives result 1 from the results set" {
+    _stash_binding "prod2" "out.csv" "out" "file" "sha256:xyz" 1
+    local sql
+    _knit_artifacts_record_sql sql "prod2" "pid" "producer"
+    [[ "${sql}" == *", 1);"* ]]
 }
 
-@test "record produced artifact stores result 0 for a non-result artifact" {
-    _knit_record_produced_artifact \
-        "producer" "pid" "aid" "data.bin" "data" "file" "sha256:xyz" "0"
-    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT result FROM artifacts;")" = "0" ]
+@test "artifacts record sql derives the directory kind from the fileparam marker" {
+    _stash_binding "prod3" "report" "report" "directory" "sha256:d" 0
+    local sql
+    _knit_artifacts_record_sql sql "prod3" "pid" "producer"
+    [[ "${sql}" == *"'report', 'directory', 'sha256:d'"* ]]
 }
 
-@test "record produced artifact demangles the producer command name in the edge" {
-    _knit_record_produced_artifact \
-        "submit__1__bundle" "pid" "aid" "f" "figure" "file" "cs" "0"
-    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT source_name FROM __provenance__;")" \
-        = "submit:bundle" ]
+@test "artifacts record sql leaves the produced edge times and alias NULL" {
+    _stash_binding "prod4" "f" "figure" "file" "cs" 0
+    local sql
+    _knit_artifacts_record_sql sql "prod4" "pid" "producer"
+    [[ "${sql}" == *"'produced', NULL, NULL, NULL);"* ]]
 }
 
-@test "record produced artifact writes nothing when recording is disabled" {
-    KNIT_DISABLE_RECORDING=true _knit_record_produced_artifact \
-        "producer" "pid" "aid" "f" "figure" "file" "cs" "0"
+@test "artifacts record sql emits one row and one edge per binding" {
+    _stash_binding "prod5" "a.csv" "a" "file" "sha256:1" 0
+    _stash_binding "prod5" "b.csv" "b" "file" "sha256:2" 0
+    local sql
+    _knit_artifacts_record_sql sql "prod5" "pid" "producer"
+    _knit_prov_create_table
+    _knit_artifacts_create_table
+    _knit_sqlite3_write <<EOF
+${sql}
+EOF
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM artifacts;")" -eq 2 ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts';")" -eq 0 ]
-}
-
-@test "record produced artifact writes nothing on a suppressed rank" {
-    _KNIT_RECORDING_SUPPRESSED=1 _knit_record_produced_artifact \
-        "producer" "pid" "aid" "f" "figure" "file" "cs" "0"
-    [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts';")" -eq 0 ]
-}
-
-@test "record produced artifact writes nothing before bootstrap" {
-    _KNIT_IS_BOOTSTRAPPED=""
-    rmdir "${_KNIT_PREFIX}"
-    _knit_record_produced_artifact \
-        "producer" "pid" "aid" "f" "figure" "file" "cs" "0"
-    [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts';")" -eq 0 ]
-}
-
-@test "record produced artifact writes nothing when the producer is out of the graph" {
-    _KNIT_CMD_producer_provenance="without"
-    _knit_record_produced_artifact \
-        "producer" "pid" "aid" "f" "figure" "file" "cs" "0"
-    [ "$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts';")" -eq 0 ]
+        "SELECT COUNT(*) FROM __provenance__ WHERE edge_type='produced';")" -eq 2 ]
 }

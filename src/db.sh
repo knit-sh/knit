@@ -424,8 +424,17 @@ _knit_db_setup_table() {
         migrate_specs+=("${param}:boolean=false")
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_flags" | sort)
 
-    # Outputs (use declared default)
+    # Outputs (use declared default). An artifact is an output in the set (so
+    # describe lists it) but it is recorded in the artifacts table, not as a column
+    # here, so it contributes no column to the command's own table. Test the
+    # artifacts set only when it exists: _knit_set_find on a missing set would
+    # arithmetic-evaluate a subscript that names an in-scope variable (e.g. a
+    # column literally called "name"), recursing.
+    local has_artifacts=""
+    _knit_set_exists "_KNIT_CMD_${cmd}_artifacts" && has_artifacts=1
     while IFS= read -r param; do
+        [[ -n "${has_artifacts}" ]] \
+            && _knit_set_find "_KNIT_CMD_${cmd}_artifacts" "${param}" && continue
         type_var="_KNIT_CMD_${cmd}_3_${param}_type"
         type="${!type_var}"
         default_var="_KNIT_CMD_${cmd}_3_${param}_default"
@@ -520,8 +529,17 @@ _knit_db_record_invocation() {
         # default.
         # shellcheck disable=SC2178 # nameref to the command's output-value array
         local -n outvals="_KNIT_CMD_${cmd}_output_value"
+        # Test the artifacts set only when it exists: _knit_set_find on a missing
+        # set would arithmetic-evaluate a subscript that names an in-scope variable
+        # (here the loop variable "name"), recursing.
+        local has_artifacts=""
+        _knit_set_exists "_KNIT_CMD_${cmd}_artifacts" && has_artifacts=1
         while IFS= read -r name; do
             [[ -z "${name}" ]] && continue
+            # An artifact output has no column on this table (it is recorded in the
+            # artifacts table with a "produced" edge), so it holds no value here.
+            [[ -n "${has_artifacts}" ]] \
+                && _knit_set_find "_KNIT_CMD_${cmd}_artifacts" "${name}" && continue
             if [[ -v outvals["${name}"] ]]; then
                 value="${outvals["${name}"]}"
             else
@@ -540,7 +558,9 @@ _knit_db_record_invocation() {
     _knit_db_sql_ident table_ident "${table}"
     row_sql="INSERT INTO ${table_ident} (${cols_sql}) VALUES (${vals_sql});"
 
-    # No edge requested: insert the row on its own (pre-provenance behavior).
+    # No edge requested: insert the row on its own (pre-provenance behavior). A
+    # transparent (out-of-graph) command records no provenance, so it emits no
+    # produced-artifact rows or edges either.
     if [[ -z "${edge_type}" ]]; then
         _knit_sqlite3_write "${row_sql}"
         return 0
@@ -553,6 +573,15 @@ _knit_db_record_invocation() {
     edge_sql=$(_knit_prov_edge_sql \
         "${source_id}" "${source_name}" "${id}" "${target_name}" \
         "${edge_type}" "${start_time}" "${end_time}" "${alias}")
+
+    # A participating command that bound artifacts records each as an artifacts row
+    # plus a "produced" edge, in the SAME transaction as this row and its "call"
+    # edge. Ensure the artifacts table first, so its INSERTs cannot fail and roll
+    # the whole transaction back on a database bootstrapped before artifacts.
+    local artifacts_sql
+    _knit_artifacts_record_sql artifacts_sql "${cmd}" "${id}" "${target_name}"
+    [[ -n "${artifacts_sql}" ]] && _knit_artifacts_ensure_table
+
     # ".bail on" makes the sqlite3 CLI stop at the first failing statement and
     # roll the open transaction back; without it (the default) a failed edge
     # insert would leave the row committed, defeating atomicity.
@@ -561,7 +590,7 @@ _knit_db_record_invocation() {
 BEGIN;
 ${row_sql}
 ${edge_sql}
-COMMIT;
+${artifacts_sql}COMMIT;
 EOF
 }
 

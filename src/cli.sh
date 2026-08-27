@@ -1254,6 +1254,44 @@ _knit_decl_flag_present() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_register_fileparam()
+#
+# Record the per-parameter existence/checksum marker for a "file"/"directory"
+# declaration of the command being registered: a _KNIT_CMD_<cmd>_fileparams set
+# plus _KNIT_CMD_<cmd>_fileparam_<param> holding "<direction>:<kind>:<checksum>"
+# (e.g. "input:file:yes" or "output:directory:no"). The runtime reads it to
+# enforce direction-aware existence and to know whether and how to hash. The type
+# alias is resolved to its canonical kind before storing.
+#
+# This is the marker half of a file/directory declaration. _knit_register_checksum
+# calls it and then also adds a companion "<name>-checksum" column;
+# knit_with_artifact calls it on its own, because an artifact records its digest
+# in the artifacts table rather than in a column of the command's own table.
+#
+# @param[in] direction "input" (parameter) or "output".
+# @param[in] type      The declared type (name or alias).
+# @param[in] name      The declared (un-normalized) parameter/output name.
+# @param[in] checksum  "yes" to also hash at runtime, "no" to only check existence.
+# ------------------------------------------------------------------------------
+_knit_register_fileparam() {
+    local direction="$1"
+    local type="$2"
+    local name="$3"
+    local checksum="$4"
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local kind param
+    _knit_type_resolve_alias kind "${type}"
+    param=$(_knit_name_normalize "${name}")
+    # Create the set as associative on first use (knit_register does not, since
+    # not every command has a file/directory declaration); a bare _knit_set_add
+    # would otherwise make it an indexed array and collapse every key to index 0.
+    _knit_set_exists "_KNIT_CMD_${cmd}_fileparams" \
+        || _knit_set_new "_KNIT_CMD_${cmd}_fileparams"
+    _knit_set_add "_KNIT_CMD_${cmd}_fileparams" "${param}"
+    printf -v "_KNIT_CMD_${cmd}_fileparam_${param}" '%s' "${direction}:${kind}:${checksum}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_register_checksum()
 #
 # Wire up existence checking and content checksums for a "file"/"directory"
@@ -1306,23 +1344,13 @@ _knit_register_checksum() {
 
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
-    local kind
-    _knit_type_resolve_alias kind "${type}"
-    local param
-    param=$(_knit_name_normalize "${name}")
 
     # Record the existence/checksum marker for every file/directory declaration,
     # so existence is enforced even when the digest is opted out with
     # --no-checksum. The "checksum" field says whether to also hash.
     local checksum="yes"
     [[ "${no_checksum}" == "true" ]] && checksum="no"
-    # Create the set as associative on first use (knit_register does not, since
-    # not every command has a file/directory declaration); a bare _knit_set_add
-    # would otherwise make it an indexed array and collapse every key to index 0.
-    _knit_set_exists "_KNIT_CMD_${cmd}_fileparams" \
-        || _knit_set_new "_KNIT_CMD_${cmd}_fileparams"
-    _knit_set_add "_KNIT_CMD_${cmd}_fileparams" "${param}"
-    printf -v "_KNIT_CMD_${cmd}_fileparam_${param}" '%s' "${direction}:${kind}:${checksum}"
+    _knit_register_fileparam "${direction}" "${type}" "${name}" "${checksum}"
 
     # Opted out of the digest: no companion column, nothing more to wire.
     [[ "${checksum}" == "no" ]] && return 0
@@ -2989,9 +3017,11 @@ _knit_invoke_command() {
     fi
     # Start each invocation with a clean recording slate (outputs + row id) so a
     # previous invocation in the same process cannot leak stale values. The
-    # artifact-bound set is reset too, so write-once is scoped per invocation.
+    # artifact binding stash is reset too, so write-once and the produced-artifact
+    # rows are scoped per invocation.
     declare -gA "_KNIT_CMD_${cmd}_output_value=()"
-    declare -gA "_KNIT_CMD_${cmd}_artifact_bound=()"
+    declare -gA "_KNIT_CMD_${cmd}_artifact_name=()"
+    declare -gA "_KNIT_CMD_${cmd}_artifact_checksum=()"
     unset "_KNIT_CMD_${cmd}_row_id"
     unset "_KNIT_CMD_${cmd}_recorded"
     # Verify existence of, and hash, every checksummed file/directory input
