@@ -76,14 +76,15 @@ teardown() {
 
 # ---------- knit_with_artifact ----------
 
-@test "knit_with_artifact adds the artifact to both the outputs and artifacts sets" {
+@test "knit_with_artifact adds the artifact to the artifacts set, not the outputs set" {
     knit_register "art_cmd_1" knit_empty "A test command."
     knit_with_artifact "table:file" "The results table."
     knit_done
-    # It stays in the outputs set (so knit describe lists it), but it contributes
-    # no column to the command's own table (see the schema-builder test below).
-    _knit_set_find "_KNIT_CMD_art_cmd_1_outputs"   "table"
+    # An artifact is not an output column: it lives in the artifacts set (so knit
+    # describe reports it as a produced entity) and is kept out of the outputs set.
     _knit_set_find "_KNIT_CMD_art_cmd_1_artifacts" "table"
+    run _knit_set_find "_KNIT_CMD_art_cmd_1_outputs" "table"
+    [ "${status}" -ne 0 ]
 }
 
 @test "knit_with_artifact records the type, default, and description" {
@@ -210,7 +211,8 @@ teardown() {
     knit_with_artifact "my-table:file" "The results table."
     knit_done
     _knit_set_find "_KNIT_CMD_art_cmd_11_artifacts" "my_table"
-    _knit_set_find "_KNIT_CMD_art_cmd_11_outputs"   "my_table"
+    run _knit_set_find "_KNIT_CMD_art_cmd_11_outputs" "my_table"
+    [ "${status}" -ne 0 ]
 }
 
 @test "knit_with_artifact ensures a table when the command declared none" {
@@ -234,7 +236,8 @@ teardown() {
 @test "knit_with_output rejects a name already used by an artifact" {
     knit_register "art_cmd_17" knit_empty "A test command."
     knit_with_artifact "table:file" "The results table."
-    # The artifact shares the outputs name space, so the name is already taken.
+    # An artifact shares the command's output name space, so the name is taken even
+    # though the artifact is not itself an output column.
     run knit_with_output "table:string" "" "Collides."
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"already declared"* ]]

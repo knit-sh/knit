@@ -162,7 +162,7 @@ _knit_artifacts_record_sql() {
     local -n _knit_ar_sums="_KNIT_CMD_${cmd}_artifact_checksum"
     # Test the results set only when it exists: _knit_set_find on a missing set
     # would arithmetic-evaluate a subscript that names an in-scope variable,
-    # recursing (see _knit_db_record_invocation).
+    # recursing.
     local has_results=""
     _knit_set_exists "_KNIT_CMD_${cmd}_results" && has_results=1
     local rel normalized kind marker marker_var result aid row_sql edge_sql
@@ -235,21 +235,21 @@ knit_artifact_dir() {
 # ------------------------------------------------------------------------------
 # @fn _knit_register_artifact()
 #
-# Add an output of the command being registered to its artifacts set: an output
-# that names a file or directory that lives under the artifacts root and is bound
-# at runtime with knit_artifact. Membership in this set is what distinguishes an
-# artifact output from an ordinary value output; it carries no behavior beyond
-# how the command is described and, later, how knit_artifact validates the name.
+# Add an artifact of the command being registered to its artifacts set: a name
+# that refers to a file or directory that lives under the artifacts root and is
+# bound at runtime with knit_artifact. Membership in this set is what marks a name
+# as an artifact rather than an ordinary value output; it drives how the command
+# is described and, later, how knit_artifact validates the name. An artifact is
+# not an output column, so it is kept out of the outputs set.
 #
 # The per-command _KNIT_CMD_<cmd>_artifacts set is created as associative on
 # first use (knit_register does not create it, since not every command has an
 # artifact).
 #
 # Only meaningful in a command context; a call with no command being registered
-# is a no-op. The output must already have been added to the outputs set before
-# this is called.
+# is a no-op.
 #
-# @param[in] name The declared (un-normalized) artifact/output name.
+# @param[in] name The declared (un-normalized) artifact name.
 # ------------------------------------------------------------------------------
 _knit_register_artifact() {
     local name="$1"
@@ -330,10 +330,17 @@ knit_with_artifact() {
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
     local output
     output=$(_knit_name_normalize "${param_name}")
-    if _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${output}"; then
+    # An artifact shares the command's output name space but is not itself an
+    # output column, so reject a clash with either a declared output or an earlier
+    # artifact. Test the artifacts set only when it exists: _knit_set_find on a
+    # missing set would arithmetic-evaluate a subscript that names an in-scope
+    # variable, recursing.
+    if _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${output}" \
+    || { _knit_set_exists "_KNIT_CMD_${cmd}_artifacts" \
+         && _knit_set_find "_KNIT_CMD_${cmd}_artifacts" "${output}"; }; then
         knit_fatal "Artifact \"${param_name}\" already declared for \"${demangled_cmd}\"."
     fi
-    # An artifact and a parameter map to the same table column, so their
+    # An artifact shares the command's name space with its parameters, so their
     # normalized names must not collide.
     if _knit_set_find "_KNIT_CMD_${cmd}_required" "${output}" \
     || _knit_set_find "_KNIT_CMD_${cmd}_optional" "${output}" \
@@ -344,14 +351,12 @@ knit_with_artifact() {
     printf -v "_KNIT_CMD_${cmd}_3_${output}_description" '%s' "$2"
     printf -v "_KNIT_CMD_${cmd}_3_${output}_default"     '%s' ""
     printf -v "_KNIT_CMD_${cmd}_3_${output}_type"        '%s' "${param_type}"
-    _knit_set_add "_KNIT_CMD_${cmd}_outputs" "${output}"
     # An artifact is recorded as a row in the artifacts table (with a "produced"
-    # edge), not as a column of the command's own table, so register only the
-    # existence/type marker the runtime reads. Unlike an ordinary file output, it
-    # gets no "<name>" or "<name>-checksum" column: the schema builder and the row
-    # recorder skip an output that is an artifact (see _knit_db_setup_table and
-    # _knit_db_record_invocation). It stays in the outputs set only so knit
-    # describe still lists it (as an artifact) from registration state.
+    # edge), not as a column of the command's own table. It is kept in the
+    # command's artifacts set (not the outputs set), so it synthesizes no
+    # "<name>" or "<name>-checksum" column and knit describe reports it as a
+    # produced entity. Register only the existence/type marker the runtime reads to
+    # validate and hash the bound entry.
     _knit_register_fileparam "output" "${param_type}" "${param_name}" "yes"
     _knit_register_artifact "${param_name}"
     if _knit_decl_flag_present "result" "${@:3}"; then

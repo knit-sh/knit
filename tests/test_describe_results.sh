@@ -37,6 +37,11 @@ _out() {
     printf "[o for o in ${_TAB}['outputs'] if o['name']=='%s'][0]" "$1"
 }
 
+# One artifact object of tabulate by name, as a python expression.
+_art() {
+    printf "[a for a in ${_TAB}['artifacts'] if a['name']=='%s'][0]" "$1"
+}
+
 # Extract a value from the YAML in ${output} via a python expression on `d`.
 _yaml() {
     printf '%s' "${output}" | python3 -c "import yaml,sys; d=yaml.safe_load(sys.stdin); print($1)"
@@ -44,63 +49,71 @@ _yaml() {
 
 # ---------- JSON ----------
 
-@test "json: a value output with --result reports result true, artifact false" {
+@test "json: a value output with --result reports result true" {
     run _knit_describe_json
     [ "$status" -eq 0 ]
     [ "$(_json "$(_out pi)['result']")" = "True" ]
-    [ "$(_json "$(_out pi)['artifact']")" = "False" ]
 }
 
-@test "json: a plain output reports result false, artifact false" {
+@test "json: a plain output reports result false" {
     run _knit_describe_json
     [ "$status" -eq 0 ]
     [ "$(_json "$(_out scratch)['result']")" = "False" ]
-    [ "$(_json "$(_out scratch)['artifact']")" = "False" ]
 }
 
-@test "json: an artifact with --result reports result true, artifact true" {
+@test "json: an artifact appears in the artifacts array, not the outputs array" {
     run _knit_describe_json
     [ "$status" -eq 0 ]
-    [ "$(_json "$(_out table)['result']")" = "True" ]
-    [ "$(_json "$(_out table)['artifact']")" = "True" ]
+    # No artifact leaks into the outputs array (it is not an output column).
+    [ "$(_json "'table' in [o['name'] for o in ${_TAB}['outputs']]")" = "False" ]
+    [ "$(_json "'dump' in [o['name'] for o in ${_TAB}['outputs']]")" = "False" ]
+    # Both artifacts are listed in the artifacts array.
+    [ "$(_json "sorted(a['name'] for a in ${_TAB}['artifacts'])")" \
+        = "['dump', 'table']" ]
 }
 
-@test "json: an artifact without --result reports result false, artifact true" {
+@test "json: an artifact carries its type, description, and result mark" {
     run _knit_describe_json
     [ "$status" -eq 0 ]
-    [ "$(_json "$(_out dump)['result']")" = "False" ]
-    [ "$(_json "$(_out dump)['artifact']")" = "True" ]
+    [ "$(_json "$(_art table)['type']")" = "file" ]
+    [ "$(_json "$(_art table)['description']")" = "Computed dataset (CSV)." ]
+    [ "$(_json "$(_art table)['result']")" = "True" ]
+    [ "$(_json "$(_art dump)['result']")" = "False" ]
+    # An artifact is a produced entity, not an output column, so it has no default.
+    [ "$(_json "'default' in $(_art table)")" = "False" ]
 }
 
-@test "json: an artifact stays in the outputs array" {
+@test "json: a command with no artifact reports an empty artifacts array" {
     run _knit_describe_json
     [ "$status" -eq 0 ]
-    [ "$(_json "'table' in [o['name'] for o in ${_TAB}['outputs']]")" = "True" ]
-    [ "$(_json "'dump' in [o['name'] for o in ${_TAB}['outputs']]")" = "True" ]
+    local greet="[c for c in d['commands'] if c['name']=='greet'][0]"
+    [ "$(_json "${greet}['artifacts']")" = "[]" ]
 }
 
-@test "json: compact form carries the same result/artifact booleans" {
+@test "json: compact form carries the same artifacts array" {
     run _knit_describe_json_compact
     [ "$status" -eq 0 ]
-    [ "$(_json "$(_out table)['result']")" = "True" ]
-    [ "$(_json "$(_out table)['artifact']")" = "True" ]
+    [ "$(_json "$(_art table)['result']")" = "True" ]
+    [ "$(_json "sorted(a['name'] for a in ${_TAB}['artifacts'])")" \
+        = "['dump', 'table']" ]
 }
 
 # ---------- YAML ----------
 
-@test "yaml: result and artifact booleans mirror the JSON model" {
+@test "yaml: result marks and the artifacts sequence mirror the JSON model" {
     run _knit_describe_yaml
     [ "$status" -eq 0 ]
     local tab="[c for c in d['commands'] if c['name']=='tabulate'][0]"
     local pi="[o for o in ${tab}['outputs'] if o['name']=='pi'][0]"
-    local table="[o for o in ${tab}['outputs'] if o['name']=='table'][0]"
-    local dump="[o for o in ${tab}['outputs'] if o['name']=='dump'][0]"
+    local table="[a for a in ${tab}['artifacts'] if a['name']=='table'][0]"
+    local dump="[a for a in ${tab}['artifacts'] if a['name']=='dump'][0]"
+    # A value output stays in outputs with its result mark.
     [ "$(_yaml "${pi}['result']")" = "True" ]
-    [ "$(_yaml "${pi}['artifact']")" = "False" ]
+    [ "$(_yaml "'table' in [o['name'] for o in ${tab}['outputs']]")" = "False" ]
+    # Artifacts live in the artifacts sequence, carrying their result mark.
+    [ "$(_yaml "${table}['type']")" = "file" ]
     [ "$(_yaml "${table}['result']")" = "True" ]
-    [ "$(_yaml "${table}['artifact']")" = "True" ]
     [ "$(_yaml "${dump}['result']")" = "False" ]
-    [ "$(_yaml "${dump}['artifact']")" = "True" ]
 }
 
 # ---------- default (human) ----------
@@ -125,9 +138,7 @@ _yaml() {
     [ "$status" -eq 0 ]
     [[ "${output}" == *$'Artifacts\n  ---------'* ]]
     # The Outputs section precedes the Artifacts section; no file-typed (artifact)
-    # entry may appear before the Artifacts heading. (The "table-checksum" /
-    # "dump-checksum" companion columns are string outputs, so they legitimately
-    # stay in Outputs; keying on the "[file" bracket avoids matching them.)
+    # entry may appear before the Artifacts heading.
     local before="${output%%Artifacts*}"
     [[ "${before}" != *"[file"* ]]
 }

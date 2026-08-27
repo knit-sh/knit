@@ -1712,7 +1712,14 @@ knit_with_output() {
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
     local output
     output=$(_knit_name_normalize "${param_name}")
-    if _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${output}"; then
+    # An output shares the command's output name space with its artifacts (which
+    # are kept in a separate set, not the outputs set), so reject a clash with
+    # either. Test the artifacts set only when it exists: _knit_set_find on a
+    # missing set would arithmetic-evaluate a subscript that names an in-scope
+    # variable, recursing.
+    if _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${output}" \
+    || { _knit_set_exists "_KNIT_CMD_${cmd}_artifacts" \
+         && _knit_set_find "_KNIT_CMD_${cmd}_artifacts" "${output}"; }; then
         knit_fatal "Output \"${param_name}\" already declared for \"${demangled_cmd}\"."
     fi
     # An output and a parameter map to the same table column, so their normalized

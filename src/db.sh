@@ -424,17 +424,10 @@ _knit_db_setup_table() {
         migrate_specs+=("${param}:boolean=false")
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_flags" | sort)
 
-    # Outputs (use declared default). An artifact is an output in the set (so
-    # describe lists it) but it is recorded in the artifacts table, not as a column
-    # here, so it contributes no column to the command's own table. Test the
-    # artifacts set only when it exists: _knit_set_find on a missing set would
-    # arithmetic-evaluate a subscript that names an in-scope variable (e.g. a
-    # column literally called "name"), recursing.
-    local has_artifacts=""
-    _knit_set_exists "_KNIT_CMD_${cmd}_artifacts" && has_artifacts=1
+    # Outputs (use declared default). An artifact is not an output column: it is
+    # recorded in the artifacts table with a "produced" edge and is kept out of the
+    # outputs set (in the artifacts set instead), so this loop never sees one.
     while IFS= read -r param; do
-        [[ -n "${has_artifacts}" ]] \
-            && _knit_set_find "_KNIT_CMD_${cmd}_artifacts" "${param}" && continue
         type_var="_KNIT_CMD_${cmd}_3_${param}_type"
         type="${!type_var}"
         default_var="_KNIT_CMD_${cmd}_3_${param}_default"
@@ -526,20 +519,13 @@ _knit_db_record_invocation() {
         done
 
         # Outputs: values come from the in-memory store, else the declared
-        # default.
+        # default. An artifact is not an output column (it is recorded in the
+        # artifacts table with a "produced" edge and kept out of the outputs set),
+        # so this loop never sees one.
         # shellcheck disable=SC2178 # nameref to the command's output-value array
         local -n outvals="_KNIT_CMD_${cmd}_output_value"
-        # Test the artifacts set only when it exists: _knit_set_find on a missing
-        # set would arithmetic-evaluate a subscript that names an in-scope variable
-        # (here the loop variable "name"), recursing.
-        local has_artifacts=""
-        _knit_set_exists "_KNIT_CMD_${cmd}_artifacts" && has_artifacts=1
         while IFS= read -r name; do
             [[ -z "${name}" ]] && continue
-            # An artifact output has no column on this table (it is recorded in the
-            # artifacts table with a "produced" edge), so it holds no value here.
-            [[ -n "${has_artifacts}" ]] \
-                && _knit_set_find "_KNIT_CMD_${cmd}_artifacts" "${name}" && continue
             if [[ -v outvals["${name}"] ]]; then
                 value="${outvals["${name}"]}"
             else
