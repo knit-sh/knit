@@ -132,3 +132,20 @@ teardown() {
     sql=$(_knit_prov_edge_sql "p" "pn" "c" "cn" "call" "" "")
     [[ "$sql" == *"start_time, end_time, alias) VALUES"* ]]
 }
+
+# ---------- _knit_produced_edge_sql ----------
+
+@test "produced edge sql targets the artifacts node with NULL times and alias" {
+    local sql
+    sql=$(_knit_produced_edge_sql "pid" "submit:bundle" "aid")
+    [[ "$sql" == *"'pid', 'submit:bundle', 'aid', 'artifacts', 'produced', NULL, NULL, NULL);" ]]
+}
+
+@test "produced edge sql inserts a produced edge into the provenance table" {
+    _knit_prov_create_table
+    _knit_sqlite3_write "$(_knit_produced_edge_sql "pid" "run:julia" "aid")"
+    local row
+    row=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT source_id,source_name,target_id,target_name,edge_type FROM __provenance__;")
+    [ "$row" = "pid|run:julia|aid|artifacts|produced" ]
+}

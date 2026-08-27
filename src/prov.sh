@@ -37,14 +37,16 @@ _knit_prov_now() {
 # @fn _knit_prov_create_table()
 #
 # Create the provenance edge table if it does not already exist. Each row is one
-# directed relationship between two invocations, "source --edge_type--> target":
-# a "call" edge (source invoked target) or a "used_by" edge (target references a
-# setup, which is the source, built by an earlier invocation). The source is
-# always the antecedent (the caller, the setup) and the target the dependent (the
-# callee, the consumer). Node identity is the pair (id, name); the timestamps are
-# REAL epoch seconds and are NULL for "used_by" edges. The nullable "alias" column
-# holds the call-site name recorded by knit_as (NULL for a plain edge). Called at
-# bootstrap alongside the metadata table.
+# directed relationship, "source --edge_type--> target", of one of three kinds:
+# a "call" edge (source invoked target), a "used_by" edge (target references a
+# setup or resource, which is the source, built by an earlier invocation), or a
+# "produced" edge (source invocation produced target, an artifacts-table row).
+# The source is always the antecedent (the caller, the setup, the producer) and
+# the target the dependent (the callee, the consumer, the artifact). Node identity
+# is the pair (id, name); the timestamps are REAL epoch seconds and are NULL for
+# "used_by" and "produced" edges. The nullable "alias" column holds the call-site
+# name recorded by knit_as (NULL for a plain edge). Called at bootstrap alongside
+# the metadata table.
 # ------------------------------------------------------------------------------
 _knit_prov_create_table() {
     local prov_ident
@@ -116,8 +118,9 @@ _knit_prov_nullable_literal() {
 # @param[in] target_id   UUID of the target (callee for "call"; consumer for
 #                    "used_by").
 # @param[in] target_name Demangled command name of the target.
-# @param[in] edge_type   "call" (source invoked target) or "used_by" (target
-#                    references a setup, which is the source).
+# @param[in] edge_type   "call" (source invoked target), "used_by" (target
+#                    references a setup/resource, which is the source), or
+#                    "produced" (source produced target, an artifact).
 # @param[in] start_time  Epoch seconds when the call started (empty -> NULL).
 # @param[in] end_time    Epoch seconds when the call returned (empty -> NULL).
 # @param[in] alias       Call-site name from knit_as (empty -> NULL).
@@ -150,6 +153,29 @@ _knit_prov_edge_sql() {
         "$(_knit_prov_nullable_literal "${start_time}")" \
         "$(_knit_prov_nullable_literal "${end_time}")" \
         "$(_knit_prov_nullable_literal "${alias}")"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_produced_edge_sql()
+#
+# Build (print, without executing) the INSERT for a "produced" provenance edge:
+# a producing invocation (the source) produced an artifact (the target, a row of
+# the artifacts table). It is a thin wrapper over _knit_prov_edge_sql that bakes
+# in the produced-edge shape: the target_name is the artifacts node label, the
+# edge_type is "produced", and — a produced edge has no duration and no call site
+# — the two timestamps and the alias are NULL. Meant to be composed into the
+# producing invocation's record-time transaction (see the artifacts write path).
+#
+# @param[in] source_id   UUID of the producing invocation (empty for a root).
+# @param[in] source_name Demangled command name of the producer.
+# @param[in] artifact_id UUID of the produced artifact (the artifacts row id).
+# ------------------------------------------------------------------------------
+_knit_produced_edge_sql() {
+    local source_id="$1"
+    local source_name="$2"
+    local artifact_id="$3"
+    _knit_prov_edge_sql "${source_id}" "${source_name}" \
+        "${artifact_id}" "${_KNIT_ARTIFACTS_TABLE}" "produced" "" "" ""
 }
 
 # ------------------------------------------------------------------------------

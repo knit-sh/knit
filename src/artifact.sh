@@ -82,6 +82,109 @@ _knit_artifacts_ensure_table() {
 _KNIT_DB_REGISTERED_TABLES["${_KNIT_ARTIFACTS_TABLE}"]="${_KNIT_ARTIFACTS_TABLE}"
 
 # ------------------------------------------------------------------------------
+# @fn _knit_artifacts_row_sql()
+#
+# Build (print, without executing) the INSERT for one artifacts row: one produced
+# artifact, with its uuid "id" (the target of the "produced" edge), its
+# artifacts-relative "path" (UNIQUE), the declared "name", the "type" ("file" or
+# "directory"), the content "checksum", and the "result" flag. The text columns
+# are single-quoted and escaped; "result" is emitted as a bare 0/1 integer (any
+# value other than "1" becomes 0). Meant to be composed with a "produced" edge
+# (see _knit_produced_edge_sql) into one transaction at record time, mirroring how
+# _knit_prov_edge_sql composes into _knit_db_record_invocation.
+#
+# @param[in] id       UUID of the artifact row.
+# @param[in] path     Artifacts-relative path (UNIQUE).
+# @param[in] name     Declared artifact name.
+# @param[in] type     "file" or "directory".
+# @param[in] checksum Content digest of the resolved target ("sha256:<hex>").
+# @param[in] result   "1" for a declared result, else 0.
+# ------------------------------------------------------------------------------
+_knit_artifacts_row_sql() {
+    local id="$1"
+    local path="$2"
+    local name="$3"
+    local type="$4"
+    local checksum="$5"
+    local result="$6"
+
+    local tbl esc_id esc_path esc_name esc_type esc_checksum
+    _knit_db_sql_ident tbl "${_KNIT_ARTIFACTS_TABLE}"
+    _knit_sql_escape esc_id "${id}"
+    _knit_sql_escape esc_path "${path}"
+    _knit_sql_escape esc_name "${name}"
+    _knit_sql_escape esc_type "${type}"
+    _knit_sql_escape esc_checksum "${checksum}"
+    local result_lit=0
+    [[ "${result}" == "1" ]] && result_lit=1
+
+    printf 'INSERT INTO %s (id, path, name, type, checksum, result) VALUES (%s, %s, %s, %s, %s, %s);' \
+        "${tbl}" \
+        "'${esc_id}'" \
+        "'${esc_path}'" \
+        "'${esc_name}'" \
+        "'${esc_type}'" \
+        "'${esc_checksum}'" \
+        "${result_lit}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_record_produced_artifact()
+#
+# Record one produced artifact: insert its artifacts row and the "producer
+# --produced--> artifact" edge together, in a single transaction, so a reader
+# never sees a row without its edge (or vice versa). The source of the edge is the
+# producing invocation; the target is the new artifacts row.
+#
+# Best-effort and gated with the other provenance writes: it records nothing when
+# recording is disabled, on a suppressed (non-root) rank, before bootstrap, or
+# when the producer does not participate in the graph. The artifacts and
+# provenance tables are ensured first, so a database bootstrapped before this
+# feature still records.
+#
+# @param[in] producer_cmd Mangled command name of the producer (the edge source).
+# @param[in] producer_id  Row id of the producing invocation (the edge source id).
+# @param[in] artifact_id  UUID of the new artifacts row (the edge target id).
+# @param[in] path         Artifacts-relative path of the artifact (UNIQUE).
+# @param[in] name         Declared artifact name.
+# @param[in] type         "file" or "directory".
+# @param[in] checksum     Content digest of the resolved target.
+# @param[in] result       "1" for a declared result, else 0.
+# ------------------------------------------------------------------------------
+_knit_record_produced_artifact() {
+    local producer_cmd="$1"
+    local producer_id="$2"
+    local artifact_id="$3"
+    local path="$4"
+    local name="$5"
+    local type="$6"
+    local checksum="$7"
+    local result="$8"
+    [[ "${KNIT_DISABLE_RECORDING:-}" == "true" ]] && return 0
+    [[ -n "${_KNIT_RECORDING_SUPPRESSED}" ]] && return 0
+    _knit_is_bootstrapped || return 0
+    _knit_provenance_enabled "${producer_cmd}" || return 0
+    _knit_prov_ensure_table
+    _knit_artifacts_ensure_table
+
+    local producer_name row_sql edge_sql
+    producer_name="$(_knit_command_demangle "${producer_cmd}")"
+    row_sql="$(_knit_artifacts_row_sql \
+        "${artifact_id}" "${path}" "${name}" "${type}" "${checksum}" "${result}")"
+    edge_sql="$(_knit_produced_edge_sql \
+        "${producer_id}" "${producer_name}" "${artifact_id}")"
+    # ".bail on" rolls the transaction back if the edge insert fails, so the row
+    # and its edge stay atomic (see _knit_db_record_invocation).
+    _knit_sqlite3_write <<EOF
+.bail on
+BEGIN;
+${row_sql}
+${edge_sql}
+COMMIT;
+EOF
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_artifact_root()
 #
 # Store the resolved artifact root — the directory under which artifacts live —

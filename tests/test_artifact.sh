@@ -639,3 +639,106 @@ _use_artifacts_root() {
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts';")" -eq 0 ]
 }
+
+# ==========================================================================
+# The artifacts-row and produced-edge write primitives.
+# ==========================================================================
+
+# ---------- _knit_artifacts_row_sql ----------
+
+@test "artifacts row sql lists the columns and quotes the text fields" {
+    local sql
+    sql=$(_knit_artifacts_row_sql "aid" "figure.png" "figure" "file" "sha256:abc" "0")
+    [[ "$sql" == 'INSERT INTO "artifacts" (id, path, name, type, checksum, result) VALUES '* ]]
+    [[ "$sql" == *"'aid', 'figure.png', 'figure', 'file', 'sha256:abc', 0);" ]]
+}
+
+@test "artifacts row sql emits result as a bare 1 for a declared result" {
+    local sql
+    sql=$(_knit_artifacts_row_sql "aid" "p" "n" "file" "cs" "1")
+    [[ "$sql" == *", 1);" ]]
+}
+
+@test "artifacts row sql coerces any non-1 result to 0" {
+    local sql
+    sql=$(_knit_artifacts_row_sql "aid" "p" "n" "file" "cs" "")
+    [[ "$sql" == *", 0);" ]]
+}
+
+@test "artifacts row sql escapes single quotes in text fields" {
+    local sql
+    sql=$(_knit_artifacts_row_sql "aid" "a'b" "n" "file" "cs" "0")
+    [[ "$sql" == *"'a''b'"* ]]
+}
+
+# ---------- _knit_record_produced_artifact ----------
+
+@test "record produced artifact writes the row and the produced edge together" {
+    _knit_record_produced_artifact \
+        "producer" "pid" "aid" "figure.png" "figure" "file" "sha256:abc" "1"
+
+    local row
+    row=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT id,path,name,type,checksum,result FROM artifacts;")
+    [ "$row" = "aid|figure.png|figure|file|sha256:abc|1" ]
+
+    local edge
+    edge=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT source_id,source_name,target_id,target_name,edge_type FROM __provenance__;")
+    [ "$edge" = "pid|producer|aid|artifacts|produced" ]
+}
+
+@test "record produced artifact leaves the produced edge timestamps and alias NULL" {
+    _knit_record_produced_artifact \
+        "producer" "pid" "aid" "figure.png" "figure" "file" "sha256:abc" "0"
+
+    local nulls
+    nulls=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM __provenance__ \
+         WHERE start_time IS NULL AND end_time IS NULL AND alias IS NULL;")
+    [ "$nulls" -eq 1 ]
+}
+
+@test "record produced artifact stores result 0 for a non-result artifact" {
+    _knit_record_produced_artifact \
+        "producer" "pid" "aid" "data.bin" "data" "file" "sha256:xyz" "0"
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT result FROM artifacts;")" = "0" ]
+}
+
+@test "record produced artifact demangles the producer command name in the edge" {
+    _knit_record_produced_artifact \
+        "submit__1__bundle" "pid" "aid" "f" "figure" "file" "cs" "0"
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT source_name FROM __provenance__;")" \
+        = "submit:bundle" ]
+}
+
+@test "record produced artifact writes nothing when recording is disabled" {
+    KNIT_DISABLE_RECORDING=true _knit_record_produced_artifact \
+        "producer" "pid" "aid" "f" "figure" "file" "cs" "0"
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts';")" -eq 0 ]
+}
+
+@test "record produced artifact writes nothing on a suppressed rank" {
+    _KNIT_RECORDING_SUPPRESSED=1 _knit_record_produced_artifact \
+        "producer" "pid" "aid" "f" "figure" "file" "cs" "0"
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts';")" -eq 0 ]
+}
+
+@test "record produced artifact writes nothing before bootstrap" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    rmdir "${_KNIT_PREFIX}"
+    _knit_record_produced_artifact \
+        "producer" "pid" "aid" "f" "figure" "file" "cs" "0"
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts';")" -eq 0 ]
+}
+
+@test "record produced artifact writes nothing when the producer is out of the graph" {
+    _KNIT_CMD_producer_provenance="without"
+    _knit_record_produced_artifact \
+        "producer" "pid" "aid" "f" "figure" "file" "cs" "0"
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts';")" -eq 0 ]
+}
