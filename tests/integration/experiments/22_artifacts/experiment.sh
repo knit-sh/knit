@@ -8,8 +8,8 @@
 #     artifacts, one bound each way:
 #
 #       * "lines"   — a value result (knit_with_output ... --result). It is not a
-#         file, only the headline number the run was for; it travels in the
-#         database, never in artifacts/.
+#         file, only the headline number the run was for; it is a column of the
+#         "bundle" table and travels in the database, never in artifacts/.
 #       * "dataset" — a file artifact bound with --link-from: the body writes a
 #         "large" file in the job directory and references it in place through an
 #         absolute-target symlink under artifacts/. This artifact is a result too.
@@ -17,9 +17,12 @@
 #         small file and snapshots it into artifacts/ for durability. It is an
 #         artifact but not the headline result.
 #
-# Both artifact values are recorded artifacts-relative (so no absolute machine
-# path leaks) and both carry a companion "<name>_checksum" of the resolved
-# target. The symlinked dataset is checksummed as if it were physically present.
+# Each artifact is one row in the framework-owned "artifacts" table (its
+# artifacts-relative "path", "name", "type", content "checksum", and "result"
+# flag), linked to the job body's row by a "produced" provenance edge — not a
+# column of the "bundle" table. The recorded path is artifacts-relative, so no
+# absolute machine path leaks, and the symlinked dataset is checksummed as if it
+# were physically present.
 #
 # The "large" file the dataset links to lives in the job directory (on the shared
 # filesystem), referenced by an absolute path so the symlink never dangles.

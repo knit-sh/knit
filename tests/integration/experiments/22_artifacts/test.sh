@@ -4,13 +4,23 @@
 # Verifies the results-and-artifacts feature against a real bootstrap and a live
 # scheduler, through the job path:
 #
-#   - Job "bundle" records, in the "bundle" table:
-#       * "lines"   — a value result: the input's line count, a bare number.
-#       * "dataset" — a file artifact bound with --link-from, recorded as the
-#         artifacts-relative path "dataset.csv" with a companion "dataset_checksum"
-#         equal to the sha256 of the resolved target.
-#       * "figure"  — a file artifact bound with --copy-from, recorded as
-#         "figure.txt" with a "figure_checksum" equal to the sha256 of the copy.
+#   - Job "bundle" records, in the "bundle" table, only its value result:
+#       * "lines" — the input's line count, a bare number (knit_with_output
+#         --result). It is a column of the "bundle" table, with no companion
+#         checksum column.
+#
+#   - Each produced artifact is one row in the framework-owned "artifacts" table
+#     (id/path/name/type/checksum/result), NOT a column of the "bundle" table:
+#       * "dataset" — a file artifact bound with --link-from, recorded with the
+#         artifacts-relative path "dataset.csv", result=1, and a checksum equal to
+#         the sha256 of the resolved target.
+#       * "figure"  — a file artifact bound with --copy-from, recorded with the
+#         path "figure.txt", result=0, and a checksum equal to the sha256 of the
+#         copy.
+#
+#   - A "produced" provenance edge links the job body's row to each artifact row,
+#     so the producer is recoverable from a file path by a reverse lookup — a SQL
+#     join on the artifact id and a `knit query graph` Cypher walk of the edge.
 #
 #   - On disk under artifacts/: "dataset.csv" is an absolute-target symlink into
 #     the job directory, "figure.txt" is a real (non-symlink) file, and each
@@ -46,10 +56,14 @@ expected_checksum() {
 }
 
 # --------------------------------------------------------------------------
-# Bootstrap.
+# Bootstrap. This also builds knit-graph, used below for the Cypher reverse
+# lookup.
 # --------------------------------------------------------------------------
 ./experiment.sh bootstrap --project "integration-test-22"
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
+
+check_exec ".knit/knit-graph/bin/knit-graph" \
+    "bootstrap built the knit-graph binary"
 
 # ==========================================================================
 # Job "bundle" — a value result plus two artifacts.
@@ -63,7 +77,8 @@ check_sqlite ".knit/knit.db" \
     "bundle job advanced to completed after --wait"
 
 # The job body's own row (distinct from the submission) joins the "bundle" table
-# through the compute-side "submit -> submit:bundle" call edge.
+# through the compute-side "submit -> submit:bundle" call edge. This body row is
+# the source of every "produced" edge.
 body_id=$(${__ASSERT_SQLITE3} .knit/knit.db \
     "SELECT target_id FROM __provenance__
      WHERE source_id='${job_uuid}' AND target_name='submit:bundle'
@@ -83,16 +98,37 @@ else
     __assert_pass "the value result has no checksum column"
 fi
 
+# ---- An artifact is NOT a column of the producing table ---------------------
+# Under the artifacts-table model the "bundle" table has no dataset/figure (nor
+# their old companion checksum) columns. A dropped-column SELECT would not fail
+# (SQLite treats a double-quoted unknown identifier as a string literal), so test
+# the schema directly through pragma_table_info.
+bundle_cols=$(${__ASSERT_SQLITE3} .knit/knit.db \
+    "SELECT name FROM pragma_table_info('bundle');")
+for col in dataset dataset_checksum figure figure_checksum; do
+    if printf '%s\n' "${bundle_cols}" | grep -qx "${col}"; then
+        fail "the bundle table must not have an artifact column: ${col}"
+    fi
+done
+__assert_pass "the bundle table has no artifact columns"
+
 # ==========================================================================
-# Artifact "dataset" — bound with --link-from.
+# Artifact "dataset" — bound with --link-from, recorded in the artifacts table.
 # ==========================================================================
 dataset_link="${WORKDIR}/artifacts/dataset.csv"
 
-# The recorded value is the artifacts-relative path, not an absolute machine path.
 check_sqlite ".knit/knit.db" \
-    "SELECT dataset FROM bundle WHERE id='${body_id}';" \
-    "dataset.csv" \
-    "bundle row records the linked artifact's artifacts-relative path"
+    "SELECT name FROM artifacts WHERE path='dataset.csv';" \
+    "dataset" \
+    "artifacts row records the linked artifact's declared name"
+check_sqlite ".knit/knit.db" \
+    "SELECT type FROM artifacts WHERE path='dataset.csv';" \
+    "file" \
+    "artifacts row records the linked artifact's type"
+check_sqlite ".knit/knit.db" \
+    "SELECT result FROM artifacts WHERE path='dataset.csv';" \
+    "1" \
+    "artifacts row marks the linked artifact as a result"
 
 # On disk it is an absolute-target symlink into the job directory.
 if [[ -L "${dataset_link}" ]]; then
@@ -110,19 +146,27 @@ check_eq "${dataset_target}" "${job_dir}/dataset.csv" \
 
 # The checksum is the sha256 of the resolved target (as if physically present).
 check_sqlite ".knit/knit.db" \
-    "SELECT dataset_checksum FROM bundle WHERE id='${body_id}';" \
+    "SELECT checksum FROM artifacts WHERE path='dataset.csv';" \
     "$(expected_checksum "${dataset_link}")" \
-    "bundle row records the linked target's sha256"
+    "artifacts row records the linked target's sha256"
 
 # ==========================================================================
-# Artifact "figure" — bound with --copy-from.
+# Artifact "figure" — bound with --copy-from, recorded in the artifacts table.
 # ==========================================================================
 figure_file="${WORKDIR}/artifacts/figure.txt"
 
 check_sqlite ".knit/knit.db" \
-    "SELECT figure FROM bundle WHERE id='${body_id}';" \
-    "figure.txt" \
-    "bundle row records the copied artifact's artifacts-relative path"
+    "SELECT name FROM artifacts WHERE path='figure.txt';" \
+    "figure" \
+    "artifacts row records the copied artifact's declared name"
+check_sqlite ".knit/knit.db" \
+    "SELECT type FROM artifacts WHERE path='figure.txt';" \
+    "file" \
+    "artifacts row records the copied artifact's type"
+check_sqlite ".knit/knit.db" \
+    "SELECT result FROM artifacts WHERE path='figure.txt';" \
+    "0" \
+    "artifacts row does not mark the copied artifact as a result"
 
 # On disk it is a real file, not a symlink (a self-contained snapshot).
 if [[ -f "${figure_file}" && ! -L "${figure_file}" ]]; then
@@ -132,8 +176,46 @@ else
 fi
 
 check_sqlite ".knit/knit.db" \
-    "SELECT figure_checksum FROM bundle WHERE id='${body_id}';" \
+    "SELECT checksum FROM artifacts WHERE path='figure.txt';" \
     "$(expected_checksum "${figure_file}")" \
-    "bundle row records the copied file's sha256"
+    "artifacts row records the copied file's sha256"
+
+# ==========================================================================
+# The "produced" provenance edge: the job body's row -> each artifact row.
+# ==========================================================================
+for path in dataset.csv figure.txt; do
+    aid=$(${__ASSERT_SQLITE3} .knit/knit.db \
+        "SELECT id FROM artifacts WHERE path='${path}';")
+    [[ -n "${aid}" ]] || fail "no artifacts row for ${path}"
+    check_sqlite ".knit/knit.db" \
+        "SELECT count(*) FROM __provenance__
+         WHERE source_id='${body_id}' AND source_name='submit:bundle'
+           AND target_id='${aid}' AND target_name='artifacts'
+           AND edge_type='produced';" \
+        "1" \
+        "a produced edge links the bundle body to the ${path} artifact"
+done
+
+# ==========================================================================
+# Reverse lookup: recover the producer from a file path.
+# ==========================================================================
+# SQL: join the artifacts row to its "produced" edge on the artifact id.
+check_sqlite ".knit/knit.db" \
+    "SELECT p.source_id FROM artifacts a
+       JOIN __provenance__ p ON p.target_id = a.id AND p.edge_type = 'produced'
+      WHERE a.path = 'dataset.csv';" \
+    "${body_id}" \
+    "SQL reverse lookup recovers the producing invocation from a file path"
+
+# Cypher: the same walk through `knit query graph`. The producing node needs no
+# label — read the producer off the edge (query graph writes results to stdout,
+# logs to stderr; strip any CR).
+producer=$(./experiment.sh query graph --exec \
+    "MATCH (t)-[e:produced]->(a:artifacts)
+       WHERE a.path = 'figure.txt'
+       RETURN e.source_name" \
+    2>/dev/null | tr -d '\r')
+check_eq "${producer}" "submit:bundle" \
+    "Cypher reverse lookup recovers the producing command from a file path"
 
 assert_summary
