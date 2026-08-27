@@ -551,3 +551,91 @@ _use_artifacts_root() {
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"unexpected argument"* ]]
 }
+
+# ==========================================================================
+# The artifacts table and its graph-node wiring.
+# ==========================================================================
+
+@test "the artifacts table is registered as a graph node label" {
+    # A direct names-map entry (no owning command) resolves "artifacts" as a node
+    # label; the entry maps the table to itself, like a setup or plain command.
+    [ "${_KNIT_DB_REGISTERED_TABLES[artifacts]}" = "artifacts" ]
+    local spec
+    _knit_query_build_names spec
+    [[ "${spec}" == *"artifacts=artifacts"* ]]
+}
+
+@test "the artifacts table name is fatal to reuse by a command" {
+    # The names-map entry guards the reserved name exactly as an owning command
+    # would: another command trying to claim "artifacts" is rejected.
+    knit_register "claims_artifacts" fn_claims_artifacts "Test."
+    run knit_with_table "artifacts"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"already used"* ]]
+}
+
+@test "create artifacts table makes the artifacts table" {
+    _knit_artifacts_create_table
+    local n
+    n=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts';")
+    [ "$n" -eq 1 ]
+}
+
+@test "create artifacts table defines the schema columns in order" {
+    _knit_artifacts_create_table
+    local names
+    names=$(sqlite3 "${_KNIT_DATABASE}" \
+        "PRAGMA table_info('artifacts');" | cut -d'|' -f2 | tr '\n' ',')
+    [ "$names" = "id,path,name,type,checksum,result," ]
+}
+
+@test "create artifacts table makes path UNIQUE" {
+    _knit_artifacts_create_table
+    local uniques
+    uniques=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM pragma_index_list('artifacts') WHERE origin='u';")
+    [ "$uniques" -eq 1 ]
+    # A second row with the same path is rejected by the constraint.
+    sqlite3 "${_KNIT_DATABASE}" \
+        "INSERT INTO artifacts (id, path) VALUES ('a', 'figure.png');"
+    run sqlite3 "${_KNIT_DATABASE}" \
+        "INSERT INTO artifacts (id, path) VALUES ('b', 'figure.png');"
+    [ "${status}" -ne 0 ]
+}
+
+@test "create artifacts table gives result INTEGER affinity" {
+    _knit_artifacts_create_table
+    local result_type
+    result_type=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT type FROM pragma_table_info('artifacts') WHERE name='result';")
+    [ "$result_type" = "INTEGER" ]
+}
+
+@test "create artifacts table is idempotent" {
+    _knit_artifacts_create_table
+    _knit_artifacts_create_table
+    local n
+    n=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts';")
+    [ "$n" -eq 1 ]
+}
+
+@test "ensure artifacts table creates it on a table-less database" {
+    # The temp database has only the metadata table (created in setup).
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts';")" -eq 0 ]
+    _knit_artifacts_ensure_table
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts';")" -eq 1 ]
+}
+
+@test "ensure artifacts table runs the create at most once per process" {
+    _knit_artifacts_ensure_table
+    # Drop the table, then ensure again: the per-process guard must short-circuit,
+    # so the table is NOT recreated.
+    sqlite3 "${_KNIT_DATABASE}" "DROP TABLE artifacts;"
+    _knit_artifacts_ensure_table
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts';")" -eq 0 ]
+}

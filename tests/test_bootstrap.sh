@@ -93,6 +93,7 @@ _setup_sqlite_decision() {
     eval '_knit_build_sqlite() { : > "'"${__sqlite_build_marker}"'"; }'
     eval '_knit_create_metadata_table() { :; }'
     eval '_knit_prov_create_table() { :; }'
+    eval '_knit_artifacts_create_table() { :; }'
     eval '_knit_detect_sqlite_dev() { return 0; }'
 }
 

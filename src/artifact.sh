@@ -3,6 +3,85 @@
 ## @file artifact.sh
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_ARTIFACTS_TABLE
+#
+# Name of the framework-owned table that records one row per produced artifact (a
+# first-class provenance node, like "jobs" and "runs"). A "produced" edge in the
+# __provenance__ table links a producing invocation to the artifact row whose id
+# it names. A direct names-map entry (see below) resolves "artifacts" as a graph
+# node label; the table has no owning command.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_ARTIFACTS_TABLE
+_KNIT_ARTIFACTS_TABLE="artifacts"
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_ARTIFACTS_TABLE_ENSURED
+#
+# Set to "1" once the artifacts table has been ensured in this process (see
+# _knit_artifacts_ensure_table), so the idempotent CREATE runs at most once per
+# run. Mirrors _KNIT_PROV_TABLE_ENSURED.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_ARTIFACTS_TABLE_ENSURED
+_KNIT_ARTIFACTS_TABLE_ENSURED=""
+
+# ------------------------------------------------------------------------------
+# @fn _knit_artifacts_create_table()
+#
+# Create the artifacts table if it does not already exist. Each row is one
+# produced artifact: a stable identity ("id", a uuidv7, the target of the
+# "produced" edge), the artifacts-relative "path" (UNIQUE, since an on-disk entry
+# is write-once), the declared "name" the producer used, the "type" ("file" or
+# "directory"), the content "checksum" ("sha256:<hex>"), and a "result" flag
+# (1 when declared --result, else 0). The schema is fixed here rather than
+# derived from a command's declared outputs (unlike a per-command table), so its
+# column order and the UNIQUE constraint on "path" are explicit. Called at
+# bootstrap alongside the metadata and __provenance__ tables.
+# ------------------------------------------------------------------------------
+_knit_artifacts_create_table() {
+    local artifacts_ident
+    _knit_db_sql_ident artifacts_ident "${_KNIT_ARTIFACTS_TABLE}"
+    _knit_sqlite3_write <<EOF
+CREATE TABLE IF NOT EXISTS ${artifacts_ident} (
+    id        TEXT,
+    path      TEXT UNIQUE,
+    name      TEXT,
+    type      TEXT,
+    checksum  TEXT,
+    result    INTEGER
+);
+EOF
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_artifacts_ensure_table()
+#
+# Ensure the artifacts table exists before an artifact row is written, creating
+# it lazily on first use. A freshly bootstrapped experiment already has the table
+# (created at bootstrap); a database bootstrapped before this feature shipped does
+# not, so ensuring it here lets a new invocation record artifacts rather than
+# failing. The create is idempotent and runs at most once per process, guarded by
+# _KNIT_ARTIFACTS_TABLE_ENSURED. Mirrors _knit_prov_ensure_table.
+# ------------------------------------------------------------------------------
+_knit_artifacts_ensure_table() {
+    [[ -n "${_KNIT_ARTIFACTS_TABLE_ENSURED}" ]] && return 0
+    _knit_artifacts_create_table
+    _KNIT_ARTIFACTS_TABLE_ENSURED="1"
+}
+
+# ------------------------------------------------------------------------------
+# Register the artifacts table as a graph node in the query names map. Unlike a
+# per-command table (jobs, runs), it has no owning command: it is written by
+# whichever invocation produces an artifact, and its schema is fixed here (see
+# _knit_artifacts_create_table), not derived from declared outputs. A direct
+# "artifacts=artifacts" entry is all knit_query_build_names needs to expose
+# "artifacts" as a Cypher node label (the target_name of a "produced" edge); it
+# also makes the name fatal to reuse (knit_with_table / knit_as both guard on a
+# present key), exactly as an owning command would, without a phantom command or
+# an unwanted knit_with_table schema callback.
+# ------------------------------------------------------------------------------
+_KNIT_DB_REGISTERED_TABLES["${_KNIT_ARTIFACTS_TABLE}"]="${_KNIT_ARTIFACTS_TABLE}"
+
+# ------------------------------------------------------------------------------
 # @fn _knit_artifact_root()
 #
 # Store the resolved artifact root — the directory under which artifacts live —
