@@ -330,23 +330,11 @@ knit_with_artifact() {
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
     local output
     output=$(_knit_name_normalize "${param_name}")
-    # An artifact shares the command's output name space but is not itself an
-    # output column, so reject a clash with either a declared output or an earlier
-    # artifact. Test the artifacts set only when it exists: _knit_set_find on a
-    # missing set would arithmetic-evaluate a subscript that names an in-scope
-    # variable, recursing.
-    if _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${output}" \
-    || { _knit_set_exists "_KNIT_CMD_${cmd}_artifacts" \
-         && _knit_set_find "_KNIT_CMD_${cmd}_artifacts" "${output}"; }; then
-        knit_fatal "Artifact \"${param_name}\" already declared for \"${demangled_cmd}\"."
-    fi
-    # An artifact shares the command's name space with its parameters, so their
-    # normalized names must not collide.
-    if _knit_set_find "_KNIT_CMD_${cmd}_required" "${output}" \
-    || _knit_set_find "_KNIT_CMD_${cmd}_optional" "${output}" \
-    || _knit_set_find "_KNIT_CMD_${cmd}_flags"    "${output}"; then
-        knit_fatal "Artifact \"${param_name}\" collides with a declared parameter of \"${demangled_cmd}\"."
-    fi
+    # Reserve the name against the command's whole name space: a duplicate
+    # artifact, or a clash with a parameter, an output, or a synthesized checksum
+    # column, is rejected uniformly. An artifact is not itself an output column,
+    # but it shares the name space (it is referred to by name at runtime).
+    _knit_reserve_name "_KNIT_CMD_${cmd}" "${demangled_cmd}" "Artifact" "${param_name}" "${output}"
     knit_trace "Adding artifact \"${param_name}\" (type: ${param_type}) to command \"${demangled_cmd}\"."
     printf -v "_KNIT_CMD_${cmd}_3_${output}_description" '%s' "$2"
     printf -v "_KNIT_CMD_${cmd}_3_${output}_default"     '%s' ""

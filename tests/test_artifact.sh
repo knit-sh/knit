@@ -194,6 +194,18 @@ teardown() {
     knit_with_required "table:string" "A parameter."
     run knit_with_artifact "table:file" "Collides."
     [ "${status}" -ne 0 ]
+    [[ "${output}" == *"collides with a declared parameter"* ]]
+    knit_done
+}
+
+@test "a parameter rejects a name already used by an artifact" {
+    knit_register "art_cmd_10b" knit_empty "A test command."
+    knit_with_artifact "table:file" "The results table."
+    # The reverse order of the parameter/artifact collision: the shared name space
+    # rejects a parameter that reuses an artifact's name.
+    run knit_with_required "table:string" "Collides."
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"collides with a declared artifact"* ]]
     knit_done
 }
 
@@ -236,11 +248,11 @@ teardown() {
 @test "knit_with_output rejects a name already used by an artifact" {
     knit_register "art_cmd_17" knit_empty "A test command."
     knit_with_artifact "table:file" "The results table."
-    # An artifact shares the command's output name space, so the name is taken even
-    # though the artifact is not itself an output column.
+    # An artifact shares the command's name space, so the name is taken even though
+    # the artifact is not itself an output column.
     run knit_with_output "table:string" "" "Collides."
     [ "${status}" -ne 0 ]
-    [[ "${output}" == *"already declared"* ]]
+    [[ "${output}" == *"collides with a declared artifact"* ]]
     knit_done
 }
 
@@ -249,7 +261,7 @@ teardown() {
     knit_with_output "table:string" "" "An ordinary output."
     run knit_with_artifact "table:file" "Collides."
     [ "${status}" -ne 0 ]
-    [[ "${output}" == *"already declared"* ]]
+    [[ "${output}" == *"collides with a declared output"* ]]
     knit_done
 }
 

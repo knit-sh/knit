@@ -256,6 +256,50 @@ _knit_name_is_valid() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_reserve_name()
+#
+# Reserve a declared name in a command's (or parameter set's) name space, failing
+# if the name is already taken. Parameters, outputs, artifacts, and synthesized
+# checksum columns all share one name space per command: a parameter and an output
+# map to the same table column, an artifact is referred to by name at runtime, and
+# every declared name must be unambiguous. This is the single place that enforces
+# that, so a new kind of declaration only has to call it rather than test every
+# other declaration set by hand.
+#
+# The name space lives in the associative array <ns>_names, mapping a normalized
+# name to the lowercased kind that claimed it ("parameter", "output", "artifact",
+# or "checksum column"). The map is created together with the command / parameter
+# set, so it always exists here. On a clash the message distinguishes a same-kind
+# redeclaration ("already declared") from a cross-kind collision ("collides with a
+# declared <kind>").
+#
+# @param[in] ns           Namespace prefix ("_KNIT_CMD_<cmd>" or
+#                         "_KNIT_PSET_<name>").
+# @param[in] context_name Human-readable command / parameter set name for messages.
+# @param[in] kind         Capitalized kind of the incoming name ("Parameter",
+#                         "Output", "Artifact", or "Checksum column").
+# @param[in] display      Un-normalized name as written, for messages.
+# @param[in] normalized   Normalized name to reserve.
+# ------------------------------------------------------------------------------
+_knit_reserve_name() {
+    local ns="$1"
+    local context_name="$2"
+    local kind="$3"
+    local display="$4"
+    local normalized="$5"
+    # shellcheck disable=SC2178 # nameref to associative array
+    local -n _knit_names_map="${ns}_names"
+    if [[ -v _knit_names_map["${normalized}"] ]]; then
+        local existing="${_knit_names_map["${normalized}"]}"
+        if [[ "${kind,,}" == "${existing}" ]]; then
+            knit_fatal "${kind} \"${display}\" already declared for \"${context_name}\"."
+        fi
+        knit_fatal "${kind} \"${display}\" collides with a declared ${existing} of \"${context_name}\"."
+    fi
+    _knit_names_map["${normalized}"]="${kind,,}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_param_check_declaration()
 #
 # This function carries out all the checks for a parameter to be declared by
@@ -311,18 +355,12 @@ _knit_param_check_declaration() {
     local normalized
     normalized=$(_knit_name_normalize "${param_name}")
 
-    if _knit_set_find "${ns}_required" "${normalized}" \
-    || _knit_set_find "${ns}_optional" "${normalized}" \
-    || _knit_set_find "${ns}_flags"    "${normalized}"; then
-        knit_fatal "Parameter \"${param_name}\" already declared for \"${context_name}\"."
-    fi
-    # A parameter and an output map to the same table column, so their normalized
-    # names must not collide. This also rejects a parameter that would clash with a
-    # checksum column already synthesized for an earlier file/directory declaration.
-    # Parameter sets have no outputs, so this only applies in a command context.
-    if _knit_set_find "${ns}_outputs" "${normalized}"; then
-        knit_fatal "Parameter \"${param_name}\" collides with a declared output of \"${context_name}\"."
-    fi
+    # Every declared name (parameter, output, artifact, or synthesized checksum
+    # column) shares one name space, so a single reservation both rejects a
+    # duplicate parameter and rejects a clash with an output, an artifact, or a
+    # checksum column. A parameter set has only parameters, but the shared name
+    # space handles that case with no special casing.
+    _knit_reserve_name "${ns}" "${context_name}" "Parameter" "${param_name}" "${normalized}"
 }
 
 # ------------------------------------------------------------------------------
@@ -532,6 +570,10 @@ knit_register() {
     _knit_set_new "_KNIT_CMD_${cmd}_optional"
     _knit_set_new "_KNIT_CMD_${cmd}_flags"
     _knit_set_new "_KNIT_CMD_${cmd}_outputs"
+    # The shared name space (normalized name -> claiming kind) behind
+    # _knit_reserve_name; every declared parameter, output, artifact, and checksum
+    # column reserves its name here.
+    declare -gA "_KNIT_CMD_${cmd}_names=()"
     declare -gA "_KNIT_CMD_${cmd}_output_value"
     printf -v "_KNIT_CMD_${cmd}_function"        '%s' "${name}"
     printf -v "_KNIT_CMD_${cmd}_description"     '%s' "$3"
@@ -683,6 +725,9 @@ knit_define_parameter_set() {
     _knit_set_new "_KNIT_PSET_${normalized}_required"
     _knit_set_new "_KNIT_PSET_${normalized}_optional"
     _knit_set_new "_KNIT_PSET_${normalized}_flags"
+    # The shared name space behind _knit_reserve_name (see knit_register); a
+    # parameter set holds only parameters, but reserves them the same way.
+    declare -gA "_KNIT_PSET_${normalized}_names=()"
     _KNIT_CURRENT_PARAMETER_SET="${normalized}"
 }
 
@@ -1358,12 +1403,10 @@ _knit_register_checksum() {
     local companion
     companion=$(_knit_name_normalize "${name}-checksum")
 
-    if _knit_set_find "_KNIT_CMD_${cmd}_required" "${companion}" \
-    || _knit_set_find "_KNIT_CMD_${cmd}_optional" "${companion}" \
-    || _knit_set_find "_KNIT_CMD_${cmd}_flags"    "${companion}" \
-    || _knit_set_find "_KNIT_CMD_${cmd}_outputs"  "${companion}"; then
-        knit_fatal "The checksum column \"${name}-checksum\" synthesized for \"${name}\" collides with an existing parameter or output of \"${demangled_cmd}\"."
-    fi
+    # Reserve the synthesized name against the command's whole name space so it can
+    # never overwrite a user-declared parameter, output, or artifact.
+    _knit_reserve_name "_KNIT_CMD_${cmd}" "${demangled_cmd}" \
+        "Checksum column" "${name}-checksum" "${companion}"
 
     knit_trace "Adding checksum column \"${name}-checksum\" for ${direction} \"${name}\" of \"${demangled_cmd}\"."
     printf -v "_KNIT_CMD_${cmd}_3_${companion}_description" '%s' \
@@ -1604,11 +1647,7 @@ knit_with_parameter_set() {
     local param
 
     while IFS= read -r param; do
-        if _knit_set_find "${cmd_ns}_required" "${param}" \
-        || _knit_set_find "${cmd_ns}_optional" "${param}" \
-        || _knit_set_find "${cmd_ns}_flags"    "${param}"; then
-            knit_fatal "Parameter \"${param}\" from set \"${set_name}\" conflicts with an existing parameter of \"${demangled_cmd}\"."
-        fi
+        _knit_reserve_name "${cmd_ns}" "${demangled_cmd}" "Parameter" "${param}" "${param}"
         local _src_desc="${pset_ns}_2_${param}_description"
         local _src_type="${pset_ns}_2_${param}_type"
         printf -v "${cmd_ns}_2_${param}_description" '%s' "${!_src_desc}"
@@ -1623,11 +1662,7 @@ knit_with_parameter_set() {
     done < <(_knit_set_iter "${pset_ns}_required")
 
     while IFS= read -r param; do
-        if _knit_set_find "${cmd_ns}_required" "${param}" \
-        || _knit_set_find "${cmd_ns}_optional" "${param}" \
-        || _knit_set_find "${cmd_ns}_flags"    "${param}"; then
-            knit_fatal "Parameter \"${param}\" from set \"${set_name}\" conflicts with an existing parameter of \"${demangled_cmd}\"."
-        fi
+        _knit_reserve_name "${cmd_ns}" "${demangled_cmd}" "Parameter" "${param}" "${param}"
         local _src_desc="${pset_ns}_2_${param}_description"
         local _src_type="${pset_ns}_2_${param}_type"
         local _src_dflt="${pset_ns}_2_${param}_default"
@@ -1644,11 +1679,7 @@ knit_with_parameter_set() {
     done < <(_knit_set_iter "${pset_ns}_optional")
 
     while IFS= read -r param; do
-        if _knit_set_find "${cmd_ns}_required" "${param}" \
-        || _knit_set_find "${cmd_ns}_optional" "${param}" \
-        || _knit_set_find "${cmd_ns}_flags"    "${param}"; then
-            knit_fatal "Parameter \"${param}\" from set \"${set_name}\" conflicts with an existing parameter of \"${demangled_cmd}\"."
-        fi
+        _knit_reserve_name "${cmd_ns}" "${demangled_cmd}" "Parameter" "${param}" "${param}"
         local _src_desc="${pset_ns}_2_${param}_description"
         printf -v "${cmd_ns}_2_${param}_description" '%s' "${!_src_desc}"
         if [[ -v "${pset_ns}_2_${param}_when" ]]; then
@@ -1712,23 +1743,10 @@ knit_with_output() {
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
     local output
     output=$(_knit_name_normalize "${param_name}")
-    # An output shares the command's output name space with its artifacts (which
-    # are kept in a separate set, not the outputs set), so reject a clash with
-    # either. Test the artifacts set only when it exists: _knit_set_find on a
-    # missing set would arithmetic-evaluate a subscript that names an in-scope
-    # variable, recursing.
-    if _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${output}" \
-    || { _knit_set_exists "_KNIT_CMD_${cmd}_artifacts" \
-         && _knit_set_find "_KNIT_CMD_${cmd}_artifacts" "${output}"; }; then
-        knit_fatal "Output \"${param_name}\" already declared for \"${demangled_cmd}\"."
-    fi
-    # An output and a parameter map to the same table column, so their normalized
-    # names must not collide.
-    if _knit_set_find "_KNIT_CMD_${cmd}_required" "${output}" \
-    || _knit_set_find "_KNIT_CMD_${cmd}_optional" "${output}" \
-    || _knit_set_find "_KNIT_CMD_${cmd}_flags"    "${output}"; then
-        knit_fatal "Output \"${param_name}\" collides with a declared parameter of \"${demangled_cmd}\"."
-    fi
+    # Reserve the name against the command's whole name space: a duplicate output,
+    # or a clash with a parameter, an artifact, or a synthesized checksum column,
+    # is rejected uniformly.
+    _knit_reserve_name "_KNIT_CMD_${cmd}" "${demangled_cmd}" "Output" "${param_name}" "${output}"
     knit_trace "Adding output \"${param_name}\" (type: ${param_type}) to command \"${demangled_cmd}\"."
     printf -v "_KNIT_CMD_${cmd}_3_${output}_description" '%s' "$3"
     printf -v "_KNIT_CMD_${cmd}_3_${output}_default"     '%s' "$2"
