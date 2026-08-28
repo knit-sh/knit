@@ -18,7 +18,9 @@
 # manager (`knit spack`, plus Spack-backed setups), call-site aliasing of
 # provenance edges with `knit_as`, querying the database and its provenance
 # graph with `knit query` (read-only SQL, a schema catalog, and Cypher over the
-# recorded provenance), commands that are usable before bootstrap
+# recorded provenance), provenance-aware deletion of recorded entities and
+# everything that depended on them with `knit remove`, commands that are usable
+# before bootstrap
 # (`knit_usable_before_bootstrap`), state-aware `--help` guidance that gates,
 # hides, and highlights commands by the live experiment state (`knit_usable_if` /
 # `knit_hidden_if_not_usable` / `knit_highlight_if`), a machine- and
@@ -904,13 +906,66 @@
 # directly on this layout, symlink handling, and per-artifact checksums.
 #
 # -----------------------------------------------------------------------------
-# 18. Clean up
+# 18. Remove recorded entities (knit remove)
+# -----------------------------------------------------------------------------
+#   ./full.sh remove job --id <uuid> --dry-run
+#
+# Records accumulate: stale setups, superseded runs, artifacts you no longer
+# want. `knit remove` erases a recorded entity — a setup, resource, job, run,
+# app, plain command, or artifact — together with its on-disk directory and,
+# crucially, everything downstream that depended on it, deleting exactly the
+# provenance edges that connect them so no dangling edge is left behind. It is
+# the reason a setup need not be treated as append-only: a bad `mcenv` can be
+# removed and rebuilt rather than living in the database forever.
+#
+# There is one subcommand per kind, each taking exactly one selector — `--id`,
+# `--name`, `--type` (setup/resource/job), `--group` (job), or `--path`
+# (artifact):
+#
+#   ./full.sh remove setup    --name env         # one setup instance by name
+#   ./full.sh remove setup    --type mcenv       # every mcenv setup at once
+#   ./full.sh remove job      --id <uuid>        # one job (submission + body)
+#   ./full.sh remove resource --name myseeds     # a fetched resource instance
+#
+# By default remove cascades DOWNWARD. Removing a PROVIDER (a setup or resource)
+# also erases every consumer that used it — the jobs, their runs, their
+# artifacts — because those `used_by` edges point outward from the provider.
+# Removing a CONSUMER (a job) is the mirror image: the setup and resource it used
+# stay, and only the `used_by` edge into the erased job is dropped. So
+# `remove job` prunes one run without disturbing the environment it ran in, while
+# `remove setup --name env` takes the setup and every job that ran in it.
+#
+# remove always prints an itemized report — the data rows, the provenance edges,
+# and the directories and files — then asks to confirm. Preview without touching
+# anything using --dry-run, and skip the prompt (e.g. in a script) with --yes;
+# a non-interactive shell without --yes declines rather than deleting:
+#
+#   ./full.sh remove setup --type mcenv --dry-run   # inspect the blast radius
+#   ./full.sh remove setup --name env --yes         # delete without prompting
+#
+# Two guards keep the graph consistent. Naming a callee whose caller is kept — an
+# artifact on its own, a run whose job stays — is refused; widen to the whole
+# call/produced lineage with --from-root, which walks up to the root of the tree
+# and removes it all (a setup or resource the tree used is still left intact):
+#
+#   ./full.sh remove artifact --path table-3.csv --from-root
+#
+# And a job that has not finished (submitted/running/prepared) is a hard refusal:
+# stop it first with `job cancel`. To keep an artifact's FILE while pruning its
+# record, add --keep-files — remove erases the rows and edges but leaves the
+# on-disk entry and lists it under "Left on disk":
+#
+#   ./full.sh remove job --id <uuid> --keep-files --yes
+#
+# -----------------------------------------------------------------------------
+# 19. Clean up
 # -----------------------------------------------------------------------------
 #   rm -rf .knit setups jobs artifacts
 #
-# Removes knit's private tooling and database (.knit), every setup (setups/),
-# every job's working directory (jobs/), and every recorded artifact
-# (artifacts/).
+# `knit remove` prunes selectively; to discard the whole experiment at once,
+# delete the directories directly. This removes knit's private tooling and
+# database (.knit), every setup (setups/), every job's working directory (jobs/),
+# and every recorded artifact (artifacts/).
 #
 # =============================================================================
 

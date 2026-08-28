@@ -64,6 +64,11 @@ title = "Provenance"
 summary = "Linking recorded rows across tables through the __provenance__ graph of call and used_by edges."
 
 [[category]]
+slug = "cleanup"
+title = "Cleanup"
+summary = "Erasing recorded entities and their provenance with knit remove, from a single row to a whole lineage."
+
+[[category]]
 slug = "profiles"
 title = "Profiles"
 summary = "Selecting a machine profile at bootstrap and reading its scheduler, launcher, and hardware fields."
