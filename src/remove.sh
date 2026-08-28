@@ -14,12 +14,16 @@
 # deleting), and it runs knit_without_provenance so it emits no `call` edge of
 # its own.
 #
-# This file currently provides the command surface plus selection resolution:
-# registration, the shared selector/flag declarations, the resolvers that turn a
-# selector into the set of starting row ids, and bodies that validate the
-# exactly-one-selector contract, resolve the selection, and print the starting
-# ids. The closure, mapping, refusal, reporting, and deletion machinery is added
-# in later milestones.
+# This file currently provides the command surface, selection resolution, and the
+# default downward closure with its callee/artifact refusal: registration, the
+# shared selector/flag declarations, the resolvers that turn a selector into the
+# set of starting row ids, the fixed-point downward closure over the provenance
+# graph, the refusal check that rejects erasing a callee (or artifact) whose
+# caller (or producer) is kept, and bodies that validate the exactly-one-selector
+# contract, resolve the selection, close it downward, run the refusal check, and
+# print the resulting erase set. The whole-lineage closure (--from-root), the
+# id-to-table mapping, reporting, and deletion machinery is added in later
+# milestones.
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
@@ -453,6 +457,126 @@ _knit_remove_resolve_selection() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_remove_closure_downward()
+#
+# Compute the default downward erase set from a set of starting ids, returned
+# through a caller-named array. Starting from each id, the closure follows every
+# outgoing provenance edge (source -> target) of the three edge types to a fixed
+# point: a "call" edge (a caller owns its callees), a "produced" edge (a producer
+# owns its artifacts), and a "used_by" edge from a provider (a setup or resource
+# owns its consumers). Because the walk only follows edges where the current id is
+# the SOURCE, a "used_by" edge is never followed backward into a provider (which
+# would be the target), so erasing a consumer leaves its setup/resource intact.
+# An associative visited set guards against revisiting an id (and against any
+# accidental cycle from bad data), so each reachable id appears once.
+#
+# @param[out] __knit_ret Name of the array to fill with the erase-set ids.
+# @param[in] ... The starting ids.
+# ------------------------------------------------------------------------------
+_knit_remove_closure_downward() {
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n __knit_ret=$1; shift
+    __knit_ret=()
+    local -A visited=()
+    local -a worklist=("$@")
+    local x x_esc target
+    while (( ${#worklist[@]} > 0 )); do
+        x="${worklist[-1]}"
+        unset 'worklist[-1]'
+        [[ -z "${x}" ]] && continue
+        [[ -v visited["${x}"] ]] && continue
+        visited["${x}"]=1
+        __knit_ret+=("${x}")
+        _knit_sql_escape x_esc "${x}"
+        while IFS= read -r target; do
+            [[ -n "${target}" ]] && worklist+=("${target}")
+        done < <(_knit_sqlite3 \
+            "SELECT target_id FROM ${_KNIT_PROV_TABLE} WHERE source_id='${x_esc}' AND edge_type IN ('call','used_by','produced');" \
+            2>/dev/null)
+    done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_check_refusal()
+#
+# Enforce the callee/artifact refusal for the default (downward) closure. For each
+# originally selected id, refuse the whole operation if that id is the target of a
+# "call" or "produced" edge whose source is NOT in the erase set: erasing a callee
+# while its caller stays (or an artifact while its producer stays) would leave the
+# caller's/producer's edge dangling, so it is rejected. A "call" refusal points the
+# user at removing the caller (with the caller's own remove subcommand) or passing
+# --from-root; a "produced" refusal (a bare remove:artifact) points at --from-root,
+# which pulls the producer in and erases the whole lineage. An edge with an empty
+# source (a root invocation) never triggers a refusal.
+#
+# @param[in] __knit_selected Name of the array of originally selected ids.
+# @param[in] __knit_erase    Name of the array holding the full erase set.
+# @return Fatal on the first refusal; otherwise 0.
+# ------------------------------------------------------------------------------
+_knit_remove_check_refusal() {
+    local -n __knit_selected=$1
+    local -n __knit_erase=$2
+    local -A in_set=()
+    local e
+    for e in "${__knit_erase[@]}"; do in_set["${e}"]=1; done
+    local x x_esc src src_name etype tgt_name caller_table caller_kind hint
+    for x in "${__knit_selected[@]}"; do
+        _knit_sql_escape x_esc "${x}"
+        while IFS='|' read -r src src_name etype tgt_name; do
+            [[ -z "${src}" ]] && continue
+            [[ -v in_set["${src}"] ]] && continue
+            if [[ "${etype}" == "produced" ]]; then
+                knit_fatal "remove: cannot erase artifact ${x}; it was produced by \"${src_name}\" (${src}), which is not being erased. Pass --from-root to erase the whole lineage."
+            fi
+            caller_kind=""
+            _knit_remove_id_table caller_table "${src}"
+            [[ -n "${caller_table}" ]] && \
+                _knit_remove_table_kind caller_kind "${caller_table}"
+            if [[ -n "${caller_kind}" ]]; then
+                hint="Remove the caller instead (\"remove ${caller_kind} --id ${src}\") or pass --from-root to erase the whole lineage."
+            else
+                hint="Remove the caller instead or pass --from-root to erase the whole lineage."
+            fi
+            knit_fatal "remove: cannot erase ${tgt_name} (${x}); it is called by \"${src_name}\" (${src}), which is not being erased. ${hint}"
+        done < <(_knit_sqlite3 \
+            "SELECT source_id, source_name, edge_type, target_name FROM ${_KNIT_PROV_TABLE} WHERE edge_type IN ('call','produced') AND target_id='${x_esc}';" \
+            2>/dev/null)
+    done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_dispatch()
+#
+# Shared body for every remove subcommand: enforce the exactly-one-selector
+# contract, resolve the selection to its starting ids, compute the downward erase
+# set, run the callee/artifact refusal check (fatal before anything is printed or
+# deleted), then print the erase set. The selector names are given as leading
+# arguments up to a literal "--", after which come the command invocation
+# arguments. The mapping, reporting, and deletion steps are added in later
+# milestones.
+#
+# @param[in] kind The entity kind of the subcommand.
+# @param[in] ... The selector names, then "--", then the invocation arguments.
+# ------------------------------------------------------------------------------
+_knit_remove_dispatch() {
+    local kind="$1"; shift
+    local -a selectors=()
+    while [[ $# -gt 0 && "$1" != "--" ]]; do
+        selectors+=("$1"); shift
+    done
+    shift  # drop the "--"
+    _knit_remove_require_one_selector "${selectors[@]}" -- "$@"
+    local -a starting=()
+    _knit_remove_resolve_selection starting "${kind}" "$@"
+    local -a erase=()
+    _knit_remove_closure_downward erase "${starting[@]}"
+    _knit_remove_check_refusal starting erase
+    printf '%s\n' "${erase[@]}"
+}
+
+# ------------------------------------------------------------------------------
 # Registration of the remove command group.
 # ------------------------------------------------------------------------------
 knit_register remove knit_empty \
@@ -473,17 +597,14 @@ _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_setup()
 #
-# Body of 'remove setup': enforce the selector contract, resolve the selection to
-# its starting id set, and print those ids. The closure and deletion machinery is
-# added in later milestones.
+# Body of 'remove setup': resolve the selection, close it downward, run the
+# refusal check, and print the erase set. The deletion machinery is added in
+# later milestones.
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_remove_setup() {
-    _knit_remove_require_one_selector id name type -- "$@"
-    local -a ids=()
-    _knit_remove_resolve_selection ids "setup" "$@"
-    printf '%s\n' "${ids[@]}"
+    _knit_remove_dispatch "setup" id name type -- "$@"
 }
 knit_done
 
@@ -499,17 +620,14 @@ _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_resource()
 #
-# Body of 'remove resource': enforce the selector contract, resolve the selection
-# to its starting id set, and print those ids. The closure and deletion machinery
-# is added in later milestones.
+# Body of 'remove resource': resolve the selection, close it downward, run the
+# refusal check, and print the erase set. The deletion machinery is added in
+# later milestones.
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_remove_resource() {
-    _knit_remove_require_one_selector id name type -- "$@"
-    local -a ids=()
-    _knit_remove_resolve_selection ids "resource" "$@"
-    printf '%s\n' "${ids[@]}"
+    _knit_remove_dispatch "resource" id name type -- "$@"
 }
 knit_done
 
@@ -525,17 +643,15 @@ _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_job()
 #
-# Body of 'remove job': enforce the selector contract, resolve the selection to
-# its starting id set, and print those ids. The closure and deletion machinery is
+# Body of 'remove job': resolve the selection, close it downward, run the refusal
+# check, and print the erase set. The setup and resource the job used are not
+# followed (their used_by edges point INTO the job). The deletion machinery is
 # added in later milestones.
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_remove_job() {
-    _knit_remove_require_one_selector id name type group -- "$@"
-    local -a ids=()
-    _knit_remove_resolve_selection ids "job" "$@"
-    printf '%s\n' "${ids[@]}"
+    _knit_remove_dispatch "job" id name type group -- "$@"
 }
 knit_done
 
@@ -551,17 +667,15 @@ _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_run()
 #
-# Body of 'remove run': enforce the selector contract, resolve the selection to
-# its starting id set, and print those ids. The closure and deletion machinery is
-# added in later milestones.
+# Body of 'remove run': resolve the selection, close it downward, run the refusal
+# check, and print the erase set. Selecting a run whose enclosing job is kept is
+# refused (the job's call edge would dangle). The deletion machinery is added in
+# later milestones.
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_remove_run() {
-    _knit_remove_require_one_selector id name -- "$@"
-    local -a ids=()
-    _knit_remove_resolve_selection ids "run" "$@"
-    printf '%s\n' "${ids[@]}"
+    _knit_remove_dispatch "run" id name -- "$@"
 }
 knit_done
 
@@ -577,17 +691,14 @@ _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_app()
 #
-# Body of 'remove app': enforce the selector contract, resolve the selection to
-# its starting id set, and print those ids. The closure and deletion machinery is
-# added in later milestones.
+# Body of 'remove app': resolve the selection, close it downward, run the refusal
+# check, and print the erase set. Selecting an app whose enclosing run/job is kept
+# is refused. The deletion machinery is added in later milestones.
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_remove_app() {
-    _knit_remove_require_one_selector id name -- "$@"
-    local -a ids=()
-    _knit_remove_resolve_selection ids "app" "$@"
-    printf '%s\n' "${ids[@]}"
+    _knit_remove_dispatch "app" id name -- "$@"
 }
 knit_done
 
@@ -603,17 +714,14 @@ _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_command()
 #
-# Body of 'remove command': enforce the selector contract, resolve the selection
-# to its starting id set, and print those ids. The closure and deletion machinery
-# is added in later milestones.
+# Body of 'remove command': resolve the selection, close it downward, run the
+# refusal check, and print the erase set. The deletion machinery is added in later
+# milestones.
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_remove_command() {
-    _knit_remove_require_one_selector id name -- "$@"
-    local -a ids=()
-    _knit_remove_resolve_selection ids "command" "$@"
-    printf '%s\n' "${ids[@]}"
+    _knit_remove_dispatch "command" id name -- "$@"
 }
 knit_done
 
@@ -629,16 +737,14 @@ _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_artifact()
 #
-# Body of 'remove artifact': enforce the selector contract, resolve the selection
-# to its starting id set, and print those ids. The closure and deletion machinery
-# is added in later milestones.
+# Body of 'remove artifact': resolve the selection, close it downward, run the
+# refusal check, and print the erase set. Naming an artifact on its own is refused
+# (its producer is kept); it is meaningful only with --from-root (added later).
+# The deletion machinery is added in later milestones.
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_remove_artifact() {
-    _knit_remove_require_one_selector id path -- "$@"
-    local -a ids=()
-    _knit_remove_resolve_selection ids "artifact" "$@"
-    printf '%s\n' "${ids[@]}"
+    _knit_remove_dispatch "artifact" id path -- "$@"
 }
 knit_done

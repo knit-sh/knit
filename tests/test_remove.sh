@@ -18,6 +18,14 @@ teardown() {
 # kind markers) the resolvers read, covering one table of every kind: a setup
 # type with two builds sharing an instance name, a resource, two job submissions
 # in a group with their body rows, a run, an app, a plain command, and a wrapper.
+#
+# The provenance graph reproduces worked examples 1-3 of the design for J1's tree:
+#   S1 (setup) --used_by--> J1 (jobs)      D1 (resource) --used_by--> J1
+#   J1 --call--> R1 (body) --call--> U1 (run) --call--> A1 (app)
+#   R1 --produced--> P1 (artifact)
+# so the downward closure of S1 is {S1,J1,R1,U1,A1,P1}, of J1 is that set minus
+# S1 and D1, and A1/P1/U1 each refuse when named on their own (kept caller). J2's
+# tree is just J2 --call--> R2.
 _seed_remove_db() {
     _knit_sqlite3 "
         CREATE TABLE jobs (id TEXT, name TEXT, \"group\" TEXT, state TEXT);
@@ -47,7 +55,12 @@ _seed_remove_db() {
         INSERT INTO render VALUES ('R1'),('R2');
         INSERT INTO __provenance__ VALUES
             ('J1','submit','R1','submit:render','call',1,2,NULL),
-            ('J2','submit','R2','submit:render','call',1,2,NULL);
+            ('J2','submit','R2','submit:render','call',1,2,NULL),
+            ('S1','setup:juliaenv','J1','submit:render','used_by',NULL,NULL,NULL),
+            ('D1','resource:data','J1','submit:render','used_by',NULL,NULL,NULL),
+            ('R1','submit:render','U1','run','call',3,4,NULL),
+            ('U1','run','A1','julia','call',5,6,NULL),
+            ('R1','submit:render','P1','artifacts','produced',NULL,NULL,NULL);
     "
     _KNIT_DB_REGISTERED_TABLES[jobs]="submit"
     _KNIT_DB_REGISTERED_TABLES[runs]="run"
@@ -165,25 +178,58 @@ _in() {
     [[ "${output}" == *"exactly one selector is required"* ]]
 }
 
-# ---------- the body wires resolution and prints the starting ids ----------
+# ---------- the body wires resolution, closure, and refusal ----------
 
-@test "remove setup --id prints the resolved starting id" {
+@test "remove setup --id prints the whole downward erase set (example 1)" {
     run _knit_invoke_command "remove" "setup" "--id" "S1"
     [ "$status" -eq 0 ]
-    [[ "${output}" == *"S1"* ]]
+    local id
+    for id in S1 J1 R1 U1 A1 P1; do
+        [[ "${output}" == *"${id}"* ]] || { echo "missing ${id}"; false; }
+    done
 }
 
-@test "remove job --group prints both jobs in the group" {
+@test "remove job --id keeps the setup and resource it used (example 2)" {
+    run _knit_invoke_command "remove" "job" "--id" "J1"
+    [ "$status" -eq 0 ]
+    local id
+    for id in J1 R1 U1 A1 P1; do
+        [[ "${output}" == *"${id}"* ]] || { echo "missing ${id}"; false; }
+    done
+    # The setup S1 and resource D1 it used (used_by targets) are NOT erased.
+    if _in S1 ${output}; then echo "S1 must not be erased"; false; fi
+    if _in D1 ${output}; then echo "D1 must not be erased"; false; fi
+}
+
+@test "remove job --group prints the erase set of every job in the group" {
     run _knit_invoke_command "remove" "job" "--group" "batch"
     [ "$status" -eq 0 ]
     [[ "${output}" == *"J1"* ]]
     [[ "${output}" == *"J2"* ]]
+    [[ "${output}" == *"R2"* ]]
 }
 
-@test "remove artifact --path prints the resolved artifact id" {
+@test "remove app --id of a callee whose caller is kept is refused (example 3)" {
+    run _knit_invoke_command "remove" "app" "--id" "A1"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"is called by"* ]]
+    [[ "${output}" == *"U1"* ]]
+    [[ "${output}" == *"remove run --id U1"* ]]
+    [[ "${output}" == *"--from-root"* ]]
+}
+
+@test "remove run --id of a run whose enclosing job is kept is refused" {
+    run _knit_invoke_command "remove" "run" "--id" "U1"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"is called by"* ]]
+    [[ "${output}" == *"--from-root"* ]]
+}
+
+@test "remove artifact --path on its own is refused (producer kept)" {
     run _knit_invoke_command "remove" "artifact" "--path" "frame.png"
-    [ "$status" -eq 0 ]
-    [[ "${output}" == *"P1"* ]]
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"was produced by"* ]]
+    [[ "${output}" == *"--from-root"* ]]
 }
 
 @test "remove setup --id unknown is fatal through the body" {
@@ -406,4 +452,80 @@ _in() {
     _knit_remove_id_table tbl S1;    [ "${tbl}" = "setup:juliaenv" ]
     _knit_remove_id_table tbl J1;    [ "${tbl}" = "jobs" ]
     _knit_remove_id_table tbl GHOST; [ -z "${tbl}" ]
+}
+
+# ---------- downward closure ----------
+
+@test "_knit_remove_closure_downward from a setup pulls in its whole tree" {
+    local -a set=()
+    _knit_remove_closure_downward set S1
+    [ "${#set[@]}" -eq 6 ]
+    local id
+    for id in S1 J1 R1 U1 A1 P1; do
+        _in "${id}" "${set[@]}" || { echo "missing ${id}"; false; }
+    done
+}
+
+@test "_knit_remove_closure_downward from a job stops at the used_by boundary" {
+    local -a set=()
+    _knit_remove_closure_downward set J1
+    # The job's downstream tree, but not the setup/resource that used it.
+    local id
+    for id in J1 R1 U1 A1 P1; do
+        _in "${id}" "${set[@]}" || { echo "missing ${id}"; false; }
+    done
+    if _in S1 "${set[@]}"; then echo "S1 leaked upward"; false; fi
+    if _in D1 "${set[@]}"; then echo "D1 leaked upward"; false; fi
+}
+
+@test "_knit_remove_closure_downward of a leaf is just the leaf" {
+    local -a set=()
+    _knit_remove_closure_downward set A1
+    [ "${#set[@]}" -eq 1 ]
+    [ "${set[0]}" = "A1" ]
+}
+
+@test "_knit_remove_closure_downward visits each id once" {
+    # Two seeds in the same tree must not duplicate the shared descendants.
+    local -a set=()
+    _knit_remove_closure_downward set R1 U1
+    local -A seen=()
+    local id
+    for id in "${set[@]}"; do
+        [[ -v seen["${id}"] ]] && { echo "duplicate ${id}"; false; }
+        seen["${id}"]=1
+    done
+    for id in R1 U1 A1 P1; do
+        _in "${id}" "${set[@]}" || { echo "missing ${id}"; false; }
+    done
+}
+
+# ---------- refusal check ----------
+
+@test "_knit_remove_check_refusal refuses a callee whose caller is kept" {
+    local -a selected=(A1) erase=(A1)
+    run _knit_remove_check_refusal selected erase
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"is called by"* ]]
+    [[ "${output}" == *"U1"* ]]
+}
+
+@test "_knit_remove_check_refusal allows a callee whose caller is in the set" {
+    local -a selected=(A1) erase=(A1 U1)
+    _knit_remove_check_refusal selected erase
+}
+
+@test "_knit_remove_check_refusal ignores incoming used_by edges" {
+    # J1 is the target only of used_by edges (from S1 and D1), never call/produced,
+    # so selecting it never refuses even though S1/D1 are not in the erase set.
+    local -a selected=(J1) erase=(J1)
+    _knit_remove_check_refusal selected erase
+}
+
+@test "_knit_remove_check_refusal refuses a bare artifact via the produced edge" {
+    local -a selected=(P1) erase=(P1)
+    run _knit_remove_check_refusal selected erase
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"was produced by"* ]]
+    [[ "${output}" == *"--from-root"* ]]
 }
