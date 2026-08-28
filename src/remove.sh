@@ -24,10 +24,12 @@
 # with no refusal check), the mapping that resolves every erase-set id to its
 # (table, kind) and reads each artifact's on-disk path and type before the row is
 # gone, the collector that finds the plain (non-artifact) file/directory outputs
-# remove leaves on disk, and bodies that validate the exactly-one-selector
+# remove leaves on disk, the non-terminal-job refusal that rejects erasing a job
+# that has not finished, and bodies that validate the exactly-one-selector
 # contract, resolve the selection, compute whichever closure the flags request,
-# run the refusal check in the default mode, and print the resulting erase set.
-# The reporting and deletion machinery is added in later milestones.
+# run the refusal check in the default mode, map the erase set, refuse a
+# non-terminal job, and print the resulting erase set. The reporting and deletion
+# machinery is added in later milestones.
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
@@ -712,17 +714,55 @@ _knit_remove_plain_outputs() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_remove_check_terminal_jobs()
+#
+# Enforce that every job in the erase set has finished before anything is deleted.
+# For each erase-set id whose table is the jobs table (read from the id -> table
+# map _knit_remove_map_ids produced), the job's "state" column is read; a state
+# other than "completed" or "killed" (that is, "submitted", "running", or
+# "prepared") refuses the whole operation and points the user at "job cancel <id>"
+# to stop or tear down the job first. There is no --force override: a live job must
+# be cancelled before it can be erased. The refusal fires whether the job was named
+# directly or pulled into the set by a cascade (a setup or resource it used being
+# erased), because both reach it through the same erase-set membership.
+#
+# @param[in] __knit_tables Name of the assoc array mapping id -> table.
+# @param[in] ...           The erase-set ids.
+# @return Fatal on the first non-terminal job; otherwise 0.
+# ------------------------------------------------------------------------------
+_knit_remove_check_terminal_jobs() {
+    local -n __knit_tables=$1; shift
+    local id id_esc state
+    for id in "$@"; do
+        [[ -z "${id}" ]] && continue
+        [[ "${__knit_tables["${id}"]:-}" == "${_KNIT_JOBS_TABLE}" ]] || continue
+        _knit_sql_escape id_esc "${id}"
+        state="$(_knit_sqlite3 \
+            "SELECT state FROM ${_KNIT_JOBS_TABLE} WHERE id='${id_esc}';" \
+            2>/dev/null)" || state=""
+        case "${state}" in
+            completed|killed) ;;
+            *)
+                knit_fatal "remove: cannot erase job ${id}; its state is \"${state:-unknown}\" (not completed or killed). Run \"job cancel ${id}\" first."
+                ;;
+        esac
+    done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_remove_dispatch()
 #
 # Shared body for every remove subcommand: enforce the exactly-one-selector
-# contract, resolve the selection to its starting ids, compute the erase set, then
-# print it. Which closure is computed depends on --from-root: without it, the
-# default downward closure is taken and the callee/artifact refusal check runs
-# (fatal before anything is printed or deleted); with it, the whole-lineage
-# connected-component closure is taken and the refusal check is skipped by design.
-# The selector names are given as leading arguments up to a literal "--", after
-# which come the command invocation arguments. The mapping, reporting, and
-# deletion steps are added in later milestones.
+# contract, resolve the selection to its starting ids, compute the erase set, map
+# each id to its table and kind, refuse the operation if it would erase a
+# non-terminal job, then print the erase set. Which closure is computed depends on
+# --from-root: without it, the default downward closure is taken and the
+# callee/artifact refusal check runs (fatal before anything is printed or deleted);
+# with it, the whole-lineage connected-component closure is taken and the refusal
+# check is skipped by design. The selector names are given as leading arguments up
+# to a literal "--", after which come the command invocation arguments. The
+# reporting and deletion steps are added in later milestones.
 #
 # @param[in] kind The entity kind of the subcommand.
 # @param[in] ... The selector names, then "--", then the invocation arguments.
@@ -746,6 +786,12 @@ _knit_remove_dispatch() {
         _knit_remove_closure_downward erase "${starting[@]}"
         _knit_remove_check_refusal starting erase
     fi
+    # id_kind/art_path/art_type are filled here but only consumed by the reporting
+    # and filesystem steps added in later milestones.
+    # shellcheck disable=SC2034
+    local -A id_table=() id_kind=() art_path=() art_type=()
+    _knit_remove_map_ids id_table id_kind art_path art_type "${erase[@]}"
+    _knit_remove_check_terminal_jobs id_table "${erase[@]}"
     printf '%s\n' "${erase[@]}"
 }
 

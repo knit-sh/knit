@@ -16,8 +16,11 @@ teardown() {
 
 # Build a small database plus the registration state (table registry + command
 # kind markers) the resolvers read, covering one table of every kind: a setup
-# type with two builds sharing an instance name, a resource, two job submissions
-# in a group with their body rows, a run, an app, a plain command, and a wrapper.
+# type with two builds sharing an instance name, a resource, two completed job
+# submissions in a group with their body rows, a run, an app, a plain command, and
+# a wrapper. Three extra bare jobs (J3 running, J4 submitted, J5 prepared, in
+# their own "solo" group and with no body rows) exercise the non-terminal-job
+# refusal without disturbing the graph the other tests read.
 #
 # The provenance graph reproduces worked examples 1-3 of the design for J1's tree:
 #   S1 (setup) --used_by--> J1 (jobs)      D1 (resource) --used_by--> J1
@@ -42,7 +45,10 @@ _seed_remove_db() {
             start_time INTEGER, end_time INTEGER, alias TEXT);
         INSERT INTO jobs VALUES
             ('J1','render','batch','completed'),
-            ('J2','render','batch','completed');
+            ('J2','render','batch','completed'),
+            ('J3','live','solo','running'),
+            ('J4','live','solo','submitted'),
+            ('J5','live','solo','prepared');
         INSERT INTO runs VALUES ('U1','julia');
         INSERT INTO artifacts VALUES ('P1','frame.png','file');
         INSERT INTO \"setup:juliaenv\" VALUES
@@ -684,4 +690,59 @@ _in() {
     _knit_remove_plain_outputs outs id_table R1 GHOST
     [ "${outs[/data/metrics.json]}" = "submit:render" ]
     [ "${#outs[@]}" -eq 1 ]
+}
+
+# ---------- non-terminal job refusal ----------
+
+@test "_knit_remove_check_terminal_jobs accepts completed and killed jobs" {
+    local -A id_table=([J1]=jobs)
+    run _knit_remove_check_terminal_jobs id_table J1
+    [ "$status" -eq 0 ]
+    # A killed job is terminal too.
+    _knit_sqlite3 "UPDATE jobs SET state='killed' WHERE id='J1';"
+    run _knit_remove_check_terminal_jobs id_table J1
+    [ "$status" -eq 0 ]
+}
+
+@test "_knit_remove_check_terminal_jobs refuses a running/submitted/prepared job" {
+    local -A id_table=([J3]=jobs [J4]=jobs [J5]=jobs)
+    local j
+    for j in J3 J4 J5; do
+        run _knit_remove_check_terminal_jobs id_table "${j}"
+        [ "$status" -ne 0 ] || { echo "state of ${j} should refuse"; false; }
+        [[ "${output}" == *"cannot erase job ${j}"* ]]
+        [[ "${output}" == *"job cancel ${j}"* ]]
+    done
+}
+
+@test "_knit_remove_check_terminal_jobs ignores non-job ids in the set" {
+    # A map that carries only non-job rows never queries a state; nothing refuses.
+    local -A id_table=([S1]="setup:juliaenv" [A1]=julia [P1]=artifacts)
+    run _knit_remove_check_terminal_jobs id_table S1 A1 P1
+    [ "$status" -eq 0 ]
+}
+
+@test "_knit_remove_check_terminal_jobs refuses when a cascade pulls in a live job" {
+    # As if a setup's downward closure reached a running job it was used by: the
+    # erase set mixes the setup with the non-terminal job, and the whole
+    # operation is refused on the job's account.
+    local -A id_table=([S1]="setup:juliaenv" [J3]=jobs)
+    run _knit_remove_check_terminal_jobs id_table S1 J3
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"cannot erase job J3"* ]]
+    [[ "${output}" == *"job cancel J3"* ]]
+}
+
+@test "remove job --id of a non-terminal job is refused through the body" {
+    run _knit_invoke_command "remove" "job" "--id" "J3"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"cannot erase job J3"* ]]
+    [[ "${output}" == *"job cancel J3"* ]]
+}
+
+@test "remove job --id of a completed job still prints the erase set" {
+    run _knit_invoke_command "remove" "job" "--id" "J2"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"J2"* ]]
+    [[ "${output}" == *"R2"* ]]
 }
