@@ -25,11 +25,14 @@
 # (table, kind) and reads each artifact's on-disk path and type before the row is
 # gone, the collector that finds the plain (non-artifact) file/directory outputs
 # remove leaves on disk, the non-terminal-job refusal that rejects erasing a job
-# that has not finished, and bodies that validate the exactly-one-selector
-# contract, resolve the selection, compute whichever closure the flags request,
-# run the refusal check in the default mode, map the erase set, refuse a
-# non-terminal job, and print the resulting erase set. The reporting and deletion
-# machinery is added in later milestones.
+# that has not finished, the report builder and printer that render the itemized
+# plan (the data rows, the provenance edges, the on-disk directories and artifact
+# entries to remove, and what is left on disk), and bodies that validate the
+# exactly-one-selector contract, resolve the selection, compute whichever closure
+# the flags request, run the refusal check in the default mode, map the erase set,
+# refuse a non-terminal job, and either print the report and stop under --dry-run
+# or print the resulting erase set. The deletion machinery is added in later
+# milestones.
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
@@ -751,18 +754,278 @@ _knit_remove_check_terminal_jobs() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_remove_row_value()
+#
+# Read a single column of a single row, identified by id, into a caller-named
+# variable (empty when the row, the column, or the table is absent -- the error
+# is silenced). The report builder uses it to fetch a display field for one
+# erase-set row: a setup or resource instance name, a job name or state, or a
+# run's launched app.
+#
+# @param[out] __knit_ret Name of the variable to hold the column value.
+# @param[in] table  The table to read from.
+# @param[in] id     The row id.
+# @param[in] column The column name to read.
+# ------------------------------------------------------------------------------
+_knit_remove_row_value() {
+    # shellcheck disable=SC2178 # scalar nameref; the name is array-typed elsewhere in the file
+    local -n __knit_ret=$1; shift
+    local table="$1" id="$2" column="$3"
+    local tblident colident id_esc
+    _knit_db_sql_ident tblident "${table}"
+    _knit_db_sql_ident colident "${column}"
+    _knit_sql_escape id_esc "${id}"
+    # shellcheck disable=SC2178 # scalar nameref (see above)
+    __knit_ret="$(_knit_sqlite3 \
+        "SELECT ${colident} FROM ${tblident} WHERE id='${id_esc}';" \
+        2>/dev/null)"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_id_in_list()
+#
+# Build a SQL IN-list -- a comma-separated sequence of single-quoted, escaped ids
+# such as 'a','b','c' -- from a set of ids, returned through a caller-named
+# variable (empty when no non-empty id is given). Every id is escaped with
+# _knit_sql_escape, never interpolated raw. The report builder uses it to select
+# the provenance edges touching the erase set; the deletion phase reuses it.
+#
+# @param[out] __knit_ret Name of the variable to hold the IN-list text.
+# @param[in] ... The ids.
+# ------------------------------------------------------------------------------
+_knit_remove_id_in_list() {
+    # shellcheck disable=SC2178 # scalar nameref; the name is array-typed elsewhere in the file
+    local -n __knit_ret=$1; shift
+    local -a quoted=()
+    local id esc
+    for id in "$@"; do
+        [[ -z "${id}" ]] && continue
+        _knit_sql_escape esc "${id}"
+        quoted+=("'${esc}'")
+    done
+    local IFS=,
+    # shellcheck disable=SC2178 # scalar nameref (see above)
+    __knit_ret="${quoted[*]}"
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_build_report()
+#
+# Assemble the itemized removal report from the erase set and its maps, filling
+# four caller-named arrays that _knit_remove_print_report lays out. All database
+# reads and formatting happen here, so the printer is pure layout:
+#   - the data-row lines, one per erase-set id in order, each "<kind> <label>
+#     <id>" with a short annotation. A setup or resource shows "<type> (<name>)";
+#     a job submission shows its state; a job body row is marked as such; a run
+#     shows its launched app; an app or plain command shows its command name; an
+#     artifact shows its path.
+#   - the provenance-edge lines: every __provenance__ edge with an endpoint in the
+#     set (exactly the edges the deletion removes, including a kept provider's
+#     used_by edge into an erased consumer).
+#   - the on-disk directories and artifact entries the removal deletes: each job
+#     directory, each setup/resource instance directory, and -- unless keep_files
+#     is "true" -- each artifact entry under the artifact root.
+#   - the "left on disk" lines: the plain non-artifact outputs (always, attributed
+#     to the owning command) and, under keep_files, the kept artifact entries.
+#
+# @param[out] __knit_ret1 Name of the array to fill with data-row lines.
+# @param[out] __knit_ret2 Name of the array to fill with provenance-edge lines.
+# @param[out] __knit_ret3 Name of the array to fill with removed dir/entry paths.
+# @param[out] __knit_ret4 Name of the array to fill with "left on disk" lines.
+# @param[in]  __knit_tables Name of the assoc array mapping id -> table.
+# @param[in]  __knit_kinds  Name of the assoc array mapping id -> kind.
+# @param[in]  __knit_apaths Name of the assoc array mapping artifact id -> path.
+# @param[in]  __knit_plain  Name of the assoc array mapping plain output path -> command.
+# @param[in]  keep_files    "true" to keep (not remove) artifact entries on disk.
+# @param[in]  ...           The erase-set ids, in order.
+# ------------------------------------------------------------------------------
+_knit_remove_build_report() {
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n __knit_ret1=$1
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n __knit_ret2=$2
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n __knit_ret3=$3
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n __knit_ret4=$4
+    local -n __knit_tables=$5
+    local -n __knit_kinds=$6
+    local -n __knit_apaths=$7
+    local -n __knit_plain=$8
+    shift 8
+    local keep_files="$1"; shift
+    local -a ids=("$@")
+    __knit_ret1=()
+    __knit_ret2=()
+    __knit_ret3=()
+    __knit_ret4=()
+
+    # Roots resolved lazily and cached (each reads metadata).
+    local job_root="" setup_root="" resource_root="" artifact_root=""
+
+    local id kind tbl label annot line
+    local etype ename apath name state
+    for id in "${ids[@]}"; do
+        [[ -z "${id}" ]] && continue
+        tbl="${__knit_tables["${id}"]:-}"
+        [[ -z "${tbl}" ]] && continue
+        kind="${__knit_kinds["${id}"]:-}"
+        label=""
+        annot=""
+        case "${kind}" in
+            setup)
+                etype="${tbl#setup:}"
+                _knit_remove_row_value name "${tbl}" "${id}" name
+                label="${etype}"
+                [[ -n "${name}" ]] && label="${etype} (${name})"
+                if [[ -n "${name}" ]]; then
+                    [[ -z "${setup_root}" ]] && _knit_setup_root setup_root
+                    __knit_ret3+=("${setup_root}/${name}")
+                fi
+                ;;
+            resource)
+                etype="${tbl#resource:}"
+                _knit_remove_row_value name "${tbl}" "${id}" name
+                label="${etype}"
+                [[ -n "${name}" ]] && label="${etype} (${name})"
+                if [[ -n "${name}" ]]; then
+                    [[ -z "${resource_root}" ]] && _knit_resource_root resource_root
+                    __knit_ret3+=("${resource_root}/${name}")
+                fi
+                ;;
+            job)
+                if [[ "${tbl}" == "${_KNIT_JOBS_TABLE}" ]]; then
+                    _knit_remove_row_value name "${tbl}" "${id}" name
+                    _knit_remove_row_value state "${tbl}" "${id}" state
+                    label="${name}"
+                    annot="state: ${state}"
+                    [[ -z "${job_root}" ]] && _knit_job_root job_root
+                    __knit_ret3+=("${job_root}/${id}")
+                else
+                    label="${tbl}"
+                    annot="body row"
+                fi
+                ;;
+            run)
+                _knit_remove_row_value ename "${_KNIT_RUNS_TABLE}" "${id}" app
+                label="${ename}"
+                ;;
+            app|command)
+                label="${tbl}"
+                ;;
+            artifact)
+                apath="${__knit_apaths["${id}"]:-}"
+                label="${apath}"
+                if [[ "${keep_files}" != "true" && -n "${apath}" ]]; then
+                    [[ -z "${artifact_root}" ]] && _knit_artifact_root artifact_root
+                    __knit_ret3+=("${artifact_root}/${apath}")
+                fi
+                ;;
+        esac
+        printf -v line '%-8s %-20s %s' "${kind}" "${label}" "${id}"
+        [[ -n "${annot}" ]] && line+="  (${annot})"
+        __knit_ret1+=("${line}")
+    done
+
+    # Provenance edges touching the set (an endpoint in the erase set).
+    local in_list
+    _knit_remove_id_in_list in_list "${ids[@]}"
+    if [[ -n "${in_list}" ]]; then
+        local sname sid tname tid lhs rhs eline
+        while IFS='|' read -r sname sid etype tname tid; do
+            lhs="${sname}"
+            [[ -n "${sid}" ]] && lhs="${sname} ${sid}"
+            rhs="${tname}"
+            [[ -n "${tid}" ]] && rhs="${tname} ${tid}"
+            printf -v eline '%s --%s--> %s' "${lhs}" "${etype}" "${rhs}"
+            __knit_ret2+=("${eline}")
+        done < <(_knit_sqlite3 \
+            "SELECT source_name, source_id, edge_type, target_name, target_id FROM ${_KNIT_PROV_TABLE} WHERE source_id IN (${in_list}) OR target_id IN (${in_list});" \
+            2>/dev/null)
+    fi
+
+    # Left on disk: plain outputs (always), sorted for stable output.
+    local -a paths=()
+    local p lline
+    for p in "${!__knit_plain[@]}"; do paths+=("${p}"); done
+    if (( ${#paths[@]} > 0 )); then
+        mapfile -t paths < <(printf '%s\n' "${paths[@]}" | sort)
+    fi
+    for p in "${paths[@]}"; do
+        printf -v lline '%s   (output of %s)' "${p}" "${__knit_plain["${p}"]}"
+        __knit_ret4+=("${lline}")
+    done
+    # Kept artifact entries under --keep-files.
+    if [[ "${keep_files}" == "true" ]]; then
+        [[ -z "${artifact_root}" ]] && _knit_artifact_root artifact_root
+        for id in "${ids[@]}"; do
+            [[ "${__knit_kinds["${id}"]:-}" == "artifact" ]] || continue
+            apath="${__knit_apaths["${id}"]:-}"
+            [[ -z "${apath}" ]] && continue
+            printf -v lline '%s   (artifact, --keep-files)' "${artifact_root}/${apath}"
+            __knit_ret4+=("${lline}")
+        done
+    fi
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_print_report()
+#
+# Lay out the itemized report the erase set built. The header line is a parameter
+# so the tense matches the mode ("The following will be permanently erased:"
+# before a prompt or under --dry-run; "Erased:" after the fact under --yes). The
+# data-row section is always printed (the erase set is never empty); the
+# provenance-edge, removed, and "left on disk" sections are printed only when they
+# have entries. Each section header carries its count.
+#
+# @param[in] header  The header line to print above the report.
+# @param[in] __knit_rows    Name of the array of data-row lines.
+# @param[in] __knit_edges   Name of the array of provenance-edge lines.
+# @param[in] __knit_removed Name of the array of removed dir/entry paths.
+# @param[in] __knit_left    Name of the array of "left on disk" lines.
+# ------------------------------------------------------------------------------
+_knit_remove_print_report() {
+    local header="$1"; shift
+    local -n __knit_rows=$1
+    local -n __knit_edges=$2
+    local -n __knit_removed=$3
+    local -n __knit_left=$4
+    local item
+    printf '%s\n\n' "${header}"
+    printf '  Data rows (%d):\n' "${#__knit_rows[@]}"
+    for item in "${__knit_rows[@]}"; do printf '    %s\n' "${item}"; done
+    if (( ${#__knit_edges[@]} > 0 )); then
+        printf '\n  Provenance edges (%d):\n' "${#__knit_edges[@]}"
+        for item in "${__knit_edges[@]}"; do printf '    %s\n' "${item}"; done
+    fi
+    if (( ${#__knit_removed[@]} > 0 )); then
+        printf '\n  Directories and artifacts removed (%d):\n' "${#__knit_removed[@]}"
+        for item in "${__knit_removed[@]}"; do printf '    %s\n' "${item}"; done
+    fi
+    if (( ${#__knit_left[@]} > 0 )); then
+        printf '\n  Left on disk (%d):\n' "${#__knit_left[@]}"
+        for item in "${__knit_left[@]}"; do printf '    %s\n' "${item}"; done
+    fi
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_remove_dispatch()
 #
 # Shared body for every remove subcommand: enforce the exactly-one-selector
 # contract, resolve the selection to its starting ids, compute the erase set, map
-# each id to its table and kind, refuse the operation if it would erase a
-# non-terminal job, then print the erase set. Which closure is computed depends on
-# --from-root: without it, the default downward closure is taken and the
-# callee/artifact refusal check runs (fatal before anything is printed or deleted);
-# with it, the whole-lineage connected-component closure is taken and the refusal
-# check is skipped by design. The selector names are given as leading arguments up
-# to a literal "--", after which come the command invocation arguments. The
-# reporting and deletion steps are added in later milestones.
+# each id to its table and kind, and refuse the operation if it would erase a
+# non-terminal job. Which closure is computed depends on --from-root: without it,
+# the default downward closure is taken and the callee/artifact refusal check runs
+# (fatal before anything is printed or deleted); with it, the whole-lineage
+# connected-component closure is taken and the refusal check is skipped by design.
+# Under --dry-run the itemized report is built and printed and the command stops
+# (no prompt, no deletion) -- the first fully working read-only path; otherwise the
+# erase set is printed. The selector names are given as leading arguments up to a
+# literal "--", after which come the command invocation arguments. The prompt and
+# deletion steps are added in later milestones.
 #
 # @param[in] kind The entity kind of the subcommand.
 # @param[in] ... The selector names, then "--", then the invocation arguments.
@@ -786,12 +1049,34 @@ _knit_remove_dispatch() {
         _knit_remove_closure_downward erase "${starting[@]}"
         _knit_remove_check_refusal starting erase
     fi
-    # id_kind/art_path/art_type are filled here but only consumed by the reporting
-    # and filesystem steps added in later milestones.
+    # These maps are written by _knit_remove_map_ids and read back by name (art_type
+    # only by the filesystem step in a later milestone); shellcheck cannot see the
+    # by-name reads.
     # shellcheck disable=SC2034
     local -A id_table=() id_kind=() art_path=() art_type=()
     _knit_remove_map_ids id_table id_kind art_path art_type "${erase[@]}"
     _knit_remove_check_terminal_jobs id_table "${erase[@]}"
+
+    local keep_files dry_run
+    keep_files="$(knit_get_parameter "keep-files" "$@")" || keep_files="false"
+    dry_run="$(knit_get_parameter "dry-run" "$@")"       || dry_run="false"
+
+    if [[ "${dry_run}" == "true" ]]; then
+        # shellcheck disable=SC2034 # filled by name for _knit_remove_build_report
+        local -A plain_out=()
+        _knit_remove_plain_outputs plain_out id_table "${erase[@]}"
+        # shellcheck disable=SC2034 # filled by name by _knit_remove_build_report
+        local -a rep_rows=() rep_edges=() rep_removed=() rep_left=()
+        _knit_remove_build_report \
+            rep_rows rep_edges rep_removed rep_left \
+            id_table id_kind art_path plain_out \
+            "${keep_files}" "${erase[@]}"
+        _knit_remove_print_report \
+            "The following will be permanently erased:" \
+            rep_rows rep_edges rep_removed rep_left
+        return 0
+    fi
+
     printf '%s\n' "${erase[@]}"
 }
 

@@ -105,6 +105,15 @@ _in() {
     return 1
 }
 
+# Replace the framework-directory root resolvers with fixed roots, so the report
+# builder yields predictable, metadata-free paths in the tests.
+_stub_roots() {
+    _knit_job_root()      { local -n __r=$1; __r=/ROOT/jobs; }
+    _knit_setup_root()    { local -n __r=$1; __r=/ROOT/setups; }
+    _knit_resource_root() { local -n __r=$1; __r=/ROOT/resources; }
+    _knit_artifact_root() { local -n __r=$1; __r=/ROOT/artifacts; }
+}
+
 # ---------- command surface: describe ----------
 
 @test "describe lists the remove group and every subcommand" {
@@ -745,4 +754,150 @@ _in() {
     [ "$status" -eq 0 ]
     [[ "${output}" == *"J2"* ]]
     [[ "${output}" == *"R2"* ]]
+}
+
+# ---------- report building ----------
+
+@test "_knit_remove_build_report renders rows, edges, removed dirs, and left-on-disk" {
+    _stub_roots
+    local -a erase=()
+    _knit_remove_closure_downward erase S1
+    local -A id_table=() id_kind=() art_path=() art_type=()
+    _knit_remove_map_ids id_table id_kind art_path art_type "${erase[@]}"
+    local -A plain_out=()
+    _knit_remove_plain_outputs plain_out id_table "${erase[@]}"
+    local -a rows=() edges=() removed=() left=()
+    _knit_remove_build_report rows edges removed left \
+        id_table id_kind art_path plain_out false "${erase[@]}"
+
+    # Data rows: setup shows "type (name)", the job shows its state, the body row
+    # is marked as such, and the artifact shows its path.
+    local rowtext; rowtext="$(printf '%s\n' "${rows[@]}")"
+    [[ "${rowtext}" == *"setup"* ]]
+    [[ "${rowtext}" == *"juliaenv (env)"* ]]
+    [[ "${rowtext}" == *"state: completed"* ]]
+    [[ "${rowtext}" == *"body row"* ]]
+    [[ "${rowtext}" == *"artifact"* && "${rowtext}" == *"frame.png"* && "${rowtext}" == *"P1"* ]]
+
+    # Every edge type touching the set appears.
+    local edgetext; edgetext="$(printf '%s\n' "${edges[@]}")"
+    [[ "${edgetext}" == *"used_by"* ]]
+    [[ "${edgetext}" == *"call"* ]]
+    [[ "${edgetext}" == *"produced"* ]]
+
+    # Exactly the job dir, the setup dir, and the artifact entry are removed.
+    [ "${#removed[@]}" -eq 3 ]
+    _in "/ROOT/jobs/J1" "${removed[@]}"
+    _in "/ROOT/setups/env" "${removed[@]}"
+    _in "/ROOT/artifacts/frame.png" "${removed[@]}"
+
+    # The plain output is left on disk, attributed to its owning command.
+    local lefttext; lefttext="$(printf '%s\n' "${left[@]}")"
+    [[ "${lefttext}" == *"/data/metrics.json"* ]]
+    [[ "${lefttext}" == *"output of submit:render"* ]]
+}
+
+@test "_knit_remove_build_report --keep-files moves the artifact into left-on-disk" {
+    _stub_roots
+    local -a erase=()
+    _knit_remove_closure_downward erase S1
+    local -A id_table=() id_kind=() art_path=() art_type=()
+    _knit_remove_map_ids id_table id_kind art_path art_type "${erase[@]}"
+    local -A plain_out=()
+    _knit_remove_plain_outputs plain_out id_table "${erase[@]}"
+    local -a rows=() edges=() removed=() left=()
+    _knit_remove_build_report rows edges removed left \
+        id_table id_kind art_path plain_out true "${erase[@]}"
+
+    # The artifact entry is no longer in the removed list...
+    if _in "/ROOT/artifacts/frame.png" "${removed[@]}"; then
+        echo "artifact must be kept under --keep-files"; false
+    fi
+    # ...but the job and setup dirs still are.
+    _in "/ROOT/jobs/J1" "${removed[@]}"
+    _in "/ROOT/setups/env" "${removed[@]}"
+
+    # It is listed as left on disk, alongside the plain output.
+    local lefttext; lefttext="$(printf '%s\n' "${left[@]}")"
+    [[ "${lefttext}" == *"/ROOT/artifacts/frame.png"* ]]
+    [[ "${lefttext}" == *"artifact, --keep-files"* ]]
+    [[ "${lefttext}" == *"/data/metrics.json"* ]]
+}
+
+@test "_knit_remove_print_report lays out the sections with the header tense" {
+    local -a rows=("setup    juliaenv (env)  S1") \
+             edges=("setup:juliaenv S1 --used_by--> submit:render J1") \
+             removed=("/x/jobs/J1") \
+             left=("/data/metrics.json   (output of render)")
+    run _knit_remove_print_report "The following will be permanently erased:" \
+        rows edges removed left
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"The following will be permanently erased:"* ]]
+    [[ "${output}" == *"Data rows (1):"* ]]
+    [[ "${output}" == *"Provenance edges (1):"* ]]
+    [[ "${output}" == *"Directories and artifacts removed (1):"* ]]
+    [[ "${output}" == *"Left on disk (1):"* ]]
+    [[ "${output}" == *"/x/jobs/J1"* ]]
+}
+
+@test "_knit_remove_print_report omits empty sections but always shows data rows" {
+    local -a rows=("command  foo  F1") edges=() removed=() left=()
+    run _knit_remove_print_report "Erased:" rows edges removed left
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"Erased:"* ]]
+    [[ "${output}" == *"Data rows (1):"* ]]
+    [[ "${output}" != *"Provenance edges"* ]]
+    [[ "${output}" != *"Directories and artifacts removed"* ]]
+    [[ "${output}" != *"Left on disk"* ]]
+}
+
+# ---------- --dry-run through the body ----------
+
+@test "remove setup --id --dry-run prints the report and stops (example 1)" {
+    _stub_roots
+    run _knit_invoke_command "remove" "setup" "--id" "S1" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"The following will be permanently erased:"* ]]
+    [[ "${output}" == *"Data rows"* ]]
+    local id
+    for id in S1 J1 R1 U1 A1 P1; do
+        [[ "${output}" == *"${id}"* ]] || { echo "missing ${id}"; false; }
+    done
+    [[ "${output}" == *"/ROOT/jobs/J1"* ]]
+    [[ "${output}" == *"/ROOT/setups/env"* ]]
+    [[ "${output}" == *"/ROOT/artifacts/frame.png"* ]]
+    [[ "${output}" == *"/data/metrics.json"* ]]
+    [[ "${output}" == *"output of submit:render"* ]]
+}
+
+@test "remove --dry-run changes neither the database rows nor the edges" {
+    _stub_roots
+    local jobs_before prov_before
+    jobs_before="$(_knit_sqlite3 "SELECT count(*) FROM jobs;")"
+    prov_before="$(_knit_sqlite3 "SELECT count(*) FROM __provenance__;")"
+    run _knit_invoke_command "remove" "setup" "--id" "S1" "--dry-run"
+    [ "$status" -eq 0 ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM jobs;")" = "${jobs_before}" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM __provenance__;")" = "${prov_before}" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "1" ]
+}
+
+@test "remove setup --id --dry-run --keep-files lists the artifact under Left on disk" {
+    _stub_roots
+    run _knit_invoke_command "remove" "setup" "--id" "S1" "--dry-run" "--keep-files"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"Left on disk"* ]]
+    [[ "${output}" == *"artifact, --keep-files"* ]]
+    [[ "${output}" == *"/ROOT/artifacts/frame.png"* ]]
+}
+
+@test "remove --dry-run still refuses a non-terminal job pulled in by cascade" {
+    _stub_roots
+    # Wire a running job under the setup so its downward closure reaches it.
+    _knit_sqlite3 "INSERT INTO __provenance__ VALUES
+        ('S1','setup:juliaenv','J3','live','used_by',NULL,NULL,NULL);"
+    run _knit_invoke_command "remove" "setup" "--id" "S1" "--dry-run"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"cannot erase job J3"* ]]
+    [[ "${output}" == *"job cancel J3"* ]]
 }
