@@ -114,6 +114,28 @@ _stub_roots() {
     _knit_artifact_root() { local -n __r=$1; __r=/ROOT/artifacts; }
 }
 
+# Build a real on-disk root tree matching the seeded graph and point the root
+# resolvers at it, so the filesystem phase acts on actual directories and entries.
+# The setup dir claims S1 through its .setup.id marker; the resource dir claims D1
+# through its sibling .mydata.resource.id sidecar; the job dir and the artifact
+# entry exist as a directory and a file.
+_fs_fixture() {
+    local base="${BATS_TEST_TMPDIR}/root"
+    mkdir -p "${base}/jobs/J1" "${base}/setups/env" \
+             "${base}/resources/mydata" "${base}/artifacts"
+    printf 'x\n'        > "${base}/jobs/J1/output.txt"
+    printf 'S1\n'       > "${base}/setups/env/.setup.id"
+    printf 'juliaenv\n' > "${base}/setups/env/.setup.type"
+    printf 'D1\n'       > "${base}/resources/.mydata.resource.id"
+    printf 'data\n'     > "${base}/resources/.mydata.resource.type"
+    printf 'http://x\n' > "${base}/resources/.mydata.resource.source"
+    printf 'PNG\n'      > "${base}/artifacts/frame.png"
+    _knit_job_root()      { local -n __r=$1; __r="${BATS_TEST_TMPDIR}/root/jobs"; }
+    _knit_setup_root()    { local -n __r=$1; __r="${BATS_TEST_TMPDIR}/root/setups"; }
+    _knit_resource_root() { local -n __r=$1; __r="${BATS_TEST_TMPDIR}/root/resources"; }
+    _knit_artifact_root() { local -n __r=$1; __r="${BATS_TEST_TMPDIR}/root/artifacts"; }
+}
+
 # ---------- command surface: describe ----------
 
 @test "describe lists the remove group and every subcommand" {
@@ -974,4 +996,195 @@ _stub_roots() {
     [[ "${output}" == *"The following will be permanently erased:"* ]]
     [ "$(_knit_sqlite3 "SELECT count(*) FROM jobs;")" = "${jobs_before}" ]
     [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "1" ]
+}
+
+# ---------- filesystem side effects ----------
+
+@test "_knit_remove_instance_names captures setup and resource names only" {
+    local -A id_kind=([S1]=setup [D1]=resource [J1]=job [P1]=artifact)
+    local -A id_table=([S1]="setup:juliaenv" [D1]="resource:data" [J1]=jobs [P1]=artifacts)
+    local -A names=()
+    _knit_remove_instance_names names id_kind id_table S1 D1 J1 P1
+    [ "${names[S1]}" = "env" ]
+    [ "${names[D1]}" = "mydata" ]
+    [ -z "${names[J1]:-}" ]
+    [ -z "${names[P1]:-}" ]
+    [ "${#names[@]}" -eq 2 ]
+}
+
+@test "_knit_remove_filesystem removes the job, setup, resource dirs and artifact entry" {
+    _fs_fixture
+    local -A id_kind=([J1]=job [S1]=setup [D1]=resource [P1]=artifact)
+    local -A art_path=([P1]=frame.png)
+    local -A inst=([S1]=env [D1]=mydata)
+    local -a failures=()
+    _knit_remove_filesystem failures id_kind art_path inst false J1 S1 D1 P1
+    [ "${#failures[@]}" -eq 0 ]
+    [ ! -e "${BATS_TEST_TMPDIR}/root/jobs/J1" ]
+    [ ! -e "${BATS_TEST_TMPDIR}/root/setups/env" ]
+    [ ! -e "${BATS_TEST_TMPDIR}/root/resources/mydata" ]
+    [ ! -e "${BATS_TEST_TMPDIR}/root/resources/.mydata.resource.id" ]
+    [ ! -e "${BATS_TEST_TMPDIR}/root/resources/.mydata.resource.type" ]
+    [ ! -e "${BATS_TEST_TMPDIR}/root/artifacts/frame.png" ]
+}
+
+@test "_knit_remove_filesystem honors the owns-the-dir guard for setups and resources" {
+    _fs_fixture
+    # Rewrite both markers to name a different (kept) build; the live dirs belong
+    # to that build, so pointing remove at S1/D1 must leave them in place.
+    printf 'OTHER\n' > "${BATS_TEST_TMPDIR}/root/setups/env/.setup.id"
+    printf 'OTHER\n' > "${BATS_TEST_TMPDIR}/root/resources/.mydata.resource.id"
+    local -A id_kind=([S1]=setup [D1]=resource)
+    local -A art_path=()
+    local -A inst=([S1]=env [D1]=mydata)
+    local -a failures=()
+    _knit_remove_filesystem failures id_kind art_path inst false S1 D1
+    [ "${#failures[@]}" -eq 0 ]
+    [ -d "${BATS_TEST_TMPDIR}/root/setups/env" ]
+    [ -d "${BATS_TEST_TMPDIR}/root/resources/mydata" ]
+    [ -e "${BATS_TEST_TMPDIR}/root/resources/.mydata.resource.id" ]
+}
+
+@test "_knit_remove_filesystem skips rows with no captured name or path" {
+    _fs_fixture
+    # Names/paths unknown, an id with no kind, and an empty id: nothing removed.
+    local -A id_kind=([S1]=setup [D1]=resource [P1]=artifact [Z1]="")
+    local -A art_path=()
+    local -A inst=()
+    local -a failures=()
+    _knit_remove_filesystem failures id_kind art_path inst false S1 D1 P1 Z1 ""
+    [ "${#failures[@]}" -eq 0 ]
+    [ -d "${BATS_TEST_TMPDIR}/root/setups/env" ]
+    [ -d "${BATS_TEST_TMPDIR}/root/resources/mydata" ]
+    [ -e "${BATS_TEST_TMPDIR}/root/artifacts/frame.png" ]
+}
+
+@test "_knit_remove_filesystem removes a symlink artifact but never its target" {
+    _fs_fixture
+    local outside="${BATS_TEST_TMPDIR}/outside.dat"
+    printf 'keep me\n' > "${outside}"
+    ln -s "${outside}" "${BATS_TEST_TMPDIR}/root/artifacts/link.png"
+    local -A id_kind=([P1]=artifact)
+    local -A art_path=([P1]=link.png)
+    local -A inst=()
+    local -a failures=()
+    _knit_remove_filesystem failures id_kind art_path inst false P1
+    [ "${#failures[@]}" -eq 0 ]
+    [ ! -L "${BATS_TEST_TMPDIR}/root/artifacts/link.png" ]
+    [ -f "${outside}" ]
+    [ "$(cat "${outside}")" = "keep me" ]
+}
+
+@test "_knit_remove_filesystem reports a directory it could not remove" {
+    [ "$(id -u)" -eq 0 ] && skip "cannot exercise a permission failure as root"
+    _fs_fixture
+    local jobs="${BATS_TEST_TMPDIR}/root/jobs"
+    chmod u-w "${jobs}"
+    local -A id_kind=([J1]=job)
+    local -A art_path=()
+    local -A inst=()
+    local -a failures=()
+    _knit_remove_filesystem failures id_kind art_path inst false J1
+    chmod u+w "${jobs}"   # restore so teardown can clean up
+    [ "${#failures[@]}" -eq 1 ]
+    [[ "${failures[0]}" == *"/jobs/J1"* ]]
+    [ -d "${jobs}/J1" ]
+}
+
+@test "_knit_remove_rm_artifact refuses an entry outside the artifact root" {
+    _fs_fixture
+    local outside="${BATS_TEST_TMPDIR}/escape.dat"
+    printf 'safe\n' > "${outside}"
+    _knit_remove_rm_artifact "${BATS_TEST_TMPDIR}/root/artifacts" "../../escape.dat"
+    [ -f "${outside}" ]
+}
+
+@test "_knit_remove_rm_artifact prunes now-empty parent directories" {
+    _fs_fixture
+    mkdir -p "${BATS_TEST_TMPDIR}/root/artifacts/sub/deep"
+    printf 'x\n' > "${BATS_TEST_TMPDIR}/root/artifacts/sub/deep/f.png"
+    _knit_remove_rm_artifact "${BATS_TEST_TMPDIR}/root/artifacts" "sub/deep/f.png"
+    [ ! -e "${BATS_TEST_TMPDIR}/root/artifacts/sub/deep/f.png" ]
+    [ ! -d "${BATS_TEST_TMPDIR}/root/artifacts/sub/deep" ]
+    [ ! -d "${BATS_TEST_TMPDIR}/root/artifacts/sub" ]
+    [ -d "${BATS_TEST_TMPDIR}/root/artifacts" ]
+}
+
+@test "_knit_remove_report_left lists surviving plain outputs and kept artifacts" {
+    _fs_fixture
+    local metrics="${BATS_TEST_TMPDIR}/metrics.json"
+    printf '{}\n' > "${metrics}"
+    local gone="${BATS_TEST_TMPDIR}/gone.json"   # deliberately never created
+    local -A id_kind=([P1]=artifact)
+    local -A art_path=([P1]=frame.png)
+    local -A plain=(["${metrics}"]=submit:render ["${gone}"]=submit:render)
+    run _knit_remove_report_left id_kind art_path plain true P1
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"The following files/directories were NOT removed:"* ]]
+    [[ "${output}" == *"${metrics}"* ]]
+    [[ "${output}" == *"output of submit:render"* ]]
+    [[ "${output}" != *"gone.json"* ]]
+    [[ "${output}" == *"frame.png"* ]]
+    [[ "${output}" == *"artifact, --keep-files"* ]]
+}
+
+@test "_knit_remove_report_left prints nothing when nothing survived" {
+    local -A id_kind=()
+    local -A art_path=()
+    local -A plain=(["/nonexistent/x"]=foo)
+    run _knit_remove_report_left id_kind art_path plain false
+    [ "$status" -eq 0 ]
+    [ -z "${output}" ]
+}
+
+@test "remove setup --id --yes removes the framework directories and artifact" {
+    _fs_fixture
+    run _knit_invoke_command "remove" "setup" "--id" "S1" "--yes"
+    [ "$status" -eq 0 ]
+    [ ! -e "${BATS_TEST_TMPDIR}/root/jobs/J1" ]
+    [ ! -e "${BATS_TEST_TMPDIR}/root/setups/env" ]
+    [ ! -e "${BATS_TEST_TMPDIR}/root/artifacts/frame.png" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "0" ]
+}
+
+@test "remove setup --id --yes --keep-files keeps the artifact file and lists it" {
+    _fs_fixture
+    run _knit_invoke_command "remove" "setup" "--id" "S1" "--yes" "--keep-files"
+    [ "$status" -eq 0 ]
+    # The artifact file survives on disk and is reported as NOT removed...
+    [ -e "${BATS_TEST_TMPDIR}/root/artifacts/frame.png" ]
+    [[ "${output}" == *"The following files/directories were NOT removed:"* ]]
+    [[ "${output}" == *"frame.png"* ]]
+    [[ "${output}" == *"artifact, --keep-files"* ]]
+    # ...but the job and setup directories are still removed, and the DB rows go.
+    [ ! -e "${BATS_TEST_TMPDIR}/root/jobs/J1" ]
+    [ ! -e "${BATS_TEST_TMPDIR}/root/setups/env" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM artifacts WHERE id='P1';")" = "0" ]
+}
+
+@test "remove setup --id --yes lists a surviving plain output" {
+    _fs_fixture
+    local metrics="${BATS_TEST_TMPDIR}/metrics.json"
+    printf '{}\n' > "${metrics}"
+    _knit_sqlite3 "UPDATE render SET metrics='${metrics}' WHERE id='R1';"
+    run _knit_invoke_command "remove" "setup" "--id" "S1" "--yes"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"The following files/directories were NOT removed:"* ]]
+    [[ "${output}" == *"${metrics}"* ]]
+    [[ "${output}" == *"output of submit:render"* ]]
+    [ -f "${metrics}" ]
+}
+
+@test "remove setup --id --yes exits non-zero when a directory cannot be removed" {
+    [ "$(id -u)" -eq 0 ] && skip "cannot exercise a permission failure as root"
+    _fs_fixture
+    local jobs="${BATS_TEST_TMPDIR}/root/jobs"
+    chmod u-w "${jobs}"
+    run _knit_invoke_command "remove" "setup" "--id" "S1" "--yes"
+    chmod u+w "${jobs}"   # restore so teardown can clean up
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"could not be removed and must be deleted by hand"* ]]
+    [[ "${output}" == *"/jobs/J1"* ]]
+    # The DB transaction still committed; the DB is the source of truth.
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "0" ]
 }

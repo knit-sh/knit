@@ -31,11 +31,16 @@
 # exactly-one-selector contract, resolve the selection, compute whichever closure
 # the flags request, run the refusal check in the default mode, map the erase set,
 # refuse a non-terminal job, and either print the report and stop under --dry-run,
-# print the report and delete the rows under --yes, or print the resulting erase
-# set. The deletion transaction removes, in one atomic BEGIN...COMMIT, every
-# provenance edge touching the erase set and then the data rows table by table.
-# The filesystem side effects and the confirmation prompt are added in later
-# milestones.
+# print the report and delete the rows and files under --yes, or print the
+# resulting erase set. The deletion transaction removes, in one atomic
+# BEGIN...COMMIT, every provenance edge touching the erase set and then the data
+# rows table by table. After a successful commit the filesystem phase removes, best
+# effort, each erased job/setup/resource instance directory (setups and resources
+# only when their on-disk marker still names the erased row) and -- unless
+# --keep-files -- each artifact entry under the artifact root, and then reports the
+# files it deliberately left on disk (a command's plain outputs, and kept artifact
+# entries) and exits non-zero listing anything a removal could not clear. The
+# confirmation prompt is added in a later milestone.
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
@@ -1085,6 +1090,275 @@ EOF
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_remove_rmtree()
+#
+# Remove a single filesystem entry (a file, directory, or symlink) best-effort.
+# An absent entry is a success (nothing to do). A symlink is removed as the link,
+# never followed to its target (rm -rf never deletes a symlink's target). The
+# return code reports the OUTCOME, not rm's exit status: 0 when the entry is gone
+# afterward (or was never there), 1 when it still exists, so the caller can list a
+# path it could not clear.
+#
+# @param[in] path The entry to remove.
+# @return 0 if the entry is gone (or was absent); 1 if it remains.
+# ------------------------------------------------------------------------------
+_knit_remove_rmtree() {
+    local path="$1"
+    [[ -e "${path}" || -L "${path}" ]] || return 0
+    rm -rf "${path}" 2>/dev/null
+    [[ -e "${path}" || -L "${path}" ]] && return 1
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_rm_artifact()
+#
+# Remove one on-disk artifact entry at <root>/<rel> best-effort, with a
+# containment guard and empty-parent pruning. An absent entry is a success. The
+# entry itself is never resolved, so a --link-from artifact (a symlink under the
+# artifact root) is removed as the link and a target outside the root is left
+# untouched; only the entry's PARENT is resolved, and the removal is refused
+# (silently, as a no-op) unless that parent stays inside the artifact root -- a
+# cheap defense, since the recorded path is framework-written and always relative.
+# After a successful removal, now-empty parent directories are pruned up to but not
+# including the artifact root, so the root does not accumulate empty subtrees.
+#
+# @param[in] root The resolved artifact root.
+# @param[in] rel  The artifacts-relative path recorded for the entry.
+# @return 0 if the entry is gone (or was absent, or outside the root); 1 if it
+#         remains.
+# ------------------------------------------------------------------------------
+_knit_remove_rm_artifact() {
+    local root="$1" rel="$2"
+    local entry="${root}/${rel}"
+    [[ -e "${entry}" || -L "${entry}" ]] || return 0
+    local root_real parent_real
+    root_real="$(cd "${root}" 2>/dev/null && pwd -P)" || return 0
+    parent_real="$(cd "$(dirname "${entry}")" 2>/dev/null && pwd -P)" || return 0
+    case "${parent_real}/" in
+        "${root_real}/"*) ;;   # inside the root (or the root itself)
+        *) return 0 ;;         # outside: refuse as a no-op (defensive)
+    esac
+    rm -rf "${entry}" 2>/dev/null
+    [[ -e "${entry}" || -L "${entry}" ]] && return 1
+    local dir="${parent_real}"
+    while [[ "${dir}" != "${root_real}" && "${dir}" == "${root_real}/"* ]]; do
+        rmdir "${dir}" 2>/dev/null || break
+        dir="$(dirname "${dir}")"
+    done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_instance_names()
+#
+# Read the instance name of every setup and resource row in the erase set into a
+# caller-named associative array (id -> name), from the "name" column each such row
+# records. It must run BEFORE the rows are deleted, because the filesystem phase
+# needs the names to locate the instance directories (setups/<name>,
+# resources/<name>) after the rows are gone, exactly as the artifact path is read
+# before deletion. Ids of other kinds are skipped (a job directory is named by its
+# id, an artifact by its path), as is any row whose name column is empty.
+#
+# @param[out] __knit_ret    Name of the assoc array to fill (id -> instance name).
+# @param[in]  __knit_kinds  Name of the assoc array mapping id -> kind.
+# @param[in]  __knit_tables Name of the assoc array mapping id -> table.
+# @param[in]  ...           The erase-set ids.
+# ------------------------------------------------------------------------------
+_knit_remove_instance_names() {
+    # shellcheck disable=SC2178 # nameref to the caller's associative array
+    local -n __knit_ret=$1
+    local -n __knit_kinds=$2
+    local -n __knit_tables=$3
+    shift 3
+    __knit_ret=()
+    local id knd tbl name
+    for id in "$@"; do
+        [[ -z "${id}" ]] && continue
+        knd="${__knit_kinds["${id}"]:-}"
+        case "${knd}" in setup|resource) ;; *) continue ;; esac
+        tbl="${__knit_tables["${id}"]:-}"
+        [[ -z "${tbl}" ]] && continue
+        _knit_remove_row_value name "${tbl}" "${id}" name
+        [[ -n "${name}" ]] && __knit_ret["${id}"]="${name}"
+    done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_filesystem()
+#
+# Remove the framework-managed on-disk state of the erase set, best-effort, after
+# the deletion transaction has committed. For every erase-set id, by kind:
+#   - job: its job directory <job-root>/<id> is removed;
+#   - setup: its instance directory <setup-root>/<name> is removed ONLY when the
+#     directory's .setup.id marker names this row -- so erasing an older historical
+#     build never removes a newer kept build's live directory (both share the
+#     instance name; only one owns the directory);
+#   - resource: its instance directory <resource-root>/<name> and its sibling
+#     sidecar markers (.<name>.resource.{type,source,id}) are removed under the
+#     same owns-the-dir guard (the .<name>.resource.id sidecar names the row);
+#   - artifact: unless keep_files is "true", its on-disk entry
+#     <artifact-root>/<path> is removed (symlink-safe, containment-guarded, empty
+#     parents pruned -- see _knit_remove_rm_artifact).
+# A command's plain (non-artifact) file/directory outputs are NEVER removed here;
+# the caller lists the surviving ones with _knit_remove_report_left. Each entry
+# whose removal was ATTEMPTED but did not clear is logged and its path is appended
+# to a caller-named failures array, so the caller can print a final "remove by
+# hand" list and exit non-zero; a deliberately kept file (a plain output, or an
+# artifact under keep_files) is not a failure. The setup/resource instance names
+# come from the map _knit_remove_instance_names read before deletion, and the
+# artifact paths from the map _knit_remove_map_ids read before deletion.
+#
+# @param[out] __knit_ret    Name of the array to append unremovable paths to.
+# @param[in]  __knit_kinds  Name of the assoc array mapping id -> kind.
+# @param[in]  __knit_apaths Name of the assoc array mapping artifact id -> path.
+# @param[in]  __knit_names  Name of the assoc array mapping id -> instance name.
+# @param[in]  keep_files    "true" to leave artifact entries on disk.
+# @param[in]  ...           The erase-set ids.
+# ------------------------------------------------------------------------------
+_knit_remove_filesystem() {
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n __knit_ret=$1
+    local -n __knit_kinds=$2
+    local -n __knit_apaths=$3
+    local -n __knit_names=$4
+    shift 4
+    local keep_files="$1"; shift
+    __knit_ret=()
+
+    # Roots resolved lazily and cached (each reads metadata).
+    local job_root="" setup_root="" resource_root="" artifact_root=""
+    local id knd name dir marker owner apath
+    for id in "$@"; do
+        [[ -z "${id}" ]] && continue
+        knd="${__knit_kinds["${id}"]:-}"
+        case "${knd}" in
+            job)
+                [[ -z "${job_root}" ]] && _knit_job_root job_root
+                dir="${job_root}/${id}"
+                if ! _knit_remove_rmtree "${dir}"; then
+                    knit_error "remove: could not remove job directory \"${dir}\"."
+                    __knit_ret+=("${dir}")
+                fi
+                ;;
+            setup)
+                name="${__knit_names["${id}"]:-}"
+                [[ -z "${name}" ]] && continue
+                [[ -z "${setup_root}" ]] && _knit_setup_root setup_root
+                dir="${setup_root}/${name}"
+                marker="${dir}/.setup.id"
+                owner=""
+                if [[ -f "${marker}" ]]; then
+                    IFS= read -r owner < "${marker}" 2>/dev/null || owner=""
+                fi
+                [[ "${owner}" == "${id}" ]] || continue
+                if ! _knit_remove_rmtree "${dir}"; then
+                    knit_error "remove: could not remove setup directory \"${dir}\"."
+                    __knit_ret+=("${dir}")
+                fi
+                ;;
+            resource)
+                name="${__knit_names["${id}"]:-}"
+                [[ -z "${name}" ]] && continue
+                [[ -z "${resource_root}" ]] && _knit_resource_root resource_root
+                dir="${resource_root}/${name}"
+                marker="${resource_root}/.${name}.resource.id"
+                owner=""
+                if [[ -f "${marker}" ]]; then
+                    IFS= read -r owner < "${marker}" 2>/dev/null || owner=""
+                fi
+                [[ "${owner}" == "${id}" ]] || continue
+                # Sidecar markers are siblings of the instance directory.
+                rm -f "${resource_root}/.${name}.resource.type" \
+                      "${resource_root}/.${name}.resource.source" \
+                      "${marker}" 2>/dev/null
+                if ! _knit_remove_rmtree "${dir}"; then
+                    knit_error "remove: could not remove resource directory \"${dir}\"."
+                    __knit_ret+=("${dir}")
+                fi
+                ;;
+            artifact)
+                [[ "${keep_files}" == "true" ]] && continue
+                apath="${__knit_apaths["${id}"]:-}"
+                [[ -z "${apath}" ]] && continue
+                [[ -z "${artifact_root}" ]] && _knit_artifact_root artifact_root
+                if ! _knit_remove_rm_artifact "${artifact_root}" "${apath}"; then
+                    knit_error "remove: could not remove artifact entry \"${artifact_root}/${apath}\"."
+                    __knit_ret+=("${artifact_root}/${apath}")
+                fi
+                ;;
+        esac
+    done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_report_left()
+#
+# Print the "NOT removed" report after an actual removal: the files and directories
+# remove deliberately left in place that STILL EXIST. Two sources, in order:
+#   - every plain (non-artifact) file/directory output remove never deletes,
+#     attributed to its owning command as "(output of <command>)". A plain output
+#     that lived inside a removed job directory is already gone and is not listed.
+#   - under keep_files, every kept artifact entry <artifact-root>/<path>, marked
+#     "(artifact, --keep-files)".
+# Only entries that still exist are listed, so this is a truthful record of what
+# survived. When nothing survived, nothing is printed. This report is informational
+# and does not itself set the exit code; a removal that FAILED (as opposed to a
+# deliberately kept file) is handled separately by the caller from the failures
+# _knit_remove_filesystem collects.
+#
+# @param[in] __knit_kinds  Name of the assoc array mapping id -> kind.
+# @param[in] __knit_apaths Name of the assoc array mapping artifact id -> path.
+# @param[in] __knit_plain  Name of the assoc array mapping plain output path -> command.
+# @param[in] keep_files    "true" if artifact entries were kept on disk.
+# @param[in] ...           The erase-set ids.
+# ------------------------------------------------------------------------------
+_knit_remove_report_left() {
+    local -n __knit_kinds=$1
+    local -n __knit_apaths=$2
+    local -n __knit_plain=$3
+    shift 3
+    local keep_files="$1"; shift
+    local -a lines=()
+    local line
+
+    # Plain outputs (always kept) that still exist, sorted for stable output.
+    local -a paths=()
+    local p
+    for p in "${!__knit_plain[@]}"; do paths+=("${p}"); done
+    if (( ${#paths[@]} > 0 )); then
+        mapfile -t paths < <(printf '%s\n' "${paths[@]}" | sort)
+    fi
+    for p in "${paths[@]}"; do
+        [[ -e "${p}" || -L "${p}" ]] || continue
+        printf -v line '%s   (output of %s)' "${p}" "${__knit_plain["${p}"]}"
+        lines+=("${line}")
+    done
+
+    # Kept artifact entries under --keep-files that still exist.
+    if [[ "${keep_files}" == "true" ]]; then
+        local artifact_root="" id apath entry
+        for id in "$@"; do
+            [[ "${__knit_kinds["${id}"]:-}" == "artifact" ]] || continue
+            apath="${__knit_apaths["${id}"]:-}"
+            [[ -z "${apath}" ]] && continue
+            [[ -z "${artifact_root}" ]] && _knit_artifact_root artifact_root
+            entry="${artifact_root}/${apath}"
+            [[ -e "${entry}" || -L "${entry}" ]] || continue
+            printf -v line '%s   (artifact, --keep-files)' "${entry}"
+            lines+=("${line}")
+        done
+    fi
+
+    (( ${#lines[@]} == 0 )) && return 0
+    printf 'The following files/directories were NOT removed:\n'
+    for line in "${lines[@]}"; do printf '  %s\n' "${line}"; done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_remove_dispatch()
 #
 # Shared body for every remove subcommand: enforce the exactly-one-selector
@@ -1095,12 +1369,15 @@ EOF
 # (fatal before anything is printed or deleted); with it, the whole-lineage
 # connected-component closure is taken and the refusal check is skipped by design.
 # Under --dry-run the itemized report is built and printed and the command stops
-# (no prompt, no deletion); under --yes the report is printed and the erase set is
-# then deleted from the database (edges and rows, in one transaction) --
-# filesystem side effects come later. With neither flag the resulting erase set is
-# printed (the confirmation prompt is added in a later milestone). --dry-run wins
-# if both flags are given. The selector names are given as leading arguments up to
-# a literal "--", after which come the command invocation arguments.
+# (no prompt, no deletion); under --yes the report is printed, the erase set is
+# deleted from the database (edges and rows, in one transaction), the
+# framework-managed on-disk state is removed best-effort (job/setup/resource
+# directories and, unless --keep-files, artifact entries), and the files left on
+# disk are reported; the command exits non-zero if any attempted removal could not
+# be cleared. With neither flag the resulting erase set is printed (the
+# confirmation prompt is added in a later milestone). --dry-run wins if both flags
+# are given. The selector names are given as leading arguments up to a literal
+# "--", after which come the command invocation arguments.
 #
 # @param[in] kind The entity kind of the subcommand.
 # @param[in] ... The selector names, then "--", then the invocation arguments.
@@ -1125,8 +1402,9 @@ _knit_remove_dispatch() {
         _knit_remove_check_refusal starting erase
     fi
     # These maps are written by _knit_remove_map_ids and read back by name (art_type
-    # only by the filesystem step in a later milestone); shellcheck cannot see the
-    # by-name reads.
+    # is captured for completeness but not consumed: the filesystem step removes
+    # files, directories, and symlinks alike with one rm -rf); shellcheck cannot see
+    # the by-name reads.
     # shellcheck disable=SC2034
     local -A id_table=() id_kind=() art_path=() art_type=()
     _knit_remove_map_ids id_table id_kind art_path art_type "${erase[@]}"
@@ -1154,10 +1432,27 @@ _knit_remove_dispatch() {
                 rep_rows rep_edges rep_removed rep_left
             return 0
         fi
+        # Capture setup/resource instance names before the rows go; the filesystem
+        # phase needs them to locate the instance directories after deletion.
+        # shellcheck disable=SC2034 # filled by name for _knit_remove_filesystem
+        local -A inst_name=()
+        _knit_remove_instance_names inst_name id_kind id_table "${erase[@]}"
         _knit_remove_print_report \
             "Erased:" \
             rep_rows rep_edges rep_removed rep_left
         _knit_remove_delete_rows id_table "${erase[@]}"
+        # Filesystem side effects run after a successful commit, best-effort.
+        local -a fs_failures=()
+        _knit_remove_filesystem fs_failures id_kind art_path inst_name \
+            "${keep_files}" "${erase[@]}"
+        _knit_remove_report_left id_kind art_path plain_out \
+            "${keep_files}" "${erase[@]}"
+        if (( ${#fs_failures[@]} > 0 )); then
+            printf 'The following could not be removed and must be deleted by hand:\n' >&2
+            local f
+            for f in "${fs_failures[@]}"; do printf '  %s\n' "${f}" >&2; done
+            return 1
+        fi
         return 0
     fi
 
