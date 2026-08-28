@@ -76,7 +76,19 @@ teardown() {
     knit_done
     local names
     names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('setup:mysetup');" | cut -d'|' -f2 | tr '\n' ',')
-    [ "$names" = "id,version," ]
+    # Columns are grouped id, params, then outputs (each sorted): the user's
+    # optional "version" precedes the automatic "directory"/"name" outputs.
+    [ "$names" = "id,version,directory,name," ]
+}
+
+@test "knit_register_setup table has name and directory columns" {
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_done
+    local names
+    names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('setup:mysetup');" | cut -d'|' -f2 | tr '\n' ',')
+    [[ "$names" == *",name,"* ]]
+    [[ "$names" == *",directory,"* ]]
 }
 
 @test "knit_register_setup installs before callback" {
@@ -359,6 +371,32 @@ teardown() {
         = "$(sqlite3 "${_KNIT_DATABASE}" 'SELECT id FROM "setup:mysetup";')" ]
 }
 
+@test "_knit_setup records the instance name and directory on the row" {
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_done
+    _knit_setup --name myenv -- mysetup
+    # The row for the setup body records the instance name and its on-disk
+    # directory, so `knit remove --name` can resolve the instance from the DB.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" 'SELECT name FROM "setup:mysetup";')" = "myenv" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" 'SELECT directory FROM "setup:mysetup";')" \
+        = "${newdir}" ]
+}
+
+@test "_knit_setup records no name/directory when unbootstrapped (no error)" {
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_done
+    # Without a bootstrapped experiment the body records no row, so the name/
+    # directory fill is skipped: the setup still succeeds and creates its dir.
+    _KNIT_IS_BOOTSTRAPPED=0
+    run _knit_setup --name myenv -- mysetup
+    [ "$status" -eq 0 ]
+    [ -d "${newdir}" ]
+}
+
 # ---------- _knit_setup_check_type ----------
 
 @test "_knit_setup_check_type accepts a matching type" {
@@ -597,6 +635,10 @@ teardown() {
     [ -f "${newdir}/.setup.id" ]
     [ "$(cat "${newdir}/.setup.id")" \
         = "$(sqlite3 "${_KNIT_DATABASE}" 'SELECT id FROM "setup:default";')" ]
+    # The builtin default setup records its instance name and directory too.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" 'SELECT name FROM "setup:default";')" = "default" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" 'SELECT directory FROM "setup:default";')" \
+        = "${newdir}" ]
 }
 
 @test "_knit_setup_dep_resolve_path falls back to the default path" {

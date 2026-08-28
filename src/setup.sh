@@ -171,9 +171,13 @@ _knit_setup() {
     # Record the setup body's row id so a later consumer can record a "used_by" edge
     # to this setup by id (robust) rather than by matching directory paths. Only
     # written when the body recorded a row (i.e. the experiment is bootstrapped);
-    # a setup directory without this marker simply yields no "used_by" edge.
+    # a setup directory without this marker simply yields no "used_by" edge. When
+    # a row was recorded, also complete it with the instance name and directory so
+    # the row identifies the instance (used to resolve `knit remove --name`).
     if [[ -n "${body_row_id}" ]]; then
         printf '%s\n' "${body_row_id}" > "${path}/.setup.id"
+        _knit_db_update_row "setup:${setup_name}" "${body_row_id}" \
+            "name=${name}" "directory=${path}"
     fi
 }
 knit_done
@@ -312,6 +316,12 @@ knit_register_setup() {
     local description="$3"
     knit_register "setup:${name}" "${fn}" "${description}"
     knit_with_table
+    # Every instance records its name and on-disk directory (filled by the `knit
+    # setup` dispatcher after the setup body runs), so the row identifies the
+    # instance without reconstructing the path from the name — parity with the
+    # `fetch` resource dispatcher.
+    knit_with_output "name:string" "" "The setup instance name (from knit setup --name)."
+    knit_with_output "directory:string" "" "The instance's on-disk directory."
     _KNIT_SETUPS["${name}"]=1
     printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_type" '%s' 'setup'
     _knit_run_before _knit_setup_before_cb
@@ -484,6 +494,10 @@ knit_register "setup:default" _knit_default_setup \
     "Builtin setup carrying only the platform activation."
 _knit_is_builtin
 knit_with_table
+# The builtin default setup is a normal setup in the DB, so it records its
+# instance name and directory like any user setup (filled by _knit_setup).
+knit_with_output "name:string" "" "The setup instance name (from knit setup --name)."
+knit_with_output "directory:string" "" "The instance's on-disk directory."
 _KNIT_SETUPS["default"]=1
 _knit_run_before _knit_setup_before_cb
 _knit_run_after  _knit_setup_default_after_cb
