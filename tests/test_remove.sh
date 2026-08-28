@@ -664,6 +664,47 @@ _fs_fixture() {
     [[ "${output}" == *"--from-root"* ]]
 }
 
+@test "_knit_remove_check_refusal walks through a dispatcher frame to the root (no refusal)" {
+    # The real shape the seed omits: a table-less "setup" dispatcher records a call
+    # edge into the setup body, and above it sits the root. Erasing the setup must
+    # not refuse -- the dispatcher is not a kept persistent caller.
+    _knit_sqlite3 "INSERT INTO __provenance__ VALUES
+        ('SD','setup','S1','setup:juliaenv','call',1,2,NULL),
+        ('','','SD','setup','call',1,2,NULL);"
+    local -a selected=(S1) erase=(S1)
+    _knit_remove_check_refusal selected erase
+}
+
+@test "_knit_remove_check_refusal walks through a table-less helper too (no refusal)" {
+    # A user's non-table helper that builds a setup is walked through like a
+    # dispatcher, so the setup it created can be erased independently.
+    _knit_sqlite3 "INSERT INTO __provenance__ VALUES
+        ('SD','setup','S1','setup:juliaenv','call',1,2,NULL),
+        ('HS','helper','SD','setup','call',1,2,NULL),
+        ('','','HS','helper','call',1,2,NULL);"
+    local -a selected=(S1) erase=(S1)
+    _knit_remove_check_refusal selected erase
+}
+
+@test "_knit_remove_check_refusal climbs past a dispatcher to a kept table-backed caller (refuse)" {
+    # A table-backed command that built the setup by calling "knit setup" opted into
+    # provenance, so erasing just the setup would leave it dangling: refuse and name
+    # the command, not the dispatcher between them.
+    _knit_sqlite3 "
+        CREATE TABLE make_env (id TEXT);
+        INSERT INTO make_env VALUES ('CS');
+        INSERT INTO __provenance__ VALUES
+            ('SD','setup','S1','setup:juliaenv','call',1,2,NULL),
+            ('CS','make_env','SD','setup','call',1,2,NULL);"
+    _KNIT_DB_REGISTERED_TABLES[make_env]="make_env"
+    local -a selected=(S1) erase=(S1)
+    run _knit_remove_check_refusal selected erase
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"is called by"* ]]
+    [[ "${output}" == *"make_env"* ]]
+    [[ "${output}" == *"remove command --id CS"* ]]
+}
+
 # ---------- id -> (table, kind) mapping and artifact metadata ----------
 
 @test "_knit_remove_map_ids resolves the table and kind of every kind" {

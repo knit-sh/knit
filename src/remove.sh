@@ -520,14 +520,31 @@ _knit_remove_closure_downward() {
 # @fn _knit_remove_check_refusal()
 #
 # Enforce the callee/artifact refusal for the default (downward) closure. For each
-# originally selected id, refuse the whole operation if that id is the target of a
-# "call" or "produced" edge whose source is NOT in the erase set: erasing a callee
-# while its caller stays (or an artifact while its producer stays) would leave the
-# caller's/producer's edge dangling, so it is rejected. A "call" refusal points the
-# user at removing the caller (with the caller's own remove subcommand) or passing
-# --from-root; a "produced" refusal (a bare remove:artifact) points at --from-root,
-# which pulls the producer in and erases the whole lineage. An edge with an empty
-# source (a root invocation) never triggers a refusal.
+# originally selected id, walk the incoming "call"/"produced" edges BACKWARD from
+# it and refuse the whole operation on reaching a caller or producer that is kept
+# (not in the erase set) AND owns a data row -- a persistent entity whose recorded
+# provenance would otherwise be left referring to a row that is gone. Erasing a
+# callee while such a caller stays (or an artifact while its producer stays) is
+# rejected.
+#
+# The walk passes THROUGH table-less dispatcher frames: the "setup", "fetch", and
+# "submit" dispatchers each record a "call" edge into the body row they create but
+# own no table of their own, so such a frame is not itself a kept caller and the
+# walk continues up from it. A branch that reaches the root (an empty source) or an
+# ancestor already in the erase set first is not a refusal. This is what lets
+# "remove setup"/"remove resource" work by default: the only "call" edge into a
+# freshly built setup or resource body comes from its dispatcher, above which sits
+# the root. It still refuses when a user's own table-backed command (e.g. one that
+# itself calls "knit setup" to build several setups) is the kept caller, because
+# that command opted into provenance by declaring a table -- the walk climbs past
+# the dispatcher to it and points the user at removing THAT command or passing
+# --from-root. A table-less helper command, by contrast, is walked through like a
+# dispatcher, so setups it created can be removed independently.
+#
+# A "call" refusal points the user at removing the caller (with the caller's own
+# remove subcommand) or passing --from-root; a "produced" refusal (a bare
+# remove:artifact) points at --from-root, which pulls the producer in and erases the
+# whole lineage.
 #
 # @param[in] __knit_selected Name of the array of originally selected ids.
 # @param[in] __knit_erase    Name of the array holding the full erase set.
@@ -539,28 +556,47 @@ _knit_remove_check_refusal() {
     local -A in_set=()
     local e
     for e in "${__knit_erase[@]}"; do in_set["${e}"]=1; done
-    local x x_esc src src_name etype tgt_name caller_table caller_kind hint
+    local x
     for x in "${__knit_selected[@]}"; do
-        _knit_sql_escape x_esc "${x}"
-        while IFS='|' read -r src src_name etype tgt_name; do
-            [[ -z "${src}" ]] && continue
-            [[ -v in_set["${src}"] ]] && continue
-            if [[ "${etype}" == "produced" ]]; then
-                knit_fatal "remove: cannot erase artifact ${x}; it was produced by \"${src_name}\" (${src}), which is not being erased. Pass --from-root to erase the whole lineage."
-            fi
-            caller_kind=""
-            _knit_remove_id_table caller_table "${src}"
-            [[ -n "${caller_table}" ]] && \
+        # Backward walk over call/produced edges, skipping table-less dispatcher
+        # frames, until a kept table-owning caller/producer (refuse), the root, or
+        # an in-set ancestor is reached on every branch.
+        local -A seen=()
+        local -a worklist=("${x}")
+        local victim_name=""
+        local y y_esc src src_name etype tgt_name caller_table caller_kind hint
+        while (( ${#worklist[@]} > 0 )); do
+            y="${worklist[-1]}"
+            unset 'worklist[-1]'
+            [[ -v seen["${y}"] ]] && continue
+            seen["${y}"]=1
+            _knit_sql_escape y_esc "${y}"
+            while IFS='|' read -r src src_name etype tgt_name; do
+                [[ -z "${src}" ]] && continue
+                [[ -v in_set["${src}"] ]] && continue
+                # The name of the selected row comes from the edge directly into it.
+                [[ "${y}" == "${x}" ]] && victim_name="${tgt_name}"
+                _knit_remove_id_table caller_table "${src}"
+                if [[ -z "${caller_table}" ]]; then
+                    # A table-less dispatcher frame: keep climbing above it.
+                    worklist+=("${src}")
+                    continue
+                fi
+                if [[ "${etype}" == "produced" ]]; then
+                    knit_fatal "remove: cannot erase artifact ${x}; it was produced by \"${src_name}\" (${src}), which is not being erased. Pass --from-root to erase the whole lineage."
+                fi
+                caller_kind=""
                 _knit_remove_table_kind caller_kind "${caller_table}"
-            if [[ -n "${caller_kind}" ]]; then
-                hint="Remove the caller instead (\"remove ${caller_kind} --id ${src}\") or pass --from-root to erase the whole lineage."
-            else
-                hint="Remove the caller instead or pass --from-root to erase the whole lineage."
-            fi
-            knit_fatal "remove: cannot erase ${tgt_name} (${x}); it is called by \"${src_name}\" (${src}), which is not being erased. ${hint}"
-        done < <(_knit_sqlite3 \
-            "SELECT source_id, source_name, edge_type, target_name FROM ${_KNIT_PROV_TABLE} WHERE edge_type IN ('call','produced') AND target_id='${x_esc}';" \
-            2>/dev/null)
+                if [[ -n "${caller_kind}" ]]; then
+                    hint="Remove the caller instead (\"remove ${caller_kind} --id ${src}\") or pass --from-root to erase the whole lineage."
+                else
+                    hint="Remove the caller instead or pass --from-root to erase the whole lineage."
+                fi
+                knit_fatal "remove: cannot erase ${victim_name:-${x}} (${x}); it is called by \"${src_name}\" (${src}), which is not being erased. ${hint}"
+            done < <(_knit_sqlite3 \
+                "SELECT source_id, source_name, edge_type, target_name FROM ${_KNIT_PROV_TABLE} WHERE edge_type IN ('call','produced') AND target_id='${y_esc}';" \
+                2>/dev/null)
+        done
     done
     return 0
 }
