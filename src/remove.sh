@@ -14,16 +14,17 @@
 # deleting), and it runs knit_without_provenance so it emits no `call` edge of
 # its own.
 #
-# This file currently provides the command surface, selection resolution, and the
-# default downward closure with its callee/artifact refusal: registration, the
-# shared selector/flag declarations, the resolvers that turn a selector into the
-# set of starting row ids, the fixed-point downward closure over the provenance
-# graph, the refusal check that rejects erasing a callee (or artifact) whose
-# caller (or producer) is kept, and bodies that validate the exactly-one-selector
-# contract, resolve the selection, close it downward, run the refusal check, and
-# print the resulting erase set. The whole-lineage closure (--from-root), the
-# id-to-table mapping, reporting, and deletion machinery is added in later
-# milestones.
+# This file currently provides the command surface, selection resolution, and
+# both closure modes: registration, the shared selector/flag declarations, the
+# resolvers that turn a selector into the set of starting row ids, the fixed-point
+# downward closure over the provenance graph, the callee/artifact refusal check
+# that rejects erasing a callee (or artifact) whose caller (or producer) is kept,
+# the whole-lineage closure that --from-root selects (the connected component over
+# call/produced edges, traversed both directions, with no refusal check), and
+# bodies that validate the exactly-one-selector contract, resolve the selection,
+# compute whichever closure the flags request, run the refusal check in the
+# default mode, and print the resulting erase set. The id-to-table mapping,
+# reporting, and deletion machinery is added in later milestones.
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
@@ -547,15 +548,61 @@ _knit_remove_check_refusal() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_remove_closure_from_root()
+#
+# Compute the whole-lineage erase set that --from-root selects, returned through a
+# caller-named array: the connected component of the starting ids in the subgraph
+# made of "call" and "produced" edges only, traversed in BOTH directions. From
+# each id the walk adds every neighbour across a call/produced edge, backward
+# (target -> source: the caller that invoked it, or the producer that made it) and
+# forward (source -> target: everything it called or produced). Iterated to a
+# fixed point, the two directions climb to the root of the tree and back down over
+# the whole tree, so pointing at any row (a callee, a run, an app, or an artifact)
+# names the same lineage. "used_by" edges are NEVER queried, in either direction,
+# so a setup or resource used by the tree is left intact (it belongs to its own
+# tree). An associative visited set guards against revisiting an id, so each id
+# appears once. There is no refusal check in this mode: pulling in the kept
+# caller/producer is exactly what --from-root is for.
+#
+# @param[out] __knit_ret Name of the array to fill with the erase-set ids.
+# @param[in] ... The starting ids.
+# ------------------------------------------------------------------------------
+_knit_remove_closure_from_root() {
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n __knit_ret=$1; shift
+    __knit_ret=()
+    local -A visited=()
+    local -a worklist=("$@")
+    local x x_esc neighbor
+    while (( ${#worklist[@]} > 0 )); do
+        x="${worklist[-1]}"
+        unset 'worklist[-1]'
+        [[ -z "${x}" ]] && continue
+        [[ -v visited["${x}"] ]] && continue
+        visited["${x}"]=1
+        __knit_ret+=("${x}")
+        _knit_sql_escape x_esc "${x}"
+        while IFS= read -r neighbor; do
+            [[ -n "${neighbor}" ]] && worklist+=("${neighbor}")
+        done < <(_knit_sqlite3 \
+            "SELECT target_id FROM ${_KNIT_PROV_TABLE} WHERE source_id='${x_esc}' AND edge_type IN ('call','produced') UNION SELECT source_id FROM ${_KNIT_PROV_TABLE} WHERE target_id='${x_esc}' AND edge_type IN ('call','produced');" \
+            2>/dev/null)
+    done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_remove_dispatch()
 #
 # Shared body for every remove subcommand: enforce the exactly-one-selector
-# contract, resolve the selection to its starting ids, compute the downward erase
-# set, run the callee/artifact refusal check (fatal before anything is printed or
-# deleted), then print the erase set. The selector names are given as leading
-# arguments up to a literal "--", after which come the command invocation
-# arguments. The mapping, reporting, and deletion steps are added in later
-# milestones.
+# contract, resolve the selection to its starting ids, compute the erase set, then
+# print it. Which closure is computed depends on --from-root: without it, the
+# default downward closure is taken and the callee/artifact refusal check runs
+# (fatal before anything is printed or deleted); with it, the whole-lineage
+# connected-component closure is taken and the refusal check is skipped by design.
+# The selector names are given as leading arguments up to a literal "--", after
+# which come the command invocation arguments. The mapping, reporting, and
+# deletion steps are added in later milestones.
 #
 # @param[in] kind The entity kind of the subcommand.
 # @param[in] ... The selector names, then "--", then the invocation arguments.
@@ -570,9 +617,15 @@ _knit_remove_dispatch() {
     _knit_remove_require_one_selector "${selectors[@]}" -- "$@"
     local -a starting=()
     _knit_remove_resolve_selection starting "${kind}" "$@"
+    local from_root
+    from_root="$(knit_get_parameter "from-root" "$@")" || from_root="false"
     local -a erase=()
-    _knit_remove_closure_downward erase "${starting[@]}"
-    _knit_remove_check_refusal starting erase
+    if [[ "${from_root}" == "true" ]]; then
+        _knit_remove_closure_from_root erase "${starting[@]}"
+    else
+        _knit_remove_closure_downward erase "${starting[@]}"
+        _knit_remove_check_refusal starting erase
+    fi
     printf '%s\n' "${erase[@]}"
 }
 

@@ -238,6 +238,33 @@ _in() {
     [[ "${output}" == *"no row with id"* ]]
 }
 
+# ---------- the body wires the --from-root whole-lineage closure ----------
+
+@test "remove artifact --path --from-root erases the whole lineage (example 4)" {
+    run _knit_invoke_command "remove" "artifact" "--path" "frame.png" "--from-root"
+    [ "$status" -eq 0 ]
+    # The whole call/produced tree the artifact belongs to.
+    local id
+    for id in P1 R1 U1 A1 J1; do
+        [[ "${output}" == *"${id}"* ]] || { echo "missing ${id}"; false; }
+    done
+    # The setup and resource used_by the tree are left out (used_by not followed).
+    if _in S1 ${output}; then echo "S1 must not be erased"; false; fi
+    if _in D1 ${output}; then echo "D1 must not be erased"; false; fi
+}
+
+@test "remove app --id --from-root suppresses the callee refusal" {
+    run _knit_invoke_command "remove" "app" "--id" "A1" "--from-root"
+    [ "$status" -eq 0 ]
+    # No refusal; the whole lineage is pulled in instead.
+    [[ "${output}" != *"is called by"* ]]
+    local id
+    for id in A1 U1 R1 J1 P1; do
+        [[ "${output}" == *"${id}"* ]] || { echo "missing ${id}"; false; }
+    done
+    if _in S1 ${output}; then echo "S1 must not be erased"; false; fi
+}
+
 # ---------- resolve --id (existence + kind check) ----------
 
 @test "resolve setup --id returns the id" {
@@ -496,6 +523,56 @@ _in() {
         seen["${id}"]=1
     done
     for id in R1 U1 A1 P1; do
+        _in "${id}" "${set[@]}" || { echo "missing ${id}"; false; }
+    done
+}
+
+# ---------- whole-lineage closure (--from-root) ----------
+
+@test "_knit_remove_closure_from_root from an artifact climbs to the whole tree" {
+    local -a set=()
+    _knit_remove_closure_from_root set P1
+    # The connected component over call/produced: producer, its caller, and every
+    # sibling the caller reached, but not the used_by providers.
+    local id
+    for id in P1 R1 U1 A1 J1; do
+        _in "${id}" "${set[@]}" || { echo "missing ${id}"; false; }
+    done
+    if _in S1 "${set[@]}"; then echo "S1 leaked via used_by"; false; fi
+    if _in D1 "${set[@]}"; then echo "D1 leaked via used_by"; false; fi
+}
+
+@test "_knit_remove_closure_from_root from a callee names the same tree" {
+    # Naming any row in the tree selects the whole tree, not just downstream.
+    local -a set=()
+    _knit_remove_closure_from_root set A1
+    local id
+    for id in A1 U1 R1 J1 P1; do
+        _in "${id}" "${set[@]}" || { echo "missing ${id}"; false; }
+    done
+}
+
+@test "_knit_remove_closure_from_root leaves a used_by provider out" {
+    # Seeding on the job itself: its lineage tree, never the setup/resource above.
+    local -a set=()
+    _knit_remove_closure_from_root set J1
+    if _in S1 "${set[@]}"; then echo "S1 leaked via used_by"; false; fi
+    if _in D1 "${set[@]}"; then echo "D1 leaked via used_by"; false; fi
+    # J2's separate tree is not reached either.
+    if _in J2 "${set[@]}"; then echo "J2 is a different tree"; false; fi
+    if _in R2 "${set[@]}"; then echo "R2 is a different tree"; false; fi
+}
+
+@test "_knit_remove_closure_from_root visits each id once" {
+    local -a set=()
+    _knit_remove_closure_from_root set R1 U1
+    local -A seen=()
+    local id
+    for id in "${set[@]}"; do
+        [[ -v seen["${id}"] ]] && { echo "duplicate ${id}"; false; }
+        seen["${id}"]=1
+    done
+    for id in P1 R1 U1 A1 J1; do
         _in "${id}" "${set[@]}" || { echo "missing ${id}"; false; }
     done
 }
