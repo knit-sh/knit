@@ -39,8 +39,10 @@
 # only when their on-disk marker still names the erased row) and -- unless
 # --keep-files -- each artifact entry under the artifact root, and then reports the
 # files it deliberately left on disk (a command's plain outputs, and kept artifact
-# entries) and exits non-zero listing anything a removal could not clear. The
-# confirmation prompt is added in a later milestone.
+# entries) and exits non-zero listing anything a removal could not clear. Unless
+# --yes or --dry-run is given the report is printed and the user is prompted before
+# anything is deleted (a non-interactive stdin without --yes is a fatal refusal), so
+# a removal never happens without either explicit confirmation or --yes.
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
@@ -1359,6 +1361,52 @@ _knit_remove_report_left() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_remove_confirm()
+#
+# Print the removal report and decide whether the erase may proceed. The report is
+# always printed, so a run always leaves a record of what it did (or would do);
+# the header tense matches the mode. With yes == "true" the past-tense header
+# "Erased:" is printed and the function returns success without prompting.
+# Otherwise the future-tense header "The following will be permanently erased:" is
+# printed and the user is prompted: one line is read (read -r), and only "y", "Y",
+# or "yes" proceeds; anything else (a bare Enter is the default No) prints
+# "Aborted." and returns failure, which the caller treats as a clean decline
+# (exit 0), not an error. When stdin is NOT an interactive terminal and yes was not
+# given, the prompt cannot be answered, so rather than block on a read that never
+# returns the function is a fatal refusal that tells the user to pass --yes for
+# non-interactive use. The four report arrays are passed BY NAME and forwarded
+# verbatim to _knit_remove_print_report.
+#
+# @param[in] yes         "true" to skip the prompt (the report is still printed).
+# @param[in] rows_name    Name of the array of data-row lines.
+# @param[in] edges_name   Name of the array of provenance-edge lines.
+# @param[in] removed_name Name of the array of removed dir/entry paths.
+# @param[in] left_name    Name of the array of "left on disk" lines.
+# @return 0 to proceed; 1 on an interactive decline. Fatal on a non-terminal
+#         stdin without --yes.
+# ------------------------------------------------------------------------------
+_knit_remove_confirm() {
+    local yes="$1" rows_name="$2" edges_name="$3" removed_name="$4" left_name="$5"
+    if [[ "${yes}" == "true" ]]; then
+        _knit_remove_print_report "Erased:" \
+            "${rows_name}" "${edges_name}" "${removed_name}" "${left_name}"
+        return 0
+    fi
+    if ! _knit_stdin_is_terminal; then
+        knit_fatal "remove: refusing to erase without confirmation on non-interactive stdin; pass --yes to erase non-interactively."
+    fi
+    _knit_remove_print_report "The following will be permanently erased:" \
+        "${rows_name}" "${edges_name}" "${removed_name}" "${left_name}"
+    local reply
+    printf 'Erase these? [y/N] '
+    IFS= read -r reply || reply=""
+    case "${reply}" in
+        y|Y|yes) return 0 ;;
+        *) printf 'Aborted.\n'; return 1 ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_remove_dispatch()
 #
 # Shared body for every remove subcommand: enforce the exactly-one-selector
@@ -1369,15 +1417,16 @@ _knit_remove_report_left() {
 # (fatal before anything is printed or deleted); with it, the whole-lineage
 # connected-component closure is taken and the refusal check is skipped by design.
 # Under --dry-run the itemized report is built and printed and the command stops
-# (no prompt, no deletion); under --yes the report is printed, the erase set is
-# deleted from the database (edges and rows, in one transaction), the
-# framework-managed on-disk state is removed best-effort (job/setup/resource
-# directories and, unless --keep-files, artifact entries), and the files left on
-# disk are reported; the command exits non-zero if any attempted removal could not
-# be cleared. With neither flag the resulting erase set is printed (the
-# confirmation prompt is added in a later milestone). --dry-run wins if both flags
-# are given. The selector names are given as leading arguments up to a literal
-# "--", after which come the command invocation arguments.
+# (no prompt, no deletion). Otherwise the report is printed and, unless --yes was
+# given, the user is prompted to confirm (a non-interactive stdin without --yes is
+# a fatal refusal; an interactive decline stops with exit 0). Once confirmed (or
+# with --yes), the erase set is deleted from the database (edges and rows, in one
+# transaction), the framework-managed on-disk state is removed best-effort
+# (job/setup/resource directories and, unless --keep-files, artifact entries), and
+# the files left on disk are reported; the command exits non-zero if any attempted
+# removal could not be cleared. --dry-run wins if both flags are given. The
+# selector names are given as leading arguments up to a literal "--", after which
+# come the command invocation arguments.
 #
 # @param[in] kind The entity kind of the subcommand.
 # @param[in] ... The selector names, then "--", then the invocation arguments.
@@ -1415,48 +1464,54 @@ _knit_remove_dispatch() {
     dry_run="$(knit_get_parameter "dry-run" "$@")"       || dry_run="false"
     yes="$(knit_get_parameter "yes" "$@")"               || yes="false"
 
-    if [[ "${dry_run}" == "true" || "${yes}" == "true" ]]; then
-        # shellcheck disable=SC2034 # filled by name for _knit_remove_build_report
-        local -A plain_out=()
-        _knit_remove_plain_outputs plain_out id_table "${erase[@]}"
-        # shellcheck disable=SC2034 # filled by name by _knit_remove_build_report
-        local -a rep_rows=() rep_edges=() rep_removed=() rep_left=()
-        _knit_remove_build_report \
-            rep_rows rep_edges rep_removed rep_left \
-            id_table id_kind art_path plain_out \
-            "${keep_files}" "${erase[@]}"
-        # --dry-run wins if both are given: report and stop, never delete.
-        if [[ "${dry_run}" == "true" ]]; then
-            _knit_remove_print_report \
-                "The following will be permanently erased:" \
-                rep_rows rep_edges rep_removed rep_left
-            return 0
-        fi
-        # Capture setup/resource instance names before the rows go; the filesystem
-        # phase needs them to locate the instance directories after deletion.
-        # shellcheck disable=SC2034 # filled by name for _knit_remove_filesystem
-        local -A inst_name=()
-        _knit_remove_instance_names inst_name id_kind id_table "${erase[@]}"
+    # The itemized report is printed in every mode (under --dry-run, at the prompt,
+    # and after the fact under --yes), so it is built here once.
+    # shellcheck disable=SC2034 # filled by name for _knit_remove_build_report
+    local -A plain_out=()
+    _knit_remove_plain_outputs plain_out id_table "${erase[@]}"
+    # shellcheck disable=SC2034 # filled by name by _knit_remove_build_report
+    local -a rep_rows=() rep_edges=() rep_removed=() rep_left=()
+    _knit_remove_build_report \
+        rep_rows rep_edges rep_removed rep_left \
+        id_table id_kind art_path plain_out \
+        "${keep_files}" "${erase[@]}"
+
+    # --dry-run wins if both are given: report and stop, never prompt or delete.
+    if [[ "${dry_run}" == "true" ]]; then
         _knit_remove_print_report \
-            "Erased:" \
+            "The following will be permanently erased:" \
             rep_rows rep_edges rep_removed rep_left
-        _knit_remove_delete_rows id_table "${erase[@]}"
-        # Filesystem side effects run after a successful commit, best-effort.
-        local -a fs_failures=()
-        _knit_remove_filesystem fs_failures id_kind art_path inst_name \
-            "${keep_files}" "${erase[@]}"
-        _knit_remove_report_left id_kind art_path plain_out \
-            "${keep_files}" "${erase[@]}"
-        if (( ${#fs_failures[@]} > 0 )); then
-            printf 'The following could not be removed and must be deleted by hand:\n' >&2
-            local f
-            for f in "${fs_failures[@]}"; do printf '  %s\n' "${f}" >&2; done
-            return 1
-        fi
         return 0
     fi
 
-    printf '%s\n' "${erase[@]}"
+    # Print the report and, unless --yes, prompt. A non-terminal stdin without
+    # --yes is a fatal refusal (inside _knit_remove_confirm); an interactive
+    # decline stops here without touching the database or the disk -- a decline is
+    # not a failure, so the exit is 0.
+    if ! _knit_remove_confirm "${yes}" \
+        rep_rows rep_edges rep_removed rep_left; then
+        return 0
+    fi
+
+    # Capture setup/resource instance names before the rows go; the filesystem
+    # phase needs them to locate the instance directories after deletion.
+    # shellcheck disable=SC2034 # filled by name for _knit_remove_filesystem
+    local -A inst_name=()
+    _knit_remove_instance_names inst_name id_kind id_table "${erase[@]}"
+    _knit_remove_delete_rows id_table "${erase[@]}"
+    # Filesystem side effects run after a successful commit, best-effort.
+    local -a fs_failures=()
+    _knit_remove_filesystem fs_failures id_kind art_path inst_name \
+        "${keep_files}" "${erase[@]}"
+    _knit_remove_report_left id_kind art_path plain_out \
+        "${keep_files}" "${erase[@]}"
+    if (( ${#fs_failures[@]} > 0 )); then
+        printf 'The following could not be removed and must be deleted by hand:\n' >&2
+        local f
+        for f in "${fs_failures[@]}"; do printf '  %s\n' "${f}" >&2; done
+        return 1
+    fi
+    return 0
 }
 
 # ------------------------------------------------------------------------------
@@ -1480,9 +1535,8 @@ _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_setup()
 #
-# Body of 'remove setup': resolve the selection, close it downward, run the
-# refusal check, and print the erase set. The deletion machinery is added in
-# later milestones.
+# Body of 'remove setup': delegate to the shared dispatch (resolve, close, refuse,
+# report, confirm, and delete) for the setup kind.
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
@@ -1503,9 +1557,8 @@ _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_resource()
 #
-# Body of 'remove resource': resolve the selection, close it downward, run the
-# refusal check, and print the erase set. The deletion machinery is added in
-# later milestones.
+# Body of 'remove resource': delegate to the shared dispatch (resolve, close,
+# refuse, report, confirm, and delete) for the resource kind.
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
@@ -1526,10 +1579,9 @@ _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_job()
 #
-# Body of 'remove job': resolve the selection, close it downward, run the refusal
-# check, and print the erase set. The setup and resource the job used are not
-# followed (their used_by edges point INTO the job). The deletion machinery is
-# added in later milestones.
+# Body of 'remove job': delegate to the shared dispatch (resolve, close, refuse,
+# report, confirm, and delete) for the job kind. The setup and resource the job
+# used are not followed (their used_by edges point INTO the job).
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
@@ -1550,10 +1602,9 @@ _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_run()
 #
-# Body of 'remove run': resolve the selection, close it downward, run the refusal
-# check, and print the erase set. Selecting a run whose enclosing job is kept is
-# refused (the job's call edge would dangle). The deletion machinery is added in
-# later milestones.
+# Body of 'remove run': delegate to the shared dispatch (resolve, close, refuse,
+# report, confirm, and delete) for the run kind. Selecting a run whose enclosing
+# job is kept is refused (the job's call edge would dangle).
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
@@ -1574,9 +1625,9 @@ _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_app()
 #
-# Body of 'remove app': resolve the selection, close it downward, run the refusal
-# check, and print the erase set. Selecting an app whose enclosing run/job is kept
-# is refused. The deletion machinery is added in later milestones.
+# Body of 'remove app': delegate to the shared dispatch (resolve, close, refuse,
+# report, confirm, and delete) for the app kind. Selecting an app whose enclosing
+# run/job is kept is refused.
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
@@ -1597,9 +1648,8 @@ _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_command()
 #
-# Body of 'remove command': resolve the selection, close it downward, run the
-# refusal check, and print the erase set. The deletion machinery is added in later
-# milestones.
+# Body of 'remove command': delegate to the shared dispatch (resolve, close,
+# refuse, report, confirm, and delete) for the command kind (also covers wrappers).
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
@@ -1620,10 +1670,10 @@ _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_artifact()
 #
-# Body of 'remove artifact': resolve the selection, close it downward, run the
-# refusal check, and print the erase set. Naming an artifact on its own is refused
-# (its producer is kept); it is meaningful only with --from-root (added later).
-# The deletion machinery is added in later milestones.
+# Body of 'remove artifact': delegate to the shared dispatch (resolve, close,
+# refuse, report, confirm, and delete) for the artifact kind. Naming an artifact on
+# its own is refused (its producer is kept); it is meaningful only with
+# --from-root, which erases the whole lineage.
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------

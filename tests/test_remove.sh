@@ -230,7 +230,8 @@ _fs_fixture() {
 # ---------- the body wires resolution, closure, and refusal ----------
 
 @test "remove setup --id prints the whole downward erase set (example 1)" {
-    run _knit_invoke_command "remove" "setup" "--id" "S1"
+    _stub_roots
+    run _knit_invoke_command "remove" "setup" "--id" "S1" "--dry-run"
     [ "$status" -eq 0 ]
     local id
     for id in S1 J1 R1 U1 A1 P1; do
@@ -239,19 +240,23 @@ _fs_fixture() {
 }
 
 @test "remove job --id keeps the setup and resource it used (example 2)" {
-    run _knit_invoke_command "remove" "job" "--id" "J1"
+    _stub_roots
+    run _knit_invoke_command "remove" "job" "--id" "J1" "--dry-run"
     [ "$status" -eq 0 ]
     local id
     for id in J1 R1 U1 A1 P1; do
         [[ "${output}" == *"${id}"* ]] || { echo "missing ${id}"; false; }
     done
-    # The setup S1 and resource D1 it used (used_by targets) are NOT erased.
-    if _in S1 ${output}; then echo "S1 must not be erased"; false; fi
-    if _in D1 ${output}; then echo "D1 must not be erased"; false; fi
+    # The setup S1 and resource D1 it used (used_by targets) are NOT erased: neither
+    # appears as an erased data row. Their instance-name labels are absent -- only a
+    # used_by edge into J1 mentions them.
+    [[ "${output}" != *"juliaenv (env)"* ]]
+    [[ "${output}" != *"(mydata)"* ]]
 }
 
 @test "remove job --group prints the erase set of every job in the group" {
-    run _knit_invoke_command "remove" "job" "--group" "batch"
+    _stub_roots
+    run _knit_invoke_command "remove" "job" "--group" "batch" "--dry-run"
     [ "$status" -eq 0 ]
     [[ "${output}" == *"J1"* ]]
     [[ "${output}" == *"J2"* ]]
@@ -290,20 +295,23 @@ _fs_fixture() {
 # ---------- the body wires the --from-root whole-lineage closure ----------
 
 @test "remove artifact --path --from-root erases the whole lineage (example 4)" {
-    run _knit_invoke_command "remove" "artifact" "--path" "frame.png" "--from-root"
+    _stub_roots
+    run _knit_invoke_command "remove" "artifact" "--path" "frame.png" "--from-root" "--dry-run"
     [ "$status" -eq 0 ]
     # The whole call/produced tree the artifact belongs to.
     local id
     for id in P1 R1 U1 A1 J1; do
         [[ "${output}" == *"${id}"* ]] || { echo "missing ${id}"; false; }
     done
-    # The setup and resource used_by the tree are left out (used_by not followed).
-    if _in S1 ${output}; then echo "S1 must not be erased"; false; fi
-    if _in D1 ${output}; then echo "D1 must not be erased"; false; fi
+    # The setup and resource used_by the tree are left out (used_by not followed):
+    # neither appears as an erased data row.
+    [[ "${output}" != *"juliaenv (env)"* ]]
+    [[ "${output}" != *"(mydata)"* ]]
 }
 
 @test "remove app --id --from-root suppresses the callee refusal" {
-    run _knit_invoke_command "remove" "app" "--id" "A1" "--from-root"
+    _stub_roots
+    run _knit_invoke_command "remove" "app" "--id" "A1" "--from-root" "--dry-run"
     [ "$status" -eq 0 ]
     # No refusal; the whole lineage is pulled in instead.
     [[ "${output}" != *"is called by"* ]]
@@ -311,7 +319,7 @@ _fs_fixture() {
     for id in A1 U1 R1 J1 P1; do
         [[ "${output}" == *"${id}"* ]] || { echo "missing ${id}"; false; }
     done
-    if _in S1 ${output}; then echo "S1 must not be erased"; false; fi
+    [[ "${output}" != *"juliaenv (env)"* ]]
 }
 
 # ---------- resolve --id (existence + kind check) ----------
@@ -771,11 +779,14 @@ _fs_fixture() {
     [[ "${output}" == *"job cancel J3"* ]]
 }
 
-@test "remove job --id of a completed job still prints the erase set" {
+@test "remove job --id of a completed job with no tty and no --yes declines" {
+    # Under bats stdin is not a terminal, so the neither-flag path refuses rather
+    # than block on a prompt; nothing is deleted.
     run _knit_invoke_command "remove" "job" "--id" "J2"
-    [ "$status" -eq 0 ]
-    [[ "${output}" == *"J2"* ]]
-    [[ "${output}" == *"R2"* ]]
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"non-interactive stdin"* ]]
+    [[ "${output}" == *"--yes"* ]]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM jobs WHERE id='J2';")" = "1" ]
 }
 
 # ---------- report building ----------
@@ -1187,4 +1198,93 @@ _fs_fixture() {
     [[ "${output}" == *"/jobs/J1"* ]]
     # The DB transaction still committed; the DB is the source of truth.
     [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "0" ]
+}
+
+# ---------- confirmation prompt ----------
+
+@test "_knit_remove_confirm with --yes prints the past-tense report and proceeds" {
+    local -a rows=("setup juliaenv (env) S1") edges=() removed=() left=()
+    run _knit_remove_confirm true rows edges removed left
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"Erased:"* ]]
+    [[ "${output}" != *"Erase these?"* ]]
+    [[ "${output}" != *"permanently erased"* ]]
+}
+
+@test "_knit_remove_confirm accepts an interactive y and proceeds" {
+    _knit_stdin_is_terminal() { return 0; }
+    local -a rows=("setup juliaenv (env) S1") edges=() removed=() left=()
+    run _knit_remove_confirm false rows edges removed left <<< "y"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"The following will be permanently erased:"* ]]
+    [[ "${output}" == *"Erase these?"* ]]
+    [[ "${output}" != *"Aborted."* ]]
+}
+
+@test "_knit_remove_confirm accepts a spelled-out yes" {
+    _knit_stdin_is_terminal() { return 0; }
+    local -a rows=("command foo F1") edges=() removed=() left=()
+    run _knit_remove_confirm false rows edges removed left <<< "yes"
+    [ "$status" -eq 0 ]
+    [[ "${output}" != *"Aborted."* ]]
+}
+
+@test "_knit_remove_confirm declines a bare Enter with Aborted (default No)" {
+    _knit_stdin_is_terminal() { return 0; }
+    local -a rows=("command foo F1") edges=() removed=() left=()
+    run _knit_remove_confirm false rows edges removed left <<< ""
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"Erase these?"* ]]
+    [[ "${output}" == *"Aborted."* ]]
+}
+
+@test "_knit_remove_confirm on a non-terminal stdin without --yes is fatal" {
+    _knit_stdin_is_terminal() { return 1; }
+    local -a rows=("command foo F1") edges=() removed=() left=()
+    run _knit_remove_confirm false rows edges removed left
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"non-interactive stdin"* ]]
+    [[ "${output}" == *"--yes"* ]]
+    [[ "${output}" != *"Erase these?"* ]]
+}
+
+# ---------- interactive path through the body ----------
+
+@test "remove setup --id with an interactive y proceeds and deletes" {
+    _fs_fixture
+    _knit_stdin_is_terminal() { return 0; }
+    run _knit_invoke_command "remove" "setup" "--id" "S1" <<< "y"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"The following will be permanently erased:"* ]]
+    [[ "${output}" == *"Erase these?"* ]]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "0" ]
+    [ ! -e "${BATS_TEST_TMPDIR}/root/jobs/J1" ]
+    [ ! -e "${BATS_TEST_TMPDIR}/root/setups/env" ]
+}
+
+@test "remove setup --id with an interactive decline changes nothing" {
+    _fs_fixture
+    _knit_stdin_is_terminal() { return 0; }
+    local jobs_before prov_before
+    jobs_before="$(_knit_sqlite3 "SELECT count(*) FROM jobs;")"
+    prov_before="$(_knit_sqlite3 "SELECT count(*) FROM __provenance__;")"
+    run _knit_invoke_command "remove" "setup" "--id" "S1" <<< "n"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"Aborted."* ]]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM jobs;")" = "${jobs_before}" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM __provenance__;")" = "${prov_before}" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "1" ]
+    [ -e "${BATS_TEST_TMPDIR}/root/setups/env" ]
+    [ -e "${BATS_TEST_TMPDIR}/root/jobs/J1" ]
+}
+
+@test "remove setup --id on a non-tty without --yes changes nothing" {
+    _fs_fixture
+    _knit_stdin_is_terminal() { return 1; }
+    run _knit_invoke_command "remove" "setup" "--id" "S1"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"non-interactive stdin"* ]]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "1" ]
+    [ -e "${BATS_TEST_TMPDIR}/root/setups/env" ]
+    [ -e "${BATS_TEST_TMPDIR}/root/jobs/J1" ]
 }
