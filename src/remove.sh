@@ -30,8 +30,11 @@
 # entries to remove, and what is left on disk), and bodies that validate the
 # exactly-one-selector contract, resolve the selection, compute whichever closure
 # the flags request, run the refusal check in the default mode, map the erase set,
-# refuse a non-terminal job, and either print the report and stop under --dry-run
-# or print the resulting erase set. The deletion machinery is added in later
+# refuse a non-terminal job, and either print the report and stop under --dry-run,
+# print the report and delete the rows under --yes, or print the resulting erase
+# set. The deletion transaction removes, in one atomic BEGIN...COMMIT, every
+# provenance edge touching the erase set and then the data rows table by table.
+# The filesystem side effects and the confirmation prompt are added in later
 # milestones.
 # ------------------------------------------------------------------------------
 
@@ -1012,6 +1015,76 @@ _knit_remove_print_report() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_remove_delete_rows()
+#
+# Delete the erase set from the database in one transaction: first every
+# __provenance__ edge that touches the set, then the data rows table by table. The
+# whole thing is a single ".bail on" BEGIN...COMMIT fed to _knit_sqlite3_write, so
+# it runs under the advisory write lock and either the whole erase set goes or
+# nothing does (a failing statement stops the CLI and rolls the open transaction
+# back). Edges are deleted with "source_id IN (...) OR target_id IN (...)" over
+# every erase-set id, which also clears a KEPT provider's used_by edge into an
+# erased consumer (the edge is caught by its erased target even though its source
+# stays). Data rows are grouped by table from the id -> table map so each table is
+# cleared with one DELETE. Ids are escaped into the IN-lists by
+# _knit_remove_id_in_list, never interpolated raw. Filesystem side effects (job,
+# setup, and resource directories and artifact entries) are handled separately
+# after a successful commit.
+#
+# @param[in] __knit_tables Name of the assoc array mapping id -> table.
+# @param[in] ...           The erase-set ids.
+# ------------------------------------------------------------------------------
+_knit_remove_delete_rows() {
+    local -n __knit_tables=$1; shift
+    local -a ids=("$@")
+
+    # Every edge touching the set is deleted from both ends by this one IN-list.
+    local edge_list
+    _knit_remove_id_in_list edge_list "${ids[@]}"
+    [[ -z "${edge_list}" ]] && return 0
+
+    # Group ids by table so each data table is cleared with a single DELETE.
+    local -A by_table=()
+    local id tbl
+    for id in "${ids[@]}"; do
+        [[ -z "${id}" ]] && continue
+        tbl="${__knit_tables["${id}"]:-}"
+        [[ -z "${tbl}" ]] && continue
+        if [[ -v by_table["${tbl}"] ]]; then
+            by_table["${tbl}"]+=$'\n'"${id}"
+        else
+            by_table["${tbl}"]="${id}"
+        fi
+    done
+
+    # Assemble the statements: edges first (so a mid-transaction reader -- which
+    # the write lock precludes anyway -- never sees a row without its edges), then
+    # each data table.
+    local prov_ident
+    _knit_db_sql_ident prov_ident "${_KNIT_PROV_TABLE}"
+    local sql
+    printf -v sql 'DELETE FROM %s WHERE source_id IN (%s) OR target_id IN (%s);\n' \
+        "${prov_ident}" "${edge_list}" "${edge_list}"
+
+    local tblident row_list stmt
+    local -a tids=()
+    for tbl in "${!by_table[@]}"; do
+        mapfile -t tids <<< "${by_table["${tbl}"]}"
+        _knit_remove_id_in_list row_list "${tids[@]}"
+        [[ -z "${row_list}" ]] && continue
+        _knit_db_sql_ident tblident "${tbl}"
+        printf -v stmt 'DELETE FROM %s WHERE id IN (%s);\n' "${tblident}" "${row_list}"
+        sql+="${stmt}"
+    done
+
+    _knit_sqlite3_write <<EOF
+.bail on
+BEGIN;
+${sql}COMMIT;
+EOF
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_remove_dispatch()
 #
 # Shared body for every remove subcommand: enforce the exactly-one-selector
@@ -1022,10 +1095,12 @@ _knit_remove_print_report() {
 # (fatal before anything is printed or deleted); with it, the whole-lineage
 # connected-component closure is taken and the refusal check is skipped by design.
 # Under --dry-run the itemized report is built and printed and the command stops
-# (no prompt, no deletion) -- the first fully working read-only path; otherwise the
-# erase set is printed. The selector names are given as leading arguments up to a
-# literal "--", after which come the command invocation arguments. The prompt and
-# deletion steps are added in later milestones.
+# (no prompt, no deletion); under --yes the report is printed and the erase set is
+# then deleted from the database (edges and rows, in one transaction) --
+# filesystem side effects come later. With neither flag the resulting erase set is
+# printed (the confirmation prompt is added in a later milestone). --dry-run wins
+# if both flags are given. The selector names are given as leading arguments up to
+# a literal "--", after which come the command invocation arguments.
 #
 # @param[in] kind The entity kind of the subcommand.
 # @param[in] ... The selector names, then "--", then the invocation arguments.
@@ -1057,11 +1132,12 @@ _knit_remove_dispatch() {
     _knit_remove_map_ids id_table id_kind art_path art_type "${erase[@]}"
     _knit_remove_check_terminal_jobs id_table "${erase[@]}"
 
-    local keep_files dry_run
+    local keep_files dry_run yes
     keep_files="$(knit_get_parameter "keep-files" "$@")" || keep_files="false"
     dry_run="$(knit_get_parameter "dry-run" "$@")"       || dry_run="false"
+    yes="$(knit_get_parameter "yes" "$@")"               || yes="false"
 
-    if [[ "${dry_run}" == "true" ]]; then
+    if [[ "${dry_run}" == "true" || "${yes}" == "true" ]]; then
         # shellcheck disable=SC2034 # filled by name for _knit_remove_build_report
         local -A plain_out=()
         _knit_remove_plain_outputs plain_out id_table "${erase[@]}"
@@ -1071,9 +1147,17 @@ _knit_remove_dispatch() {
             rep_rows rep_edges rep_removed rep_left \
             id_table id_kind art_path plain_out \
             "${keep_files}" "${erase[@]}"
+        # --dry-run wins if both are given: report and stop, never delete.
+        if [[ "${dry_run}" == "true" ]]; then
+            _knit_remove_print_report \
+                "The following will be permanently erased:" \
+                rep_rows rep_edges rep_removed rep_left
+            return 0
+        fi
         _knit_remove_print_report \
-            "The following will be permanently erased:" \
+            "Erased:" \
             rep_rows rep_edges rep_removed rep_left
+        _knit_remove_delete_rows id_table "${erase[@]}"
         return 0
     fi
 

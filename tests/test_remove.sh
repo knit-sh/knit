@@ -901,3 +901,77 @@ _stub_roots() {
     [[ "${output}" == *"cannot erase job J3"* ]]
     [[ "${output}" == *"job cancel J3"* ]]
 }
+
+# ---------- deletion transaction ----------
+
+@test "_knit_remove_delete_rows deletes the erase set's rows and edges" {
+    local -a erase=()
+    _knit_remove_closure_downward erase S1
+    local -A id_table=() id_kind=() art_path=() art_type=()
+    _knit_remove_map_ids id_table id_kind art_path art_type "${erase[@]}"
+    _knit_remove_delete_rows id_table "${erase[@]}"
+
+    # Every data row of the set (S1,J1,R1,U1,A1,P1) is gone.
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM jobs WHERE id='J1';")" = "0" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "0" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM runs WHERE id='U1';")" = "0" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM julia WHERE id='A1';")" = "0" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM artifacts WHERE id='P1';")" = "0" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM render WHERE id='R1';")" = "0" ]
+
+    # Rows outside the set survive: the sibling setup build, the unrelated job
+    # and its body row, and the kept resource provider.
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S2';")" = "1" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM render WHERE id='R2';")" = "1" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM \"resource:data\" WHERE id='D1';")" = "1" ]
+
+    # Every edge touching the set is gone, including the kept resource's used_by
+    # edge into the erased job; only the unrelated J2->R2 call survives.
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM __provenance__ WHERE source_id='D1';")" = "0" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM __provenance__;")" = "1" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM __provenance__ WHERE source_id='J2' AND target_id='R2';")" = "1" ]
+}
+
+@test "_knit_remove_delete_rows rolls the whole transaction back when a statement fails" {
+    local jobs_before prov_before
+    jobs_before="$(_knit_sqlite3 "SELECT count(*) FROM jobs;")"
+    prov_before="$(_knit_sqlite3 "SELECT count(*) FROM __provenance__;")"
+    # Map J1 to a table that does not exist, so its DELETE fails; ".bail on" then
+    # rolls back the whole transaction, including the edge delete issued first.
+    local -A id_table=([J1]=nonexistent_table)
+    run _knit_remove_delete_rows id_table J1
+    [ "$status" -ne 0 ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM jobs;")" = "${jobs_before}" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM __provenance__;")" = "${prov_before}" ]
+}
+
+# ---------- --yes through the body ----------
+
+@test "remove setup --id --yes prints the report and deletes the erase set" {
+    _stub_roots
+    run _knit_invoke_command "remove" "setup" "--id" "S1" "--yes"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"Erased:"* ]]
+    [[ "${output}" == *"S1"* ]]
+
+    # The erase set is gone from the database.
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM jobs WHERE id='J1';")" = "0" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "0" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM artifacts WHERE id='P1';")" = "0" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM __provenance__;")" = "1" ]
+
+    # The kept sibling build and the resource provider survive.
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S2';")" = "1" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM \"resource:data\" WHERE id='D1';")" = "1" ]
+}
+
+@test "remove --dry-run --yes reports without deleting (dry-run wins)" {
+    _stub_roots
+    local jobs_before
+    jobs_before="$(_knit_sqlite3 "SELECT count(*) FROM jobs;")"
+    run _knit_invoke_command "remove" "setup" "--id" "S1" "--dry-run" "--yes"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"The following will be permanently erased:"* ]]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM jobs;")" = "${jobs_before}" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "1" ]
+}
