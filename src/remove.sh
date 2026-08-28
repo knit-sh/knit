@@ -14,17 +14,20 @@
 # deleting), and it runs knit_without_provenance so it emits no `call` edge of
 # its own.
 #
-# This file currently provides the command surface, selection resolution, and
-# both closure modes: registration, the shared selector/flag declarations, the
-# resolvers that turn a selector into the set of starting row ids, the fixed-point
-# downward closure over the provenance graph, the callee/artifact refusal check
-# that rejects erasing a callee (or artifact) whose caller (or producer) is kept,
-# the whole-lineage closure that --from-root selects (the connected component over
-# call/produced edges, traversed both directions, with no refusal check), and
-# bodies that validate the exactly-one-selector contract, resolve the selection,
-# compute whichever closure the flags request, run the refusal check in the
-# default mode, and print the resulting erase set. The id-to-table mapping,
-# reporting, and deletion machinery is added in later milestones.
+# This file currently provides the command surface, selection resolution, both
+# closure modes, and the erase-set mapping: registration, the shared selector/flag
+# declarations, the resolvers that turn a selector into the set of starting row
+# ids, the fixed-point downward closure over the provenance graph, the
+# callee/artifact refusal check that rejects erasing a callee (or artifact) whose
+# caller (or producer) is kept, the whole-lineage closure that --from-root selects
+# (the connected component over call/produced edges, traversed both directions,
+# with no refusal check), the mapping that resolves every erase-set id to its
+# (table, kind) and reads each artifact's on-disk path and type before the row is
+# gone, the collector that finds the plain (non-artifact) file/directory outputs
+# remove leaves on disk, and bodies that validate the exactly-one-selector
+# contract, resolve the selection, compute whichever closure the flags request,
+# run the refusal check in the default mode, and print the resulting erase set.
+# The reporting and deletion machinery is added in later milestones.
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
@@ -587,6 +590,123 @@ _knit_remove_closure_from_root() {
         done < <(_knit_sqlite3 \
             "SELECT target_id FROM ${_KNIT_PROV_TABLE} WHERE source_id='${x_esc}' AND edge_type IN ('call','produced') UNION SELECT source_id FROM ${_KNIT_PROV_TABLE} WHERE target_id='${x_esc}' AND edge_type IN ('call','produced');" \
             2>/dev/null)
+    done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_map_ids()
+#
+# Map every erase-set id to the table it lives in and the entity kind of that
+# table, returned through two caller-named associative arrays (id -> table and
+# id -> kind). For each id whose kind is "artifact" it additionally reads that
+# row's on-disk path and type into two more caller-named associative arrays
+# (id -> path and id -> type), because the filesystem phase needs them after the
+# row itself has been deleted. An id whose table cannot be located (its owning
+# command is not registered in the current script, so its table is absent from the
+# registry _knit_remove_id_table probes) is skipped: it cannot be classified or
+# grouped for deletion here. Row ids are globally unique across tables, so the
+# id -> table map doubles as the group-by-table index the delete phase needs.
+#
+# @param[out] __knit_ret1 Name of the assoc array to fill (id -> table).
+# @param[out] __knit_ret2 Name of the assoc array to fill (id -> kind).
+# @param[out] __knit_ret3 Name of the assoc array to fill (artifact id -> path).
+# @param[out] __knit_ret4 Name of the assoc array to fill (artifact id -> type).
+# @param[in] ... The erase-set ids.
+# ------------------------------------------------------------------------------
+_knit_remove_map_ids() {
+    # shellcheck disable=SC2178 # nameref to the caller's associative array
+    local -n __knit_ret1=$1
+    # shellcheck disable=SC2178 # nameref to the caller's associative array
+    local -n __knit_ret2=$2
+    # shellcheck disable=SC2178 # nameref to the caller's associative array
+    local -n __knit_ret3=$3
+    # shellcheck disable=SC2178 # nameref to the caller's associative array
+    local -n __knit_ret4=$4
+    shift 4
+    __knit_ret1=()
+    __knit_ret2=()
+    __knit_ret3=()
+    __knit_ret4=()
+    local id tbl knd id_esc apath atype
+    for id in "$@"; do
+        [[ -z "${id}" ]] && continue
+        _knit_remove_id_table tbl "${id}"
+        [[ -z "${tbl}" ]] && continue
+        _knit_remove_table_kind knd "${tbl}"
+        __knit_ret1["${id}"]="${tbl}"
+        __knit_ret2["${id}"]="${knd}"
+        if [[ "${knd}" == "artifact" ]]; then
+            _knit_sql_escape id_esc "${id}"
+            apath="$(_knit_sqlite3 \
+                "SELECT path FROM ${_KNIT_ARTIFACTS_TABLE} WHERE id='${id_esc}';" \
+                2>/dev/null)" || apath=""
+            atype="$(_knit_sqlite3 \
+                "SELECT type FROM ${_KNIT_ARTIFACTS_TABLE} WHERE id='${id_esc}';" \
+                2>/dev/null)" || atype=""
+            __knit_ret3["${id}"]="${apath}"
+            __knit_ret4["${id}"]="${atype}"
+        fi
+    done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_plain_outputs()
+#
+# Collect the plain (non-artifact) file/directory OUTPUTS of every erased row into
+# a caller-named associative array (recorded path -> owning command name), reading
+# the id -> table map _knit_remove_map_ids produced. A plain output is a
+# file/directory output a command declared that is NOT an artifact: for each row,
+# the owning command's _KNIT_CMD_<cmd>_fileparams entries whose marker direction is
+# "output" and whose name is not in _KNIT_CMD_<cmd>_artifacts; the recorded path is
+# that row's <name> column. Input file/directory parameters are ignored (they are
+# the run's inputs, not its outputs), and so are artifacts (their on-disk entries
+# are handled by the filesystem phase). The framework tables (jobs/runs/artifacts)
+# carry no user-declared file outputs and are skipped, as is any row whose owning
+# command is no longer registered in the current script -- its file-parameter
+# markers are absent, so its columns cannot be classified. remove never deletes
+# these paths; the caller lists them under "Left on disk".
+#
+# @param[out] __knit_ret    Name of the assoc array to fill (path -> command).
+# @param[in]  __knit_tables Name of the assoc array mapping id -> table.
+# @param[in]  ...           The erase-set ids.
+# ------------------------------------------------------------------------------
+_knit_remove_plain_outputs() {
+    # shellcheck disable=SC2178 # nameref to the caller's associative array
+    local -n __knit_ret=$1
+    local -n __knit_tables=$2
+    shift 2
+    __knit_ret=()
+    local id tbl owner mangled param marker tblident colident value id_esc
+    for id in "$@"; do
+        [[ -z "${id}" ]] && continue
+        tbl="${__knit_tables["${id}"]:-}"
+        [[ -z "${tbl}" ]] && continue
+        # Framework tables have no user-declared plain file outputs.
+        case "${tbl}" in
+            "${_KNIT_JOBS_TABLE}"|"${_KNIT_RUNS_TABLE}"|"${_KNIT_ARTIFACTS_TABLE}")
+                continue ;;
+        esac
+        owner="${_KNIT_DB_REGISTERED_TABLES["${tbl}"]:-}"
+        [[ -z "${owner}" ]] && continue
+        mangled="$(_knit_command_mangle "${owner}")"
+        # No file-parameter markers means the command has no file outputs to
+        # classify (or is no longer registered): nothing to list for this row.
+        _knit_set_exists "_KNIT_CMD_${mangled}_fileparams" || continue
+        _knit_db_sql_ident tblident "${tbl}"
+        _knit_sql_escape id_esc "${id}"
+        while IFS= read -r param; do
+            [[ -z "${param}" ]] && continue
+            marker="_KNIT_CMD_${mangled}_fileparam_${param}"
+            [[ "${!marker:-}" == output:* ]] || continue
+            _knit_set_find "_KNIT_CMD_${mangled}_artifacts" "${param}" && continue
+            _knit_db_sql_ident colident "${param}"
+            value="$(_knit_sqlite3 \
+                "SELECT ${colident} FROM ${tblident} WHERE id='${id_esc}';" \
+                2>/dev/null)" || value=""
+            [[ -n "${value}" ]] && __knit_ret["${value}"]="${owner}"
+        done < <(_knit_set_iter "_KNIT_CMD_${mangled}_fileparams")
     done
     return 0
 }

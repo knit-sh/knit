@@ -36,7 +36,7 @@ _seed_remove_db() {
         CREATE TABLE julia (id TEXT);
         CREATE TABLE foo (id TEXT);
         CREATE TABLE spack (id TEXT, args TEXT);
-        CREATE TABLE render (id TEXT);
+        CREATE TABLE render (id TEXT, metrics TEXT, frame TEXT, input_data TEXT);
         CREATE TABLE __provenance__ (source_id TEXT, source_name TEXT,
             target_id TEXT, target_name TEXT, edge_type TEXT,
             start_time INTEGER, end_time INTEGER, alias TEXT);
@@ -52,7 +52,9 @@ _seed_remove_db() {
         INSERT INTO julia VALUES ('A1');
         INSERT INTO foo VALUES ('F1');
         INSERT INTO spack VALUES ('W1','install zlib');
-        INSERT INTO render VALUES ('R1'),('R2');
+        INSERT INTO render VALUES
+            ('R1','/data/metrics.json','frame.png','/in/data'),
+            ('R2','','','');
         INSERT INTO __provenance__ VALUES
             ('J1','submit','R1','submit:render','call',1,2,NULL),
             ('J2','submit','R2','submit:render','call',1,2,NULL),
@@ -77,6 +79,16 @@ _seed_remove_db() {
     printf -v "_KNIT_CMD_foo_type" '%s' command
     printf -v "_KNIT_CMD_spack_type" '%s' wrapper
     printf -v "_KNIT_CMD_submit__1__render_type" '%s' job
+    # File-parameter markers for the render job body (owner of the "render"
+    # table): a plain file output "metrics", an artifact output "frame", and an
+    # input "input_data". Plain-output detection keeps only "metrics".
+    _knit_set_new "_KNIT_CMD_submit__1__render_fileparams"
+    _knit_set_add "_KNIT_CMD_submit__1__render_fileparams" metrics frame input_data
+    printf -v "_KNIT_CMD_submit__1__render_fileparam_metrics" '%s' "output:file:yes"
+    printf -v "_KNIT_CMD_submit__1__render_fileparam_frame" '%s' "output:file:no"
+    printf -v "_KNIT_CMD_submit__1__render_fileparam_input_data" '%s' "input:file:yes"
+    _knit_set_new "_KNIT_CMD_submit__1__render_artifacts"
+    _knit_set_add "_KNIT_CMD_submit__1__render_artifacts" frame
 }
 
 # True if the first argument equals any of the remaining arguments.
@@ -605,4 +617,71 @@ _in() {
     [ "$status" -ne 0 ]
     [[ "${output}" == *"was produced by"* ]]
     [[ "${output}" == *"--from-root"* ]]
+}
+
+# ---------- id -> (table, kind) mapping and artifact metadata ----------
+
+@test "_knit_remove_map_ids resolves the table and kind of every kind" {
+    local -A id_table=() id_kind=() art_path=() art_type=()
+    _knit_remove_map_ids id_table id_kind art_path art_type \
+        S1 D1 J1 U1 A1 F1 W1 P1
+    [ "${id_table[S1]}" = "setup:juliaenv" ]; [ "${id_kind[S1]}" = "setup" ]
+    [ "${id_table[D1]}" = "resource:data" ];  [ "${id_kind[D1]}" = "resource" ]
+    [ "${id_table[J1]}" = "jobs" ];           [ "${id_kind[J1]}" = "job" ]
+    [ "${id_table[U1]}" = "runs" ];           [ "${id_kind[U1]}" = "run" ]
+    [ "${id_table[A1]}" = "julia" ];          [ "${id_kind[A1]}" = "app" ]
+    [ "${id_table[F1]}" = "foo" ];            [ "${id_kind[F1]}" = "command" ]
+    [ "${id_table[W1]}" = "spack" ];          [ "${id_kind[W1]}" = "command" ]
+    [ "${id_table[P1]}" = "artifacts" ];      [ "${id_kind[P1]}" = "artifact" ]
+}
+
+@test "_knit_remove_map_ids reads path and type for artifact ids only" {
+    local -A id_table=() id_kind=() art_path=() art_type=()
+    _knit_remove_map_ids id_table id_kind art_path art_type P1 A1
+    [ "${art_path[P1]}" = "frame.png" ]
+    [ "${art_type[P1]}" = "file" ]
+    # A non-artifact id records no path/type entry.
+    [ ! -v "art_path[A1]" ]
+    [ ! -v "art_type[A1]" ]
+}
+
+@test "_knit_remove_map_ids skips an id with no known table" {
+    local -A id_table=() id_kind=() art_path=() art_type=()
+    _knit_remove_map_ids id_table id_kind art_path art_type A1 GHOST
+    [ "${id_table[A1]}" = "julia" ]
+    [ ! -v "id_table[GHOST]" ]
+    [ ! -v "id_kind[GHOST]" ]
+}
+
+# ---------- plain (non-artifact) file/directory outputs ----------
+
+@test "_knit_remove_plain_outputs lists a plain output but excludes artifacts and inputs" {
+    local -A id_table=() id_kind=() art_path=() art_type=()
+    _knit_remove_map_ids id_table id_kind art_path art_type R1
+    local -A outs=()
+    _knit_remove_plain_outputs outs id_table R1
+    # The plain file output "metrics" is listed, attributed to its owning command.
+    [ "${outs[/data/metrics.json]}" = "submit:render" ]
+    # The artifact output ("frame.png") and the input ("/in/data") are not.
+    [ ! -v "outs[frame.png]" ]
+    [ ! -v "outs[/in/data]" ]
+}
+
+@test "_knit_remove_plain_outputs skips framework-table and unclassifiable rows" {
+    local -A id_table=() id_kind=() art_path=() art_type=()
+    _knit_remove_map_ids id_table id_kind art_path art_type J1 U1 P1 F1
+    local -A outs=()
+    _knit_remove_plain_outputs outs id_table J1 U1 P1 F1
+    # jobs/runs/artifacts framework rows and a command with no file params
+    # (foo) contribute nothing.
+    [ "${#outs[@]}" -eq 0 ]
+}
+
+@test "_knit_remove_plain_outputs skips a row whose table is unknown" {
+    local -A id_table=([R1]=render)
+    local -A outs=()
+    # GHOST has no id_table entry, so it is skipped without error.
+    _knit_remove_plain_outputs outs id_table R1 GHOST
+    [ "${outs[/data/metrics.json]}" = "submit:render" ]
+    [ "${#outs[@]}" -eq 1 ]
 }
