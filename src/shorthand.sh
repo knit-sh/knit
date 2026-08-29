@@ -86,13 +86,100 @@ _KNIT_SHORTHAND_EXTRACTOR=(
 )
 
 # ------------------------------------------------------------------------------
+# @fn _knit_shorthand_find_function()
+#
+# Discover the name a name-extracting registration shorthand (@command, @job,
+# @app, @setup, @wrapper) decorates. The shorthand captures its own call site and
+# passes it here; the name is read from the source rather than taken as an
+# argument.
+#
+# The source file is read and the lines after "line" are scanned. Blank lines,
+# comments, and intervening decorator lines (@with_*, @usable_if, ...) are
+# skipped. The scan stops at the first of:
+#   - an "@empty" marker line   -> the discovered body name is "knit_empty";
+#   - a function definition      -> its name is returned. All common styles are
+#     recognised: "name() {", "name () ...", "function name ...", one-liners, and
+#     names containing "@" (bash allows them).
+#
+# The discovery is textual, so the function need not be defined yet when the
+# shorthand runs.
+#
+# @param[out] The name of the variable that receives the discovered name.
+# @param[in] file The source file to read (BASH_SOURCE of the call site).
+# @param[in] line The 1-based line number of the shorthand call (BASH_LINENO).
+#
+# Fatal when the source is not a readable file (piped/eval'd script), and when
+# neither a function definition nor an "@empty" marker is found before the next
+# "@done"/"knit_done" or the end of the file.
+# ------------------------------------------------------------------------------
+_knit_shorthand_find_function() {
+    local -n __knit_ret=$1
+    local file="$2"
+    local line="$3"
+
+    # The call site must be a readable regular file. It is not when the
+    # experiment was piped ("curl ... | bash"), read from a process
+    # substitution, or eval'd, so BASH_SOURCE points at no on-disk source.
+    if [[ ! -f "${file}" || ! -r "${file}" ]]; then
+        knit_fatal \
+            "shorthand: cannot read the source '%s' to discover the decorated function; use the long knit_register* form with an explicit function name" \
+            "${file}"
+    fi
+
+    local -a lines=()
+    mapfile -t lines < "${file}"
+    local total="${#lines[@]}"
+
+    # Line N (1-based) is at array index N-1, so the lines after the call start
+    # at array index "line".
+    local i text name
+    for (( i = line; i < total; i++ )); do
+        text="${lines[i]}"
+
+        # The @empty marker: the decorated command has no body function.
+        if [[ "${text}" =~ ^[[:space:]]*@empty([[:space:]]|$) ]]; then
+            __knit_ret="knit_empty"
+            return 0
+        fi
+
+        # "function name" style, with or without a following "()".
+        if [[ "${text}" =~ ^[[:space:]]*function[[:space:]]+([^[:space:](){}]+) ]]; then
+            __knit_ret="${BASH_REMATCH[1]}"
+            return 0
+        fi
+
+        # "name()" / "name ()" style (name may contain "@").
+        if [[ "${text}" =~ ^[[:space:]]*([^[:space:](){}]+)[[:space:]]*\(\) ]]; then
+            name="${BASH_REMATCH[1]}"
+            # Guard against a "@done"/"knit_done" written with parentheses being
+            # mistaken for the body function.
+            if [[ "${name}" != "@done" && "${name}" != "knit_done" ]]; then
+                __knit_ret="${name}"
+                return 0
+            fi
+        fi
+
+        # The registration was closed before any function or @empty appeared.
+        if [[ "${text}" =~ ^[[:space:]]*(@done|knit_done)([[:space:]]|\;|$) ]]; then
+            break
+        fi
+    done
+
+    knit_fatal \
+        "shorthand: no function definition or @empty marker found after line %s of '%s' before the next @done or end of file" \
+        "${line}" "${file}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_shorthand_generate()
 #
 # Define the "@" shorthand functions, honouring KNIT_WITHOUT_SHORTHAND. Runs
 # once when knit.sh is sourced. For each non-opted-out pass-through token it
-# defines "@<token>() { <target> "$@"; }". Any KNIT_WITHOUT_SHORTHAND token that
-# is not a real shorthand produces a warning and is otherwise ignored; the
-# special value "all" suppresses every shorthand.
+# defines "@<token>() { <target> "$@"; }"; for each non-opted-out extracting
+# token it defines a wrapper that discovers the decorated function's name and
+# injects it at argument position 2. Any KNIT_WITHOUT_SHORTHAND token that is not
+# a real shorthand produces a warning and is otherwise ignored; the special
+# value "all" suppresses every shorthand.
 # ------------------------------------------------------------------------------
 _knit_shorthand_generate() {
     local without="${KNIT_WITHOUT_SHORTHAND:-}"
@@ -137,6 +224,24 @@ _knit_shorthand_generate() {
         [[ -n "${opted_out[${token}]:-}" ]] && continue
         target="${_KNIT_SHORTHAND_PASSTHROUGH[${token}]}"
         eval "@${token}() { ${target} \"\$@\"; }"
+    done
+
+    # Generate the name-extracting registration shorthands. Each wrapper captures
+    # its own call site (BASH_SOURCE[1]/BASH_LINENO[0], stable because the
+    # wrapper is the direct callee of the user's line), discovers the decorated
+    # function's name, and forwards it at argument position 2 — the "fn" slot all
+    # five knit_register* targets share. The same eval rationale as above holds:
+    # token and target come from the fixed curated map, never user input.
+    for token in "${!_KNIT_SHORTHAND_EXTRACTOR[@]}"; do
+        [[ -n "${opted_out[${token}]:-}" ]] && continue
+        target="${_KNIT_SHORTHAND_EXTRACTOR[${token}]}"
+        eval "@${token}() {
+    local file=\"\${BASH_SOURCE[1]}\"
+    local line=\"\${BASH_LINENO[0]}\"
+    local fn
+    _knit_shorthand_find_function fn \"\${file}\" \"\${line}\"
+    ${target} \"\$1\" \"\${fn}\" \"\${@:2}\"
+}"
     done
 }
 
