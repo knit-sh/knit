@@ -8,33 +8,33 @@
 # START run
 source knit.sh
 
-knit_set_program_description "A tiny quickstart experiment."
+@set_program_description "A tiny quickstart experiment."
 # END run
 
 # START hello
-knit_register "hello" hello "Print a greeting."
+@command "hello" "Print a greeting."
 hello() {
     echo "Hello World"
 }
-knit_done
+@done
 # END hello
 
 # START say
-knit_register "say" say "Repeat a message."
-knit_with_required "message:string" "The message to repeat."
+@command "say" "Repeat a message."
+@with_required "message:string" "The message to repeat."
 say() {
     local message
     message="$(knit_get_parameter "message" "$@")"
     echo "User said '${message}'"
 }
-knit_done
+@done
 # END say
 
 # START greet
-knit_register "greet" greet "Greet someone by name."
-knit_with_required "name:string" "Who to greet."
-knit_with_optional "title:string" "" "An optional title (Mr, Mrs, Prof., ...)."
-knit_with_flag "capitalize" "Upper-case the whole greeting."
+@command "greet" "Greet someone by name."
+@with_required "name:string" "Who to greet."
+@with_optional "title:string" "" "An optional title (Mr, Mrs, Prof., ...)."
+@with_flag "capitalize" "Upper-case the whole greeting."
 greet() {
     local name title capitalize greeting
     name="$(knit_get_parameter "name" "$@")"
@@ -50,14 +50,14 @@ greet() {
     fi
     echo "${greeting}"
 }
-knit_done
+@done
 # END greet
 
 # START scale
-knit_register "scale" scale "Multiply an integer by a factor."
-knit_with_required "value:integer" "The value to scale."
-knit_with_optional "factor:integer" "2" "The multiplier (defaults to 2)."
-knit_with_output "result:integer" "0" "value * factor."
+@command "scale" "Multiply an integer by a factor."
+@with_required "value:integer" "The value to scale."
+@with_optional "factor:integer" "2" "The multiplier (defaults to 2)."
+@with_output "result:integer" "0" "value * factor."
 scale() {
     local value factor
     value="$(knit_get_parameter "value" "$@")"
@@ -65,15 +65,15 @@ scale() {
     knit_output "result" "$((value * factor))"
     printf 'result=%s\n' "$((value * factor))"
 }
-knit_done
+@done
 # END scale
 
 # START add
-knit_register "add" add "Add two integers and record the run."
-knit_with_required "x:integer" "First value."
-knit_with_required "y:integer" "Second value."
-knit_with_output "total:integer" "0" "x + y."
-knit_with_table
+@command "add" "Add two integers and record the run."
+@with_required "x:integer" "First value."
+@with_required "y:integer" "Second value."
+@with_output "total:integer" "0" "x + y."
+@with_table
 add() {
     local x y
     x="$(knit_get_parameter "x" "$@")"
@@ -81,7 +81,7 @@ add() {
     knit_output "total" "$((x + y))"
     printf 'total=%s\n' "$((x + y))"
 }
-knit_done
+@done
 # END add
 
 knit "$@"

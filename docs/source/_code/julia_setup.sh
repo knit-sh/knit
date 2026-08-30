@@ -11,12 +11,12 @@
 
 source knit.sh
 
-knit_set_program_description "Render a Julia-set fractal."
+@set_program_description "Render a Julia-set fractal."
 
 # START setup
-knit_register_setup "juliaenv" _juliaenv_setup "Build and install julia-fractal from source."
-knit_with_spack_specs "cmake" "libpng"
-knit_with_optional "ref:string" "v1.1.0" "git ref to build (tag, branch, or commit)."
+@setup "juliaenv" "Build and install julia-fractal from source."
+@with_spack_specs "cmake" "libpng"
+@with_optional "ref:string" "v1.1.0" "git ref to build (tag, branch, or commit)."
 _juliaenv_setup() {
     # The Spack environment declared above is already built and activated here, so
     # cmake and libpng are on PATH / LD_LIBRARY_PATH. Everything we install goes
@@ -41,20 +41,20 @@ _juliaenv_setup() {
     # Put the installed binary on PATH for any command that depends on this setup.
     export PATH="${KNIT_SETUP_PREFIX}/bin:${PATH}"
 }
-knit_done
+@done
 # END setup
 
-knit_register "julia" julia "Render a Julia-set fractal to a PNG."
+@command "julia" "Render a Julia-set fractal to a PNG."
 # START depends
-knit_with_setup "juliaenv"
+@with_setup "juliaenv"
 # END depends
-knit_with_optional "width:integer"    "800"    "Image width in pixels."
-knit_with_optional "height:integer"   "600"    "Image height in pixels."
-knit_with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant c."
-knit_with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
-knit_with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
-knit_with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
-knit_with_optional "output:string"    ""       "PNG file to write (empty = no file)."
+@with_optional "width:integer"    "800"    "Image width in pixels."
+@with_optional "height:integer"   "600"    "Image height in pixels."
+@with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant c."
+@with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
+@with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
+@with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
+@with_optional "output:string"    ""       "PNG file to write (empty = no file)."
 julia() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")
@@ -70,6 +70,6 @@ julia() {
     julia-fractal "${width}" "${height}" "${c_re}" "${c_im}" "${max_iter}" \
         "${output}" "${colormap}"
 }
-knit_done
+@done
 
 knit "$@"

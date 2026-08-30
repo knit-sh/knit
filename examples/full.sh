@@ -9,9 +9,9 @@
 # currently implements: bootstrapping, machine profiles, metadata, typed
 # command parameters (including file/directory inputs and outputs whose paths and
 # sha256 content checksums are recorded), declaring the headline result and the
-# exportable artifacts of a command (knit_with_output --result / knit_with_artifact
+# exportable artifacts of a command (@with_output --result / @with_artifact
 # / knit_artifact), downloadable input artifacts fetched as named resources
-# (knit fetch / knit_with_resource), setups (reproducible environments, optionally
+# (knit fetch / @with_resource), setups (reproducible environments, optionally
 # backed by a Spack environment), job submission to a batch scheduler (Slurm/PBS/Flux) — or to
 # local background processes when no scheduler is present — MPI application
 # launch across a job's allocation with `knit run`, the Spack package
@@ -21,9 +21,9 @@
 # recorded provenance), provenance-aware deletion of recorded entities and
 # everything that depended on them with `knit remove`, commands that are usable
 # before bootstrap
-# (`knit_usable_before_bootstrap`), state-aware `--help` guidance that gates,
-# hides, and highlights commands by the live experiment state (`knit_usable_if` /
-# `knit_hidden_if_not_usable` / `knit_highlight_if`), a machine- and
+# (`@usable_before_bootstrap`), state-aware `--help` guidance that gates,
+# hides, and highlights commands by the live experiment state (`@usable_if` /
+# `@hidden_if_not_usable` / `@highlight_if`), a machine- and
 # human-readable description of
 # the whole interface with `knit describe`, and natural-language access to the
 # experiment and its recorded runs with `knit ai` (read-only; needs an
@@ -82,12 +82,12 @@
 # (`submit [OPTIONS] -- montecarlo [OPTIONS]`), and the help shows the
 # job/setup/app's own options, the enclosing `submit`/`setup`/`run` options (such
 # as `--setup` / `--name` / `--procs`), and — for any command declared with
-# `knit_with_setup` — the setup type it requires. (`knit_with_setup` works on any
+# `@with_setup` — the setup type it requires. (`@with_setup` works on any
 # command now, not just jobs; a non-job command gains its own `--setup` option.)
 #
 # Most commands only make sense once the experiment is bootstrapped (they need
 # the database and binaries that `bootstrap` provisions under ./.knit). A few are
-# meaningful *before* bootstrap and are declared `knit_usable_before_bootstrap`:
+# meaningful *before* bootstrap and are declared `@usable_before_bootstrap`:
 # `bootstrap` itself, `describe`, `profile`, and — in this experiment — the
 # `preflight` command below. On a fresh checkout `./full.sh --help` lists only
 # those usable commands; running a not-usable one first is refused with a uniform
@@ -103,9 +103,9 @@
 # completed. It declares that prerequisite with three decorators, each naming a
 # predicate function that knit calls to test the current state:
 #
-#   knit_usable_if <pred> <reason>     refuse to run until <pred> passes
-#   knit_hidden_if_not_usable          hide from `--help` while not usable
-#   knit_highlight_if <pred>           bold in `--help` once <pred> passes
+#   @usable_if <pred> <reason>     refuse to run until <pred> passes
+#   @hidden_if_not_usable          hide from `--help` while not usable
+#   @highlight_if <pred>           bold in `--help` once <pred> passes
 #
 # So on a freshly bootstrapped experiment `analyze` is absent from `--help`; once
 # a montecarlo job has run it appears — in bold on a color terminal — as the
@@ -281,11 +281,11 @@
 #
 #   pi ~= 3.16200  (2000 samples, seed 42)
 #
-# Because it is declared with `knit_with_table`, every run is also recorded as a
+# Because it is declared with `@with_table`, every run is also recorded as a
 # row in the database (see step 8). Its parameters are typed:
 #   --samples : integer (required)
 #   --seed    : integer (optional, default 42)  -> makes results reproducible
-#   --format  : enum {decimal, scientific}      -> demonstrates knit_define_enum
+#   --format  : enum {decimal, scientific}      -> demonstrates @define_enum
 #   --notes   : file (optional)                 -> a checksummed file input
 #   --verbose : flag                            -> prints extra info on stderr
 #
@@ -383,13 +383,13 @@
 # Pass them explicitly (e.g. `... -- montecarlo --samples 50000 --seed 7`) to
 # override the setup's values.
 #
-# `montecarlo` declares `knit_with_setup mcenv`, so it *requires* a setup built
+# `montecarlo` declares `@with_setup mcenv`, so it *requires* a setup built
 # by `mcenv`: `--setup` is mandatory and names an mcenv setup. Name a setup built
 # by another type (or one that knit did not build) and submit refuses up front
-# with a clear type-mismatch error. A job that declares no `knit_with_setup` still
+# with a clear type-mismatch error. A job that declares no `@with_setup` still
 # runs inside a setup: it adopts the builtin `default` setup that bootstrap
 # auto-instantiates (see below), so `--setup` is optional and, when omitted,
-# resolves to that default. A job may opt out with `knit_without_setup` — then it
+# resolves to that default. A job may opt out with `@without_setup` — then it
 # runs with no setup at all. Either way, the job directory is always ./jobs/<uuid>
 # (the --job-path root from step 2): every job lands in one place regardless of
 # which setup, if any, it uses.
@@ -438,9 +438,9 @@
 # ./setups/default. It builds nothing — it carries only the platform activation
 # (the ./.knit/platform.sh from a --profile bootstrap, empty otherwise) — and is
 # a normal setup in the DB and provenance graph. It exists so a job with no
-# `knit_with_setup` still inherits the platform environment automatically. A
+# `@with_setup` still inherits the platform environment automatically. A
 # plain (non-job) command never adopts it implicitly, but may require it
-# explicitly with `knit_with_setup "default"`.
+# explicitly with `@with_setup "default"`.
 #
 # -----------------------------------------------------------------------------
 # 9. Inspect jobs
@@ -515,7 +515,7 @@
 #
 # On a machine bootstrapped with `--launcher none` (step 2), knit takes the MPI
 # launcher from a setup instead of the machine. A setup whose body puts an MPI on
-# PATH (e.g. `module load mpich`) can declare `knit_provides_launcher`: its
+# PATH (e.g. `module load mpich`) can declare `@provides_launcher`: its
 # after-callback detects that MPI and freezes it as the launcher contract in
 # .activate.sh, so any job requiring the setup launches through it — no profile
 # and no machine launcher involved. Declaring it fatals if no MPI is found, so
@@ -571,7 +571,7 @@
 #
 #   ./full.sh setup --name libenv -- mclib
 #
-# `mclib` is declared with `knit_with_spack_specs "zlib"`: knit writes a minimal
+# `mclib` is declared with `@with_spack_specs "zlib"`: knit writes a minimal
 # spack.yaml, builds and installs that environment as the setup's FIRST step,
 # then activates it so the rest of the setup body sees the packages. The concrete
 # spack.yaml and spack.lock are captured into the setup's DB row as provenance:
@@ -581,11 +581,11 @@
 #
 # The activation is baked into setups/libenv/.activate.sh (a `spack env activate`
 # block),
-# so any job that requires this setup (declared with `knit_with_setup "mclib"`)
+# so any job that requires this setup (declared with `@with_setup "mclib"`)
 # re-hydrates the Spack environment automatically — exactly like the
 # montecarlo/mcenv flow in steps 7–8, but with Spack-provided packages on the
 # path. For a manifest you maintain by hand, pass a file (or feed one on stdin)
-# to `knit_with_spack_env` instead of using the `knit_with_spack_specs` sugar.
+# to `@with_spack_env` instead of using the `@with_spack_specs` sugar.
 #
 # -----------------------------------------------------------------------------
 # 12. Fetch an input artifact (a resource)
@@ -607,10 +607,10 @@
 # is recorded in the `resource:seeds` table for provenance, and its path is
 # printed on stdout. Fetching is idempotent by name: re-fetching `myseeds` from
 # the same source does nothing; a different source under the same name is refused.
-# A git or url resource is one decorator away — knit_with_git <url> <ref> or
-# knit_with_url <url> in place of knit_with_local — and downloads instead of links.
+# A git or url resource is one decorator away — @with_git <url> <ref> or
+# @with_url <url> in place of @with_local — and downloads instead of links.
 #
-# A command that needs a resource DECLARES it with knit_with_resource, so the
+# A command that needs a resource DECLARES it with @with_resource, so the
 # need is validated up front and recorded in the provenance graph. `batch` sweeps
 # the fetched seed list, estimating pi once per seed:
 #
@@ -846,13 +846,13 @@
 # out: the *result* (what the experiment was for) and the *artifacts* (the files
 # to package for a reviewer or a repository such as Zenodo). `tabulate` shows
 # both. It marks its `mean` output as the headline result with --result, and it
-# declares three file artifacts with knit_with_artifact, binding each a
+# declares three file artifacts with @with_artifact, binding each a
 # different way:
 #
-#   knit_with_output   "mean:real" "0" "..." --result   # a value result
-#   knit_with_artifact "table:file"  "..." --result      # artifact + result
-#   knit_with_artifact "figure:file" "..." --result      # artifact + result
-#   knit_with_artifact "dump:file"   "..."               # artifact, not a result
+#   @with_output   "mean:real" "0" "..." --result   # a value result
+#   @with_artifact "table:file"  "..." --result      # artifact + result
+#   @with_artifact "figure:file" "..." --result      # artifact + result
+#   @with_artifact "dump:file"   "..."               # artifact, not a result
 #
 # --result is orthogonal to type: it flags importance on any output (a scalar
 # such as `mean`, or a file) and moves nothing. Artifacts live under an
@@ -978,11 +978,11 @@
 # directory so this bare form resolves even though the body runs elsewhere.
 source knit.sh
 
-knit_set_program_description \
+@set_program_description \
     "A guided tour of knit: estimate pi with Monte-Carlo, locally or as a job."
 
 # A user-defined enum type, usable as a parameter type below.
-knit_define_enum "numfmt" "decimal" "scientific"
+@define_enum "numfmt" "decimal" "scientific"
 
 # -----------------------------------------------------------------------------
 # _pi_monte_carlo()
@@ -1023,13 +1023,13 @@ _pi_monte_carlo() {
 # -----------------------------------------------------------------------------
 # preflight — a command that is usable *before* bootstrap.
 #
-# Declared with knit_usable_before_bootstrap, so it appears in `--help` and runs
+# Declared with @usable_before_bootstrap, so it appears in `--help` and runs
 # on a fresh checkout (before ./.knit exists). Such commands must not declare a
 # table or use --when: both would silently do nothing before bootstrap. This one
 # just reports whether the host has the tools bootstrap needs.
 # -----------------------------------------------------------------------------
-knit_register "preflight" preflight "Check this machine has what bootstrap needs (usable before bootstrap)."
-knit_usable_before_bootstrap
+@command "preflight" "Check this machine has what bootstrap needs (usable before bootstrap)."
+@usable_before_bootstrap
 preflight() {
     local ok=0 tool
     for tool in cc curl tar; do
@@ -1047,27 +1047,27 @@ preflight() {
     fi
     return "${ok}"
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # estimate — a plain command: quick local pi estimate, recorded in the DB.
 # -----------------------------------------------------------------------------
-knit_register "estimate" estimate "Estimate pi locally with Monte-Carlo."
-knit_with_required "samples:integer"       "Number of random samples to draw."
-knit_with_optional "seed:integer" "42"     "PRNG seed (fixed for reproducibility)."
-knit_with_optional "format:numfmt" "decimal" "Output format: decimal or scientific."
+@command "estimate" "Estimate pi locally with Monte-Carlo."
+@with_required "samples:integer"       "Number of random samples to draw."
+@with_optional "seed:integer" "42"     "PRNG seed (fixed for reproducibility)."
+@with_optional "format:numfmt" "decimal" "Output format: decimal or scientific."
 # A file/directory input is checked for existence before the body runs and (by
 # default) fingerprinted with a sha256: knit records --notes' path AND content
 # digest, so a run pins the exact notes file it consumed.
-knit_with_optional "notes:file" ""         "Optional notes file embedded in the report (path + sha256 recorded)."
-knit_with_flag     "verbose"               "Print progress information on stderr."
-knit_with_table                            # record every run as a DB row
-knit_with_output   "pi:real" "0"           "The estimated value of pi."
+@with_optional "notes:file" ""         "Optional notes file embedded in the report (path + sha256 recorded)."
+@with_flag     "verbose"               "Print progress information on stderr."
+@with_table                            # record every run as a DB row
+@with_output   "pi:real" "0"           "The estimated value of pi."
 # A file/directory OUTPUT is checked for existence on success and fingerprinted
 # after the body returns (off the timed path). The report is checksummed; the
 # scratch tree opts out with --no-checksum, so only its path is recorded.
-knit_with_output   "report:file" ""        "A written report of this estimate (path + sha256 recorded)."
-knit_with_output   "scratch:directory" ""  "Scratch tree of intermediate data (path recorded, no checksum)." --no-checksum
+@with_output   "report:file" ""        "A written report of this estimate (path + sha256 recorded)."
+@with_output   "scratch:directory" ""  "Scratch tree of intermediate data (path recorded, no checksum)." --no-checksum
 estimate() {
     local samples seed format verbose notes
     samples=$(knit_get_parameter "samples" "$@")
@@ -1105,7 +1105,7 @@ estimate() {
 
     printf 'pi ~= %s  (%s samples, seed %s)\n' "${pi}" "${samples}" "${seed}"
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # mcenv — a setup: prepare a reproducible Monte-Carlo environment.
@@ -1113,9 +1113,9 @@ knit_done
 # Writes a params file into the setup directory and exports MC_SEED / MC_SAMPLES
 # so that jobs depending on this setup inherit them (via .activate.sh).
 # -----------------------------------------------------------------------------
-knit_register_setup "mcenv" _mcenv_setup "Prepare a reproducible Monte-Carlo environment."
-knit_with_optional "seed:integer" "42"        "Seed to bake into the environment."
-knit_with_optional "samples:integer" "20000"  "Default sample count for jobs."
+@setup "mcenv" "Prepare a reproducible Monte-Carlo environment."
+@with_optional "seed:integer" "42"        "Seed to bake into the environment."
+@with_optional "samples:integer" "20000"  "Default sample count for jobs."
 _mcenv_setup() {
     local seed samples
     seed=$(knit_get_parameter "seed" "$@")
@@ -1129,21 +1129,21 @@ _mcenv_setup() {
     export MC_SEED="${seed}"
     export MC_SAMPLES="${samples}"
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # A setup can also SUPPLY the MPI launcher, for a machine bootstrapped with
 # `--launcher none` (guided-tour sections 2 and 10). Such a setup puts an MPI on
-# PATH in its body and declares knit_provides_launcher; its after-callback then
+# PATH in its body and declares @provides_launcher; its after-callback then
 # freezes the detected launcher into .activate.sh, so any job requiring the setup
 # launches through it. It would look like this:
 #
-#   knit_register_setup "mpienv" _mpienv_setup "Provide MPICH as the launcher."
-#   knit_provides_launcher
+#   @setup "mpienv" "Provide MPICH as the launcher."
+#   @provides_launcher
 #   _mpienv_setup() { module load mpich; }   # puts mpiexec/mpirun on PATH
-#   knit_done
+#   @done
 #
-# It is left commented out here because knit_provides_launcher fatals when it
+# It is left commented out here because @provides_launcher fatals when it
 # cannot detect an MPI, which would break this laptop-friendly example.
 # -----------------------------------------------------------------------------
 
@@ -1159,11 +1159,11 @@ knit_done
 # job (deduplicated by default; also supports --json and --raw for a per-slot
 # hostfile suitable for an MPI launcher).
 # -----------------------------------------------------------------------------
-knit_register_job "montecarlo" _montecarlo_job "Estimate pi as a submitted job."
-knit_with_setup    "mcenv"                             # requires an `mcenv` setup
-knit_with_optional "samples:integer" "ENV[MC_SAMPLES]" "Sample count (default: MC_SAMPLES from the setup)."
-knit_with_optional "seed:integer"    "ENV[MC_SEED]"    "PRNG seed (default: MC_SEED from the setup)."
-knit_with_output   "pi:real" "0"                       "The estimated value of pi."
+@job "montecarlo" "Estimate pi as a submitted job."
+@with_setup    "mcenv"                             # requires an `mcenv` setup
+@with_optional "samples:integer" "ENV[MC_SAMPLES]" "Sample count (default: MC_SAMPLES from the setup)."
+@with_optional "seed:integer"    "ENV[MC_SEED]"    "PRNG seed (default: MC_SEED from the setup)."
+@with_output   "pi:real" "0"                       "The estimated value of pi."
 _montecarlo_job() {
     # --samples and --seed are already resolved: either the values passed on the
     # command line, or (via their ENV[...] defaults) the ones exported by the
@@ -1181,7 +1181,7 @@ _montecarlo_job() {
     # (deduplicated by default; also supports --json and --raw).
     printf 'ran on hosts: %s\n' "$(knit_job_hostnames --separator ', ')"
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # analyze — a command guided by the live experiment state.
@@ -1192,14 +1192,14 @@ knit_done
 # decorators. Each takes the NAME of a predicate function that knit calls with
 # the command name; its exit status drives the behavior:
 #
-#   knit_usable_if <pred> <reason>   refuse to run (with <reason>) until <pred>
+#   @usable_if <pred> <reason>   refuse to run (with <reason>) until <pred>
 #                                    passes — here, until the montecarlo table
 #                                    holds a row;
-#   knit_hidden_if_not_usable        omit the command from a parent's `--help`
+#   @hidden_if_not_usable        omit the command from a parent's `--help`
 #                                    while it is not usable, so a fresh checkout
 #                                    is not cluttered by a command that cannot
 #                                    work yet;
-#   knit_highlight_if <pred>         bold the command in `--help` (on a color
+#   @highlight_if <pred>         bold the command in `--help` (on a color
 #                                    terminal) once <pred> passes, pointing you
 #                                    at the natural next step.
 #
@@ -1218,12 +1218,12 @@ _have_montecarlo_runs() {
         || return 1
     [[ "${n:-0}" -gt 0 ]]
 }
-knit_register "analyze" analyze "Average the pi estimates recorded by montecarlo jobs."
-knit_usable_if _have_montecarlo_runs \
+@command "analyze" "Average the pi estimates recorded by montecarlo jobs."
+@usable_if _have_montecarlo_runs \
     "no montecarlo job has completed yet; run 'submit --setup env -- montecarlo' first"
-knit_hidden_if_not_usable
-knit_highlight_if _have_montecarlo_runs
-knit_with_optional "digits:integer" "5" \
+@hidden_if_not_usable
+@highlight_if _have_montecarlo_runs
+@with_optional "digits:integer" "5" \
     "number of digits to display after the decimal point when reporting the aggregated estimate and its absolute error against the mathematical constant pi"
 analyze() {
     local digits
@@ -1239,7 +1239,7 @@ analyze() {
         printf "mean pi ~= %.*f over %d run(s)  (abs error %.*f)\n", d, a, n, d, err
     }'
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # mcrank — an app: one MPI rank of a parallel Monte-Carlo pi estimate.
@@ -1260,10 +1260,10 @@ knit_done
 # that is outside knit's scope (the launcher runs independent processes), so this
 # example simply reports each rank on its own.
 # -----------------------------------------------------------------------------
-knit_register_app "mcrank" _mcrank_app "One rank of a parallel Monte-Carlo pi estimate."
-knit_with_optional "samples:integer" "ENV[MC_SAMPLES]" "Total samples across all ranks (default: MC_SAMPLES)."
-knit_with_optional "seed:integer"    "ENV[MC_SEED]"    "Base PRNG seed (default: MC_SEED)."
-knit_with_output   "pi:real" "0"                       "Rank 0's partial pi estimate."
+@app "mcrank" "One rank of a parallel Monte-Carlo pi estimate."
+@with_optional "samples:integer" "ENV[MC_SAMPLES]" "Total samples across all ranks (default: MC_SAMPLES)."
+@with_optional "seed:integer"    "ENV[MC_SEED]"    "Base PRNG seed (default: MC_SEED)."
+@with_output   "pi:real" "0"                       "Rank 0's partial pi estimate."
 _mcrank_app() {
     local samples seed
     samples=$(knit_get_parameter "samples" "$@")
@@ -1289,7 +1289,7 @@ _mcrank_app() {
     # its partial as the run's recorded estimate.
     knit_output "pi" "${pi}"
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # mcparallel — a job: estimate pi in parallel by launching mcrank with knit run.
@@ -1300,9 +1300,9 @@ knit_done
 # laptop with no MPI launcher. On a real cluster, submit with more nodes and a
 # higher --procs to spread ranks across the allocation.
 # -----------------------------------------------------------------------------
-knit_register_job "mcparallel" _mcparallel_job "Estimate pi in parallel via knit run."
-knit_with_setup    "mcenv"                                  # requires an `mcenv` setup
-knit_with_optional "procs:integer" "1" "MPI ranks to launch (needs OpenMPI/MPICH for > 1)."
+@job "mcparallel" "Estimate pi in parallel via knit run."
+@with_setup    "mcenv"                                  # requires an `mcenv` setup
+@with_optional "procs:integer" "1" "MPI ranks to launch (needs OpenMPI/MPICH for > 1)."
 _mcparallel_job() {
     local procs
     procs=$(knit_get_parameter "procs" "$@")
@@ -1312,7 +1312,7 @@ _mcparallel_job() {
     # (MC_SAMPLES / MC_SEED).
     knit run --procs "${procs}" -- mcrank
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # sweep — a job that runs `estimate` twice, labelling each call with knit_as.
@@ -1323,18 +1323,18 @@ knit_done
 # estimate calls are aliased "coarse" and "fine"; each also records its own row
 # in the `estimate` table.
 # -----------------------------------------------------------------------------
-knit_register_job "sweep" _sweep_job "Run a coarse and a fine estimate (aliased for provenance)."
-knit_with_setup    "mcenv"                             # requires an `mcenv` setup
+@job "sweep" "Run a coarse and a fine estimate (aliased for provenance)."
+@with_setup    "mcenv"                             # requires an `mcenv` setup
 _sweep_job() {
     knit_as coarse estimate --samples 1000
     knit_as fine   estimate --samples 100000
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # mclib — a Spack-backed setup (see guided-tour section 11).
 #
-# knit_with_spack_specs declares a minimal Spack environment (here just "zlib", a
+# @with_spack_specs declares a minimal Spack environment (here just "zlib", a
 # tiny, quick-to-build package). knit builds and activates it as the setup's
 # first step, and captures the concrete spack.yaml / spack.lock as DB provenance.
 # Any job that requires this setup inherits the activated environment.
@@ -1343,8 +1343,8 @@ knit_done
 # the knit-private Spack automatically (downloaded via curl+tar, no git needed),
 # even without --spack.
 # -----------------------------------------------------------------------------
-knit_register_setup "mclib" _mclib_setup "Build a Spack environment (zlib)."
-knit_with_spack_specs "zlib"
+@setup "mclib" "Build a Spack environment (zlib)."
+@with_spack_specs "zlib"
 _mclib_setup() {
     # The Spack environment is already built and activated here, so packages
     # from the specs are on PATH / LD_LIBRARY_PATH. Anything exported is
@@ -1352,34 +1352,34 @@ _mclib_setup() {
     # inherited by dependent jobs.
     export MC_LIB="zlib"
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # seeds — a resource type (see guided-tour section 12).
 #
 # A resource declares HOW to acquire an input artifact; it has no body. This one
-# uses the local backend (knit_with_local), so `knit fetch` links or copies a
-# path already on disk — no network. Swap knit_with_local for knit_with_git <url>
-# <ref> or knit_with_url <url> to download from a repository or a URL instead.
+# uses the local backend (@with_local), so `knit fetch` links or copies a
+# path already on disk — no network. Swap @with_local for @with_git <url>
+# <ref> or @with_url <url> to download from a repository or a URL instead.
 # -----------------------------------------------------------------------------
-knit_register_resource "seeds" "A list of PRNG seeds to sweep, one per line."
-knit_with_local "./seed-list"
-knit_done
+@resource "seeds" "A list of PRNG seeds to sweep, one per line."
+@with_local "./seed-list"
+@done
 
 # -----------------------------------------------------------------------------
 # batch — a command that CONSUMES a resource (see guided-tour section 12).
 #
-# knit_with_resource "seeds:seeds" declares a dependency on a `seeds` resource:
+# @with_resource "seeds:seeds" declares a dependency on a `seeds` resource:
 # the parameter value is the instance NAME, validated before the body runs, with a
 # used_by provenance edge recorded automatically. knit_resource_path turns the
 # name into the on-disk directory the instance was fetched to. It declares
-# knit_with_table, so each sweep is recorded as a row (giving the used_by edge a
+# @with_table, so each sweep is recorded as a row (giving the used_by edge a
 # target to point at).
 # -----------------------------------------------------------------------------
-knit_register "batch" _batch "Estimate pi once per seed from a fetched seed list."
-knit_with_resource "seeds:seeds"      "Name of the fetched seed list to sweep."
-knit_with_required "samples:integer"  "Samples to draw for each seed."
-knit_with_table
+@command "batch" "Estimate pi once per seed from a fetched seed list."
+@with_resource "seeds:seeds"      "Name of the fetched seed list to sweep."
+@with_required "samples:integer"  "Samples to draw for each seed."
+@with_table
 _batch() {
     local seeds_dir samples
     seeds_dir="$(knit_resource_path "$(knit_get_parameter seeds "$@")")"
@@ -1393,7 +1393,7 @@ _batch() {
         printf 'seed %-4s pi ~= %s\n' "${seed}" "${pi}"
     done < "${seeds_dir}/seeds.txt"
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # tabulate — a command with a value result and file artifacts (guided-tour 17).
@@ -1403,7 +1403,7 @@ knit_done
 #
 #   * a VALUE RESULT: `mean` is an ordinary output flagged --result, so knit
 #     describe highlights it as the headline number;
-#   * three ARTIFACTS declared with knit_with_artifact and bound three ways —
+#   * three ARTIFACTS declared with @with_artifact and bound three ways —
 #     `table` written straight into artifacts/, `figure` copied in with
 #     --copy-from, and `dump` referenced in place with --link-from.
 #
@@ -1413,13 +1413,13 @@ knit_done
 # invocation's row by a `produced` edge, not a column of tabulate. Artifacts are
 # write-once, so the artifact names embed --runs to keep re-runs distinct.
 # -----------------------------------------------------------------------------
-knit_register "tabulate" _tabulate "Tabulate pi estimates into exportable artifacts."
-knit_with_optional "runs:integer" "3"     "How many quick estimates to tabulate."
-knit_with_table
-knit_with_output   "mean:real" "0"        "Mean of the tabulated estimates (the headline result)." --result
-knit_with_artifact "table:file"  "The tabulated estimates (CSV)." --result
-knit_with_artifact "figure:file" "A one-line textual summary."    --result
-knit_with_artifact "dump:file"   "Raw run log, referenced in place (not the headline result)."
+@command "tabulate" "Tabulate pi estimates into exportable artifacts."
+@with_optional "runs:integer" "3"     "How many quick estimates to tabulate."
+@with_table
+@with_output   "mean:real" "0"        "Mean of the tabulated estimates (the headline result)." --result
+@with_artifact "table:file"  "The tabulated estimates (CSV)." --result
+@with_artifact "figure:file" "A one-line textual summary."    --result
+@with_artifact "dump:file"   "Raw run log, referenced in place (not the headline result)."
 _tabulate() {
     local runs
     runs=$(knit_get_parameter "runs" "$@")
@@ -1463,7 +1463,7 @@ _tabulate() {
     knit_output "mean" "${mean}"
     printf 'mean pi ~= %s  (%s runs; artifacts under %s)\n' "${mean}" "${runs}" "${out}"
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # Call the main entry point of the knit framework (must come last).

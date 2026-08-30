@@ -10,15 +10,15 @@
 # START run
 source knit.sh
 
-knit_set_program_description "A tiny experiment for querying with ai query."
+@set_program_description "A tiny experiment for querying with ai query."
 # END run
 
 # START montecarlo
-knit_register "montecarlo" montecarlo "Estimate pi and record the run."
-knit_with_required "samples:integer" "How many samples to draw."
-knit_with_optional "seed:integer" "1" "Random seed."
-knit_with_output "pi:real" "0" "The estimate produced by this run."
-knit_with_table
+@command "montecarlo" "Estimate pi and record the run."
+@with_required "samples:integer" "How many samples to draw."
+@with_optional "seed:integer" "1" "Random seed."
+@with_output "pi:real" "0" "The estimate produced by this run."
+@with_table
 montecarlo() {
     local samples seed estimate
     samples="$(knit_get_parameter "samples" "$@")"
@@ -31,7 +31,7 @@ montecarlo() {
     knit_output "pi" "${estimate}"
     printf 'samples=%s pi=%s\n' "${samples}" "${estimate}"
 }
-knit_done
+@done
 # END montecarlo
 
 knit "$@"

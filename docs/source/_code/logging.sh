@@ -6,10 +6,10 @@
 
 source knit.sh
 
-knit_set_program_description "Demonstrate logging and framed output."
+@set_program_description "Demonstrate logging and framed output."
 
 # START levels
-knit_register "work" do_work "Do some work, narrating at several log levels."
+@command "work" "Do some work, narrating at several log levels."
 do_work() {
     knit_trace   "entering do_work"             # shown only at --log-level trace
     knit_debug   "computing the result"         # trace or debug
@@ -20,25 +20,25 @@ do_work() {
     #   knit_fatal "unrecoverable: %s" "${reason}"
     echo "done"
 }
-knit_done
+@done
 # END levels
 
 # START setlevel
 # Raise the threshold from inside a body so only warnings and above surface.
 # The same effect is available before launch with KNIT_LOG_LEVEL=warning.
-knit_register "quiet" go_quiet "Run the work quietly (warnings and errors only)."
+@command "quiet" "Run the work quietly (warnings and errors only)."
 go_quiet() {
     knit_log_set_level warning
     do_work
 }
-knit_done
+@done
 # END setlevel
 
 # START framed
 # Pipe a long-running command's output into knit_framed to keep it inside a
 # fixed, scrolling box with a title. On a non-TTY (a log file, CI) the input is
 # forwarded unchanged, so framing never corrupts captured output.
-knit_register "build" do_build "Build something, framing the output."
+@command "build" "Build something, framing the output."
 do_build() {
     build_steps | knit_framed 10 60 --title "Building" --cleanup
 }
@@ -47,7 +47,7 @@ build_steps() {
     echo "step 2/3"
     echo "step 3/3"
 }
-knit_done
+@done
 # END framed
 
 knit "$@"

@@ -10,17 +10,17 @@
 
 source knit.sh
 
-knit_set_program_description "Prepare jobs now and release them later."
+@set_program_description "Prepare jobs now and release them later."
 
 # START job
 # A job you prepare now and release later. Nothing about it is special: `prepare`
 # and `submit` share one job registry, so any job you can submit you can prepare.
-knit_register_job "sim" _sim "Run one simulation."
-knit_without_setup
-knit_with_optional "n:integer"      "10"   "Number of steps to run."
-knit_with_optional "label:string"   "run"  "A label recorded with the run."
-knit_with_table
-knit_with_output   "result:integer" "0"    "Twice the step count (a stand-in result)."
+@job "sim" "Run one simulation."
+@without_setup
+@with_optional "n:integer"      "10"   "Number of steps to run."
+@with_optional "label:string"   "run"  "A label recorded with the run."
+@with_table
+@with_output   "result:integer" "0"    "Twice the step count (a stand-in result)."
 _sim() {
     local n label
     n=$(knit_get_parameter "n" "$@")
@@ -28,12 +28,13 @@ _sim() {
     knit_output "result" "$(( n * 2 ))"
     printf '%s: result=%s\n' "${label}" "$(( n * 2 ))"
 }
-knit_done
+@done
 # END job
 
-# The example plan for `prepare from`, printed by the `plan` command below. The
-# recipe renders the JSON body directly (its literalinclude anchors on the here-doc
+# The example plan for `prepare from`, printed by the `plan` command. The recipe
+# renders the JSON body directly (its literalinclude anchors on the here-doc
 # delimiters), so this is the exact plan the docs show and the driver runs.
+@command "plan" "Print the example sweep plan as JSON."
 _sweep_plan() {
     cat <<'JSON'
 {
@@ -54,7 +55,6 @@ _sweep_plan() {
 }
 JSON
 }
-knit_register "plan" _sweep_plan "Print the example sweep plan as JSON."
-knit_done
+@done
 
 knit "$@"

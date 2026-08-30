@@ -8,6 +8,6 @@
 
 source knit.sh
 
-knit_set_program_description "Bootstrap recipes demo experiment."
+@set_program_description "Bootstrap recipes demo experiment."
 
 knit "$@"

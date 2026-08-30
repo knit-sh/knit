@@ -1,6 +1,13 @@
 intro = """
 Short, self-contained recipes for common Knit tasks. Each recipe is a small
 explanation and a code snippet; browse by category below.
+
+The code snippets use Knit's ``@`` shorthand for the declaration API --- for
+example ``@command`` for ``knit_register``, ``@setup`` for
+``knit_register_setup``, and ``@with_table`` for ``knit_with_table``. The prose
+refers to the functions by their canonical ``knit_*`` names; the ``@`` form is an
+equivalent twin of each (see the project README for the full mapping and the
+name-discovery rule the registration shorthands use).
 """
 
 [[category]]

@@ -16,16 +16,16 @@
 #!/usr/bin/env bash
 source knit.sh
 
-knit_set_program_description "Render a Julia-set fractal."
+@set_program_description "Render a Julia-set fractal."
 
-knit_register "julia" julia "Render a Julia-set fractal to a PNG."
-knit_with_optional "width:integer"    "800"    "Image width in pixels."
-knit_with_optional "height:integer"   "600"    "Image height in pixels."
-knit_with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant c."
-knit_with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
-knit_with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
-knit_with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
-knit_with_optional "output:string"    ""       "PNG file to write (empty = no file)."
+@command "julia" "Render a Julia-set fractal to a PNG."
+@with_optional "width:integer"    "800"    "Image width in pixels."
+@with_optional "height:integer"   "600"    "Image height in pixels."
+@with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant c."
+@with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
+@with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
+@with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
+@with_optional "output:string"    ""       "PNG file to write (empty = no file)."
 julia() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")
@@ -41,7 +41,7 @@ julia() {
     julia-fractal "${width}" "${height}" "${c_re}" "${c_im}" "${max_iter}" \
         "${output}" "${colormap}"
 }
-knit_done
+@done
 
 knit "$@"
 # END julia

@@ -9,7 +9,7 @@ source knit.sh
 # END run
 
 # START field
-knit_register "sizing" sizing "Report placement derived from the machine profile."
+@command "sizing" "Report placement derived from the machine profile."
 sizing() {
     local scheduler cores
     scheduler="$(knit_get_profile_field '.scheduler.type')"
@@ -17,15 +17,15 @@ sizing() {
     printf 'scheduler=%s cores_per_node=%s\n' \
         "${scheduler:-unknown}" "${cores:-unknown}"
 }
-knit_done
+@done
 # END field
 
 # START platform
-knit_register "where" where "Report the platform this experiment runs on."
+@command "where" "Report the platform this experiment runs on."
 where() {
     printf 'platform=%s\n' "$(knit_platform_name)"
 }
-knit_done
+@done
 # END platform
 
 knit "$@"

@@ -5,7 +5,7 @@
 # Tutorial snapshot --- STEP 3: the `julia` command becomes a *job*, submitted to
 # run in the background (and, on a cluster, on other machines) rather than in the
 # foreground. The setup is unchanged from Step 2; only the registration of
-# `julia` changes (knit_register -> knit_register_job) and its body now writes its
+# `julia` changes (@command -> @job) and its body now writes its
 # image under the job's own working directory.
 #
 # Source-only: building the setup needs a live Spack, a compiler, and network
@@ -15,12 +15,12 @@
 
 source knit.sh
 
-knit_set_program_description "Render a Julia-set fractal."
+@set_program_description "Render a Julia-set fractal."
 
 # The setup is exactly the one from Step 2: it builds and installs julia-fractal.
-knit_register_setup "juliaenv" _juliaenv_setup "Build and install julia-fractal from source."
-knit_with_spack_specs "cmake" "libpng"
-knit_with_optional "ref:string" "v1.1.0" "git ref to build (tag, branch, or commit)."
+@setup "juliaenv" "Build and install julia-fractal from source."
+@with_spack_specs "cmake" "libpng"
+@with_optional "ref:string" "v1.1.0" "git ref to build (tag, branch, or commit)."
 _juliaenv_setup() {
     local ref
     ref="$(knit_get_parameter "ref" "$@")"
@@ -37,17 +37,17 @@ _juliaenv_setup() {
 
     export PATH="${KNIT_SETUP_PREFIX}/bin:${PATH}"
 }
-knit_done
+@done
 
 # START job
-knit_register_job "julia" julia "Render a Julia-set fractal as a submitted job."
-knit_with_setup "juliaenv"
-knit_with_optional "width:integer"    "800"    "Image width in pixels."
-knit_with_optional "height:integer"   "600"    "Image height in pixels."
-knit_with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant c."
-knit_with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
-knit_with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
-knit_with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
+@job "julia" "Render a Julia-set fractal as a submitted job."
+@with_setup "juliaenv"
+@with_optional "width:integer"    "800"    "Image width in pixels."
+@with_optional "height:integer"   "600"    "Image height in pixels."
+@with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant c."
+@with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
+@with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
+@with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
 julia() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")
@@ -66,7 +66,7 @@ julia() {
     julia-fractal "${width}" "${height}" "${c_re}" "${c_im}" "${max_iter}" \
         "${png}" "${colormap}"
 }
-knit_done
+@done
 # END job
 
 knit "$@"

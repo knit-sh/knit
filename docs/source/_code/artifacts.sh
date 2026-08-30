@@ -7,14 +7,14 @@
 
 source knit.sh
 
-knit_set_program_description "A results and artifacts demo."
+@set_program_description "A results and artifacts demo."
 
 # START result
-knit_register "measure" measure "Square a value and mark the result."
-knit_with_required "x:integer" "The value to square."
-knit_with_output   "square:integer" "0" "The squared value (the result)." --result
-knit_with_output   "note:string"    ""  "An intermediate note (not a result)."
-knit_with_table
+@command "measure" "Square a value and mark the result."
+@with_required "x:integer" "The value to square."
+@with_output   "square:integer" "0" "The squared value (the result)." --result
+@with_output   "note:string"    ""  "An intermediate note (not a result)."
+@with_table
 measure() {
     local x
     x="$(knit_get_parameter "x" "$@")"
@@ -22,14 +22,14 @@ measure() {
     knit_output "note"   "squared x=${x}"      # recorded, but not a result
     printf 'square=%s\n' "$(( x * x ))"
 }
-knit_done
+@done
 # END result
 
 # START declare
-knit_register "tabulate" tabulate "Write a data table as an artifact."
-knit_with_output   "rows:integer" "0" "How many rows were written." --result
-knit_with_artifact "table:file" "The data table (CSV)." --result
-knit_with_table
+@command "tabulate" "Write a data table as an artifact."
+@with_output   "rows:integer" "0" "How many rows were written." --result
+@with_artifact "table:file" "The data table (CSV)." --result
+@with_table
 tabulate() {
     # knit_artifact_dir is the artifacts/ root: write into it, then declare.
     local out
@@ -40,14 +40,14 @@ tabulate() {
     knit_output   "rows" "3"
     printf 'wrote %s\n' "${out}/table.csv"
 }
-knit_done
+@done
 # END declare
 
 # START shortcuts
-knit_register "collect" collect "Bind artifacts by copy and by reference."
-knit_with_artifact "figure:file"  "A small file, copied in for durability."
-knit_with_artifact "dataset:file" "A large file, referenced in place." --result
-knit_with_table
+@command "collect" "Bind artifacts by copy and by reference."
+@with_artifact "figure:file"  "A small file, copied in for durability."
+@with_artifact "dataset:file" "A large file, referenced in place." --result
+@with_table
 collect() {
     # --copy-from: snapshot a file into artifacts/ (missing parents are created).
     printf 'a small figure\n' > figure.svg
@@ -59,7 +59,7 @@ collect() {
     knit_artifact "dataset" "dataset.dat" --link-from "${PWD}/big.dat"
     printf 'collected\n'
 }
-knit_done
+@done
 # END shortcuts
 
 knit "$@"

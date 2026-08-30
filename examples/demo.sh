@@ -13,10 +13,10 @@
 # Along the way it exercises: bootstrap (with automatic Spack provisioning); a
 # command usable before bootstrap (preflight); a downloadable resource fetched
 # with knit fetch (the julia-fractal source) and declared as a dependency with
-# knit_with_resource; a Spack-backed setup that CMake-builds and installs that
-# fetched source and provides its own MPI launcher (knit_provides_launcher); a job
+# @with_resource; a Spack-backed setup that CMake-builds and installs that
+# fetched source and provides its own MPI launcher (@provides_launcher); a job
 # declaring that setup with
-# knit_with_setup, with job-state tracking and knit_job_hostnames; an app
+# @with_setup, with job-state tracking and knit_job_hostnames; an app
 # launched with `knit run` for real MPI across the allocation (placement options
 # and native_cmd recording); knit_output recording a computed metric and an
 # artifact path; and an analyze step that reads the results back with `knit query`
@@ -77,7 +77,7 @@
 # -----------------------------------------------------------------------------
 #   ./demo.sh fetch --name julia_src -- julia_code
 #
-# `julia_code` is a resource TYPE (knit_register_resource + knit_with_git). knit
+# `julia_code` is a resource TYPE (@resource + @with_git). knit
 # fetch clones it once at its pinned tag into ./resources/julia_src, makes it
 # read-only, and records the resolved commit for provenance. Pin a different
 # revision with `-- julia_code --ref main` (julia_code section).
@@ -89,7 +89,7 @@
 #
 # Builds cmake/mpi/libpng with Spack, then CMake-builds/installs the fetched
 # julia-fractal source (named by --src) into ./setups/juliaenv. The setup declares
-# knit_with_resource "src:julia_code", so knit checks julia_src was fetched (and
+# @with_resource "src:julia_code", so knit checks julia_src was fetched (and
 # is of type julia_code) before the body runs (juliaenv section).
 #
 # -----------------------------------------------------------------------------
@@ -117,7 +117,7 @@
 # Runs all three `knit query` surfaces live over the recorded rows and the
 # provenance graph: the schema catalog, read-only SQL ranking the renders by
 # metric, and Cypher graph queries for placement and the setup→…→julia chain.
-# `analyze` is a pure read (knit_without_provenance) — it records nothing, so
+# `analyze` is a pure read (@without_provenance) — it records nothing, so
 # inspecting the graph does not change it (analyze section).
 #
 # -----------------------------------------------------------------------------
@@ -125,7 +125,7 @@
 # -----------------------------------------------------------------------------
 # Everything above is also a provenance graph: `submit --setup ...` records a
 # `used_by` edge from the setup to the job, the juliaenv setup (declaring
-# knit_with_resource) records a `used_by` edge from the julia_code resource to
+# @with_resource) records a `used_by` edge from the julia_code resource to
 # itself, and each command that invokes another records a `call` edge. Step 6's
 # graph queries traverse exactly those edges.
 #
@@ -160,13 +160,13 @@
 # directory so this bare form resolves even though the body runs elsewhere.
 source knit.sh
 
-knit_set_program_description \
+@set_program_description \
     "A knit demo: render a Julia-set fractal with real MPI, then query the results."
 
 # -----------------------------------------------------------------------------
 # preflight (walkthrough step 1) — a command that is usable *before* bootstrap.
 #
-# Declared with knit_usable_before_bootstrap, so it appears in `--help` and runs
+# Declared with @usable_before_bootstrap, so it appears in `--help` and runs
 # on a fresh checkout (before ./.knit exists). Such commands must not declare a
 # table or use --when: both would silently do nothing before bootstrap. This one
 # reports whether the host has the tools bootstrap and the demo need: git for
@@ -174,8 +174,8 @@ knit_set_program_description \
 # it (and for Spack), and curl/tar for bootstrap's provisioning. cmake/mpi/libpng
 # are provided by the setup's Spack environment, so they are not checked here.
 # -----------------------------------------------------------------------------
-knit_register "preflight" preflight "Check this machine has what bootstrap and the setup need (usable before bootstrap)."
-knit_usable_before_bootstrap
+@command "preflight" "Check this machine has what bootstrap and the setup need (usable before bootstrap)."
+@usable_before_bootstrap
 preflight() {
     local ok=0 tool
 
@@ -205,42 +205,42 @@ preflight() {
     fi
     return "${ok}"
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # julia_code (walkthrough step 3) — a resource: the julia-fractal MPI source.
 #
 # A resource is a named, downloadable input artifact. This one declares the
-# julia-fractal repository as a git resource (knit_register_resource +
-# knit_with_git <url> <ref>); `knit fetch` clones it once, at its pinned ref, into
+# julia-fractal repository as a git resource (@resource +
+# @with_git <url> <ref>); `knit fetch` clones it once, at its pinned ref, into
 # ./resources/<name>, makes it read-only, and records the resolved commit for
 # provenance. The juliaenv setup below consumes it by name. Fetch it with:
 #   ./demo.sh fetch --name julia_src -- julia_code
 # or pin a different revision:
 #   ./demo.sh fetch --name julia_src -- julia_code --ref main
 # -----------------------------------------------------------------------------
-knit_register_resource "julia_code" "The julia-fractal MPI source (github.com/knit-sh/julia-fractal-example)."
-knit_with_git "https://github.com/knit-sh/julia-fractal-example.git" "v1.0.0"
-knit_done
+@resource "julia_code" "The julia-fractal MPI source (github.com/knit-sh/julia-fractal-example)."
+@with_git "https://github.com/knit-sh/julia-fractal-example.git" "v1.0.0"
+@done
 
 # -----------------------------------------------------------------------------
 # juliaenv (walkthrough step 4) — the `setup` step: build julia-fractal's real
 # dependencies and the app itself into the setup prefix.
 #
-# knit_with_spack_specs declares a Spack environment mirroring the repo's own
+# @with_spack_specs declares a Spack environment mirroring the repo's own
 # spack.yaml (cmake, mpi, libpng). knit builds and activates it as the setup's
 # first step — so cmake, an MPI (mpicc), and libpng are on PATH before the body
 # runs — and captures the concrete spack.yaml / spack.lock as DB provenance.
 # Because a Spack-backed setup is declared, `bootstrap` provisions the
 # knit-private Spack automatically (curl+tar, no git needed).
 #
-# We use knit_with_spack_specs (not the knit_with_spack_env file form) because
+# We use @with_spack_specs (not the @with_spack_env file form) because
 # the repo — and thus its spack.yaml — is not present until the source is fetched;
 # the environment must be built before the body runs.
 #
 # The julia-fractal source is NOT cloned here: it is a resource, fetched once with
 # `knit fetch` (walkthrough step 3) and declared as a dependency with
-# knit_with_resource "src:julia_code". knit validates that the named instance was
+# @with_resource "src:julia_code". knit validates that the named instance was
 # fetched (and is of type julia_code) before this body runs and records a used_by
 # edge from the resource to the setup; the resolved commit is recorded on the
 # resource's own row for provenance. The setup CMake-configures/builds/installs
@@ -250,7 +250,7 @@ knit_done
 # launcher forwards it to the MPI ranks).
 #
 # Because this setup builds its own MPI (the `mpi` spec above), it also builds
-# that MPI's launcher (mpirun/mpiexec). knit_provides_launcher declares this: at
+# that MPI's launcher (mpirun/mpiexec). @provides_launcher declares this: at
 # build time knit detects the launcher the setup put on PATH and freezes it as
 # the setup's launcher contract, so `knit run` fans out with the *matching*
 # launcher on a machine that has no integrated one of its own (e.g. a laptop).
@@ -266,15 +266,15 @@ knit_done
 # or pin a different revision when you fetch:
 #   ./demo.sh fetch --name julia_src -- julia_code --ref main
 # -----------------------------------------------------------------------------
-knit_register_setup "juliaenv" _juliaenv_setup "Build & install julia-fractal from fetched source."
-knit_with_resource "src:julia_code" "Name of the fetched julia-fractal source to build."
-knit_with_spack_specs "cmake" "mpi" "libpng"
-knit_provides_launcher
+@setup "juliaenv" "Build & install julia-fractal from fetched source."
+@with_resource "src:julia_code" "Name of the fetched julia-fractal source to build."
+@with_spack_specs "cmake" "mpi" "libpng"
+@provides_launcher
 _juliaenv_setup() {
     # The Spack environment is already built and activated here, so cmake, mpicc,
     # and libpng from the specs above are on PATH / LD_LIBRARY_PATH.
     #
-    # The source comes from a resource: knit_with_resource validated that the
+    # The source comes from a resource: @with_resource validated that the
     # named instance was fetched (of type julia_code) before this body ran, and
     # knit_resource_path turns the name into its on-disk directory. The instance
     # is read-only, so we build OUT of source (a separate build/ tree under the
@@ -298,7 +298,7 @@ _juliaenv_setup() {
     # .activate.sh next to the Spack re-activation block and inherited by jobs.
     export PATH="${KNIT_SETUP_PREFIX}/bin:${PATH}"
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # julia (walkthrough step 5, the fan-out) — the `run` step: one MPI rank of the
@@ -323,19 +323,19 @@ knit_done
 # julia-fractal is found on PATH via the juliaenv setup's .activate.sh, which the
 # job inherits and the launcher forwards to every rank.
 # -----------------------------------------------------------------------------
-knit_register_app "julia" _julia_app "One MPI rank of the julia-fractal renderer."
-knit_with_optional "width:integer"    "800"     "Image width in pixels."
-knit_with_optional "height:integer"   "600"     "Image height in pixels."
-knit_with_optional "c-re:real"        "-0.8"    "Real part of the Julia constant c."
-knit_with_optional "c-im:real"        "0.156"   "Imaginary part of the Julia constant c."
-knit_with_optional "max-iter:integer" "1000"    "Maximum iterations per pixel."
-knit_with_optional "colormap:string"  "fire"    "Palette: grayscale | fire | ocean."
-knit_with_optional "center-x:real"    "0"       "Real-axis center of the view."
-knit_with_optional "center-y:real"    "0"       "Imaginary-axis center of the view."
-knit_with_optional "zoom:real"        "1"       "Zoom factor (higher = closer in)."
-knit_with_required "output:string"              "PNG path (the render job supplies a per-run path)."
-knit_with_output   "inside:integer" "0"         "Grid points inside the set (recorded by rank 0)."
-knit_with_output   "image:string"   ""          "Path to the produced PNG (recorded by rank 0)."
+@app "julia" "One MPI rank of the julia-fractal renderer."
+@with_optional "width:integer"    "800"     "Image width in pixels."
+@with_optional "height:integer"   "600"     "Image height in pixels."
+@with_optional "c-re:real"        "-0.8"    "Real part of the Julia constant c."
+@with_optional "c-im:real"        "0.156"   "Imaginary part of the Julia constant c."
+@with_optional "max-iter:integer" "1000"    "Maximum iterations per pixel."
+@with_optional "colormap:string"  "fire"    "Palette: grayscale | fire | ocean."
+@with_optional "center-x:real"    "0"       "Real-axis center of the view."
+@with_optional "center-y:real"    "0"       "Imaginary-axis center of the view."
+@with_optional "zoom:real"        "1"       "Zoom factor (higher = closer in)."
+@with_required "output:string"              "PNG path (the render job supplies a per-run path)."
+@with_output   "inside:integer" "0"         "Grid points inside the set (recorded by rank 0)."
+@with_output   "image:string"   ""          "Path to the produced PNG (recorded by rank 0)."
 _julia_app() {
     local width height c_re c_im max_iter colormap center_x center_y zoom output
     width=$(knit_get_parameter "width" "$@")
@@ -364,13 +364,13 @@ _julia_app() {
         knit_output "image"  "${output}"
     fi
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # render (walkthrough step 5) — the `submit` step: a job that renders a fractal
 # as MPI work.
 #
-# The job stays thin: it declares its setup dependency with knit_with_setup
+# The job stays thin: it declares its setup dependency with @with_setup
 # "juliaenv" (so knit builds/activates that setup's environment, putting
 # julia-fractal on PATH, before the body runs) and forwards its render options to
 # the app. Its body calls `knit run` to fan out: one julia rank per MPI process
@@ -383,18 +383,18 @@ knit_done
 #   ./demo.sh submit --setup juliaenv --wait -- render --procs 1
 #   ./demo.sh submit --setup juliaenv --nodes 2 -- render --procs 8
 # -----------------------------------------------------------------------------
-knit_register_job "render" _render_job "Render a Julia fractal as a submitted MPI job."
-knit_with_setup    "juliaenv"
-knit_with_optional "procs:integer"    "1"       "MPI ranks to launch (scale up on a cluster)."
-knit_with_optional "width:integer"    "800"     "Image width in pixels."
-knit_with_optional "height:integer"   "600"     "Image height in pixels."
-knit_with_optional "c-re:real"        "-0.8"    "Real part of the Julia constant c."
-knit_with_optional "c-im:real"        "0.156"   "Imaginary part of the Julia constant c."
-knit_with_optional "max-iter:integer" "1000"    "Maximum iterations per pixel."
-knit_with_optional "colormap:string"  "fire"    "Palette: grayscale | fire | ocean."
-knit_with_optional "center-x:real"    "0"       "Real-axis center of the view."
-knit_with_optional "center-y:real"    "0"       "Imaginary-axis center of the view."
-knit_with_optional "zoom:real"        "1"       "Zoom factor (higher = closer in)."
+@job "render" "Render a Julia fractal as a submitted MPI job."
+@with_setup    "juliaenv"
+@with_optional "procs:integer"    "1"       "MPI ranks to launch (scale up on a cluster)."
+@with_optional "width:integer"    "800"     "Image width in pixels."
+@with_optional "height:integer"   "600"     "Image height in pixels."
+@with_optional "c-re:real"        "-0.8"    "Real part of the Julia constant c."
+@with_optional "c-im:real"        "0.156"   "Imaginary part of the Julia constant c."
+@with_optional "max-iter:integer" "1000"    "Maximum iterations per pixel."
+@with_optional "colormap:string"  "fire"    "Palette: grayscale | fire | ocean."
+@with_optional "center-x:real"    "0"       "Real-axis center of the view."
+@with_optional "center-y:real"    "0"       "Imaginary-axis center of the view."
+@with_optional "zoom:real"        "1"       "Zoom factor (higher = closer in)."
 _render_job() {
     local procs
     procs=$(knit_get_parameter "procs" "$@")
@@ -417,7 +417,7 @@ _render_job() {
 
     printf 'rendered %s on %s\n' "${png}" "$(knit_job_hostnames --separator ', ')"
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # analyze (walkthrough step 6) — the `analyze` step: fan the results back in with
@@ -428,7 +428,7 @@ knit_done
 # provenance graph and prints a summary the team can read at a glance. It is the
 # closing step of the pipeline (bootstrap → setup → submit → run → analyze).
 #
-# knit_without_provenance marks it a pure read: running analyze records no row
+# @without_provenance marks it a pure read: running analyze records no row
 # and adds no edge, so inspecting the graph does not pollute it (like `knit query`
 # itself). It declares no table for the same reason.
 #
@@ -447,8 +447,8 @@ knit_done
 #
 #   ./demo.sh analyze
 # -----------------------------------------------------------------------------
-knit_register "analyze" _analyze "Summarise every render: metric, placement, provenance."
-knit_without_provenance
+@command "analyze" "Summarise every render: metric, placement, provenance."
+@without_provenance
 _analyze() {
     printf '== schema (catalog) ==\n'
     knit query catalog
@@ -467,7 +467,7 @@ _analyze() {
                 -[:call]->(:runs)-[:call]->(a:julia)
          RETURN a.colormap, a.inside, a.image ORDER BY a.inside DESC"
 }
-knit_done
+@done
 
 # -----------------------------------------------------------------------------
 # Call the main entry point of the knit framework (must come last).

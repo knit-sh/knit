@@ -18,9 +18,19 @@ hands the command line to Knit:
    :start-after: # START run
    :end-before: # END run
 
-``knit_set_program_description`` sets the blurb shown at the top of ``--help``.
+``@set_program_description`` sets the blurb shown at the top of ``--help``.
 Everything between the ``source`` line and the final ``knit "$@"`` registers the
 commands your experiment offers.
+
+.. note::
+
+   ``@set_program_description`` --- and ``@command``, ``@done``, and the
+   ``@with_*`` decorators you meet below --- are Knit's **shorthand** for its
+   declaration API. Every ``knit_x`` declaration function has an ``@x`` twin
+   (``knit_register`` is written ``@command`` and ``knit_register_<x>`` is written
+   ``@<x>``). The shorthand is enabled by default and is what this documentation
+   uses; the canonical ``knit_*`` functions remain available and unchanged. See
+   the project ``README`` for the full mapping and how to opt out.
 
 Running ``./exp.sh --help`` already works and shows a handful of built-in
 commands, along with your experiment's description as set above. The commands you
@@ -29,10 +39,11 @@ register below will appear in that same listing.
 Your first command
 ------------------
 
-A command is declared with ``knit_register <name> <fn> <description>`` and closed
-with ``knit_done``; in between go its parameters (none yet). The ``<name>`` is the
-command as typed on the command line, and ``<fn>`` is the Bash function Knit calls
-when the command runs. Here is a command that just prints a greeting:
+A command is declared with ``@command <name> <description>`` and closed with
+``@done``; in between go its parameters (none yet) and the Bash function Knit runs
+for the command. The ``<name>`` is the command as typed on the command line, and
+Knit calls the function it finds defined just below the declaration --- so you
+never repeat the function's name. Here is a command that just prints a greeting:
 
 .. literalinclude:: _code/quickstart.sh
    :language: bash
@@ -57,8 +68,8 @@ Now run the command:
 Taking a parameter
 ------------------
 
-Parameters are declared between ``knit_register`` and ``knit_done``.
-``knit_with_required "name:type" <description>`` adds a required one.
+Parameters are declared between ``@command`` and ``@done``.
+``@with_required "name:type" <description>`` adds a required one.
 Inside the body, we can read it back with ``knit_get_parameter``:
 
 .. literalinclude:: _code/quickstart.sh
@@ -84,9 +95,9 @@ Optional parameters and flags
 -----------------------------
 
 Beyond required parameters, a command can take optional parameters (with a
-default) and boolean flags. ``knit_with_optional "name:type" <default>
+default) and boolean flags. ``@with_optional "name:type" <default>
 <description>`` supplies a default used when the parameter is omitted;
-``knit_with_flag <name> <description>`` adds a switch that reads back as
+``@with_flag <name> <description>`` adds a switch that reads back as
 ``true`` or ``false``:
 
 .. literalinclude:: _code/quickstart.sh
@@ -110,7 +121,7 @@ Emitting an output
 ------------------
 
 A command can declare one or more **outputs**: a named, typed result it computes.
-``knit_with_output "name:type" <default> <description>`` declares it (the default
+``@with_output "name:type" <default> <description>`` declares it (the default
 is used if the command exits before setting it), and ``knit_output <name>
 <value>`` emits it from the body:
 
@@ -130,7 +141,7 @@ Recording runs in a table
 -------------------------
 
 Declaring an output gives a run a result, but as written above, this result is not
-stored anywhere. Adding ``knit_with_table`` tells Knit to **record** every invocation
+stored anywhere. Adding ``@with_table`` tells Knit to **record** every invocation
 --- its parameters and outputs, plus some informations --- as a row in a
 per-command table. Here is a command with two required parameters, an output, and
 a table:

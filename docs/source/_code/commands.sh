@@ -10,67 +10,69 @@ source knit.sh
 # END skeleton
 
 # START description
-knit_set_program_description "Demonstrate command registration and nesting."
+@set_program_description "Demonstrate command registration and nesting."
 # END description
 
 # START register
-knit_register "hello" hello "Print a greeting."
+@command "hello" "Print a greeting."
 hello() {
     echo "Hello World"
 }
-knit_done
+@done
 
-# knit_empty registers a command with no behavior --- handy for a stub or a
+# @empty registers a command with no behavior --- handy for a stub or a
 # grouping parent that only carries subcommands.
-knit_register "todo" knit_empty "Planned command, not implemented yet."
-knit_done
+@command "todo" "Planned command, not implemented yet."
+@empty
+@done
 # END register
 
 # START nest
-# A parent command that only groups subcommands: register it with knit_empty and
+# A parent command that only groups subcommands: register it with @empty and
 # (optionally) rename the section its children appear under in --help.
-knit_register "say" knit_empty "Say something."
-knit_with_subcommand_title "Greetings"
-knit_done
+@command "say" "Say something."
+@empty
+@with_subcommand_title "Greetings"
+@done
 
 # Subcommands: colons in the name nest them under the parent, so they are invoked
 # as "say hello" and "say goodbye".
-knit_register "say:hello" say_hello "Say hello."
+@command "say:hello" "Say hello."
 say_hello() {
     echo "Hello"
 }
-knit_done
+@done
 
-knit_register "say:goodbye" say_goodbye "Say goodbye."
+@command "say:goodbye" "Say goodbye."
 say_goodbye() {
     echo "Goodbye"
 }
-knit_done
+@done
 # END nest
 
 # START dispatch
 # A dispatcher forwards everything after "--" to a target it looks up itself.
-# knit_with_dispatch changes the --help usage line to "tool [OPTIONS] -- <tool>"
+# @with_dispatch changes the --help usage line to "tool [OPTIONS] -- <tool>"
 # and allows the trailing arguments; the body reads them with knit_extra_index.
-knit_register "tool" run_tool "Run a named tool with trailing arguments."
-knit_with_dispatch "tool" "The tool name and its arguments (after --)."
+@command "tool" "Run a named tool with trailing arguments."
+@with_dispatch "tool" "The tool name and its arguments (after --)."
 run_tool() {
     local args=("$@") extra_index extra
     extra_index=$(knit_extra_index "${args[@]}")
     extra=("${args[@]:extra_index}")
     printf 'running: %s\n' "${extra[*]}"
 }
-knit_done
+@done
 # END dispatch
 
 # START gate
 # Hide a command from --help. It stays fully invokable.
-knit_register "internal" internal_cmd "Internal helper."
-knit_hidden
+@command "internal" "Internal helper."
+@hidden
 internal_cmd() {
     echo "internal"
 }
-knit_done
+@done
 
 # Refuse to run a command unless a predicate holds. The predicate receives the
 # command name and returns 0 (usable) or non-zero (blocked); its description is
@@ -78,12 +80,12 @@ knit_done
 _danger_allowed() {
     [[ "${ALLOW_DANGER:-}" == "1" ]]
 }
-knit_register "danger" danger_cmd "Perform a dangerous operation."
-knit_usable_if _danger_allowed "Set ALLOW_DANGER=1 to enable this command."
+@command "danger" "Perform a dangerous operation."
+@usable_if _danger_allowed "Set ALLOW_DANGER=1 to enable this command."
 danger_cmd() {
     echo "danger performed"
 }
-knit_done
+@done
 # END gate
 
 # START highlight
@@ -92,12 +94,12 @@ knit_done
 _is_featured() {
     true
 }
-knit_register "featured" featured_cmd "A command highlighted in --help."
-knit_highlight_if _is_featured
+@command "featured" "A command highlighted in --help."
+@highlight_if _is_featured
 featured_cmd() {
     echo "featured"
 }
-knit_done
+@done
 # END highlight
 
 # START entry

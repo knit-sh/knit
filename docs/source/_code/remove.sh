@@ -14,19 +14,19 @@
 
 source knit.sh
 
-knit_set_program_description "Build a small lineage, then prune it with knit remove."
+@set_program_description "Build a small lineage, then prune it with knit remove."
 
 # A resource TYPE: a source package staged from a local path (the driver stages
 # the directory). The setup below consumes an instance of it.
-knit_register_resource "srcpkg" "A source package staged from a local path."
-knit_with_local "./pkg"
-knit_done
+@resource "srcpkg" "A source package staged from a local path."
+@with_local "./pkg"
+@done
 
 # A setup that consumes a srcpkg instance. Depending on the resource records a
 # used_by edge resource --> setup, so removing the resource cascades to the setup
 # (and removing the setup leaves the resource in place).
-knit_register_setup "env" _env_setup "Build environment from a source package."
-knit_with_resource "src:srcpkg" "Name of the srcpkg instance to build from."
+@setup "env" "Build environment from a source package."
+@with_resource "src:srcpkg" "Name of the srcpkg instance to build from."
 _env_setup() {
     local dir
     dir="$(knit_resource_path "$(knit_get_parameter src "$@")")"
@@ -34,14 +34,14 @@ _env_setup() {
     cp "${dir}/marker.txt" "${KNIT_SETUP_PREFIX}/marker.txt"
     printf 'built env from %s\n' "${dir}"
 }
-knit_done
+@done
 
-# A job that runs in the setup and produces an artifact. knit_with_setup records
-# a used_by edge setup --> job; knit_with_artifact + knit_artifact record the
+# A job that runs in the setup and produces an artifact. @with_setup records
+# a used_by edge setup --> job; @with_artifact + knit_artifact record the
 # produced edge job --> artifact.
-knit_register_job "crunch" _crunch "Produce a result inside the env setup."
-knit_with_setup "env"
-knit_with_artifact "result:file" "The computed result."
+@job "crunch" "Produce a result inside the env setup."
+@with_setup "env"
+@with_artifact "result:file" "The computed result."
 _crunch() {
     local out
     out="$(knit_artifact_dir)"
@@ -50,6 +50,6 @@ _crunch() {
     knit_artifact "result" "result.txt"
     printf 'crunch done\n'
 }
-knit_done
+@done
 
 knit "$@"

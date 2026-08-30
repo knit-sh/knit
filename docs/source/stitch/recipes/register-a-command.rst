@@ -7,7 +7,9 @@
 
 Every command is declared with ``knit_register <name> <function> <description>``,
 followed by any parameter declarations, and closed with ``knit_done``. The named
-function is the command's body:
+function is the command's body. In the ``@`` shorthand shown below, ``@command``
+takes only ``<name> <description>`` --- it finds the body from the function
+defined just beneath the declaration --- and ``@done`` closes it:
 
 .. literalinclude:: /_code/commands.sh
    :language: bash
@@ -15,4 +17,5 @@ function is the command's body:
    :end-before: # END register
 
 Use ``knit_empty`` as the body when a command does nothing yet (a stub) or when
-it exists only to group subcommands under it.
+it exists only to group subcommands under it; the shorthand writes this as an
+``@empty`` marker line.

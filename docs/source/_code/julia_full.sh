@@ -14,17 +14,17 @@
 
 source knit.sh
 
-knit_set_program_description "Render a Julia-set fractal."
+@set_program_description "Render a Julia-set fractal."
 
 # --- Setup ------------------------------------------------------------------
 # Builds and installs julia-fractal with MPI. Spack provisions the build
 # dependencies; on a machine that offers no launcher of its own, the setup also
 # provides one (laptop-safe fallback). The whole thing installs into
 # KNIT_SETUP_PREFIX and puts the binary on PATH.
-knit_register_setup "juliaenv" _juliaenv_setup "Build and install julia-fractal with MPI."
-knit_with_spack_specs "cmake" "libpng" "mpi"
-knit_provides_launcher
-knit_with_optional "ref:string" "v1.1.0" "git ref to build (tag, branch, or commit)."
+@setup "juliaenv" "Build and install julia-fractal with MPI."
+@with_spack_specs "cmake" "libpng" "mpi"
+@provides_launcher
+@with_optional "ref:string" "v1.1.0" "git ref to build (tag, branch, or commit)."
 _juliaenv_setup() {
     local ref
     ref="$(knit_get_parameter "ref" "$@")"
@@ -41,21 +41,21 @@ _juliaenv_setup() {
 
     export PATH="${KNIT_SETUP_PREFIX}/bin:${PATH}"
 }
-knit_done
+@done
 
 # --- Job --------------------------------------------------------------------
 # Submitted to the scheduler. Its body launches the render app across one rank
 # per allocated node with `knit run`, so the same job runs one rank on a laptop
 # and one rank per node across a multi-node allocation.
-knit_register_job "julia" julia "Render a Julia-set fractal as a submitted job."
-knit_with_setup "juliaenv"
-knit_with_optional "width:integer"    "800"    "Image width in pixels."
-knit_with_optional "height:integer"   "600"    "Image height in pixels."
-knit_with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant c."
-knit_with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
-knit_with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
-knit_with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
-knit_with_optional "output:string"    "fractal.png" "PNG file name, written in the job directory."
+@job "julia" "Render a Julia-set fractal as a submitted job."
+@with_setup "juliaenv"
+@with_optional "width:integer"    "800"    "Image width in pixels."
+@with_optional "height:integer"   "600"    "Image height in pixels."
+@with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant c."
+@with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
+@with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
+@with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
+@with_optional "output:string"    "fractal.png" "PNG file name, written in the job directory."
 julia() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")
@@ -76,21 +76,21 @@ julia() {
         --c-re "${c_re}" --c-im "${c_im}" --max-iter "${max_iter}" \
         --colormap "${colormap}" --output "${png}"
 }
-knit_done
+@done
 
 # --- App --------------------------------------------------------------------
 # One MPI-parallel image. Launched by the job via `knit run`; it inherits the
 # job's setup environment, so julia-fractal is already on PATH. Rank 0 records
 # the `inside` metric into the `render` table.
-knit_register_app "render" _render_app "Render one MPI-parallel Julia-set image."
-knit_with_optional "width:integer"    "800"    "Image width in pixels."
-knit_with_optional "height:integer"   "600"    "Image height in pixels."
-knit_with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant c."
-knit_with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
-knit_with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
-knit_with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
-knit_with_required "output:string"             "Absolute PNG path (the job supplies one per run)."
-knit_with_output   "inside:integer"   "0"      "Grid points inside the set (recorded by rank 0)."
+@app "render" "Render one MPI-parallel Julia-set image."
+@with_optional "width:integer"    "800"    "Image width in pixels."
+@with_optional "height:integer"   "600"    "Image height in pixels."
+@with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant c."
+@with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
+@with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
+@with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
+@with_required "output:string"             "Absolute PNG path (the job supplies one per run)."
+@with_output   "inside:integer"   "0"      "Grid points inside the set (recorded by rank 0)."
 _render_app() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")
@@ -110,16 +110,16 @@ _render_app() {
     inside=$(sed -n 's/.*inside=\([0-9]*\).*/\1/p' <<< "${out}" | head -1)
     knit_output "inside" "${inside}"
 }
-knit_done
+@done
 
 # --- Fan-in -----------------------------------------------------------------
-# Reads back what the renders recorded. `knit_without_provenance` marks this as
+# Reads back what the renders recorded. `@without_provenance` marks this as
 # read-only bookkeeping, so it writes no row or edge of its own. Each
 # `knit run -- render` wrote one row in the `render` table, so a single SELECT
 # sees every image the experiment has produced.
-knit_register "aggregate" aggregate \
+@command "aggregate" \
     "Fan-in: total the inside metric across every recorded render."
-knit_without_provenance
+@without_provenance
 aggregate() {
     local count total
     count=$(knit query sql --exec "SELECT count(*) FROM render;")
@@ -127,6 +127,6 @@ aggregate() {
 
     printf 'Summed inside=%s over %s render(s).\n' "${total:-0}" "${count:-0}"
 }
-knit_done
+@done
 
 knit "$@"

@@ -4,7 +4,7 @@
 #
 # Tutorial snapshot --- STEP 4: MPI enters the *setup*. The setup now asks Spack
 # for an `mpi` provider as well, so CMake detects MPI and builds the parallel
-# binary, and the setup declares `knit_provides_launcher` so the Spack-built MPI
+# binary, and the setup declares `@provides_launcher` so the Spack-built MPI
 # can act as the launcher on a machine that has none of its own. The `julia` job
 # is unchanged from Step 3 --- it still runs the binary directly (a single rank);
 # launching it across ranks is Step 5.
@@ -15,13 +15,13 @@
 
 source knit.sh
 
-knit_set_program_description "Render a Julia-set fractal."
+@set_program_description "Render a Julia-set fractal."
 
 # START setup
-knit_register_setup "juliaenv" _juliaenv_setup "Build and install julia-fractal with MPI."
-knit_with_spack_specs "cmake" "libpng" "mpi"
-knit_provides_launcher
-knit_with_optional "ref:string" "v1.1.0" "git ref to build (tag, branch, or commit)."
+@setup "juliaenv" "Build and install julia-fractal with MPI."
+@with_spack_specs "cmake" "libpng" "mpi"
+@provides_launcher
+@with_optional "ref:string" "v1.1.0" "git ref to build (tag, branch, or commit)."
 _juliaenv_setup() {
     # cmake, libpng, and an MPI (mpicc/mpicxx, mpirun/mpiexec) are on PATH here,
     # provided by the Spack environment declared above. Everything we install goes
@@ -44,18 +44,18 @@ _juliaenv_setup() {
 
     export PATH="${KNIT_SETUP_PREFIX}/bin:${PATH}"
 }
-knit_done
+@done
 # END setup
 
-knit_register_job "julia" julia "Render a Julia-set fractal as a submitted job."
-knit_with_setup "juliaenv"
-knit_with_optional "width:integer"    "800"    "Image width in pixels."
-knit_with_optional "height:integer"   "600"    "Image height in pixels."
-knit_with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant c."
-knit_with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
-knit_with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
-knit_with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
-knit_with_optional "output:string"    "fractal.png" "PNG file name, written in the job directory."
+@job "julia" "Render a Julia-set fractal as a submitted job."
+@with_setup "juliaenv"
+@with_optional "width:integer"    "800"    "Image width in pixels."
+@with_optional "height:integer"   "600"    "Image height in pixels."
+@with_optional "c-re:real"        "-0.8"   "Real part of the Julia constant c."
+@with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
+@with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
+@with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
+@with_optional "output:string"    "fractal.png" "PNG file name, written in the job directory."
 julia() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")
@@ -73,6 +73,6 @@ julia() {
     julia-fractal "${width}" "${height}" "${c_re}" "${c_im}" "${max_iter}" \
         "${png}" "${colormap}"
 }
-knit_done
+@done
 
 knit "$@"

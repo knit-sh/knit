@@ -2,25 +2,26 @@
 
 source knit.sh
 
-knit_set_program_description "Hello World example"
+@set_program_description "Hello World example"
 
-knit_register "sum" sum "Add two numbers."
-knit_with_required "x:integer" "First value"
-knit_with_required "y:integer" "Second value"
+@command "sum" "Add two numbers."
+@with_required "x:integer" "First value"
+@with_required "y:integer" "Second value"
 sum() {
     local x=$(knit_get_parameter "x" $@)
     local y=$(knit_get_parameter "y" $@)
     echo $((x + y))
 }
-knit_done
+@done
 
-knit_register "say" knit_empty "Say something."
-knit_done
+@command "say" "Say something."
+@empty
+@done
 
-knit_register "say:hello" hello "Greet somebody."
-knit_with_required "the-name:string" "Name of the person to greet."
-knit_with_optional "greeting:string" "Hello" "How to greet them."
-knit_with_flag "prof" "Whether they are a professor."
+@command "say:hello" "Greet somebody."
+@with_required "the-name:string" "Name of the person to greet."
+@with_optional "greeting:string" "Hello" "How to greet them."
+@with_flag "prof" "Whether they are a professor."
 _knit_run_before echo "Hello world" Something
 _knit_run_after echo "Good bye" ABD
 hello() {
@@ -35,12 +36,12 @@ hello() {
     fi
     echo $message
 }
-knit_done
+@done
 
-knit_register "say:good_bye" bye "Greet somebody."
+@command "say:good_bye" "Greet somebody."
 bye() {
     echo "Good bye"
 }
-knit_done
+@done
 
 knit $@

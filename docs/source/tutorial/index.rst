@@ -98,8 +98,8 @@ run where we happened to build it. A **setup** is Knit's answer: a recorded,
 reproducible step that builds an environment once, to be reused by later
 commands. Ours builds ``julia-fractal`` from source and installs it.
 
-A setup is registered with ``knit_register_setup``. This one declares the
-software it needs with ``knit_with_spack_specs`` --- ``cmake`` and ``libpng``
+A setup is registered with ``@setup``. This one declares the
+software it needs with ``@with_spack_specs`` --- ``cmake`` and ``libpng``
 (no MPI yet; that comes later) --- and its body clones the source, builds it, and
 
 installs it. This setup must come before our earlier definition of the ``julia``
@@ -110,7 +110,7 @@ command:
    :start-after: # START setup
    :end-before: # END setup
 
-Two things make this reproducible. ``knit_with_spack_specs`` declares a
+Two things make this reproducible. ``@with_spack_specs`` declares a
 `Spack <https://spack.io/>`_ environment: Knit will use Spack to build
 ``cmake`` and ``libpng`` and activates them *before* the body runs, so
 the body finds them regardless of what the host has installed.
@@ -139,14 +139,14 @@ main``.
 Once built, you should see a new folder named **myenv** in the **Setups** directory. This is where the environment was installed.
 
 Now tell the ``julia`` command to depend on the setup. One line, between its
-``knit_register`` and ``knit_done``, does it:
+``@command`` and ``@done``, does it:
 
 .. literalinclude:: ../_code/julia_setup.sh
    :language: bash
    :start-after: # START depends
    :end-before: # END depends
 
-``knit_with_setup "juliaenv"`` adds a ``--setup`` option to the command and,
+``@with_setup "juliaenv"`` adds a ``--setup`` option to the command and,
 before the body runs, activates the named setup's environment --- putting the
 installed ``julia-fractal`` on ``PATH``. Run it, pointing at the setup we built:
 
@@ -175,8 +175,8 @@ on a laptop, as a local background process; on a cluster, on compute nodes
 allocated for it. The experiment does not change shape; the ``julia`` command
 simply becomes a job.
 
-The change is one word: register with ``knit_register_job`` instead of
-``knit_register``. That makes ``julia`` a subcommand of the builtin ``submit``
+The change is one word: register with ``@job`` instead of
+``@command``. That makes ``julia`` a subcommand of the builtin ``submit``
 command rather than a top-level command. The body is almost the same as before,
 with one addition --- it writes its image under ``KNIT_JOB_PREFIX`` (we also
 remove the ``output`` parameter of the command, alway outputing *fractal.png*):
@@ -199,7 +199,7 @@ off in a later step, where the body launches its work as separate processes
 through ``knit run`` --- an explicit, absolute path stays unambiguous across that
 boundary.
 
-The ``knit_with_setup "juliaenv"`` line we added in Step 2 still applies, but for
+The ``@with_setup "juliaenv"`` line we added in Step 2 still applies, but for
 a job it behaves differently: instead of adding a ``--setup`` option to
 ``julia``, it makes ``--setup`` a *required* option of ``submit`` (a job always
 runs against a setup), and the setup's environment is re-activated on the machine
@@ -270,11 +270,11 @@ exposes to Spack. With an MPI in the environment, CMake now finds it and builds
 the parallel binary, and the compiler wrappers (``mpicc`` / ``mpicxx``) and the
 launcher (``mpirun`` / ``mpiexec``) are on ``PATH`` while the body runs.
 
-The second change is ``knit_provides_launcher``. Launching an MPI program takes
+The second change is ``@provides_launcher``. Launching an MPI program takes
 two things: the program, and a *launcher* to start its ranks and place them on
 nodes. On a real cluster the launcher is the site's own (``srun``, the batch
 ``mpiexec``), and Knit uses it. But a plain laptop has no integrated launcher ---
-and here the setup just built an MPI that ships one. ``knit_provides_launcher``
+and here the setup just built an MPI that ships one. ``@provides_launcher``
 declares exactly that: *"this setup supplies a launcher where the machine has
 none."* When the setup builds, Knit detects the MPI it put on ``PATH``, freezes
 that choice into the setup's environment, and records it. Later, when a job runs
@@ -284,7 +284,7 @@ experiment launches ranks on a cluster and on a laptop.
 
 .. note::
 
-   ``knit_provides_launcher`` is a fallback, not an override: a launcher the
+   ``@provides_launcher`` is a fallback, not an override: a launcher the
    machine already integrates always wins, because a site's launcher cooperates
    with its scheduler as intended. The setup's launcher is used only where the
    machine offers none.
@@ -354,7 +354,7 @@ and pass its parameters.
 But ``knit run`` launches something new: an **app**. An app is the unit of
 parallel work --- ``knit run`` starts one copy of it per rank. Our job launches an
 app called ``render`` that wraps the actual ``julia-fractal`` call. So we register
-it, with ``knit_register_app``:
+it, with ``@app``:
 
 .. literalinclude:: ../_code/julia_app.sh
    :language: bash
@@ -373,14 +373,14 @@ slice. Knit also exports ``KNIT_MPI_RANK``, ``KNIT_MPI_SIZE``, and
 ``KNIT_MPI_LOCAL_RANK`` for an app that needs to branch on its own rank; this one
 lets the binary handle that.
 
-Second, the app **records the metric**. ``knit_with_output "inside:integer"``
+Second, the app **records the metric**. ``@with_output "inside:integer"``
 declares an output column, and ``knit_output "inside" …`` fills it from the
 binary's ``inside=`` line. Every rank runs that line, but Knit records outputs
 **only from rank 0** (it suppresses recording on the others), so one clean row is
 written no matter how many ranks ran. That recorded ``inside`` is what Step 6
 queries and aggregates.
 
-Third, the app has **no setup of its own**. ``knit_with_setup`` is a job concept;
+Third, the app has **no setup of its own**. ``@with_setup`` is a job concept;
 an app inherits the environment of the job that launched it, so ``julia-fractal``
 is already on ``PATH`` from the job's ``juliaenv`` setup. The job also hands the
 app the output path it built from ``KNIT_JOB_PREFIX``. Knit runs each rank in the
@@ -395,7 +395,7 @@ rank.
    The job and the app declare many of the same parameters (``width``,
    ``height``, ``c-re``, …), because the job forwards them to the app. Rather than
    repeat the declarations, you can define them once as a **parameter set** and
-   import it into both commands with ``knit_with_parameter_set``. Parameter sets
+   import it into both commands with ``@with_parameter_set``. Parameter sets
    are covered in :doc:`the Stitch Guide <../stitch/index>`.
 
 Submitting is **exactly as before** --- ``julia`` is still the job, so the
@@ -504,7 +504,7 @@ jobs:
    :end-before: # END aggregate
 
 It calls ``knit query sql`` from inside the body, exactly as you would from the
-shell. ``knit_without_provenance`` marks the command as read-only bookkeeping: it
+shell. ``@without_provenance`` marks the command as read-only bookkeeping: it
 reads results but is not itself part of the experiment's provenance, so running it
 records no row and leaves no ``call`` edge in the graph. Running it collapses the
 three renders into one number:
@@ -855,7 +855,7 @@ machine's compilers and MPI:
 
 Because the machine now advertises its own launcher (PALS), that launcher is used
 in preference to the Spack-built one the setup provides --- exactly the precedence
-described in Step 4. The setup's ``knit_provides_launcher`` remains the laptop
+described in Step 4. The setup's ``@provides_launcher`` remains the laptop
 fallback; on a real machine it steps aside.
 
 **Submit across an allocation.** The ``submit`` command is the same one you have

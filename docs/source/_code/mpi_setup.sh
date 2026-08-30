@@ -16,15 +16,15 @@ source knit.sh
 # START setup
 # Ask Spack for MPICH and expose it as the launcher. Activating the Spack
 # environment (which knit does before the body runs) puts mpicc / mpirun on PATH,
-# and knit_provides_launcher advertises that MPI to "knit run" --- so the body has
+# and @provides_launcher advertises that MPI to "knit run" --- so the body has
 # nothing left to build.
-knit_register_setup "mpienv" _mpienv_setup "Provide an MPI implementation via Spack."
-knit_with_spack_specs "mpich"
-knit_provides_launcher
+@setup "mpienv" "Provide an MPI implementation via Spack."
+@with_spack_specs "mpich"
+@provides_launcher
 _mpienv_setup() {
     : # nothing to do: Spack already installed and activated MPICH
 }
-knit_done
+@done
 # END setup
 
 knit "$@"
