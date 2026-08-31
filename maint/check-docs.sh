@@ -32,6 +32,14 @@ fi
 total=0
 failed=0
 
+echo "== shorthand converter selftest =="
+if python3 "${ROOT}/docs/source/_ext/knit_shorthand.py" --selftest; then
+    :
+else
+    failed=$((failed + 1))
+fi
+echo
+
 if [[ -d "${CODE_DIR}" ]]; then
     while IFS= read -r exp; do
         case "${exp}" in
