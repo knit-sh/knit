@@ -8,7 +8,7 @@
 # START run
 source knit.sh
 
-@set_program_description "A tiny quickstart experiment."
+knit_set_program_description "A tiny quickstart experiment."
 # END run
 
 # START hello

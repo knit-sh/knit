@@ -15,7 +15,7 @@
 
 source knit.sh
 
-@set_program_description "Render a Julia-set fractal."
+knit_set_program_description "Render a Julia-set fractal."
 
 # The setup is exactly the one from Step 2: it builds and installs julia-fractal.
 @setup "juliaenv" "Build and install julia-fractal from source."

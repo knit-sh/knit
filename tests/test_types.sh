@@ -52,7 +52,7 @@ setup() {
 }
 
 @test "resolve enum type returns itself" {
-    knit_define_enum "color" "red" "green" "blue"
+    knit_enum "color" "red" "green" "blue"
     local result
     _knit_type_resolve_alias result "color"
     [ "$result" = "color" ]
@@ -78,21 +78,21 @@ setup() {
 }
 
 @test "enum type exists after definition" {
-    knit_define_enum "color" "red" "green" "blue"
+    knit_enum "color" "red" "green" "blue"
     knit_type_exists "color"
 }
 
-# ---------- knit_define_enum / knit_enum_values ----------
+# ---------- knit_enum / knit_enum_values ----------
 
 @test "define enum and list values" {
-    knit_define_enum "color" "red" "green" "blue"
+    knit_enum "color" "red" "green" "blue"
     local result
     result=$(knit_enum_values "color" | sort)
     [ "$result" = "$(printf 'blue\ngreen\nred')" ]
 }
 
 @test "enum values with custom separator" {
-    knit_define_enum "direction" "north" "south"
+    knit_enum "direction" "north" "south"
     local result
     result=$(knit_enum_values "direction" ", ")
     [[ "$result" = "north, south" || "$result" = "south, north" ]]
@@ -104,7 +104,7 @@ setup() {
 }
 
 @test "empty enum produces no output" {
-    knit_define_enum "empty"
+    knit_enum "empty"
     local result
     result=$(knit_enum_values "empty")
     [ -z "$result" ]
@@ -333,14 +333,14 @@ setup() {
 # ---------- knit_type_check: enum ----------
 
 @test "type check enum valid value" {
-    knit_define_enum "color" "red" "green" "blue"
+    knit_enum "color" "red" "green" "blue"
     knit_type_check "color" "red"
     knit_type_check "color" "green"
     knit_type_check "color" "blue"
 }
 
 @test "type check enum invalid value" {
-    knit_define_enum "color" "red" "green" "blue"
+    knit_enum "color" "red" "green" "blue"
     run knit_type_check "color" "yellow"
     [ "$status" -eq 1 ]
 }
@@ -428,7 +428,7 @@ setup() {
 }
 
 @test "type to sqlite enum returns TEXT" {
-    knit_define_enum "color" "red" "green"
+    knit_enum "color" "red" "green"
     local result
     _knit_type_to_sqlite result "color"
     [ "$result" = "TEXT" ]

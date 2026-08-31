@@ -50,6 +50,10 @@ def _token_styles(foreground, comment):
         Comment: f"italic {comment}",
         Keyword: _MAGENTA,
         Name.Builtin: f"bold {_PURPLE}",
+        # The `@` declaration shorthand (reclassified to the decorator token by
+        # the Knit-aware lexer): the Knit API in its own magenta accent, next to
+        # the purple `knit_*` builtins.
+        Name.Decorator: f"bold {_MAGENTA}",
         String: _CORAL,
         Number: _MAGENTA,
         Operator: _FG_MUTED,

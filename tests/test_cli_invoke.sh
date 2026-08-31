@@ -108,7 +108,7 @@ teardown() {
 }
 
 @test "_knit_check_command_arguments accepts a valid enum value" {
-    knit_define_enum "ty_color" "red" "green" "blue"
+    knit_enum "ty_color" "red" "green" "blue"
     knit_register "ty_enum_ok" knit_empty "Test."
     knit_with_required "shade:ty_color" "A color."
     knit_done
@@ -116,7 +116,7 @@ teardown() {
 }
 
 @test "_knit_check_command_arguments rejects an invalid enum value and lists the choices" {
-    knit_define_enum "ty_color2" "red" "green" "blue"
+    knit_enum "ty_color2" "red" "green" "blue"
     knit_register "ty_enum_bad" knit_empty "Test."
     knit_with_required "shade:ty_color2" "A color."
     knit_done

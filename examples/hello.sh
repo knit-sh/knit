@@ -2,7 +2,7 @@
 
 source knit.sh
 
-@set_program_description "Hello World example"
+knit_set_program_description "Hello World example"
 
 @command "sum" "Add two numbers."
 @with_required "x:integer" "First value"

@@ -285,7 +285,7 @@
 # row in the database (see step 8). Its parameters are typed:
 #   --samples : integer (required)
 #   --seed    : integer (optional, default 42)  -> makes results reproducible
-#   --format  : enum {decimal, scientific}      -> demonstrates @define_enum
+#   --format  : enum {decimal, scientific}      -> demonstrates @enum
 #   --notes   : file (optional)                 -> a checksummed file input
 #   --verbose : flag                            -> prints extra info on stderr
 #
@@ -978,11 +978,11 @@
 # directory so this bare form resolves even though the body runs elsewhere.
 source knit.sh
 
-@set_program_description \
+knit_set_program_description \
     "A guided tour of knit: estimate pi with Monte-Carlo, locally or as a job."
 
 # A user-defined enum type, usable as a parameter type below.
-@define_enum "numfmt" "decimal" "scientific"
+@enum "numfmt" "decimal" "scientific"
 
 # -----------------------------------------------------------------------------
 # _pi_monte_carlo()

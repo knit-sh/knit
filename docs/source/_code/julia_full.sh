@@ -14,7 +14,7 @@
 
 source knit.sh
 
-@set_program_description "Render a Julia-set fractal."
+knit_set_program_description "Render a Julia-set fractal."
 
 # --- Setup ------------------------------------------------------------------
 # Builds and installs julia-fractal with MPI. Spack provisions the build

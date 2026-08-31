@@ -41,14 +41,20 @@ from pygments.token import (
 # Mirrors the KnitBashLexer in docs/source/conf.py: the bare word `knit` and any
 # `knit_*` function are reclassified to the shell-builtin token so the Knit API
 # stands out, while `knit_*` names inside strings and comments are left alone.
+# The `@` declaration shorthand (`@command`, `@job`, ...) becomes the decorator
+# token so it renders in its own magenta accent next to the purple builtins.
 
 _KNIT_RE = re.compile(r"^knit(_[A-Za-z0-9_]+)?$")
+_KNIT_SHORTHAND_RE = re.compile(r"^@[A-Za-z0-9_]+$")
 
 
 def _knit_promote(tokens):
     for index, token, value in tokens:
-        if (token in Text or token in Name) and _KNIT_RE.match(value):
-            token = Name.Builtin
+        if token in Text or token in Name:
+            if _KNIT_RE.match(value):
+                token = Name.Builtin
+            elif _KNIT_SHORTHAND_RE.match(value):
+                token = Name.Decorator
         yield index, token, value
 
 
@@ -90,6 +96,7 @@ def make_style(palette):
             Comment: f"italic {palette['knit-deep']}",
             Keyword: palette["knit-magenta"],
             Name.Builtin: f"bold {palette['knit-purple']}",
+            Name.Decorator: f"bold {palette['knit-magenta']}",
             String: palette["knit-coral"],
             Number: palette["knit-magenta"],
             Operator: palette["knit-fg-muted"],

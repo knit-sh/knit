@@ -80,7 +80,7 @@ teardown() {
 }
 
 @test "knit_with_parameter_set is fatal on a wrapper" {
-    knit_define_parameter_set "pset"
+    knit_parameter_set "pset"
     knit_with_optional "n:integer" "1" "A number."
     knit_done
     wrap_fn() { :; }

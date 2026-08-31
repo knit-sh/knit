@@ -10,7 +10,7 @@
 # START run
 source knit.sh
 
-@set_program_description "A tiny experiment for querying with ai query."
+knit_set_program_description "A tiny experiment for querying with ai query."
 # END run
 
 # START montecarlo

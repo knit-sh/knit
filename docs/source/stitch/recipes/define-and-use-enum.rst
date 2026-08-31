@@ -3,10 +3,10 @@
    categories: types
    order: 20
    description: Restrict a parameter to a fixed set of values with a custom enum type.
-   apis: knit_define_enum, knit_enum_values, knit_with_required
+   apis: knit_enum, knit_enum_values, knit_with_required
 
 To restrict a parameter to a fixed set of values, define an enum with
-``knit_define_enum <name> <value>...`` and then use its name as a parameter type.
+``knit_enum <name> <value>...`` and then use its name as a parameter type.
 Knit validates the value against the allowed set for you, exactly as it does for
 the built-in types.
 

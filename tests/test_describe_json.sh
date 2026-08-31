@@ -10,7 +10,7 @@ setup() {
 # Register a small user command set exercising the model: an enum, a command
 # with every parameter group, an output and a table, plus a nested subcommand.
 _register_fixture() {
-    knit_define_enum "color" "red" "green" "blue"
+    knit_enum "color" "red" "green" "blue"
 
     knit_register "greet" knit_empty "Say hello to someone."
     knit_with_required "name:string" "Name of the person to greet."

@@ -121,16 +121,16 @@ teardown() {
     [ "$val" = "mydefault" ]
 }
 
-# ---------- knit_define_parameter_set / knit_with_parameter_set ----------
+# ---------- knit_parameter_set / knit_with_parameter_set ----------
 
-@test "knit_define_parameter_set defines a parameter set" {
-    knit_define_parameter_set "my_params"
+@test "knit_parameter_set defines a parameter set" {
+    knit_parameter_set "my_params"
     knit_done
     [[ -v "_KNIT_PARAMETER_SETS[my_params]" ]]
 }
 
-@test "knit_define_parameter_set with required/optional/flag stores params in pset namespace" {
-    knit_define_parameter_set "job_params"
+@test "knit_parameter_set with required/optional/flag stores params in pset namespace" {
+    knit_parameter_set "job_params"
     knit_with_required "nodes:integer" "Node count."
     knit_with_optional "label:string" "none" "A label."
     knit_with_flag "verbose" "Verbose mode."
@@ -141,7 +141,7 @@ teardown() {
 }
 
 @test "knit_with_parameter_set imports params into a command" {
-    knit_define_parameter_set "shared"
+    knit_parameter_set "shared"
     knit_with_required "nodes:integer" "Node count."
     knit_with_optional "label:string" "none" "A label."
     knit_with_flag "verbose" "Verbose mode."
@@ -157,7 +157,7 @@ teardown() {
 }
 
 @test "knit_with_parameter_set copies parameter metadata" {
-    knit_define_parameter_set "meta_set"
+    knit_parameter_set "meta_set"
     knit_with_required "size:integer" "Size of the job."
     knit_with_optional "tag:string" "default_tag" "A tag."
     knit_done
@@ -174,7 +174,7 @@ teardown() {
 }
 
 @test "knit_with_parameter_set lets the command be invoked with pset params" {
-    knit_define_parameter_set "run_params"
+    knit_parameter_set "run_params"
     knit_with_required "nodes:integer" "Node count."
     knit_with_optional "label:string" "default" "A label."
     knit_done
@@ -194,7 +194,7 @@ teardown() {
 }
 
 @test "two commands can share the same parameter set independently" {
-    knit_define_parameter_set "shared2"
+    knit_parameter_set "shared2"
     knit_with_required "nodes:integer" "Node count."
     knit_done
 
@@ -215,10 +215,10 @@ teardown() {
 }
 
 @test "multiple parameter sets can be applied to one command" {
-    knit_define_parameter_set "set_a"
+    knit_parameter_set "set_a"
     knit_with_required "nodes:integer" "Node count."
     knit_done
-    knit_define_parameter_set "set_b"
+    knit_parameter_set "set_b"
     knit_with_required "walltime:integer" "Walltime in seconds."
     knit_done
 
@@ -232,7 +232,7 @@ teardown() {
 }
 
 @test "command-level params and pset params coexist" {
-    knit_define_parameter_set "base_set"
+    knit_parameter_set "base_set"
     knit_with_required "nodes:integer" "Node count."
     knit_done
 
@@ -253,7 +253,7 @@ teardown() {
 }
 
 @test "knit_with_parameter_set fails when pset param conflicts with command param" {
-    knit_define_parameter_set "conflict_set"
+    knit_parameter_set "conflict_set"
     knit_with_required "nodes:integer" "Node count."
     knit_done
 
@@ -265,10 +265,10 @@ teardown() {
 }
 
 @test "knit_with_parameter_set fails when two psets have the same param" {
-    knit_define_parameter_set "overlap_a"
+    knit_parameter_set "overlap_a"
     knit_with_required "nodes:integer" "Node count."
     knit_done
-    knit_define_parameter_set "overlap_b"
+    knit_parameter_set "overlap_b"
     knit_with_required "nodes:integer" "Same name."
     knit_done
 
@@ -279,43 +279,43 @@ teardown() {
     knit_done
 }
 
-@test "knit_define_parameter_set fails for invalid name" {
-    run knit_define_parameter_set "invalid name"
+@test "knit_parameter_set fails for invalid name" {
+    run knit_parameter_set "invalid name"
     [ "$status" -eq 1 ]
 }
 
-@test "knit_define_parameter_set fails for duplicate set name" {
-    knit_define_parameter_set "dup_set"
+@test "knit_parameter_set fails for duplicate set name" {
+    knit_parameter_set "dup_set"
     knit_done
-    run knit_define_parameter_set "dup_set"
+    run knit_parameter_set "dup_set"
     [ "$status" -eq 1 ]
 }
 
-@test "knit_define_parameter_set fails inside another parameter set definition" {
-    knit_define_parameter_set "outer_set"
-    run knit_define_parameter_set "inner_set"
+@test "knit_parameter_set fails inside another parameter set definition" {
+    knit_parameter_set "outer_set"
+    run knit_parameter_set "inner_set"
     [ "$status" -eq 1 ]
     knit_done
 }
 
 @test "knit_with_parameter_set fails outside of knit_register" {
-    knit_define_parameter_set "standalone_set"
+    knit_parameter_set "standalone_set"
     knit_done
     run knit_with_parameter_set "standalone_set"
     [ "$status" -eq 1 ]
 }
 
 @test "knit_with_required fails with duplicate within a parameter set" {
-    knit_define_parameter_set "dup_param_set"
+    knit_parameter_set "dup_param_set"
     knit_with_required "nodes:integer" "First declaration."
     run knit_with_required "nodes:integer" "Duplicate."
     [ "$status" -eq 1 ]
     knit_done
 }
 
-@test "knit_define_parameter_set auto-calls knit_done if knit_register is open" {
+@test "knit_parameter_set auto-calls knit_done if knit_register is open" {
     knit_register "auto_done_cmd" knit_empty "A command."
-    knit_define_parameter_set "auto_done_set"
+    knit_parameter_set "auto_done_set"
     knit_done
     # Both registrations should have completed without error.
     _knit_set_find _KNIT_COMMANDS "auto_done_cmd"
@@ -323,7 +323,7 @@ teardown() {
 }
 
 @test "pset params appear in --help output for the command" {
-    knit_define_parameter_set "help_set"
+    knit_parameter_set "help_set"
     knit_with_required "nodes:integer" "Number of nodes."
     knit_done
 

@@ -77,7 +77,7 @@ Each command's parameters and behavior are declared before `knit_done`:
 - `knit_with_spack_specs` / `knit_with_spack_env` — a setup's Spack environment.
 
 **Types.** Built in: `integer`, `real`, `boolean`, `string` (aliases: `int`,
-`double`/`float`, `bool`). Define an enum with `knit_define_enum "<name>"
+`double`/`float`, `bool`). Define an enum with `knit_enum "<name>"
 "<value>"...` and use it as a type (for example `format:numfmt`). Types drive
 validation, `--help`, and the SQLite column type.
 

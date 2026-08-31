@@ -429,9 +429,9 @@ _knit_bootstrap_update() {
 #
 # @param[in] ... Arguments for bootstrap.
 # ------------------------------------------------------------------------------
-knit_define_enum "__scheduler__" "auto" "slurm" "pbs" "flux" "local" "none"
+knit_enum "__scheduler__" "auto" "slurm" "pbs" "flux" "local" "none"
 _knit_is_builtin
-knit_define_enum "__launcher__"  "auto" "openmpi" "mpich" "pals" "flux" "slurm" "pbs" "none"
+knit_enum "__launcher__"  "auto" "openmpi" "mpich" "pals" "flux" "slurm" "pbs" "none"
 _knit_is_builtin
 knit_register "bootstrap" _knit_bootstrap "Bootstrap the Knit framework."
 _knit_is_builtin

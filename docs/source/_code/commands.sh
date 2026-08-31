@@ -10,7 +10,7 @@ source knit.sh
 # END skeleton
 
 # START description
-@set_program_description "Demonstrate command registration and nesting."
+knit_set_program_description "Demonstrate command registration and nesting."
 # END description
 
 # START register

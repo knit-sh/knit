@@ -160,7 +160,7 @@
 # directory so this bare form resolves even though the body runs elsewhere.
 source knit.sh
 
-@set_program_description \
+knit_set_program_description \
     "A knit demo: render a Julia-set fractal with real MPI, then query the results."
 
 # -----------------------------------------------------------------------------

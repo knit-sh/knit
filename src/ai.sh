@@ -1075,7 +1075,7 @@ _knit_ai_query_loop() {
 # declarations in this file and in src/query.sh both resolve the type at
 # registration time.
 # ------------------------------------------------------------------------------
-knit_define_enum "query_format" \
+knit_enum "query_format" \
     "list" "json" "box" "csv" "markdown" "table" "line" "html" \
     "ascii" "column" "tabs"
 _knit_is_builtin
@@ -1086,7 +1086,7 @@ _knit_is_builtin
 # `auto` lets the loop detect the language of each generated statement; `sql` and
 # `cypher` pin generation to one language and override detection.
 # ------------------------------------------------------------------------------
-knit_define_enum "ai_query_lang" "auto" "sql" "cypher"
+knit_enum "ai_query_lang" "auto" "sql" "cypher"
 _knit_is_builtin
 
 # ------------------------------------------------------------------------------

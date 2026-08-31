@@ -15,7 +15,7 @@
 
 source knit.sh
 
-@set_program_description "Render a Julia-set fractal."
+knit_set_program_description "Render a Julia-set fractal."
 
 # Setup: unchanged from Step 4 --- an MPI-capable build that also provides a
 # launcher where the machine has none.

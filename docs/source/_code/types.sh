@@ -40,7 +40,7 @@ budget() {
 # START enum
 # Define an enum once, then use its name as a parameter type. Knit validates the
 # value against the allowed set and lists the accepted values on error.
-@define_enum "format" "png" "jpeg" "webp"
+@enum "format" "png" "jpeg" "webp"
 @command "convert" "Convert an image to another format."
 @with_required "to:format" "Target format (one of: $(knit_enum_values "format" ", "))."
 convert() {

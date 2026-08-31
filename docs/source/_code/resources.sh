@@ -11,7 +11,7 @@
 
 source knit.sh
 
-@set_program_description "Fetch an input dataset, then summarize it."
+knit_set_program_description "Fetch an input dataset, then summarize it."
 
 # START register
 # A resource TYPE declares HOW to acquire an artifact --- exactly one download

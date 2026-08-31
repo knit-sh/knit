@@ -316,7 +316,7 @@ _knit_param_check_declaration() {
     local description="$3"
 
     if [[ ! -v _KNIT_CURRENT_COMMAND ]] && [[ ! -v _KNIT_CURRENT_PARAMETER_SET ]]; then
-        knit_fatal "knit_with_${suffix} should be used after a call to \"knit_register\" or \"knit_define_parameter_set\"."
+        knit_fatal "knit_with_${suffix} should be used after a call to \"knit_register\" or \"knit_parameter_set\"."
     fi
     _knit_wrapper_reject_declaration "knit_with_${suffix}"
 
@@ -695,7 +695,7 @@ _knit_wrapper_reject_declaration() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn knit_define_parameter_set()
+# @fn knit_parameter_set()
 #
 # Begins the definition of a named parameter set. A call to this function should
 # be followed by any number of knit_with_required, knit_with_optional, and
@@ -704,7 +704,7 @@ _knit_wrapper_reject_declaration() {
 #
 # @param[in] name Name of the parameter set (letters, digits, hyphens, underscores).
 # ------------------------------------------------------------------------------
-knit_define_parameter_set() {
+knit_parameter_set() {
     local set_name="$1"
     if [[ -v _KNIT_CURRENT_COMMAND ]]; then
         knit_done

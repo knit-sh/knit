@@ -49,7 +49,7 @@ declare -gA _KNIT_BUILTIN_ENUMS
 # ------------------------------------------------------------------------------
 # @var _KNIT_LAST_ENUM
 #
-# Name of the most recently defined enum (set by knit_define_enum). Consulted by
+# Name of the most recently defined enum (set by knit_enum). Consulted by
 # _knit_is_builtin when called outside a command registration, so a builtin enum
 # can be marked immediately after its definition.
 # ------------------------------------------------------------------------------
@@ -114,19 +114,19 @@ knit_type_exists() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn knit_define_enum()
+# @fn knit_enum()
 #
 # Define a new enum type with the given name and possible values.
 #
 # Example:
 # ```
-# knit_define_enum "color" "red" "green" "blue"
+# knit_enum "color" "red" "green" "blue"
 # ```
 #
 # @param[in] name Name of the enum type to define.
 # @param[in] ...values Possible values for the enum.
 # ------------------------------------------------------------------------------
-knit_define_enum() {
+knit_enum() {
     local name="$1"
     shift
     _knit_set_add _KNIT_ENUMS "${name}"

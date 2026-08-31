@@ -16,7 +16,7 @@
 #!/usr/bin/env bash
 source knit.sh
 
-@set_program_description "Render a Julia-set fractal."
+knit_set_program_description "Render a Julia-set fractal."
 
 @command "julia" "Render a Julia-set fractal to a PNG."
 @with_optional "width:integer"    "800"    "Image width in pixels."

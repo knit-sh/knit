@@ -50,7 +50,7 @@ roll() {
 
 # START pset
 # Define a reusable set of parameters once...
-@define_parameter_set "grid"
+@parameter_set "grid"
 @with_required "width:integer" "Grid width."
 @with_required "height:integer" "Grid height."
 @done

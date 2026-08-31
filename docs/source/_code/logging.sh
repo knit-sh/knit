@@ -6,7 +6,7 @@
 
 source knit.sh
 
-@set_program_description "Demonstrate logging and framed output."
+knit_set_program_description "Demonstrate logging and framed output."
 
 # START levels
 @command "work" "Do some work, narrating at several log levels."

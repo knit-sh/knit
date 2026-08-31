@@ -274,7 +274,7 @@ teardown() {
 }
 
 @test "knit_with_parameter_set copies --when metadata" {
-    knit_define_parameter_set "when_set"
+    knit_parameter_set "when_set"
     knit_with_required "x:integer" "X value."
     knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done
@@ -291,7 +291,7 @@ teardown() {
     if ! command -v jq &>/dev/null; then skip "jq not available"; fi
     _KNIT_JQ_EXE="jq"
 
-    knit_define_parameter_set "enforced_set"
+    knit_parameter_set "enforced_set"
     knit_with_required "x:integer" "X value."
     knit_with_required "y:integer" "Y value." --when ".x > 42"
     knit_done

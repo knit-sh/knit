@@ -1950,7 +1950,7 @@ _knit_describe() {
     fi
 }
 
-knit_define_enum "describe_format" \
+knit_enum "describe_format" \
     "default" "json" "yaml" "markdown"
 _knit_is_builtin
 

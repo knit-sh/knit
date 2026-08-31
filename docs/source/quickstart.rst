@@ -18,14 +18,14 @@ hands the command line to Knit:
    :start-after: # START run
    :end-before: # END run
 
-``@set_program_description`` sets the blurb shown at the top of ``--help``.
+``knit_set_program_description`` sets the blurb shown at the top of ``--help``.
 Everything between the ``source`` line and the final ``knit "$@"`` registers the
 commands your experiment offers.
 
 .. note::
 
-   ``@set_program_description`` --- and ``@command``, ``@done``, and the
-   ``@with_*`` decorators you meet below --- are Knit's **shorthand** for its
+   ``@command``, ``@done``, and the ``@with_*`` decorators you meet below are
+   Knit's **shorthand** for its
    declaration API. Every ``knit_x`` declaration function has an ``@x`` twin
    (``knit_register`` is written ``@command`` and ``knit_register_<x>`` is written
    ``@<x>``). The shorthand is enabled by default and is what this documentation

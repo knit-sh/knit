@@ -17,16 +17,25 @@ from pygments.token import Name, Text
 # blocks. The regex is anchored so it matches exactly `knit` or
 # `knit_<identifier>` and never a lookalike such as `knitting` (a variable) or
 # `knit-graph` (a separate binary).
+#
+# The `@` declaration shorthand (`@command`, `@job`, `@with_required`, ...) is a
+# second face of the same API; it is reclassified to the decorator token so it
+# stands out in its own accent (magenta) next to the purple `knit_*` builtins.
 
 _KNIT_RE = re.compile(r"^knit(_[A-Za-z0-9_]+)?$")
+_KNIT_SHORTHAND_RE = re.compile(r"^@[A-Za-z0-9_]+$")
 
 
 def _knit_promote(tokens):
-    """Reclassify Knit API words to the shell-builtin token, leaving strings and
-    comments (where `knit_*` names appear as prose) untouched."""
+    """Reclassify Knit API words: `knit_*` to the shell-builtin token and the
+    `@` shorthand to the decorator token, leaving strings and comments (where
+    such names appear as prose) untouched."""
     for index, token, value in tokens:
-        if (token in Text or token in Name) and _KNIT_RE.match(value):
-            token = Name.Builtin
+        if token in Text or token in Name:
+            if _KNIT_RE.match(value):
+                token = Name.Builtin
+            elif _KNIT_SHORTHAND_RE.match(value):
+                token = Name.Decorator
         yield index, token, value
 
 

@@ -7,7 +7,7 @@
 
 source knit.sh
 
-@set_program_description "A results and artifacts demo."
+knit_set_program_description "A results and artifacts demo."
 
 # START result
 @command "measure" "Square a value and mark the result."

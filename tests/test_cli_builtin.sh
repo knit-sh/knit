@@ -70,14 +70,14 @@ teardown() {
 }
 
 @test "_knit_is_builtin outside a registration marks the last-defined enum" {
-    knit_define_enum "mycolor" "red" "green" "blue"
+    knit_enum "mycolor" "red" "green" "blue"
     [ "${_KNIT_LAST_ENUM}" = "mycolor" ]
     _knit_is_builtin
     _knit_set_find _KNIT_BUILTIN_ENUMS "mycolor"
 }
 
 @test "a user enum is not marked builtin by default" {
-    knit_define_enum "mycolor" "red" "green" "blue"
+    knit_enum "mycolor" "red" "green" "blue"
     run _knit_set_find _KNIT_BUILTIN_ENUMS "mycolor"
     [ "$status" -ne 0 ]
 }

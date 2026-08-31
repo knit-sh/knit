@@ -10,7 +10,7 @@
 
 source knit.sh
 
-@set_program_description "Prepare jobs now and release them later."
+knit_set_program_description "Prepare jobs now and release them later."
 
 # START job
 # A job you prepare now and release later. Nothing about it is special: `prepare`

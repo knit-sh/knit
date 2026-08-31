@@ -87,7 +87,7 @@ teardown() {
 }
 
 @test "knit_with_required accepts enum types" {
-    knit_define_enum "color" "red" "green" "blue"
+    knit_enum "color" "red" "green" "blue"
     knit_register "test_cmd_5" knit_empty "A test command."
     knit_with_required "shade:color" "A color parameter."
     knit_done

@@ -11,7 +11,7 @@ setup() {
 # command declaring post-"--" extra arguments and a program description.
 _register_fixture() {
     knit_set_program_description "Demo experiment."
-    knit_define_enum "color" "red" "green" "blue"
+    knit_enum "color" "red" "green" "blue"
 
     knit_register "greet" knit_empty "Say hello to someone."
     knit_with_required "name:string" "Name of the person to greet."

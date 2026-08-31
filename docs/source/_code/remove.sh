@@ -14,7 +14,7 @@
 
 source knit.sh
 
-@set_program_description "Build a small lineage, then prune it with knit remove."
+knit_set_program_description "Build a small lineage, then prune it with knit remove."
 
 # A resource TYPE: a source package staged from a local path (the driver stages
 # the directory). The setup below consumes an instance of it.
