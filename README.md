@@ -143,10 +143,14 @@ Unless otherwise specified/documented, any invokation of a command will be
 recorded in the database.
 
 Command names should start with a letter, number, or underscore, followed by
-any sequence of letters, numbers, underscores, and hyphens. Note that hyphens
-may be internally replaced with underscores when necessary, so defining two
-commands that differ by an hyphen/underscore (e.g. "my_command" and "my-command")
-should be avoided. We recommend using hyphens.
+any sequence of letters, numbers, underscores, and hyphens. Hyphens and
+underscores are interchangeable in a command name, exactly like in parameter
+names: a command registered as `my-command` can be invoked as `my_command` and
+the reverse. The spelling you register with is preserved and shown in `--help`
+and `describe`, but the stored identity (variable names, table names, and
+provenance labels) always uses underscores. As a result, two commands that
+differ only by a hyphen/underscore (e.g. "my_command" and "my-command") name the
+same command and must not both be defined. We recommend using hyphens.
 
 Commands will be listed in the CLI, unless marked with `knit_hidden`.
 

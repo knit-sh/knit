@@ -44,6 +44,19 @@ teardown() {
     [ "$result" -eq 1 ]
 }
 
+@test "knit_with_table for a hyphenated command uses the underscore name" {
+    knit_register "db-show" knit_empty "A hyphenated command."
+    knit_with_table
+    knit_done
+    local shown hyphen
+    shown=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='db_show';")
+    hyphen=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='db-show';")
+    [ "$shown" -eq 1 ]
+    [ "$hyphen" -eq 0 ]
+}
+
 @test "two commands with distinct table names both succeed" {
     knit_register "cmd1" knit_empty "First command."
     knit_with_table "table1"

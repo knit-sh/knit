@@ -70,6 +70,11 @@ Now run the command:
    $ ./exp.sh hello
    Hello World
 
+Command names accept hyphens and underscores interchangeably (just like
+parameter names), so a command registered as ``db-show`` can also be invoked as
+``db_show``. The spelling you register with is the one shown in ``--help`` and
+``describe``.
+
 Taking a parameter
 ------------------
 

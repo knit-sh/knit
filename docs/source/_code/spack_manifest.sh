@@ -26,7 +26,7 @@ _libs_setup() {
 
 # START env-stdin
 # Or inline the manifest with a here-doc when it is short and experiment-specific.
-@setup "libs_inline" "Build deps from an inline manifest."
+@setup "libs-inline" "Build deps from an inline manifest."
 @with_spack_env <<'EOF'
 spack:
   specs:

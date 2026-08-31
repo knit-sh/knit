@@ -100,7 +100,13 @@ _knit_setup() {
         knit_fatal "setup requires a setup name (pass it after --)."
     fi
 
-    local setup_name="${extra[0]}"
+    # The setup type as typed (kept for the "unknown" error) and its canonical
+    # (underscore) form, which drives lookup, the subcommand name, the recorded
+    # .setup.type marker, and the data row. Hyphens and underscores are
+    # interchangeable; the registered spelling is restored for display below.
+    local setup_name_typed="${extra[0]}"
+    local setup_name
+    setup_name=$(_knit_name_normalize "${setup_name_typed}")
     local setup_args=("${extra[@]:1}")
 
     # Validate the instance name (a single path component).
@@ -115,12 +121,16 @@ _knit_setup() {
 
     # Check setup name is registered
     if [[ ! -v _KNIT_SETUPS["${setup_name}"] ]]; then
-        knit_fatal "Unknown setup \"${setup_name}\"."
+        knit_fatal "Unknown setup \"${setup_name_typed}\"."
     fi
 
     # Validate args for the setup subcommand (knit_fatal on bad args)
     local subcmd
     subcmd=$(_knit_command_mangle "setup:${setup_name}")
+
+    # Registered spelling of the setup, for human-facing messages.
+    local setup_display_var="_KNIT_CMD_${subcmd}_display"
+    local setup_display="${!setup_display_var:-${setup_name}}"
 
     # Usability pre-check (login side): fail fast before creating the instance
     # directory if the setup declares knit_usable_if predicates that do not hold.
@@ -128,7 +138,7 @@ _knit_setup() {
     # directory has been created.
     local usable_reason=""
     if ! _knit_command_check_usable usable_reason "${subcmd}"; then
-        knit_fatal "Command \"setup:${setup_name}\" cannot run: ${usable_reason}"
+        knit_fatal "Command \"setup:${setup_display}\" cannot run: ${usable_reason}"
     fi
 
     _knit_check_command_arguments "${subcmd}" "${setup_args[@]}"
@@ -161,7 +171,7 @@ _knit_setup() {
     # Clean up on failure
     if [[ "${ret}" -ne 0 ]]; then
         rm -rf "${path}"
-        knit_fatal "Setup \"${setup_name}\" failed; removed \"${path}\"."
+        knit_fatal "Setup \"${setup_display}\" failed; removed \"${path}\"."
     fi
 
     # Record the setup type that built this directory so that `knit submit` can
@@ -322,7 +332,12 @@ knit_register_setup() {
     # `fetch` resource dispatcher.
     knit_with_output "name:string" "" "The setup instance name (from knit setup --name)."
     knit_with_output "directory:string" "" "The instance's on-disk directory."
-    _KNIT_SETUPS["${name}"]=1
+    # Key the registry by the canonical (underscore) name so a later `knit setup
+    # -- <name>` resolves the setup whether it is typed with hyphens or
+    # underscores (the registered spelling is preserved for display).
+    local normalized_name
+    normalized_name=$(_knit_name_normalize "${name}")
+    _KNIT_SETUPS["${normalized_name}"]=1
     printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_type" '%s' 'setup'
     _knit_run_before _knit_setup_before_cb
     _knit_run_after  _knit_setup_after_cb
@@ -704,10 +719,15 @@ knit_with_setup() {
         knit_fatal "knit_with_setup cannot be used on a setup (setups cannot depend on other setups)."
     fi
     _knit_wrapper_reject_declaration "knit_with_setup"
-    local setup_type="$1"
-    if ! _knit_name_is_valid "${setup_type}"; then
-        knit_fatal "Setup type \"${setup_type}\" is not a valid name."
+    # The required setup type as written (kept for messages) and its canonical
+    # (underscore) form, stored in the marker so it matches a setup's recorded
+    # .setup.type regardless of the hyphen/underscore spelling on either side.
+    local setup_type_typed="$1"
+    if ! _knit_name_is_valid "${setup_type_typed}"; then
+        knit_fatal "Setup type \"${setup_type_typed}\" is not a valid name."
     fi
+    local setup_type
+    setup_type=$(_knit_name_normalize "${setup_type_typed}")
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local marker_var="_KNIT_CMD_${cmd}_setup"
     if [[ -n "${!marker_var:-}" ]]; then
@@ -718,13 +738,13 @@ knit_with_setup() {
         knit_fatal "knit_with_setup and knit_without_setup are mutually exclusive."
     fi
     printf -v "${marker_var}" '%s' "${setup_type}"
-    knit_trace "Command \"${_KNIT_CURRENT_COMMAND_DEMANGLED}\" requires a \"${setup_type}\" setup."
+    knit_trace "Command \"${_KNIT_CURRENT_COMMAND_DEMANGLED}\" requires a \"${setup_type_typed}\" setup."
 
     # Advertise the requirement in the command's `--help` output (see the
     # "Requirements" section rendered by _knit_print_command_usage).
     # shellcheck disable=SC2178 # nameref to the command's notes array
     local -n _notes_ref="_KNIT_CMD_${cmd}_notes"
-    _notes_ref+=("Requires a --setup built by the \"${setup_type}\" setup.")
+    _notes_ref+=("Requires a --setup built by the \"${setup_type_typed}\" setup.")
 
     # Jobs resolve and enforce the setup at submit time (see _knit_submit) and
     # re-source it on the compute node (_knit_job_before_cb): no local --setup

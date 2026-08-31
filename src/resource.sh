@@ -424,7 +424,7 @@ _knit_resource_fetch_body() {
             _knit_fetch_local "${dest}" "${path}" "${copy}" "${expected}" || ret=1
             ;;
         *)
-            knit_fatal "Resource \"$(_knit_command_demangle "${cmd}")\" has no download method."
+            knit_fatal "Resource \"$(_knit_command_display "${cmd}")\" has no download method."
             ;;
     esac
 
@@ -472,7 +472,13 @@ _knit_fetch() {
     if [[ ${#extra[@]} -eq 0 ]]; then
         knit_fatal "fetch requires a resource type (pass it after --)."
     fi
-    local type="${extra[0]}"
+    # The resource type as typed (kept for the "unknown" error) and its canonical
+    # (underscore) form, which drives lookup, the subcommand name, the recorded
+    # .resource.type marker, and the data row. Hyphens and underscores are
+    # interchangeable; the registered spelling is restored for display below.
+    local type_typed="${extra[0]}"
+    local type
+    type=$(_knit_name_normalize "${type_typed}")
     local resource_args=("${extra[@]:1}")
 
     # Validate the instance name (a single path component).
@@ -480,17 +486,21 @@ _knit_fetch() {
 
     # The type must be a registered resource type.
     if [[ ! -v _KNIT_RESOURCES["${type}"] ]]; then
-        knit_fatal "Unknown resource type \"${type}\"."
+        knit_fatal "Unknown resource type \"${type_typed}\"."
     fi
 
     local subcmd
     subcmd=$(_knit_command_mangle "fetch:${type}")
 
+    # Registered spelling of the resource type, for human-facing messages.
+    local type_display_var="_KNIT_CMD_${subcmd}_display"
+    local type_display="${!type_display_var:-${type}}"
+
     # Usability pre-check (login side): fail fast before touching the filesystem if
     # the resource type declares knit_usable_if predicates that do not hold.
     local usable_reason=""
     if ! _knit_command_check_usable usable_reason "${subcmd}"; then
-        knit_fatal "Command \"fetch:${type}\" cannot run: ${usable_reason}"
+        knit_fatal "Command \"fetch:${type_display}\" cannot run: ${usable_reason}"
     fi
 
     # Validate the resource type's own arguments (fatal on bad args).
@@ -671,7 +681,7 @@ _knit_resource_check_method() {
     local marker_var="_KNIT_CMD_${cmd}_fetch_method"
     if [[ -z "${!marker_var:-}" ]]; then
         local demangled
-        demangled=$(_knit_command_demangle "${cmd}")
+        demangled=$(_knit_command_display "${cmd}")
         knit_fatal "Resource \"${demangled}\" declares no download method; add one of knit_with_git / knit_with_url / knit_with_local."
     fi
 }
@@ -710,16 +720,21 @@ knit_register_resource() {
     knit_register "fetch:${type}" _knit_resource_fetch_body "${description}"
     local cmd="${_KNIT_CURRENT_COMMAND}"
     printf -v "_KNIT_CMD_${cmd}_type" '%s' 'resource'
+    # Canonical (underscore) type: used for the resource table and the registry
+    # key so both stay stable whether the type is registered or invoked with
+    # hyphens or underscores (the registered spelling is kept for display).
+    local normalized_type
+    normalized_type=$(_knit_name_normalize "${type}")
     # A failed fetch (bad download or a checksum mismatch) records no data row: the
     # dispatcher removes the partial instance, so a row would dangle.
     knit_no_record_on_failure
-    knit_with_table "resource:${type}"
+    knit_with_table "resource:${normalized_type}"
     # Every instance records its name and on-disk directory (filled by the `knit
     # fetch` dispatcher after the download body runs), so the row identifies the
     # instance without reconstructing the path from the name.
     knit_with_output "name:string" "" "The resource instance name (from knit fetch --name)."
     knit_with_output "directory:string" "" "The instance's on-disk directory."
-    _KNIT_RESOURCES["${type}"]=1
+    _KNIT_RESOURCES["${normalized_type}"]=1
     # Push the method check last so it runs first at knit_done (done callbacks run
     # in reverse order of installation): a type that declared no download method
     # then fatals before the table is set up.
@@ -992,15 +1007,20 @@ knit_with_resource() {
         knit_fatal "knit_with_resource requires a \"<param>:<type>\" annotation; got \"${spec}\"."
     fi
     local param_name="${spec%%:*}"
-    local type="${spec#*:}"
+    # The required resource type as written (kept for messages) and its canonical
+    # (underscore) form, stored in the marker so it matches a resource's recorded
+    # .resource.type regardless of the hyphen/underscore spelling on either side.
+    local type_typed="${spec#*:}"
     if [[ -z "${param_name}" ]] || ! _knit_name_is_valid "${param_name}"; then
         knit_fatal "knit_with_resource: \"${param_name}\" is not a valid parameter name."
     fi
-    if [[ -z "${type}" ]]; then
+    if [[ -z "${type_typed}" ]]; then
         knit_fatal "knit_with_resource requires a resource type after the colon; got \"${spec}\"."
     fi
+    local type
+    type=$(_knit_name_normalize "${type_typed}")
     if [[ ! -v _KNIT_RESOURCES["${type}"] ]]; then
-        knit_fatal "knit_with_resource references unknown resource type \"${type}\"; register it with knit_register_resource first."
+        knit_fatal "knit_with_resource references unknown resource type \"${type_typed}\"; register it with knit_register_resource first."
     fi
 
     local cmd="${_KNIT_CURRENT_COMMAND}"
@@ -1015,7 +1035,7 @@ knit_with_resource() {
     # validates the named instance before the body runs, and the after-callback
     # that records the "used_by" provenance edge from the instance to this command.
     # All resources are required for now.
-    [[ -z "${description}" ]] && description="Resource instance of type \"${type}\"."
+    [[ -z "${description}" ]] && description="Resource instance of type \"${type_typed}\"."
     knit_with_required "${param_name}:string" "${description}"
     _knit_run_before _knit_resource_dep_before_cb "${param}" "${type}"
     _knit_run_after _knit_resource_dep_after_cb "${param}" "${type}"

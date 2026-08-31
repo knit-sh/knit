@@ -480,9 +480,11 @@
 # -----------------------------------------------------------------------------
 # 10. Launch an MPI application inside a job (knit run)
 # -----------------------------------------------------------------------------
-#   ./full.sh submit --setup env --wait -- mcparallel --procs 1
+#   ./full.sh submit --setup env --wait -- mc-parallel --procs 1
 #
-# `mcparallel` is a job whose body calls `knit run` to launch the `mcrank` app.
+# `mc-parallel` is a job whose body calls `knit run` to launch the `mcrank` app.
+# Its name has a hyphen; like parameter names, command names take hyphens and
+# underscores interchangeably, so `-- mc_parallel` works too.
 # `knit run` starts one process ("rank") per slot of the job's allocation, sets
 # KNIT_MPI_RANK / KNIT_MPI_SIZE / KNIT_MPI_LOCAL_RANK for each rank, and forwards
 # the job's environment (including the activated setup) to every rank. Each
@@ -490,7 +492,7 @@
 # landed on; knit records the run once, from rank 0.
 #
 # `knit run` is always called from inside a job — the job supplies the node
-# allocation the launcher places ranks on. Here mcparallel forwards its --procs
+# allocation the launcher places ranks on. Here mc-parallel forwards its --procs
 # option straight to `knit run`:
 #
 #   knit run --procs <N> -- mcrank
@@ -504,7 +506,7 @@
 # submit with more nodes and a higher --procs to spread ranks across the
 # allocation:
 #
-#   ./full.sh submit --setup env --nodes 2 --wait -- mcparallel --procs 8
+#   ./full.sh submit --setup env --nodes 2 --wait -- mc-parallel --procs 8
 #
 # Instead of taking placement as a parameter, a job body can inspect its own
 # allocation: `knit_job_hostnames` lists the allocated hosts (with --separator,
@@ -690,7 +692,7 @@
 #
 #   ./full.sh ai query --question "count runs per app" --format csv
 #   ./full.sh ai query --question "which setup did each montecarlo job use?"
-#   ./full.sh ai query --lang cypher --question "which app did mcparallel call?"
+#   ./full.sh ai query --lang cypher --question "which app did mc-parallel call?"
 #   ./full.sh ai query --question "..." --query-only # print the query, don't run it
 #
 # Both commands need a configured provider and a reachable API key; without one
@@ -1292,7 +1294,13 @@ _mcrank_app() {
 @done
 
 # -----------------------------------------------------------------------------
-# mcparallel — a job: estimate pi in parallel by launching mcrank with knit run.
+# mc-parallel — a job: estimate pi in parallel by launching mcrank with knit run.
+#
+# The job name uses a hyphen. Command names accept hyphens and underscores
+# interchangeably (just like parameter names), so this job can be submitted as
+# either `mc-parallel` or `mc_parallel`. The registered spelling is the one shown
+# in `--help` and `describe`; the stored identity (its table, provenance labels)
+# uses underscores.
 #
 # `knit run` must be called from inside a job (the job supplies the node
 # allocation the launcher places ranks on). This body forwards its --procs option
@@ -1300,7 +1308,7 @@ _mcrank_app() {
 # laptop with no MPI launcher. On a real cluster, submit with more nodes and a
 # higher --procs to spread ranks across the allocation.
 # -----------------------------------------------------------------------------
-@job "mcparallel" "Estimate pi in parallel via knit run."
+@job "mc-parallel" "Estimate pi in parallel via knit run."
 @with_setup    "mcenv"                                  # requires an `mcenv` setup
 @with_optional "procs:integer" "1" "MPI ranks to launch (needs OpenMPI/MPICH for > 1)."
 _mcparallel_job() {

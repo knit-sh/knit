@@ -129,10 +129,16 @@ knit_empty() {
 # "command__1__subcommand__1__subcommand" so the name can be used in variable
 # names. Also converts spaces into __1__.
 #
+# Hyphens are folded to underscores first, so a hyphen and an underscore in a
+# command name name the same command (the canonical, Bash-safe identity uses the
+# underscore), the same way hyphens and underscores are interchangeable in
+# parameter names.
+#
 # @param[in] cmd Command to mangle.
 # ------------------------------------------------------------------------------
 _knit_command_mangle() {
     local cmd="$*"
+    cmd="${cmd//-/_}"
     local mangled
     mangled=$(sed -E 's/[: ]+/__1__/g' <<< "${cmd}")
     printf "%s" "${mangled}"
@@ -150,6 +156,51 @@ _knit_command_demangle() {
     local cmd="$1"
     local demangled="${cmd//__1__/:}"
     printf "%s" "${demangled}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_command_display()
+#
+# Rebuilds the human-readable name of a command from the registered spelling of
+# each of its segments. Unlike _knit_command_demangle, which returns the
+# canonical (underscore) identity, this restores the spelling the user wrote at
+# registration (which may contain a hyphen), the same way a parameter keeps its
+# registered spelling in "--help".
+#
+# The mangled name is split into its "__1__"-separated prefixes; each prefix's
+# stored display basename (_KNIT_CMD_<prefix>_display) is looked up and the
+# basenames are joined with ":". A prefix with no stored basename (which should
+# not happen, since a parent is always registered before its child) falls back
+# to its canonical segment.
+#
+# @param[in] cmd Command to render (mangled name).
+# ------------------------------------------------------------------------------
+_knit_command_display() {
+    local cmd="$1"
+    local display="" prefix="" rest="${cmd}"
+    local seg basename_var seg_display
+    while [[ -n "${rest}" ]]; do
+        if [[ "${rest}" == *"__1__"* ]]; then
+            seg="${rest%%__1__*}"
+            rest="${rest#*__1__}"
+        else
+            seg="${rest}"
+            rest=""
+        fi
+        if [[ -n "${prefix}" ]]; then
+            prefix="${prefix}__1__${seg}"
+        else
+            prefix="${seg}"
+        fi
+        basename_var="_KNIT_CMD_${prefix}_display"
+        seg_display="${!basename_var:-${seg}}"
+        if [[ -n "${display}" ]]; then
+            display="${display}:${seg_display}"
+        else
+            display="${seg_display}"
+        fi
+    done
+    printf "%s" "${display}"
 }
 
 # ------------------------------------------------------------------------------
@@ -349,7 +400,7 @@ _knit_param_check_declaration() {
         context_name="${_KNIT_CURRENT_PARAMETER_SET}"
         ns="_KNIT_PSET_${_KNIT_CURRENT_PARAMETER_SET}"
     else
-        context_name=$(_knit_command_demangle "${_KNIT_CURRENT_COMMAND}")
+        context_name=$(_knit_command_display "${_KNIT_CURRENT_COMMAND}")
         ns="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}"
     fi
     local normalized
@@ -538,7 +589,10 @@ knit_register() {
         knit_warning "You forgot to call \"knit_done\" after registering the previous command."
     fi
     knit_trace "Registering function \"${name}\" with command \"${demangled_cmd}\"."
-    if [[ ! "${demangled_cmd}" =~ ^[a-zA-Z0-9_:]+$ ]]; then
+    # A hyphen is accepted as input and folded to an underscore by the mangle
+    # (see _knit_command_mangle); the first character must be a letter, digit, or
+    # underscore. Colons separate nested command segments.
+    if [[ ! "${demangled_cmd}" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_:-]*$ ]]; then
         knit_fatal "Invalid character found in command name \"${demangled_cmd}\"."
     fi
     local cmd
@@ -588,10 +642,19 @@ knit_register() {
     declare -ga "_KNIT_CMD_${cmd}_after_cb"
     declare -ga "_KNIT_CMD_${cmd}_notes"
     printf -v "_KNIT_CMD_${cmd}_subcommand_title" '%s' 'Subcommands'
+    # Display basename: the command's own leaf segment as it was written (it may
+    # contain a hyphen). _knit_command_display joins these across a nested path
+    # to render the registered spelling, while the identity stays the underscore
+    # form used for variable names, tables, and provenance labels.
+    local display_basename
+    _knit_command_get_last display_basename "${demangled_cmd}"
+    printf -v "_KNIT_CMD_${cmd}_display" '%s' "${display_basename}"
     _KNIT_DONE_CBS=()
     _KNIT_CURRENT_FUNCTION="${name}"
     _KNIT_CURRENT_COMMAND="${cmd}"
-    _KNIT_CURRENT_COMMAND_DEMANGLED="${demangled_cmd}"
+    # Canonical (underscore) demangled name. The registered spelling, which may
+    # contain hyphens, is preserved separately for display.
+    _KNIT_CURRENT_COMMAND_DEMANGLED="${cmd//__1__/:}"
 }
 
 # ------------------------------------------------------------------------------
@@ -785,8 +848,7 @@ knit_usable_before_bootstrap() {
     knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as usable before bootstrap."
     local cmd="${_KNIT_CURRENT_COMMAND}"
     if ! _knit_command_is_usable_before_bootstrap "${cmd}"; then
-        _knit_push_done_cb _knit_usable_before_bootstrap_validate \
-            "${cmd}" "${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+        _knit_push_done_cb _knit_usable_before_bootstrap_validate "${cmd}"
     fi
     printf -v "_KNIT_CMD_${cmd}_usable_before_bootstrap" '%s' 'true'
 }
@@ -812,11 +874,11 @@ knit_usable_before_bootstrap() {
 # Any violation is fatal, naming the command and the specific reason.
 #
 # @param[in] cmd Command (mangled name) being validated.
-# @param[in] demangled Command name in demangled form (for messages).
 # ------------------------------------------------------------------------------
 _knit_usable_before_bootstrap_validate() {
     local cmd="$1"
-    local demangled="$2"
+    local demangled
+    demangled=$(_knit_command_display "${cmd}")
 
     # Rule 1: no database table.
     local table_var="_KNIT_CMD_${cmd}_table"
@@ -840,7 +902,7 @@ _knit_usable_before_bootstrap_validate() {
     _knit_command_get_parents parent "${cmd}"
     if [[ -n "${parent}" ]] && ! _knit_command_is_usable_before_bootstrap "${parent}"; then
         local parent_demangled
-        parent_demangled=$(_knit_command_demangle "${parent}")
+        parent_demangled=$(_knit_command_display "${parent}")
         knit_fatal "Command \"${demangled}\" is usable before bootstrap but its parent \"${parent_demangled}\" is not."
     fi
 }
@@ -1903,7 +1965,7 @@ _knit_execute_before_commands() {
     local cmd="$1"
     shift
     local demangled_cmd
-    demangled_cmd=$(_knit_command_demangle "${cmd}")
+    demangled_cmd=$(_knit_command_display "${cmd}")
     knit_trace "Executing callbacks before ${demangled_cmd}."
     local cb_list_name="_KNIT_CMD_${cmd}_before_cb"
     # shellcheck disable=SC2178
@@ -1960,7 +2022,7 @@ _knit_execute_after_commands() {
     local cmd="$1"
     shift
     local demangled_cmd
-    demangled_cmd=$(_knit_command_demangle "${cmd}")
+    demangled_cmd=$(_knit_command_display "${cmd}")
     knit_trace "Executing callbacks after ${demangled_cmd}."
     local cb_list_name="_KNIT_CMD_${cmd}_after_cb"
     # shellcheck disable=SC2178
@@ -2039,7 +2101,7 @@ _knit_check_argument_type() {
 _knit_check_command_arguments() {
     local cmd="$1"
     local demangled_cmd
-    demangled_cmd=$(_knit_command_demangle "${cmd}")
+    demangled_cmd=$(_knit_command_display "${cmd}")
     shift
     local args=("$@")
     # Check that all the required arguments have been provided
@@ -2404,7 +2466,10 @@ _knit_print_command_usage() {
     local cmd
     cmd=$(_knit_command_mangle "$*")
     local display
-    display=$(_knit_command_with_space "${cmd}")
+    # Registered spelling (with any hyphens), space-separated like the invocation
+    # form; the display path joins segments with ":", never a space.
+    display=$(_knit_command_display "${cmd}")
+    display="${display//:/ }"
     local extra_var="_KNIT_CMD_${cmd}_extra"
     local dispatch_var="_KNIT_CMD_${cmd}_dispatch"
 
@@ -2433,9 +2498,11 @@ _knit_print_command_usage() {
         printf "Usage: %s %s [OPTIONS] -- <%s> [OPTIONS]\n\n" \
             "$0" "${display}" "${!dispatch_var}"
     elif [[ "${is_dispatched_child}" == "true" ]]; then
-        local parent_display leaf
-        parent_display=$(_knit_command_with_space "${parent}")
-        _knit_command_get_last leaf "${cmd}"
+        local parent_display leaf leaf_var
+        parent_display=$(_knit_command_display "${parent}")
+        parent_display="${parent_display//:/ }"
+        leaf_var="_KNIT_CMD_${cmd}_display"
+        leaf="${!leaf_var}"
         printf "Usage: %s %s [OPTIONS] -- %s [OPTIONS]\n\n" \
             "$0" "${parent_display}" "${leaf}"
     elif [ -z "${!extra_var}" ]; then
@@ -2454,7 +2521,8 @@ _knit_print_command_usage() {
     # before the "--".
     if [[ "${is_dispatched_child}" == "true" ]]; then
         local parent_display
-        parent_display=$(_knit_command_with_space "${parent}")
+        parent_display=$(_knit_command_display "${parent}")
+        parent_display="${parent_display//:/ }"
         printf "\n"
         _knit_print_options_block "${parent}" "${parent_display} options" "false"
     fi
@@ -2507,8 +2575,9 @@ _knit_print_command_usage() {
             && ! _knit_command_is_usable_before_bootstrap "${c}"; then
             continue
         fi
-        local name
-        _knit_command_get_last name "${c}"
+        local name name_var
+        name_var="_KNIT_CMD_${c}_display"
+        name="${!name_var}"
         subcommands+=("${name}")
         subcommands_full+=("${c}")
         local highlight="false"
@@ -2639,7 +2708,7 @@ _knit_check_constraints() {
     [[ "${_has_constraints}" == "false" ]] && return 0
 
     local demangled_cmd
-    demangled_cmd=$(_knit_command_demangle "${cmd}")
+    demangled_cmd=$(_knit_command_display "${cmd}")
 
     local json
     json=$(_knit_build_constraint_json "${cmd}" "${_exp_ref[@]}")
@@ -2808,7 +2877,7 @@ _knit_checksum_inputs() {
         return 0
     fi
     local demangled_cmd
-    demangled_cmd=$(_knit_command_demangle "${cmd}")
+    demangled_cmd=$(_knit_command_display "${cmd}")
     local param
     while IFS= read -r param; do
         [[ -z "${param}" ]] && continue
@@ -2855,7 +2924,7 @@ _knit_checksum_outputs() {
         return 0
     fi
     local demangled_cmd
-    demangled_cmd=$(_knit_command_demangle "${cmd}")
+    demangled_cmd=$(_knit_command_display "${cmd}")
     # shellcheck disable=SC2178 # nameref to the command's output-value array
     local -n _knit_co_out="_KNIT_CMD_${cmd}_output_value"
     local param
@@ -3166,7 +3235,7 @@ knit_output() {
     fi
     local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
     local demangled_cmd
-    demangled_cmd=$(_knit_command_demangle "${cmd}")
+    demangled_cmd=$(_knit_command_display "${cmd}")
     local normalized
     normalized=$(_knit_name_normalize "${name}")
     if ! _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${normalized}"; then

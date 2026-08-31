@@ -23,6 +23,18 @@ teardown() {
     [ "$status" -eq 1 ]
 }
 
+@test "knit_register accepts a hyphen in the command name" {
+    knit_register "db-show" knit_empty "A hyphenated command."
+    knit_done
+    # Identity is the underscore form.
+    _knit_set_find _KNIT_COMMANDS "db_show"
+}
+
+@test "knit_register fails with a leading hyphen in the command name" {
+    run knit_register "-bad" knit_empty "Bad command."
+    [ "$status" -eq 1 ]
+}
+
 @test "knit_register fails if parent command not registered" {
     run knit_register "parent:child" knit_empty "Child command."
     [ "$status" -eq 1 ]

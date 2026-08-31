@@ -460,7 +460,10 @@ _knit_job_resubmit() {
         fi
     fi
 
-    knit_info "Resubmitting job \"${id}\" as \"${job_name}\"."
+    # Registered spelling of the job (the "job" column stores the canonical form).
+    local job_display_var="_KNIT_CMD_${job_cmd}_display"
+    local job_display="${!job_display_var:-${job_name}}"
+    knit_info "Resubmitting job \"${id}\" as \"${job_display}\"."
     _knit_invoke_command "submit" "${submit_opts[@]}" -- "${job_name}" "${job_args[@]}"
 }
 knit_done

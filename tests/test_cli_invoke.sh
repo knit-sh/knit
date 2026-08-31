@@ -289,6 +289,41 @@ teardown() {
     [ "$status" -eq 1 ]
 }
 
+@test "_knit_invoke_command resolves a hyphenated name typed either way" {
+    knit_register "db-show" fn_dbshow "Test."
+    fn_dbshow() { echo "shown"; }
+    knit_done
+    local result
+    result=$(_knit_invoke_command "db-show")
+    [ "$result" = "shown" ]
+    result=$(_knit_invoke_command "db_show")
+    [ "$result" = "shown" ]
+}
+
+@test "_knit_invoke_command resolves an underscore name typed with a hyphen" {
+    knit_register "db_show2" fn_dbshow2 "Test."
+    fn_dbshow2() { echo "shown2"; }
+    knit_done
+    local result
+    result=$(_knit_invoke_command "db_show2")
+    [ "$result" = "shown2" ]
+    result=$(_knit_invoke_command "db-show2")
+    [ "$result" = "shown2" ]
+}
+
+@test "_knit_invoke_command resolves a nested hyphenated name either way" {
+    knit_register "grp" knit_empty "Parent."
+    knit_done
+    knit_register "grp:db-show" fn_grp_dbshow "Test."
+    fn_grp_dbshow() { echo "nested"; }
+    knit_done
+    local result
+    result=$(_knit_invoke_command "grp" "db-show")
+    [ "$result" = "nested" ]
+    result=$(_knit_invoke_command "grp" "db_show")
+    [ "$result" = "nested" ]
+}
+
 @test "_knit_invoke_command fills optional defaults before invoking" {
     knit_register "ic_cmd2" fn_ic2 "Test."
     knit_with_optional "count:integer" "7" "A count."

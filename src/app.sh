@@ -91,24 +91,34 @@ _knit_run() {
         knit_fatal "run requires an app name (pass it after --)."
     fi
 
-    local app_name="${extra[0]}"
+    # The app name as typed (kept for the "unknown" error) and its canonical
+    # (underscore) form, which drives lookup, the subcommand name, and the
+    # recorded row. Hyphens and underscores are interchangeable; the registered
+    # spelling is restored for display below.
+    local app_name_typed="${extra[0]}"
+    local app_name
+    app_name=$(_knit_name_normalize "${app_name_typed}")
     local app_args=("${extra[@]:1}")
 
     # Check app name is registered.
     if [[ ! -v _KNIT_APPS["${app_name}"] ]]; then
-        knit_fatal "Unknown app \"${app_name}\"."
+        knit_fatal "Unknown app \"${app_name_typed}\"."
     fi
 
     # Validate args for the app subcommand (knit_fatal on bad args).
     local subcmd
     subcmd=$(_knit_command_mangle "run:${app_name}")
 
+    # Registered spelling of the app, for human-facing messages.
+    local app_display_var="_KNIT_CMD_${subcmd}_display"
+    local app_display="${!app_display_var:-${app_name}}"
+
     # Usability pre-check (login side): fail fast before launching if the app
     # declares knit_usable_if predicates that do not hold. The per-rank re-entry
     # catches this too, but only after the launcher has spawned.
     local usable_reason=""
     if ! _knit_command_check_usable usable_reason "${subcmd}"; then
-        knit_fatal "Command \"run:${app_name}\" cannot run: ${usable_reason}"
+        knit_fatal "Command \"run:${app_display}\" cannot run: ${usable_reason}"
     fi
 
     _knit_check_command_arguments "${subcmd}" "${app_args[@]}"
@@ -201,7 +211,7 @@ _knit_run() {
     # under the resolved backend and return its status. The worker re-enters this
     # experiment as the hidden `_run` verb; the launcher forwards the job's
     # exported KNIT_* environment to every rank.
-    knit_trace "Running app \"${app_name}\": ${native_cmd}"
+    knit_trace "Running app \"${app_display}\": ${native_cmd}"
 
     # Launch in a subshell so the exported context is scoped to the launcher and
     # the ranks it spawns: the launcher forwards it to every rank. Every
@@ -395,7 +405,7 @@ _knit_run_checksum_inputs() {
     shift
     local -a app_args=("$@")
     local demangled
-    demangled=$(_knit_command_demangle "${subcmd}")
+    demangled=$(_knit_command_display "${subcmd}")
     local param
     while IFS= read -r param; do
         [[ -z "${param}" ]] && continue
@@ -449,8 +459,12 @@ _knit_run_checksum_outputs() {
     _knit_is_bootstrapped || return 0
     _knit_set_exists "_KNIT_CMD_${subcmd}_fileparams" || return 0
 
-    local demangled
+    # Canonical (underscore) label for the provenance query; it must match the
+    # target_name recorded on the edge. A separate display form (registered
+    # spelling) is used only in the human-facing existence error below.
+    local demangled display
     demangled=$(_knit_command_demangle "${subcmd}")
+    display=$(_knit_command_display "${subcmd}")
 
     # Locate rank 0's per-app row via the run -> run:<app> call edge. Its target
     # is the row's id; absent when nothing was recorded (e.g. recording disabled).
@@ -491,7 +505,7 @@ _knit_run_checksum_outputs() {
             2>/dev/null) || value=""
         # An output left with no value has no path to check or hash.
         [[ -z "${value}" ]] && continue
-        _knit_checksum_require_exists "${demangled}" output "${param}" "${kind}" "${value}"
+        _knit_checksum_require_exists "${display}" output "${param}" "${kind}" "${value}"
         local hex
         _knit_sha256 hex "${value}"
         _knit_db_update_row "${app_name}" "${row_id}" "${param}_checksum=sha256:${hex}"
@@ -631,11 +645,16 @@ knit_register_app() {
     local fn="$2"
     local description="$3"
     knit_register "run:${name}" "${fn}" "${description}"
+    # Canonical (underscore) name: used both for the per-app table and the
+    # registry key so they stay stable whether the app is registered or invoked
+    # with hyphens or underscores (the registered spelling is kept for display).
+    local normalized_name
+    normalized_name=$(_knit_name_normalize "${name}")
     # Record each app's invocations in a table named after the app itself (not
     # the "run:<name>" command name), so the table reads naturally and needs no
     # SQL quoting of the colon.
-    knit_with_table "${name}"
-    _KNIT_APPS["${name}"]=1
+    knit_with_table "${normalized_name}"
+    _KNIT_APPS["${normalized_name}"]=1
     printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_type" '%s' 'app'
     _knit_run_before _knit_app_before_cb
 }

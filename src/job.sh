@@ -198,12 +198,18 @@ _knit_prepare_build() {
         knit_fatal "submit requires a job name (pass it after --)."
     fi
 
-    local job_name="${extra[0]}"
+    # The job name as typed (kept for the "unknown" error) and its canonical
+    # (underscore) form, which drives lookup, the subcommand name, the batch
+    # script, and the recorded row. Hyphens and underscores are interchangeable;
+    # the registered spelling is restored for display below.
+    local job_name_typed="${extra[0]}"
+    local job_name
+    job_name=$(_knit_name_normalize "${job_name_typed}")
     local job_args=("${extra[@]:1}")
 
     # Check job name is registered
     if [[ ! -v _KNIT_JOBS["${job_name}"] ]]; then
-        knit_fatal "Unknown job \"${job_name}\"."
+        knit_fatal "Unknown job \"${job_name_typed}\"."
     fi
 
     # Enforce the job's setup requirement (knit_with_setup / knit_without_setup).
@@ -218,13 +224,17 @@ _knit_prepare_build() {
     local mangled
     mangled="$(_knit_command_mangle "submit:${job_name}")"
 
+    # Registered spelling of the job, for human-facing messages.
+    local job_display_var="_KNIT_CMD_${mangled}_display"
+    local job_display="${!job_display_var:-${job_name}}"
+
     # Usability pre-check (login side): fail fast before creating a job directory
     # or contacting the scheduler if the job declares knit_usable_if predicates
     # that do not hold. The compute-side re-entry catches this too, but only after
     # the job has been scheduled.
     local usable_reason=""
     if ! _knit_command_check_usable usable_reason "${mangled}"; then
-        knit_fatal "Command \"submit:${job_name}\" cannot run: ${usable_reason}"
+        knit_fatal "Command \"submit:${job_display}\" cannot run: ${usable_reason}"
     fi
 
     local required_marker="_KNIT_CMD_${mangled}_setup"
@@ -238,7 +248,7 @@ _knit_prepare_build() {
     fi
 
     if [[ -n "${required_setup}" && -z "${setup_path}" ]]; then
-        knit_fatal "Job \"${job_name}\" requires a --setup of type \"${required_setup}\"."
+        knit_fatal "Job \"${job_display}\" requires a --setup of type \"${required_setup}\"."
     fi
 
     # Resolve the setup path (if any) to an absolute path. The generated batch
@@ -432,6 +442,13 @@ _knit_submit_dispatch() {
     local alias_link="$4"
     local wait_override="${5:-}"
 
+    # Registered spelling of the job (job_name is the canonical, underscore form),
+    # for the log line below.
+    local job_mangled
+    job_mangled=$(_knit_command_mangle "submit:${job_name}")
+    local job_display_var="_KNIT_CMD_${job_mangled}_display"
+    local job_display="${!job_display_var:-${job_name}}"
+
     # Restore the backend and resolved options frozen at build time. The name
     # "opts" must differ from the nameref names used inside the sched_* helpers to
     # avoid bash circular-reference errors.
@@ -463,7 +480,7 @@ _knit_submit_dispatch() {
         "native-cmd=${native_cmd}" "state=submitted"
 
     # Log the resolved command before issuing it, then submit.
-    knit_trace "Submitting job \"${job_name}\": ${native_cmd}"
+    knit_trace "Submitting job \"${job_display}\": ${native_cmd}"
     local jobid submit_status=0
     jobid="$(_knit_sched_submit "${backend}" opts "${script}" "${jobdir}")" \
         || submit_status=$?
@@ -855,11 +872,16 @@ knit_register_job() {
             ;;
     esac
     knit_register "submit:${name}" "${fn}" "${description}"
+    # Canonical (underscore) name: used both for the per-job table and the
+    # registry key so they stay stable whether the job is registered or invoked
+    # with hyphens or underscores (the registered spelling is kept for display).
+    local normalized_name
+    normalized_name=$(_knit_name_normalize "${name}")
     # Record each job's invocations in a table named after the job itself (not
     # the "submit:<name>" command name), so the table reads naturally and needs
     # no SQL quoting of the colon.
-    knit_with_table "${name}"
-    _KNIT_JOBS["${name}"]=1
+    knit_with_table "${normalized_name}"
+    _KNIT_JOBS["${normalized_name}"]=1
     printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_type" '%s' 'job'
     _knit_run_before _knit_job_before_cb
     _knit_run_after  _knit_job_after_cb

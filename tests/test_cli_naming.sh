@@ -36,6 +36,18 @@ teardown() {
     [ "$result" = "foo" ]
 }
 
+@test "_knit_command_mangle folds hyphens to underscores" {
+    local result
+    result=$(_knit_command_mangle "db-show")
+    [ "$result" = "db_show" ]
+}
+
+@test "_knit_command_mangle folds hyphens per nested segment" {
+    local result
+    result=$(_knit_command_mangle "grp:db-show")
+    [ "$result" = "grp__1__db_show" ]
+}
+
 # ---------- _knit_command_demangle ----------
 
 @test "_knit_command_demangle converts __1__ back to colons" {
@@ -48,6 +60,34 @@ teardown() {
     local result
     result=$(_knit_command_demangle "foo")
     [ "$result" = "foo" ]
+}
+
+# ---------- _knit_command_display ----------
+
+@test "_knit_command_display returns the registered spelling of a command" {
+    knit_register "db-show" knit_empty "A hyphenated command."
+    knit_done
+    local result
+    result=$(_knit_command_display "db_show")
+    [ "$result" = "db-show" ]
+}
+
+@test "_knit_command_display rebuilds a nested registered spelling" {
+    knit_register "grp" knit_empty "A group."
+    knit_done
+    knit_register "grp:db-show" knit_empty "A nested hyphenated command."
+    knit_done
+    local result
+    result=$(_knit_command_display "grp__1__db_show")
+    [ "$result" = "grp:db-show" ]
+}
+
+@test "_knit_command_display returns the underscore name when registered so" {
+    knit_register "db_show" knit_empty "An underscore command."
+    knit_done
+    local result
+    result=$(_knit_command_display "db_show")
+    [ "$result" = "db_show" ]
 }
 
 # ---------- _knit_command_with_space ----------

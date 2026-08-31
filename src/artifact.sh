@@ -547,7 +547,7 @@ knit_artifact() {
     fi
     local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
     local demangled_cmd
-    demangled_cmd=$(_knit_command_demangle "${cmd}")
+    demangled_cmd=$(_knit_command_display "${cmd}")
     local normalized
     normalized=$(_knit_name_normalize "${name}")
     if ! _knit_set_find "_KNIT_CMD_${cmd}_artifacts" "${normalized}"; then
