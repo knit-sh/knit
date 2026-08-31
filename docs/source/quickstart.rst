@@ -29,8 +29,13 @@ commands your experiment offers.
    declaration API. Every ``knit_x`` declaration function has an ``@x`` twin
    (``knit_register`` is written ``@command`` and ``knit_register_<x>`` is written
    ``@<x>``). The shorthand is enabled by default and is what this documentation
-   uses; the canonical ``knit_*`` functions remain available and unchanged. See
-   the project ``README`` for the full mapping and how to opt out.
+   uses; the canonical ``knit_*`` functions remain available and unchanged.
+
+   Each code example on this site has two tabs: **Shorthand** shows the ``@``
+   form, and **Long form** shows the equivalent ``knit_*`` calls. Select a tab
+   and the site keeps your choice for every other example, on this page and the
+   next. An example with no shorthand shows one block, because both tabs are the
+   same.
 
 Running ``./exp.sh --help`` already works and shows a handful of built-in
 commands, along with your experiment's description as set above. The commands you
