@@ -12,3 +12,6 @@
 
 # Assembled website
 /web/build/
+
+__pycache__/
+*.egg-info/

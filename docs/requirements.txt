@@ -1,6 +1,7 @@
 sphinx
 sphinx-book-theme
 sphinx-copybutton
+sphinx-design
 breathe
 # Knit-branded Pygments styles (knit-light / knit-dark). Editable local install;
 # path is relative to the repo root, where `make` runs pip. Replaces the former

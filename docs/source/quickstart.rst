@@ -13,7 +13,7 @@ hereafter). It sources ``knit.sh`` (kept next to the script), describes itself,
 registers one or more commands, and ends with the single line ``knit "$@"`` that
 hands the command line to Knit:
 
-.. literalinclude:: _code/quickstart.sh
+.. knit-code:: _code/quickstart.sh
    :language: bash
    :start-after: # START run
    :end-before: # END run
@@ -45,7 +45,7 @@ for the command. The ``<name>`` is the command as typed on the command line, and
 Knit calls the function it finds defined just below the declaration --- so you
 never repeat the function's name. Here is a command that just prints a greeting:
 
-.. literalinclude:: _code/quickstart.sh
+.. knit-code:: _code/quickstart.sh
    :language: bash
    :start-after: # START hello
    :end-before: # END hello
@@ -72,7 +72,7 @@ Parameters are declared between ``@command`` and ``@done``.
 ``@with_required "name:type" <description>`` adds a required one.
 Inside the body, we can read it back with ``knit_get_parameter``:
 
-.. literalinclude:: _code/quickstart.sh
+.. knit-code:: _code/quickstart.sh
    :language: bash
    :start-after: # START say
    :end-before: # END say
@@ -100,7 +100,7 @@ default) and boolean flags. ``@with_optional "name:type" <default>
 ``@with_flag <name> <description>`` adds a switch that reads back as
 ``true`` or ``false``:
 
-.. literalinclude:: _code/quickstart.sh
+.. knit-code:: _code/quickstart.sh
    :language: bash
    :start-after: # START greet
    :end-before: # END greet
@@ -125,7 +125,7 @@ A command can declare one or more **outputs**: a named, typed result it computes
 is used if the command exits before setting it), and ``knit_output <name>
 <value>`` emits it from the body:
 
-.. literalinclude:: _code/quickstart.sh
+.. knit-code:: _code/quickstart.sh
    :language: bash
    :start-after: # START scale
    :end-before: # END scale
@@ -146,7 +146,7 @@ stored anywhere. Adding ``@with_table`` tells Knit to **record** every invocatio
 per-command table. Here is a command with two required parameters, an output, and
 a table:
 
-.. literalinclude:: _code/quickstart.sh
+.. knit-code:: _code/quickstart.sh
    :language: bash
    :start-after: # START add
    :end-before: # END add

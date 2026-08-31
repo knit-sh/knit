@@ -5,9 +5,14 @@
 
 import os
 import re
+import sys
 
 from pygments.lexers.shell import BashLexer, BashSessionLexer
 from pygments.token import Name, Text
+
+# Make the local Sphinx extensions under docs/source/_ext importable (the
+# `knit-code` directive and the shorthand converter it builds on).
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "_ext"))
 
 # -- Knit-aware highlighting ---------------------------------------------------
 #
@@ -69,6 +74,8 @@ author = "Matthieu Dorier"
 extensions = [
     "breathe",
     "sphinx_copybutton",
+    "sphinx_design",
+    "knit_code",
 ]
 
 templates_path = ["_templates"]
