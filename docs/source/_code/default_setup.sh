@@ -25,6 +25,7 @@ _report_marker() {
 # A job that declares NEITHER @with_setup NOR @without_setup adopts the
 # builtin "default" setup automatically, inheriting the platform environment.
 @job "adopt" "Runs in the builtin default setup."
+adopt() { _report_marker; }
 @done
 # END adopt
 
@@ -33,6 +34,7 @@ _report_marker() {
 # no platform activation. It is mutually exclusive with @with_setup.
 @job "optout" "Runs with no setup."
 @without_setup
+optout() { _report_marker; }
 @done
 # END optout
 
@@ -41,6 +43,7 @@ _report_marker() {
 # like a named setup type.
 @command "report" "Requires the builtin default setup."
 @with_setup "default"
+report() { _report_marker; }
 @done
 # END require-default
 

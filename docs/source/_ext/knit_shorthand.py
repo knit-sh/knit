@@ -20,6 +20,7 @@ so the token to function mapping can never drift from the runtime.
 
 import os
 import re
+import shutil
 
 
 class ConversionError(Exception):
@@ -203,6 +204,50 @@ def convert_text(text, passthrough=None, extractor=None):
     return "\n".join(out)
 
 
+def convert_file(src_path, passthrough=None, extractor=None):
+    """Read a shorthand source file and return its long-form text.
+
+    A file with no ``@`` shorthand round-trips unchanged, because every
+    non-shorthand line passes through verbatim.
+    """
+    with open(src_path, "r") as handle:
+        text = handle.read()
+    return convert_text(text, passthrough, extractor)
+
+
+def generate_longform_tree(src_dir, out_dir):
+    """Generate the long-form tree ``out_dir`` from the shorthand tree ``src_dir``.
+
+    Every ``*.sh`` under ``src_dir`` is converted into a file of the same name
+    under ``out_dir``; a file with no ``@`` shorthand is copied unchanged. The
+    executable bit is preserved so a generated ``./example.sh`` still runs.
+    ``out_dir`` is removed first, so it never keeps a stale file for a source
+    that no longer exists.
+
+    Returns the list of generated output paths, sorted by name.
+    """
+    if os.path.isdir(out_dir):
+        shutil.rmtree(out_dir)
+    os.makedirs(out_dir)
+
+    # Load the maps once and reuse them for every file.
+    passthrough, extractor = load_maps()
+
+    generated = []
+    for name in sorted(os.listdir(src_dir)):
+        if not name.endswith(".sh"):
+            continue
+        src = os.path.join(src_dir, name)
+        if not os.path.isfile(src):
+            continue
+        out = os.path.join(out_dir, name)
+        with open(out, "w") as handle:
+            handle.write(convert_file(src, passthrough, extractor))
+        os.chmod(out, os.stat(src).st_mode)
+        generated.append(out)
+    return generated
+
+
 # ----------------------------------------------------------------------------
 # Self-test
 #
@@ -377,7 +422,13 @@ def _selftest():
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) > 1 and sys.argv[1] == "--selftest":
+    if len(sys.argv) == 2 and sys.argv[1] == "--selftest":
         raise SystemExit(_selftest())
-    sys.stderr.write("usage: {} --selftest\n".format(sys.argv[0]))
+    if len(sys.argv) == 4 and sys.argv[1] == "--generate":
+        generate_longform_tree(sys.argv[2], sys.argv[3])
+        raise SystemExit(0)
+    sys.stderr.write(
+        "usage: {0} --selftest\n"
+        "       {0} --generate <src_dir> <out_dir>\n".format(sys.argv[0])
+    )
     raise SystemExit(2)
