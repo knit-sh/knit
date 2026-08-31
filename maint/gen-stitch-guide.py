@@ -189,12 +189,22 @@ def underline(text, char):
     return "%s\n%s" % (text, char * len(text))
 
 
-def render_category(title, summary, recipes):
-    """Render one category page: title + summary, then each recipe inlined."""
+def render_category(slug, title, summary, recipes):
+    """Render one category page: title + summary, then each recipe inlined.
+
+    Each recipe gets a cross-reference label ``stitch-<file>`` placed directly
+    above its heading so recipes can link to one another with
+    ``:ref:`stitch-<file>```. A recipe listed under several categories is inlined
+    on each page, so the label is emitted only on its **primary** category (the
+    first slug in its ``categories`` list) to keep the label unique.
+    """
     lines = [underline(title, "="), ""]
     if summary:
         lines += [summary, ""]
     for recipe in sorted(recipes, key=lambda r: (r["order"], r["title"])):
+        if recipe["categories"][0] == slug:
+            lines.append(".. _stitch-%s:" % recipe["file"])
+            lines.append("")
         lines.append(underline(recipe["title"], "-"))
         lines.append("")
         lines.append("*%s*" % recipe["description"])
@@ -262,7 +272,7 @@ def main():
     os.makedirs(OUT_CATEGORIES_DIR, exist_ok=True)
 
     for slug, title, summary in categories:
-        page = render_category(title, summary, by_slug[slug])
+        page = render_category(slug, title, summary, by_slug[slug])
         with open(os.path.join(OUT_CATEGORIES_DIR, "%s.rst" % slug),
                   "w") as handle:
             handle.write(page)

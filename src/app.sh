@@ -234,7 +234,11 @@ _knit_run() {
         # rank: main.sh consumes and unsets _KNIT_JUMP_TO_DIR on the job body's
         # own re-entry, and unset strips the export attribute, so its -gx
         # declaration no longer applies here.
-        export _KNIT_JUMP_TO_DIR="${PWD}"
+        # Assign then export on one statement (not a line-leading `export
+        # NAME=`) so the Doxygen bash filter does not extract this runtime
+        # re-export as a second variable, duplicating the one documented in
+        # main.sh.
+        _KNIT_JUMP_TO_DIR="${PWD}"; export _KNIT_JUMP_TO_DIR
         cd "$(dirname "${KNIT_SCRIPT_PATH}")" \
             || knit_fatal "cannot cd to the experiment script directory"
         _knit_launch_exec "${resolved_backend}" launch_opts -- \
