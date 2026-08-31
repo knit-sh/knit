@@ -11,7 +11,7 @@ declares neither ``knit_with_setup`` nor ``knit_without_setup`` runs inside this
 default setup automatically, so it inherits the platform environment with no
 boilerplate:
 
-.. literalinclude:: /_code/default_setup.sh
+.. knit-code:: /_code/default_setup.sh
    :language: bash
    :start-after: # START adopt
    :end-before: # END adopt
@@ -20,7 +20,7 @@ To run a job with no setup at all --- no setup directory and no platform
 activation --- opt out with ``knit_without_setup`` (mutually exclusive with
 ``knit_with_setup``):
 
-.. literalinclude:: /_code/default_setup.sh
+.. knit-code:: /_code/default_setup.sh
    :language: bash
    :start-after: # START optout
    :end-before: # END optout
@@ -28,7 +28,7 @@ activation --- opt out with ``knit_without_setup`` (mutually exclusive with
 The default setup is a setup type like any other, so a command can also require
 it explicitly by name:
 
-.. literalinclude:: /_code/default_setup.sh
+.. knit-code:: /_code/default_setup.sh
    :language: bash
    :start-after: # START require-default
    :end-before: # END require-default

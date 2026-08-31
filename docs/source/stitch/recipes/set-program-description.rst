@@ -8,7 +8,7 @@
 Call ``knit_set_program_description`` once, after sourcing ``knit.sh``, to set the
 line shown at the top of the experiment's ``--help``:
 
-.. literalinclude:: /_code/commands.sh
+.. knit-code:: /_code/commands.sh
    :language: bash
    :start-after: # START description
    :end-before: # END description

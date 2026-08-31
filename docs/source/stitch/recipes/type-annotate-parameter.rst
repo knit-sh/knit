@@ -11,7 +11,7 @@ rejects a mismatch with a clear error. The type also chooses the parameter's
 database column affinity (``integer`` → ``INTEGER``, ``real`` → ``REAL``,
 everything else → ``TEXT``).
 
-.. literalinclude:: /_code/types.sh
+.. knit-code:: /_code/types.sh
    :language: bash
    :start-after: # START annotate
    :end-before: # END annotate
@@ -31,7 +31,7 @@ When a value does *not* come from a declared parameter — a computed value, an
 environment variable, or a trailing argument — validate it yourself with
 ``knit_type_check <type> <value>``, which returns success (0) or failure (1):
 
-.. literalinclude:: /_code/types.sh
+.. knit-code:: /_code/types.sh
    :language: bash
    :start-after: # START type-check
    :end-before: # END type-check

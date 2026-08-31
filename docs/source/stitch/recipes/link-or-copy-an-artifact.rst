@@ -10,7 +10,7 @@ When the bytes you want as an artifact already live somewhere else, let
 artifacts root by hand. ``--copy-from`` snapshots the source into ``artifacts/``;
 ``--link-from`` references it in place through an absolute-target symlink:
 
-.. literalinclude:: /_code/artifacts.sh
+.. knit-code:: /_code/artifacts.sh
    :language: bash
    :start-after: # START shortcuts
    :end-before: # END shortcuts

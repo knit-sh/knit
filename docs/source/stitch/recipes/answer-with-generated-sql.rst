@@ -9,7 +9,7 @@
 query, running it against the experiment, and printing the result. It works over
 any experiment that records runs --- a command with an output and a table:
 
-.. literalinclude:: /_code/ai_query.sh
+.. knit-code:: /_code/ai_query.sh
    :language: bash
    :start-after: # START montecarlo
    :end-before: # END montecarlo

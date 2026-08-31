@@ -9,7 +9,7 @@ To prepare a whole batch at once, describe it in a JSON plan and feed it to
 ``prepare from`` --- from a file with ``--file``, or on stdin when ``--file`` is
 omitted. Each entry is prepared as if you had run ``prepare -- <job> …`` by hand:
 
-.. literalinclude:: /_code/prepare.sh
+.. knit-code:: /_code/prepare.sh
    :language: json
    :start-after: <<'JSON'
    :end-before: JSON

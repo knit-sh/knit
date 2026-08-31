@@ -11,7 +11,7 @@ that parses its own ``"$@"`` does not. ``knit_check_arguments <options> <flags>
 a value, the second names flags, and it returns 1 on the first unexpected
 argument (logging an error attributed to the caller):
 
-.. literalinclude:: /_code/parameters.sh
+.. knit-code:: /_code/parameters.sh
    :language: bash
    :start-after: # START check-args
    :end-before: # END check-args

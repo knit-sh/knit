@@ -11,7 +11,7 @@ everything it needs under ``KNIT_SETUP_PREFIX`` --- the private directory Knit
 creates for it --- so commands that depend on the setup find the software on
 their ``PATH``.
 
-.. literalinclude:: /_code/julia_setup.sh
+.. knit-code:: /_code/julia_setup.sh
    :language: bash
    :start-after: # START setup
    :end-before: # END setup

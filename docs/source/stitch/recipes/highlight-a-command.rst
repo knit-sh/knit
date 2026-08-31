@@ -10,7 +10,7 @@
 purely cosmetic: it never affects whether the command runs, its provenance, or how
 ``describe`` sees it.
 
-.. literalinclude:: /_code/commands.sh
+.. knit-code:: /_code/commands.sh
    :language: bash
    :start-after: # START highlight
    :end-before: # END highlight

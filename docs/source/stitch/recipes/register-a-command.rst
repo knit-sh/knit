@@ -11,7 +11,7 @@ function is the command's body. In the ``@`` shorthand shown below, ``@command``
 takes only ``<name> <description>`` --- it finds the body from the function
 defined just beneath the declaration --- and ``@done`` closes it:
 
-.. literalinclude:: /_code/commands.sh
+.. knit-code:: /_code/commands.sh
    :language: bash
    :start-after: # START register
    :end-before: # END register

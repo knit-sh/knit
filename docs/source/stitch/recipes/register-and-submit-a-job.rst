@@ -12,7 +12,7 @@ on other machines. The declaration block is otherwise identical to a plain
 command: bind it to a software environment with ``knit_with_setup``, declare its
 parameters, and define the body:
 
-.. literalinclude:: /_code/julia_job.sh
+.. knit-code:: /_code/julia_job.sh
    :language: bash
    :start-after: # START job
    :end-before: # END job

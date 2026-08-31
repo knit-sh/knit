@@ -10,7 +10,7 @@ exported to the body as ``KNIT_JOB_PREFIX`` and already set as the process's
 current directory. Anything the job writes there travels with the run's records,
 so this is where output files belong:
 
-.. literalinclude:: /_code/julia_job.sh
+.. knit-code:: /_code/julia_job.sh
    :language: bash
    :start-after: # START job
    :end-before: # END job

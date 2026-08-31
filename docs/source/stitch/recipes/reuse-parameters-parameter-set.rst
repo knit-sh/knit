@@ -10,7 +10,7 @@ parameter set and import the set wherever you need it. A set is opened with
 ``knit_parameter_set``, populated with the usual ``knit_with_*`` calls, and
 closed with ``knit_done``:
 
-.. literalinclude:: /_code/parameters.sh
+.. knit-code:: /_code/parameters.sh
    :language: bash
    :start-after: # START pset
    :end-before: # END pset

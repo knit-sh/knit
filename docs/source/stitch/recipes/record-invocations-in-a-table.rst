@@ -8,7 +8,7 @@
 Add ``knit_with_table`` between ``knit_register`` and ``knit_done`` and knit
 records **one row per invocation** of the command in a SQLite table:
 
-.. literalinclude:: /_code/quickstart.sh
+.. knit-code:: /_code/quickstart.sh
    :language: bash
    :start-after: # START add
    :end-before: # END add

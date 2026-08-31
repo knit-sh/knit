@@ -9,7 +9,7 @@ A command may record several outputs, but usually one of them is *the* result --
 what the experiment was for. Append ``--result`` to its ``knit_with_output``
 declaration to say so:
 
-.. literalinclude:: /_code/artifacts.sh
+.. knit-code:: /_code/artifacts.sh
    :language: bash
    :start-after: # START result
    :end-before: # END result

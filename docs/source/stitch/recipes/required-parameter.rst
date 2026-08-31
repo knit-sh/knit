@@ -9,7 +9,7 @@
 ``knit_register`` and ``knit_done``, declares a parameter the caller must supply
 as ``--name value``. The body reads it back with ``knit_get_parameter``:
 
-.. literalinclude:: /_code/parameters.sh
+.. knit-code:: /_code/parameters.sh
    :language: bash
    :start-after: # START required
    :end-before: # END required

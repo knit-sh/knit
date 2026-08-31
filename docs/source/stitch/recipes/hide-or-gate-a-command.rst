@@ -9,7 +9,7 @@
 invokable; ``knit_usable_if`` blocks a command from running unless a predicate
 holds, showing its description as the error otherwise:
 
-.. literalinclude:: /_code/commands.sh
+.. knit-code:: /_code/commands.sh
    :language: bash
    :start-after: # START gate
    :end-before: # END gate

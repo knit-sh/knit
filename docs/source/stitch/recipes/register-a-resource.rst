@@ -10,7 +10,7 @@ third-party source code. ``knit_register_resource`` declares a resource *type*:
 what the artifact is and, through exactly one download decorator, how to acquire
 it. There is no body to write; knit supplies the download itself.
 
-.. literalinclude:: /_code/resources.sh
+.. knit-code:: /_code/resources.sh
    :language: bash
    :start-after: # START register
    :end-before: # END register

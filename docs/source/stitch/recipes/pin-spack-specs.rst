@@ -14,7 +14,7 @@ into ``KNIT_SETUP_PREFIX``. The Spack it uses is knit's own, installed under
 directly* and *Isolate Spack from your personal config*); declaring a
 Spack-backed setup makes ``bootstrap`` provision that Spack automatically:
 
-.. literalinclude:: /_code/julia_setup.sh
+.. knit-code:: /_code/julia_setup.sh
    :language: bash
    :start-after: # START setup
    :end-before: # END setup

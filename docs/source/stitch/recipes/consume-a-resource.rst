@@ -11,7 +11,7 @@ that the named instance exists and is of the declared type before the body runs,
 then records a ``used_by`` provenance edge from the resource to the command.
 Inside the body, ``knit_resource_path`` turns the name into an on-disk path.
 
-.. literalinclude:: /_code/resources.sh
+.. knit-code:: /_code/resources.sh
    :language: bash
    :start-after: # START consume
    :end-before: # END consume

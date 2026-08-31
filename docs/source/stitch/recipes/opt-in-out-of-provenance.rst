@@ -19,7 +19,7 @@ Use ``knit_without_provenance`` to keep a visible command out of the graph. A
 read-only fan-in command that only reads back existing rows is the typical case
 --- it should not add call edges of its own:
 
-.. literalinclude:: /_code/julia_aggregate.sh
+.. knit-code:: /_code/julia_aggregate.sh
    :language: bash
    :start-after: # START aggregate
    :end-before: # END aggregate

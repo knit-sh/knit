@@ -9,7 +9,7 @@ An **app** is the unit ``knit run`` launches across an MPI world: knit starts on
 copy of its body per rank. Register it with ``knit_register_app`` --- it takes
 parameters, types, and outputs exactly like a job or a plain command:
 
-.. literalinclude:: /_code/julia_app.sh
+.. knit-code:: /_code/julia_app.sh
    :language: bash
    :start-after: # START app
    :end-before: # END app

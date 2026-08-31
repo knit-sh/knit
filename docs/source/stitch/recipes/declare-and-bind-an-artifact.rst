@@ -11,7 +11,7 @@ export --- a dataset, a plot, a captured config. Declare it with
 ``directory``), write it under the artifacts root reported by
 ``knit_artifact_dir``, then bind it from the body with ``knit_artifact``:
 
-.. literalinclude:: /_code/artifacts.sh
+.. knit-code:: /_code/artifacts.sh
    :language: bash
    :start-after: # START declare
    :end-before: # END declare

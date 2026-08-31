@@ -11,7 +11,7 @@ environment. Calling ``knit_provides_launcher`` then advertises that Spack-built
 MPI as the launcher, so ``knit run`` can place ranks even on a machine that has no
 MPI of its own:
 
-.. literalinclude:: /_code/mpi_setup.sh
+.. knit-code:: /_code/mpi_setup.sh
    :language: bash
    :start-after: # START setup
    :end-before: # END setup

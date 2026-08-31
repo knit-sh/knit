@@ -50,7 +50,7 @@ Quickstart, the experiment (call it ``exp.sh``) sources ``knit.sh``, registers a
 command, and ends with ``knit "$@"``. Here is the command --- every argument is
 optional with a sensible default, so it can be run bare:
 
-.. literalinclude:: ../_code/julia_command.sh
+.. knit-code:: ../_code/julia_command.sh
    :language: bash
    :start-after: # START julia
    :end-before: # END julia
@@ -105,7 +105,7 @@ software it needs with ``@with_spack_specs`` --- ``cmake`` and ``libpng``
 installs it. This setup must come before our earlier definition of the ``julia``
 command:
 
-.. literalinclude:: ../_code/julia_setup.sh
+.. knit-code:: ../_code/julia_setup.sh
    :language: bash
    :start-after: # START setup
    :end-before: # END setup
@@ -141,7 +141,7 @@ Once built, you should see a new folder named **myenv** in the **Setups** direct
 Now tell the ``julia`` command to depend on the setup. One line, between its
 ``@command`` and ``@done``, does it:
 
-.. literalinclude:: ../_code/julia_setup.sh
+.. knit-code:: ../_code/julia_setup.sh
    :language: bash
    :start-after: # START depends
    :end-before: # END depends
@@ -181,7 +181,7 @@ command rather than a top-level command. The body is almost the same as before,
 with one addition --- it writes its image under ``KNIT_JOB_PREFIX`` (we also
 remove the ``output`` parameter of the command, alway outputing *fractal.png*):
 
-.. literalinclude:: ../_code/julia_job.sh
+.. knit-code:: ../_code/julia_job.sh
    :language: bash
    :emphasize-lines: 1,23,25
    :start-after: # START job
@@ -256,7 +256,7 @@ identical either way --- whether we get a parallel build is decided entirely by
 what is in the *environment*. So making the experiment MPI-capable is a change to
 the **setup**, not to the experiment code. Two lines change:
 
-.. literalinclude:: ../_code/julia_mpi.sh
+.. knit-code:: ../_code/julia_mpi.sh
    :language: bash
    :start-after: # START setup
    :end-before: # END setup
@@ -329,7 +329,7 @@ it across MPI ranks, the job stops calling the binary directly and instead asks
 Knit to launch it, with ``knit run``. Its parameters are unchanged from Step 4;
 only the body changes:
 
-.. literalinclude:: ../_code/julia_app.sh
+.. knit-code:: ../_code/julia_app.sh
    :language: bash
    :start-after: # START job
    :end-before: # END job
@@ -356,7 +356,7 @@ parallel work --- ``knit run`` starts one copy of it per rank. Our job launches 
 app called ``render`` that wraps the actual ``julia-fractal`` call. So we register
 it, with ``@app``:
 
-.. literalinclude:: ../_code/julia_app.sh
+.. knit-code:: ../_code/julia_app.sh
    :language: bash
    :start-after: # START app
    :end-before: # END app
@@ -498,7 +498,7 @@ command turns an ad-hoc query into a reusable part of the experiment. This
 job produced it --- a *fan-in*, the counterpart to the fan-out of submitting many
 jobs:
 
-.. literalinclude:: ../_code/julia_aggregate.sh
+.. knit-code:: ../_code/julia_aggregate.sh
    :language: bash
    :start-after: # START aggregate
    :end-before: # END aggregate
@@ -912,7 +912,7 @@ Here is the whole thing in one file. Save it as ``exp.sh`` next to a copy of
 ``knit.sh``, make it executable (``chmod +x exp.sh``), and you have the finished
 experiment this tutorial built:
 
-.. literalinclude:: ../_code/julia_full.sh
+.. knit-code:: ../_code/julia_full.sh
    :language: bash
 
 To run it from scratch:

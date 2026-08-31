@@ -9,7 +9,7 @@ To let a command accept arbitrary arguments after ``--`` (for example to forward
 them to another program), document them with ``knit_with_extra`` and read them in
 the body starting at ``knit_extra_index``:
 
-.. literalinclude:: /_code/parameters.sh
+.. knit-code:: /_code/parameters.sh
    :language: bash
    :start-after: # START extra
    :end-before: # END extra

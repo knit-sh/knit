@@ -9,7 +9,7 @@ Write an optional parameter's default as ``ENV[NAME]`` to fall back to the
 ``NAME`` environment variable when the caller does not pass the parameter (empty
 when ``NAME`` is unset):
 
-.. literalinclude:: /_code/parameters.sh
+.. knit-code:: /_code/parameters.sh
    :language: bash
    :start-after: # START env-default
    :end-before: # END env-default

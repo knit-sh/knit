@@ -12,7 +12,7 @@ argument-for-argument --- over the same job registry, so you prepare the same
 jobs you submit --- but stops before the scheduler, leaving a row in state
 ``prepared``:
 
-.. literalinclude:: /_code/prepare.sh
+.. knit-code:: /_code/prepare.sh
    :language: bash
    :start-after: # START job
    :end-before: # END job

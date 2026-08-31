@@ -9,7 +9,7 @@ A build or install can spew hundreds of lines. Pipe its output into
 ``knit_framed`` to confine that noise to a fixed, scrolling box with a title,
 instead of letting it flood the terminal:
 
-.. literalinclude:: /_code/logging.sh
+.. knit-code:: /_code/logging.sh
    :language: bash
    :start-after: # START framed
    :end-before: # END framed

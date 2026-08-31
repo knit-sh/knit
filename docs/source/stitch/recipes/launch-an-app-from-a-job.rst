@@ -8,7 +8,7 @@
 Apps are launched from inside a **job** body with ``knit run``. The job holds the
 scheduler allocation; ``knit run`` places the app's ranks across it:
 
-.. literalinclude:: /_code/julia_app.sh
+.. knit-code:: /_code/julia_app.sh
    :language: bash
    :start-after: # START job
    :end-before: # END job

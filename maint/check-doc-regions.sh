@@ -2,11 +2,15 @@
 # ----------------------------------------------------------------------------
 # check-doc-regions.sh
 #
-# Validate that every `literalinclude` region referenced by the Sphinx sources
-# resolves: the included file must exist, and each `:start-after:` /
-# `:end-before:` value must appear (as a substring, mirroring Sphinx semantics)
-# in that file. This guarantees a documentation snippet can never silently
-# vanish or be renamed out from under the prose that shows it.
+# Validate that every `literalinclude` and `knit-code` region referenced by the
+# Sphinx sources resolves: the included file must exist, and each
+# `:start-after:` / `:end-before:` value must appear (as a substring, mirroring
+# Sphinx semantics) in that file. This guarantees a documentation snippet can
+# never silently vanish or be renamed out from under the prose that shows it.
+#
+# A `knit-code` directive names its shorthand `_code/` source; the region is
+# validated against that authored source (the long-form twin is generated from
+# it, so the same markers resolve there too).
 #
 # Include paths are resolved the way Sphinx resolves them: a leading `/` is
 # relative to the documentation source root (so the Stitch Guide recipe
@@ -29,13 +33,15 @@ checked=0
 
 while IFS= read -r rst; do
     rst_dir="$(dirname "${rst}")"
-    target=""          # resolved path of the current literalinclude, "" if none
+    target=""          # resolved path of the current include, "" if none
     inc_path=""        # as written in the directive (for messages)
+    directive=""       # "literalinclude" or "knit-code" (for messages)
 
     while IFS= read -r line; do
-        # Start of a literalinclude directive.
-        if [[ "${line}" =~ ^[[:space:]]*\.\.[[:space:]]+literalinclude::[[:space:]]*(.+)$ ]]; then
-            inc_path="${BASH_REMATCH[1]}"
+        # Start of a literalinclude or knit-code directive.
+        if [[ "${line}" =~ ^[[:space:]]*\.\.[[:space:]]+(literalinclude|knit-code)::[[:space:]]*(.+)$ ]]; then
+            directive="${BASH_REMATCH[1]}"
+            inc_path="${BASH_REMATCH[2]}"
             inc_path="${inc_path%"${inc_path##*[![:space:]]}"}"   # rtrim
             if [[ "${inc_path}" == /* ]]; then
                 target="${DOCS_ROOT%/}/${inc_path#/}"    # source-root-relative
@@ -43,7 +49,7 @@ while IFS= read -r rst; do
                 target="${rst_dir}/${inc_path}"          # .rst-file-relative
             fi
             if [[ ! -f "${target}" ]]; then
-                echo "${rst}: literalinclude target not found: ${inc_path}"
+                echo "${rst}: ${directive} target not found: ${inc_path}"
                 errors=$((errors + 1))
                 target=""
             fi

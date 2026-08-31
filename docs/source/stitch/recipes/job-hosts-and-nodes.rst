@@ -8,7 +8,7 @@
 Inside a job body, ``knit_job_hostnames`` and ``knit_job_nodecount`` report the
 placement the scheduler gave the job --- which nodes it got and how many:
 
-.. literalinclude:: /_code/julia_app.sh
+.. knit-code:: /_code/julia_app.sh
    :language: bash
    :start-after: # START job
    :end-before: # END job

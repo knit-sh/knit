@@ -10,7 +10,7 @@ To restrict a parameter to a fixed set of values, define an enum with
 Knit validates the value against the allowed set for you, exactly as it does for
 the built-in types.
 
-.. literalinclude:: /_code/types.sh
+.. knit-code:: /_code/types.sh
    :language: bash
    :start-after: # START enum
    :end-before: # END enum

@@ -10,7 +10,7 @@ recorded alongside them. Declare an output at registration with
 ``knit_with_output name:type default description``, then set its value from the
 body with ``knit_output name value``:
 
-.. literalinclude:: /_code/quickstart.sh
+.. knit-code:: /_code/quickstart.sh
    :language: bash
    :start-after: # START scale
    :end-before: # END scale

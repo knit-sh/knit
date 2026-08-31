@@ -10,7 +10,7 @@ compilers, views, package preferences --- describe it with a complete
 ``spack.yaml`` manifest via ``knit_with_spack_env``. Point it at a file checked in
 next to the experiment:
 
-.. literalinclude:: /_code/spack_manifest.sh
+.. knit-code:: /_code/spack_manifest.sh
    :language: bash
    :start-after: # START env-file
    :end-before: # END env-file
@@ -20,7 +20,7 @@ here-doc (any redirected stdin works). The manifest is read at registration time
 so it must actually be redirected --- an interactive terminal or an empty manifest
 is rejected rather than left to block:
 
-.. literalinclude:: /_code/spack_manifest.sh
+.. knit-code:: /_code/spack_manifest.sh
    :language: bash
    :start-after: # START env-stdin
    :end-before: # END env-stdin

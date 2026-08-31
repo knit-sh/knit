@@ -10,7 +10,7 @@ Colons in a command name nest it under a parent, so ``say:hello`` is invoked as
 children) and, optionally, rename the section they appear under in ``--help`` with
 ``knit_with_subcommand_title``:
 
-.. literalinclude:: /_code/commands.sh
+.. knit-code:: /_code/commands.sh
    :language: bash
    :start-after: # START nest
    :end-before: # END nest

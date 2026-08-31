@@ -8,7 +8,7 @@
 A Knit experiment is an ordinary Bash script that ``source``\ s ``knit.sh`` near
 the top and hands control to Knit's dispatcher at the very bottom:
 
-.. literalinclude:: /_code/commands.sh
+.. knit-code:: /_code/commands.sh
    :language: bash
    :start-after: # START skeleton
    :end-before: # END skeleton
@@ -16,7 +16,7 @@ the top and hands control to Knit's dispatcher at the very bottom:
 Everything between those two lines registers commands. The final line dispatches
 the script's arguments to whichever command the user named:
 
-.. literalinclude:: /_code/commands.sh
+.. knit-code:: /_code/commands.sh
    :language: bash
    :start-after: # START entry
    :end-before: # END entry

@@ -13,7 +13,7 @@ setup, job, or app name after ``--`` and runs it.
 ``--help`` usage line to ``cmd [OPTIONS] -- <target> [OPTIONS]`` and allows the
 trailing arguments), and the body reads them with ``knit_extra_index``:
 
-.. literalinclude:: /_code/commands.sh
+.. knit-code:: /_code/commands.sh
    :language: bash
    :start-after: # START dispatch
    :end-before: # END dispatch

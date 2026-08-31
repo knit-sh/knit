@@ -9,7 +9,7 @@
 that falls back to a default when omitted. ``knit_with_flag <name> <description>``
 declares a boolean flag that is either present or not:
 
-.. literalinclude:: /_code/parameters.sh
+.. knit-code:: /_code/parameters.sh
    :language: bash
    :start-after: # START optional
    :end-before: # END optional

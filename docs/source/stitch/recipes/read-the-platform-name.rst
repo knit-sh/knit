@@ -9,7 +9,7 @@ Every bootstrapped experiment records a **platform name** --- a short,
 human-facing label for the machine it runs on. Read it from a command body with
 ``knit_platform_name``:
 
-.. literalinclude:: /_code/profiles.sh
+.. knit-code:: /_code/profiles.sh
    :language: bash
    :start-after: # START platform
    :end-before: # END platform

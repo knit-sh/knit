@@ -9,7 +9,7 @@ A parameter or output typed ``file`` or ``directory`` (alias ``dir``) is more
 than a string: knit checks it exists at runtime and, by default, fingerprints its
 content with a sha256. Declare them as usual — no extra call is needed:
 
-.. literalinclude:: /_code/types.sh
+.. knit-code:: /_code/types.sh
    :language: bash
    :start-after: # START checksum
    :end-before: # END checksum

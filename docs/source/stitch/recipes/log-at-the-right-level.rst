@@ -12,7 +12,7 @@ much to see. Each takes ``printf``-style arguments, prefixes the line with
 ``[knit:<level>]``, and writes to **stderr**, leaving stdout for the command's
 real output:
 
-.. literalinclude:: /_code/logging.sh
+.. knit-code:: /_code/logging.sh
    :language: bash
    :start-after: # START levels
    :end-before: # END levels
@@ -25,7 +25,7 @@ levels, from most to least verbose, are ``trace`` < ``debug`` < ``info`` <
 Set the threshold two ways. Before launch, export the ``KNIT_LOG_LEVEL``
 environment variable; from inside a script, call ``knit_log_set_level``:
 
-.. literalinclude:: /_code/logging.sh
+.. knit-code:: /_code/logging.sh
    :language: bash
    :start-after: # START setlevel
    :end-before: # END setlevel

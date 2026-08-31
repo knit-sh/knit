@@ -9,7 +9,7 @@ Once a profile is frozen at bootstrap (see *Select a machine profile*), a
 command body can read any of its fields with ``knit_get_profile_field`` and a jq
 path expression:
 
-.. literalinclude:: /_code/profiles.sh
+.. knit-code:: /_code/profiles.sh
    :language: bash
    :start-after: # START field
    :end-before: # END field
