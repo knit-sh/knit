@@ -393,7 +393,8 @@ rank.
    The job and the app declare many of the same parameters (``width``,
    ``height``, ``c-re``, …), because the job forwards them to the app. Rather than
    repeat the declarations, you can define them once as a **parameter set** and
-   import it into both commands. :doc:`Part II <part2>` does exactly this.
+   import it into both commands. :ref:`Part II <tutorial-parameter-sets>` does
+   exactly this.
 
 Submitting is **exactly as before** --- ``julia`` is still the job, so the
 ``submit`` grammar is unchanged. On a laptop the job runs on one node, so

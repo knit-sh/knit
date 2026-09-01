@@ -84,3 +84,55 @@ directory. Fetch first, then build against the fetched instance:
    is easy to see side by side. Do not read this section as "clone your source
    with a resource" --- read it as "acquire your inputs once, and let Knit record
    them."
+
+.. _tutorial-parameter-sets:
+
+Step 2 --- Parameter sets: declare the shared parameters once
+-------------------------------------------------------------
+
+The ``julia`` job and the ``render`` app declare the *same* six parameters ---
+``width``, ``height``, ``c-re``, ``c-im``, ``max-iter`` and ``colormap`` ---
+because the job forwards them straight to the app. In Part I each command spells
+them out in full, so the two lists must be kept in step by hand: change a default
+in one place and forget the other, and the job and the app quietly disagree.
+
+A **parameter set** removes the duplication. It is a named group of parameter
+declarations with no command of its own, defined like a command --- open it,
+declare parameters, close it --- but with no body:
+
+.. knit-code:: ../_code/julia_params.sh
+   :language: bash
+   :start-after: # START pset
+   :end-before: # END pset
+
+Import the set into a command with ``@with_parameter_set``. It brings in every
+parameter the set declares, exactly as if they had been written out at that
+point. The job imports the shared six and keeps its own ``output`` parameter,
+which the app does not share:
+
+.. knit-code:: ../_code/julia_params.sh
+   :language: bash
+   :start-after: # START job
+   :end-before: # END job
+
+The app imports the same set. Its ``output`` parameter differs from the job's
+--- here it is required, since the job supplies one absolute path per run
+--- so it stays a per-command declaration:
+
+.. knit-code:: ../_code/julia_params.sh
+   :language: bash
+   :start-after: # START app
+   :end-before: # END app
+
+The shared parameters now live in one place: edit a default or a description in
+``julia-params`` and both the job and the app pick it up. ``describe`` and
+``--help`` show the imported parameters just as if each command had declared them
+directly --- the set is a definition-time convenience, invisible at the command
+line.
+
+A parameter set may be imported by any number of commands, and a command may
+import more than one set. A **conflict is fatal**: if an imported parameter has
+the same name as one the command already declares (or as one from another
+imported set), Knit stops at registration time rather than let a silent
+collision through. Keeping ``output`` out of ``julia-params`` is what lets the
+job declare it optional and the app declare it required without a clash.
