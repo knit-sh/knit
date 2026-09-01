@@ -136,3 +136,55 @@ the same name as one the command already declares (or as one from another
 imported set), Knit stops at registration time rather than let a silent
 collision through. Keeping ``output`` out of ``julia-params`` is what lets the
 job declare it optional and the app declare it required without a clash.
+
+.. _tutorial-enums:
+
+Step 3 --- Enums: make ``colormap`` a validated type
+----------------------------------------------------
+
+``colormap`` accepts only three palettes --- ``grayscale``, ``fire`` and
+``ocean`` --- but in Part I it is typed ``string``, so nothing checks the value.
+A wrong palette (``--colormap purple``) passes the command line, reaches
+``julia-fractal``, and fails deep in the render, far from the typo. An **enum**
+moves that check to the front. It is a named type with a fixed set of values,
+declared once:
+
+.. knit-code:: ../_code/julia_enum.sh
+   :language: bash
+   :start-after: # START enum
+   :end-before: # END enum
+
+With the type in hand, the shared parameter changes from ``colormap:string`` to
+``colormap:colormap`` --- a single edit in the ``julia-params`` set from Step 2,
+so the job and the app both pick it up. ``knit_enum_values`` builds the help text
+from the same declaration, so the list of palettes in the description can never
+drift from the type:
+
+.. knit-code:: ../_code/julia_enum.sh
+   :language: bash
+   :start-after: # START pset
+   :end-before: # END pset
+
+Now a value outside the set is refused up front, before the body runs, with a
+message that names the accepted values:
+
+.. code-block:: console
+
+   $ ./exp.sh julia --colormap purple
+   [knit:fatal] Parameter --colormap of "julia" expects one of: grayscale, fire, ocean (got "purple").
+
+The choices are also advertised, so a user does not have to guess them.
+``describe`` inlines them next to the default, and ``--help`` shows them through
+the description built with ``knit_enum_values``:
+
+.. code-block:: console
+
+   $ ./exp.sh describe --only submit:julia
+   ...
+       --colormap <value>  [default: 'fire', one of: grayscale, fire, ocean] Palette: grayscale, fire, ocean.
+   ...
+
+An enum is a definition-time type like the built-in ``integer`` or ``real``:
+declare it once, name it on as many parameters as you like, and every command
+that takes one of those parameters --- here both the job and the app, through the
+shared set --- validates and advertises the same fixed set of values.
