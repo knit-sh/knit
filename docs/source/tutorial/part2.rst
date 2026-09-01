@@ -188,3 +188,84 @@ An enum is a definition-time type like the built-in ``integer`` or ``real``:
 declare it once, name it on as many parameters as you like, and every command
 that takes one of those parameters --- here both the job and the app, through the
 shared set --- validates and advertises the same fixed set of values.
+
+.. _tutorial-file-output:
+
+Step 4 --- File output: record the PNG as a checksummed intermediate
+--------------------------------------------------------------------
+
+The ``render`` app produces a PNG, but Part I does not record it. Its ``output``
+parameter is typed ``string``, which accepts any value and carries no meaning;
+nothing checks that the file appears or captures what it contains. If a render
+silently writes nothing, the row still looks fine.
+
+Knit has a small family of path-shaped types that say more. They come in two
+pairs --- one for a single file, one for a directory tree --- and each pair has a
+**checked** member and an **unchecked** counterpart:
+
+- ``file`` is checked; ``filename`` is its unchecked counterpart.
+- ``directory`` is checked; ``path`` is its unchecked counterpart.
+
+All four accept a non-empty string. The difference is what Knit does with the
+value. A **checked** type (``file``, ``directory``) verifies the target exists
+--- *direction-aware*, so an input must exist before the body runs and an output
+must exist when it finishes --- and records a SHA-256 checksum of its content. An
+**unchecked** type (``filename``, ``path``) only asserts the value is non-empty;
+Knit never touches the filesystem for it. Use an unchecked type when a value
+merely *names* a location, and a checked type when Knit should confirm and
+fingerprint what is actually there.
+
+Typing the app's input and its new output from this family puts each value in the
+right category. Bind the produced PNG with ``knit_output``:
+
+.. knit-code:: ../_code/julia_file.sh
+   :language: bash
+   :start-after: # START app
+   :end-before: # END app
+
+The ``output`` parameter is now a ``filename``: the destination the job hands in.
+It must *not* be a ``file``, because a ``file`` input is checked for existence
+*before* the body runs --- and the render has not written the PNG yet, so that
+would fail every run. ``filename`` --- the unchecked counterpart of ``file`` ---
+is exactly right for "somewhere to write." (The job types its own bare ``output``
+name the same way.)
+
+The ``image`` output, by contrast, is a ``file``. Because the value is a path to
+a file that must exist when the app finishes, Knit does two things Part I did
+not. First, it enforces existence: a render that produced no file is now caught
+at once, with a fatal error, not discovered later. Second, it records the
+content: it hashes the file with SHA-256 and writes the digest into a companion
+``image_checksum`` column that it adds to the ``render`` table automatically.
+``describe`` shows both the output and its synthesized column:
+
+.. code-block:: console
+
+   $ ./exp.sh describe --only run:render
+   ...
+     Outputs
+     -------
+       inside          [integer, default: '0'] Grid points inside the set (recorded by rank 0).
+       image           [file, default: ''] The PNG this render produced (checksummed intermediate).
+       image-checksum  [string, default: ''] SHA-256 checksum of "image", recorded automatically.
+
+The checksum lets a reproducer confirm that a re-run produced byte-for-byte the
+same image. Hashing a large file has a cost, so a file output can opt out of the
+digest with ``--no-checksum`` on the declaration; the existence check still
+applies (it is a property of the type), only the ``image_checksum`` column is
+dropped.
+
+The PNG stays exactly where the job wrote it, in the job directory. A file
+output does not move the file or copy it anywhere --- it records a path and a
+digest against the row that produced it. That makes the image a **checksummed
+intermediate**: tracked, verifiable, and tied to its render, but local to the
+run. The next section introduces its counterpart, an **artifact**, which is a
+result Knit relocates and packages; the contrast between a checksummed file
+output that stays put and an artifact that is collected is the point of Step 5.
+
+.. note::
+
+   The directory pair mirrors the file pair. ``directory`` is checked like
+   ``file`` --- same direction-aware existence check, with the checksum taken over
+   the tree's contents --- and ``path`` is its unchecked counterpart, the way
+   ``filename`` is for ``file``. Reach for ``directory`` when an output is a tree
+   rather than a single file, and for ``path`` when you only need to *name* one.
