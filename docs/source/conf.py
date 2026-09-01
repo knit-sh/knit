@@ -66,7 +66,7 @@ class KnitBashSessionLexer(BashSessionLexer):
 # -- Project information ------------------------------------------------------
 
 project = "Knit"
-copyright = "2026, Matthieu Dorier"
+copyright = "2026, UChicago Argonne, LLC"
 author = "Matthieu Dorier"
 
 # -- General configuration ----------------------------------------------------
