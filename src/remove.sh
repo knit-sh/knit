@@ -991,14 +991,35 @@ _knit_remove_build_report() {
             2>/dev/null)
     fi
 
-    # Left on disk: plain outputs (always), sorted for stable output.
+    # Left on disk: plain outputs, sorted for stable output. A plain output whose
+    # path sits inside a directory this removal deletes is omitted here: its parent
+    # already appears under "Directories and artifacts removed", so listing it as
+    # "left on disk" would contradict that. Containment compares normalized paths
+    # (realpath -m, so no on-disk existence is needed) with a trailing "/" so a
+    # sibling with a shared name prefix is not a false match, mirroring
+    # _knit_remove_rm_artifact.
+    local -a removed_real=()
+    local d d_real
+    for d in "${__knit_ret3[@]}"; do
+        [[ -z "${d}" ]] && continue
+        d_real="$(realpath -m -- "${d}" 2>/dev/null)" || continue
+        removed_real+=("${d_real}")
+    done
     local -a paths=()
-    local p lline
+    local p lline p_real contained
     for p in "${!__knit_plain[@]}"; do paths+=("${p}"); done
     if (( ${#paths[@]} > 0 )); then
         mapfile -t paths < <(printf '%s\n' "${paths[@]}" | sort)
     fi
     for p in "${paths[@]}"; do
+        p_real="$(realpath -m -- "${p}" 2>/dev/null)" || p_real="${p}"
+        contained=""
+        for d_real in "${removed_real[@]}"; do
+            case "${p_real}/" in
+                "${d_real}/"*) contained="yes"; break ;;
+            esac
+        done
+        [[ -n "${contained}" ]] && continue
         printf -v lline '%s   (output of %s)' "${p}" "${__knit_plain["${p}"]}"
         __knit_ret4+=("${lline}")
     done

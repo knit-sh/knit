@@ -898,6 +898,49 @@ _fs_fixture() {
     [[ "${lefttext}" == *"/data/metrics.json"* ]]
 }
 
+@test "_knit_remove_build_report drops a plain output inside a removed directory" {
+    _stub_roots
+    local -a erase=()
+    _knit_remove_closure_downward erase S1
+    local -A id_table=() id_kind=() art_path=() art_type=()
+    _knit_remove_map_ids id_table id_kind art_path art_type "${erase[@]}"
+    # A plain output written under the job directory this removal deletes, plus one
+    # outside every removed directory (the render/fractal.png case).
+    local -A plain_out=(
+        [/ROOT/jobs/J1/fractal.png]="submit:render"
+        [/data/metrics.json]="submit:render"
+    )
+    local -a rows=() edges=() removed=() left=()
+    _knit_remove_build_report rows edges removed left \
+        id_table id_kind art_path plain_out false "${erase[@]}"
+
+    # The job dir is in the removed set...
+    _in "/ROOT/jobs/J1" "${removed[@]}"
+    local lefttext; lefttext="$(printf '%s\n' "${left[@]}")"
+    # ...so the output inside it is not also listed under "Left on disk"...
+    [[ "${lefttext}" != *"/ROOT/jobs/J1/fractal.png"* ]]
+    # ...while the output outside every removed directory still is.
+    [[ "${lefttext}" == *"/data/metrics.json"* ]]
+}
+
+@test "_knit_remove_build_report keeps a sibling sharing a removed dir name prefix" {
+    _stub_roots
+    local -a erase=()
+    _knit_remove_closure_downward erase S1
+    local -A id_table=() id_kind=() art_path=() art_type=()
+    _knit_remove_map_ids id_table id_kind art_path art_type "${erase[@]}"
+    # "/ROOT/jobs/J1-extra" is a sibling of the removed "/ROOT/jobs/J1", not inside
+    # it; the trailing-slash containment test must not suppress it.
+    local -A plain_out=([/ROOT/jobs/J1-extra/out.txt]="submit:render")
+    local -a rows=() edges=() removed=() left=()
+    _knit_remove_build_report rows edges removed left \
+        id_table id_kind art_path plain_out false "${erase[@]}"
+
+    _in "/ROOT/jobs/J1" "${removed[@]}"
+    local lefttext; lefttext="$(printf '%s\n' "${left[@]}")"
+    [[ "${lefttext}" == *"/ROOT/jobs/J1-extra/out.txt"* ]]
+}
+
 @test "_knit_remove_print_report lays out the sections with the header tense" {
     local -a rows=("setup    juliaenv (env)  S1") \
              edges=("setup:juliaenv S1 --used_by--> submit:render J1") \
