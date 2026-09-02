@@ -953,10 +953,13 @@
 #   ./full.sh remove artifact --path table-3.csv --from-root
 #
 # And a job that has not finished (submitted/running/prepared) is a hard refusal:
-# stop it first with `job cancel`. To keep an artifact's FILE while pruning its
-# record, add --keep-files — remove erases the rows and edges but leaves the
-# on-disk entry and lists it under "Left on disk":
+# stop it first with `job cancel`. Two flags prune the record without touching the
+# disk: --keep-artifacts erases the rows and edges and still removes the job/setup/
+# resource directories but leaves the recorded artifact entries on disk, while
+# --keep-files erases the rows and edges only and makes no filesystem change at
+# all. Both list what stayed under "Left on disk":
 #
+#   ./full.sh remove job --id <uuid> --keep-artifacts --yes
 #   ./full.sh remove job --id <uuid> --keep-files --yes
 #
 # -----------------------------------------------------------------------------

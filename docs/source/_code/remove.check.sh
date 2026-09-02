@@ -6,9 +6,10 @@
 #
 # then exercises every removal mode: a non-destructive --dry-run preview, the
 # callee refusal that steers a bare artifact to --from-root, removal by
-# --name / --type / --id, the whole-lineage --from-root removal, --keep-files,
-# and the used_by-detaching cascade. It asserts the report content, the surviving
-# rows and edges, and the on-disk side effects after each step.
+# --name / --type / --id, the whole-lineage --from-root removal, --keep-artifacts
+# and --keep-files, and the used_by-detaching cascade. It asserts the report
+# content, the surviving rows and edges, and the on-disk side effects after each
+# step.
 set -uo pipefail
 # shellcheck source=maint/doc-check-lib.sh
 source "${KNIT_DOC_LIB}"
@@ -84,10 +85,20 @@ out="$(exp remove artifact --path result.txt --from-root --dry-run 2>&1)"
 check_contains "${out}" "result.txt" "--from-root lists the artifact"
 check_contains "${out}" "crunch"     "--from-root reaches the producing job"
 
-# --keep-files erases the rows but leaves the artifact files, and lists them.
+# --keep-artifacts erases the rows and removes the directories but leaves the
+# artifact files, and lists them under "Left on disk".
+out="$(exp remove job --id "${job_id}" --keep-artifacts --dry-run 2>&1)"
+check_contains "${out}" "Left on disk"                  "--keep-artifacts reports a Left on disk section"
+check_contains "${out}" "(artifact, --keep-artifacts)"  "--keep-artifacts tags the kept artifact"
+
+# --keep-files erases the rows only and makes no filesystem change: the job
+# directory and the artifact are both listed under "Left on disk", and nothing is
+# reported as removed.
 out="$(exp remove job --id "${job_id}" --keep-files --dry-run 2>&1)"
-check_contains "${out}" "Left on disk" "--keep-files reports a Left on disk section"
-check_contains "${out}" "keep-files"   "--keep-files tags the kept artifact"
+check_contains "${out}" "Left on disk"                   "--keep-files reports a Left on disk section"
+check_contains "${out}" "(job directory, --keep-files)"  "--keep-files lists the job directory"
+check_contains "${out}" "(artifact, --keep-files)"       "--keep-files lists the artifact"
+refute_contains "${out}" "Directories and artifacts removed" "--keep-files removes nothing"
 
 # ---- real removal: remove the job -----------------------------------------
 exp remove job --id "${job_id}" --yes >/dev/null

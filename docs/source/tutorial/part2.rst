@@ -523,8 +523,8 @@ nothing is touched. Point it at one finished job by its id:
 The ``render`` app writes ``fractal.png`` into the job directory, so the PNG goes
 with ``jobs/018f9c3a-...`` above; the report does not list it a second time. A
 plain output written *outside* every removed directory would appear under a
-separate "Left on disk" heading, and so would an artifact kept by ``--keep-files``
-(described below).
+separate "Left on disk" heading, and so would an artifact kept by
+``--keep-artifacts`` (described below).
 
 **Delete, with a confirmation.** Drop ``--dry-run`` and ``remove`` prints the same
 report, then prompts before touching anything:
@@ -577,9 +577,15 @@ so the producing command and the artifact go together:
 
    $ ./exp.sh remove artifact --path inside.csv --from-root --yes
 
-**Keep the files, prune the records.** ``--keep-files`` erases the rows and edges
-but leaves on-disk artifact entries in place, listing each one under "Left on
-disk". Use it to reclaim the database while keeping the results a run produced.
+**Keep the files, prune the records.** Two flags stop ``remove`` short of the
+disk, at two scopes. ``--keep-artifacts`` erases the rows and edges and still
+removes the job, setup, and resource directories, but leaves the recorded
+**artifact** entries under ``artifacts/`` in place, each listed under "Left on
+disk"; use it to reclaim the database while keeping the results a run produced.
+``--keep-files`` goes further: it erases the rows and edges only and makes **no**
+filesystem change at all --- every directory, artifact, and plain output stays,
+each listed under "Left on disk"; use it to prune the provenance while leaving
+the whole on-disk tree untouched.
 
 The complete experiment (Part II)
 ---------------------------------
