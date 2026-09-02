@@ -300,8 +300,8 @@ The setup now builds the MPI binary. We instantiate it under a *new* name,
    not as simple as removing its folder: jobs and commands are recorded as having
    *used* it, so deleting the folder by hand would leave that provenance
    dangling. Knit removes a setup and everything recorded against it safely with
-   ``knit remove``, which :doc:`Part II <part2>` covers. In this first pass we
-   simply give each build a fresh name (here, ``mympienv``).
+   ``knit remove``, which :ref:`Part II's removal step <tutorial-remove>` covers.
+   In this first pass we simply give each build a fresh name (here, ``mympienv``).
 
 Nothing else changes yet. The ``julia`` job is exactly the one from Step 3, and
 submitting it against the new setup still runs a single process --- the parallel

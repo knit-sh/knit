@@ -336,7 +336,7 @@ An artifact is not a file output. The distinction is the point of this section:
 Knit always checksums an artifact (there is no ``--no-checksum`` for it), and
 each artifacts-relative path is **write-once**: binding ``inside.csv`` twice is a
 fatal error, so a re-run either uses a fresh name or removes the old entry first
---- Step 7 retires recorded entities and their artifacts.
+--- :ref:`Step 7 <tutorial-remove>` erases recorded entities and their artifacts.
 
 The before/after on this one command captures the whole idea. In Part I,
 ``aggregate`` recorded nothing --- no row, no result, no file. In Part II the same
@@ -475,7 +475,106 @@ at once:
        "SELECT id, job, state, \"group\" FROM jobs WHERE \"group\" = 'julia-sweep'"
 
 Preparing separates *describing* a batch of runs from *releasing* them: the plan
-is the durable description, and the release policy is yours. It also leaves the
-database holding many jobs at once --- a staged sweep, some released and some
-still prepared. The next step is how you prune that batch back down: retire the
-jobs, runs, and artifacts you no longer need.
+is the durable description, and the release policy is yours.
+
+.. _tutorial-remove:
+
+Step 7 --- Remove: erase recorded entities and their dependents
+----------------------------------------------------------------
+
+Sooner or later you want to take something back out of the experiment: a resource
+you fetched, a setup you built, a job or a plain command you ran, an artifact one
+of them produced. ``knit remove`` erases any of these. The catch is that a
+recorded entity is never isolated --- Part I built a provenance graph tying it all
+together, and the earlier steps of Part II added edges of their own. A job *used*
+a setup; a run *belongs to* a job; a command *produced* an artifact. Deleting one
+row without regard for those edges would leave the graph dangling, its records
+pointing at things that no longer exist.
+
+``knit remove`` is provenance-aware, so it never does that. It erases the entity
+you name **and everything recorded downstream of it** --- the rows it called, the
+runs and app invocations under them, and the artifacts they produced --- in one
+transaction. What the entity *used* (a job's setup, a setup's resource) is left
+alone: those edges point *into* it, not out of it, so removing a job never takes
+its setup with it.
+
+**Preview before you delete.** Every ``remove`` prints an itemized report of
+exactly what it will erase, and ``--dry-run`` prints that report and stops ---
+nothing is touched. Point it at one finished job by its id:
+
+.. code-block:: console
+
+   $ ./exp.sh remove job --id 018f9c3a-7b2e-7c41-9d0a-1f2e3d4c5b6a --dry-run
+   The following will be permanently erased:
+
+     Data rows (4):
+       job      julia                018f9c3a-...  (state: completed)
+       job      julia                01926b7a-...  (body row)
+       run      render               01926b7c-...
+       app      render               01926b7d-...
+
+     Provenance edges (5):
+       submit 018f9c3a-... --call--> julia 01926b7a-...
+       ...
+
+     Directories and artifacts removed (1):
+       jobs/018f9c3a-...
+
+     Left on disk (1):
+       jobs/018f9c3a-.../fractal.png   (output of render)
+
+
+**Delete, with a confirmation.** Drop ``--dry-run`` and ``remove`` prints the same
+report, then prompts before touching anything:
+
+.. code-block:: console
+
+   $ ./exp.sh remove job --id 018f9c3a-7b2e-7c41-9d0a-1f2e3d4c5b6a
+   The following will be permanently erased:
+   ...
+   Erase these? [y/N]
+
+Answer ``y`` to proceed; anything else aborts, untouched. Pass ``--yes`` to skip
+the prompt for a script or a non-interactive shell.
+
+**Prune the batch by group.** The ``--group`` selector names the whole
+``julia-sweep`` batch Step 6 prepared, so one command erases all of it:
+
+.. code-block:: console
+
+   $ ./exp.sh remove job --group julia-sweep --dry-run   # preview the whole batch
+   $ ./exp.sh remove job --group julia-sweep --yes
+
+A live job is never erased out from under you: a job still ``prepared``,
+``submitted``, or ``running`` is refused, with a pointer to ``job cancel``. Cancel
+it, or let it finish, then remove it. Only a ``completed`` or ``killed`` job --- a
+job that is truly done --- can be erased.
+
+**Remove a setup and rebuild.** Part I treated a setup as write-once: with no way
+to delete one, the advice was to give each rebuild a fresh name and let the old
+ones pile up. That constraint is gone. Removing a setup cascades *downward* to
+every job that used it --- and each job's runs and renders --- in one step, while
+the fetched ``julia_code`` resource above it stays put:
+
+.. code-block:: console
+
+   $ ./exp.sh remove setup --name mympienv --dry-run   # preview the cascade
+   $ ./exp.sh remove setup --name mympienv --yes
+
+Now ``setup --name mympienv -- juliaenv`` builds a clean one against the same
+resource. Retire and rebuild, rather than accumulate ``mympienv``, ``mympienv2``,
+``mympienv3`` forever.
+
+**Erase a whole lineage.** An artifact cannot be removed on its own: its producer
+is kept, so deleting just the file would dangle the ``produced`` edge, and Knit
+refuses with a hint. ``--from-root`` widens the erase set to the *entire*
+call/produced lineage the artifact belongs to --- up to the root and back down ---
+so the producing command and the artifact go together:
+
+.. code-block:: console
+
+   $ ./exp.sh remove artifact --path inside.csv --from-root --yes
+
+**Keep the files, prune the records.** ``--keep-files`` erases the rows and edges
+but leaves on-disk artifact entries in place, listing each one under "Left on
+disk". Use it to reclaim the database while keeping the results a run produced.
