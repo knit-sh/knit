@@ -874,12 +874,15 @@ _knit_remove_id_in_list() {
 #   - the provenance-edge lines: every __provenance__ edge with an endpoint in the
 #     set (exactly the edges the deletion removes, including a kept provider's
 #     used_by edge into an erased consumer).
-#   - the on-disk directories and artifact entries the removal deletes: each job
-#     directory, each setup/resource instance directory, and -- when keep_mode is
-#     "none" -- each artifact entry under the artifact root.
+#   - the on-disk directories and artifact entries the removal deletes: when
+#     keep_mode is not "files", each job directory and each setup/resource instance
+#     directory, and -- when keep_mode is "none" -- each artifact entry under the
+#     artifact root. Under "files" this list is empty: the removal deletes nothing
+#     on disk.
 #   - the "left on disk" lines: the plain non-artifact outputs (always, attributed
-#     to the owning command) and, when keep_mode is "artifacts", the kept artifact
-#     entries.
+#     to the owning command); when keep_mode is "artifacts", the kept artifact
+#     entries; and when keep_mode is "files", every job/setup/resource directory and
+#     artifact entry too, each tagged by kind (nothing is removed).
 #
 # @param[out] __knit_ret1 Name of the array to fill with data-row lines.
 # @param[out] __knit_ret2 Name of the array to fill with provenance-edge lines.
@@ -919,6 +922,10 @@ _knit_remove_build_report() {
 
     local id kind tbl label annot line
     local etype ename apath name state
+    # Under keep_mode "files" the job/setup/resource directories are kept, not
+    # removed; they are collected here (tagged by kind) and listed under "Left on
+    # disk" below instead of under "Directories and artifacts removed".
+    local -a left_dirs=()
     for id in "${ids[@]}"; do
         [[ -z "${id}" ]] && continue
         tbl="${__knit_tables["${id}"]:-}"
@@ -934,7 +941,11 @@ _knit_remove_build_report() {
                 [[ -n "${name}" ]] && label="${etype} (${name})"
                 if [[ -n "${name}" ]]; then
                     [[ -z "${setup_root}" ]] && _knit_setup_root setup_root
-                    __knit_ret3+=("${setup_root}/${name}")
+                    if [[ "${keep_mode}" == "files" ]]; then
+                        left_dirs+=("${setup_root}/${name}   (setup directory, --keep-files)")
+                    else
+                        __knit_ret3+=("${setup_root}/${name}")
+                    fi
                 fi
                 ;;
             resource)
@@ -944,7 +955,11 @@ _knit_remove_build_report() {
                 [[ -n "${name}" ]] && label="${etype} (${name})"
                 if [[ -n "${name}" ]]; then
                     [[ -z "${resource_root}" ]] && _knit_resource_root resource_root
-                    __knit_ret3+=("${resource_root}/${name}")
+                    if [[ "${keep_mode}" == "files" ]]; then
+                        left_dirs+=("${resource_root}/${name}   (resource directory, --keep-files)")
+                    else
+                        __knit_ret3+=("${resource_root}/${name}")
+                    fi
                 fi
                 ;;
             job)
@@ -954,7 +969,11 @@ _knit_remove_build_report() {
                     label="${name}"
                     annot="state: ${state}"
                     [[ -z "${job_root}" ]] && _knit_job_root job_root
-                    __knit_ret3+=("${job_root}/${id}")
+                    if [[ "${keep_mode}" == "files" ]]; then
+                        left_dirs+=("${job_root}/${id}   (job directory, --keep-files)")
+                    else
+                        __knit_ret3+=("${job_root}/${id}")
+                    fi
                 else
                     label="${tbl}"
                     annot="body row"
@@ -1014,6 +1033,11 @@ _knit_remove_build_report() {
         d_real="$(realpath -m -- "${d}" 2>/dev/null)" || continue
         removed_real+=("${d_real}")
     done
+    # Under keep_mode "files" the kept directories head the "Left on disk" list,
+    # ahead of the plain outputs and artifacts below.
+    if (( ${#left_dirs[@]} > 0 )); then
+        __knit_ret4+=("${left_dirs[@]}")
+    fi
     local -a paths=()
     local p lline p_real contained
     for p in "${!__knit_plain[@]}"; do paths+=("${p}"); done
@@ -1032,14 +1056,17 @@ _knit_remove_build_report() {
         printf -v lline '%s   (output of %s)' "${p}" "${__knit_plain["${p}"]}"
         __knit_ret4+=("${lline}")
     done
-    # Kept artifact entries under --keep-artifacts.
-    if [[ "${keep_mode}" == "artifacts" ]]; then
+    # Kept artifact entries: under --keep-artifacts and under --keep-files the
+    # artifact entry stays on disk, tagged with the flag that kept it.
+    if [[ "${keep_mode}" == "artifacts" || "${keep_mode}" == "files" ]]; then
+        local atag="--keep-artifacts"
+        [[ "${keep_mode}" == "files" ]] && atag="--keep-files"
         [[ -z "${artifact_root}" ]] && _knit_artifact_root artifact_root
         for id in "${ids[@]}"; do
             [[ "${__knit_kinds["${id}"]:-}" == "artifact" ]] || continue
             apath="${__knit_apaths["${id}"]:-}"
             [[ -z "${apath}" ]] && continue
-            printf -v lline '%s   (artifact, --keep-artifacts)' "${artifact_root}/${apath}"
+            printf -v lline '%s   (artifact, %s)' "${artifact_root}/${apath}" "${atag}"
             __knit_ret4+=("${lline}")
         done
     fi
@@ -1376,12 +1403,15 @@ _knit_remove_filesystem() {
 # @fn _knit_remove_report_left()
 #
 # Print the "NOT removed" report after an actual removal: the files and directories
-# remove deliberately left in place that STILL EXIST. Two sources, in order:
+# remove deliberately left in place that STILL EXIST. In order:
+#   - when keep_mode is "files", every job/setup/resource directory the removal
+#     left on disk, tagged by kind as "(<kind> directory, --keep-files)".
 #   - every plain (non-artifact) file/directory output remove never deletes,
 #     attributed to its owning command as "(output of <command>)". A plain output
 #     that lived inside a removed job directory is already gone and is not listed.
-#   - when keep_mode is "artifacts", every kept artifact entry
-#     <artifact-root>/<path>, marked "(artifact, --keep-artifacts)".
+#   - when keep_mode is "artifacts" or "files", every kept artifact entry
+#     <artifact-root>/<path>, marked "(artifact, <flag>)" where <flag> is the flag
+#     that kept it.
 # Only entries that still exist are listed, so this is a truthful record of what
 # survived. When nothing survived, nothing is printed. This report is informational
 # and does not itself set the exit code; a removal that FAILED (as opposed to a
@@ -1391,17 +1421,57 @@ _knit_remove_filesystem() {
 # @param[in] __knit_kinds  Name of the assoc array mapping id -> kind.
 # @param[in] __knit_apaths Name of the assoc array mapping artifact id -> path.
 # @param[in] __knit_plain  Name of the assoc array mapping plain output path -> command.
-# @param[in] keep_mode     Removal policy: "artifacts" kept artifact entries on disk.
+# @param[in] __knit_names  Name of the assoc array mapping setup/resource id -> name.
+# @param[in] keep_mode     Removal policy: "artifacts" kept artifact entries; "files"
+#                          kept every directory and artifact on disk.
 # @param[in] ...           The erase-set ids.
 # ------------------------------------------------------------------------------
 _knit_remove_report_left() {
     local -n __knit_kinds=$1
     local -n __knit_apaths=$2
     local -n __knit_plain=$3
-    shift 3
+    local -n __knit_names=$4
+    shift 4
     local keep_mode="$1"; shift
     local -a lines=()
     local line
+
+    # Directories left on disk under --keep-files (nothing was removed), tagged by
+    # kind. Only those that still exist are listed, so the record stays truthful.
+    if [[ "${keep_mode}" == "files" ]]; then
+        local job_root="" setup_root="" resource_root="" id knd nm dir
+        for id in "$@"; do
+            [[ -z "${id}" ]] && continue
+            knd="${__knit_kinds["${id}"]:-}"
+            case "${knd}" in
+                job)
+                    [[ -z "${job_root}" ]] && _knit_job_root job_root
+                    dir="${job_root}/${id}"
+                    [[ -e "${dir}" || -L "${dir}" ]] || continue
+                    printf -v line '%s   (job directory, --keep-files)' "${dir}"
+                    lines+=("${line}")
+                    ;;
+                setup)
+                    nm="${__knit_names["${id}"]:-}"
+                    [[ -z "${nm}" ]] && continue
+                    [[ -z "${setup_root}" ]] && _knit_setup_root setup_root
+                    dir="${setup_root}/${nm}"
+                    [[ -e "${dir}" || -L "${dir}" ]] || continue
+                    printf -v line '%s   (setup directory, --keep-files)' "${dir}"
+                    lines+=("${line}")
+                    ;;
+                resource)
+                    nm="${__knit_names["${id}"]:-}"
+                    [[ -z "${nm}" ]] && continue
+                    [[ -z "${resource_root}" ]] && _knit_resource_root resource_root
+                    dir="${resource_root}/${nm}"
+                    [[ -e "${dir}" || -L "${dir}" ]] || continue
+                    printf -v line '%s   (resource directory, --keep-files)' "${dir}"
+                    lines+=("${line}")
+                    ;;
+            esac
+        done
+    fi
 
     # Plain outputs (always kept) that still exist, sorted for stable output.
     local -a paths=()
@@ -1416,8 +1486,11 @@ _knit_remove_report_left() {
         lines+=("${line}")
     done
 
-    # Kept artifact entries under --keep-artifacts that still exist.
-    if [[ "${keep_mode}" == "artifacts" ]]; then
+    # Kept artifact entries under --keep-artifacts or --keep-files that still exist,
+    # tagged with the flag that kept them.
+    if [[ "${keep_mode}" == "artifacts" || "${keep_mode}" == "files" ]]; then
+        local atag="--keep-artifacts"
+        [[ "${keep_mode}" == "files" ]] && atag="--keep-files"
         local artifact_root="" id apath entry
         for id in "$@"; do
             [[ "${__knit_kinds["${id}"]:-}" == "artifact" ]] || continue
@@ -1426,7 +1499,7 @@ _knit_remove_report_left() {
             [[ -z "${artifact_root}" ]] && _knit_artifact_root artifact_root
             entry="${artifact_root}/${apath}"
             [[ -e "${entry}" || -L "${entry}" ]] || continue
-            printf -v line '%s   (artifact, --keep-artifacts)' "${entry}"
+            printf -v line '%s   (artifact, %s)' "${entry}" "${atag}"
             lines+=("${line}")
         done
     fi
@@ -1589,7 +1662,7 @@ _knit_remove_dispatch() {
     local -a fs_failures=()
     _knit_remove_filesystem fs_failures id_kind art_path inst_name \
         "${keep_mode}" "${erase[@]}"
-    _knit_remove_report_left id_kind art_path plain_out \
+    _knit_remove_report_left id_kind art_path plain_out inst_name \
         "${keep_mode}" "${erase[@]}"
     if (( ${#fs_failures[@]} > 0 )); then
         printf 'The following could not be removed and must be deleted by hand:\n' >&2
