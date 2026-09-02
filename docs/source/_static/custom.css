@@ -1,3 +1,27 @@
+/* Recolor the theme accent from the sphinx-book-theme default blue to Knit's
+   brand magenta (--knit-magenta, #b83a83). The accent is the theme's
+   `--pst-color-primary`; it drives the sidebar current-section marker, links,
+   the header nav underline, and the frame around a `knit-code` tab-set, so one
+   variable per mode recolors them all. These selectors match the theme's own
+   `html[data-theme=...]` blocks, so the override lands later in the cascade and
+   wins at equal specificity.
+
+   Light mode uses the brand magenta as-is (contrast about 5.3:1 on white). On
+   the dark canvas the same magenta drops to about 3.5:1, below the text
+   threshold, so the dark mode uses a lightened magenta (#ca6ba2, about 5.4:1)
+   that stays on brand. */
+html[data-theme="light"] {
+    --pst-color-primary: #b83a83;
+    --pst-color-primary-highlight: #9c2f6f;
+    --pst-color-primary-bg: #f6e2ef;
+}
+
+html[data-theme="dark"] {
+    --pst-color-primary: #ca6ba2;
+    --pst-color-primary-highlight: #d488b3;
+    --pst-color-primary-bg: #3a1229;
+}
+
 /* On the home page the Knit logo (rendered just below) stands in for the page
    title, so hide the redundant "Knit" heading text. The heading is kept in the
    document for the browser tab, the sidebar "home" entry, and screen readers
