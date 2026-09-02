@@ -908,6 +908,8 @@ any single piece --- the recording and provenance model, setups and Spack,
 parallel placement, querying, or the AI tools --- you can also continue to
 :doc:`the Stitch Guide <../stitch/index>`.
 
+.. _tutorial-full:
+
 The complete experiment
 -----------------------
 

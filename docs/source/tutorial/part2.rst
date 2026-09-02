@@ -578,3 +578,35 @@ so the producing command and the artifact go together:
 **Keep the files, prune the records.** ``--keep-files`` erases the rows and edges
 but leaves on-disk artifact entries in place, listing each one under "Left on
 disk". Use it to reclaim the database while keeping the results a run produced.
+
+The complete experiment (Part II)
+---------------------------------
+
+Here is the whole refined experiment in one file. It is the Part I script with
+every Part II change from Steps 1--5 folded in: the git resource feeding the
+setup, the shared parameter set, the ``colormap`` enum, the app's checksummed
+file output, and the fan-in that produces a result artifact. Steps 6 and 7 add no
+code --- ``prepare`` and ``remove`` are console workflows over this same script.
+Save it as ``exp.sh`` next to a copy of ``knit.sh`` and make it executable
+(``chmod +x exp.sh``):
+
+.. knit-code:: ../_code/julia_full2.sh
+   :language: bash
+
+To run it from scratch:
+
+.. code-block:: console
+
+   $ ./exp.sh bootstrap # on a laptop; add --profile <machine> --allocation <alloc> on a cluster
+   $ ./exp.sh fetch --name julia_src -- julia_code
+   $ ./exp.sh setup --name mympienv -- juliaenv --src julia_src
+   $ ./exp.sh submit --setup mympienv --wait -- julia --c-re -0.8 --c-im 0.156
+   $ ./exp.sh aggregate
+
+``fetch`` acquires the source once and records its commit; ``setup`` builds
+against that named instance; ``submit`` renders one image; ``aggregate`` writes
+``inside.csv`` as a result artifact and records its own row. From here the
+Part II workflows apply to this same script: :ref:`prepare <tutorial-prepare>` a
+whole sweep and release it, then :ref:`remove <tutorial-remove>` what you no
+longer need. Compare this file with :ref:`Part I's version <tutorial-full>` to
+see, in one diff, what the refinements bought.
