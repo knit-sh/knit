@@ -354,3 +354,128 @@ any other. To find which command produced a given artifact, walk the
 The experiment now has a result that outlives the run: a checksummed table, tied
 by provenance to the command that built it and, through it, to every render that
 went into it.
+
+.. _tutorial-prepare:
+
+Step 6 --- Prepare: build a batch of runs, release them on your terms
+---------------------------------------------------------------------
+
+Part I's sweep fired one job at a time::
+
+   $ ./exp.sh submit --setup mympienv --wait -- julia --c-re -0.123 --c-im 0.745
+   $ ./exp.sh submit --setup mympienv --wait -- julia --c-re -1.0   --c-im 0.0
+   ... five more ...
+
+``submit`` does two things at once: it *builds* the job --- validates it, creates
+its directory, writes the batch script, records the row --- and then *dispatches*
+it to the scheduler. Fusing the two is fine for one job, but a sweep wants them
+apart: describe every run up front, then release the runs at a rate you control
+(a few at a time, a cron tick, or a loop that keeps *N* in flight). ``prepare``
+does exactly the build half.
+
+**Prepare one job.** ``prepare`` mirrors ``submit`` argument-for-argument over
+the same job registry --- minus ``--wait``, since nothing is dispatched --- and
+adds a ``--group`` label you can filter on later. It records the ``jobs`` row in a
+new ``prepared`` state and stops before the scheduler:
+
+.. code-block:: console
+
+   $ ./exp.sh prepare --setup mympienv --group julia-sweep -- julia --c-re -0.123 --c-im 0.745
+   018f9c3a-7b2e-7c41-9d0a-1f2e3d4c5b6a
+
+The whole submission spec --- setup, nodes, walltime, queue, and the job's own
+arguments --- is frozen at prepare time and baked into the batch script, so
+releasing the job never re-opens those options. The UUID it prints is the same
+stable identifier ``submit`` would have given it.
+
+**Prepare the whole sweep from a plan.** Typing one ``prepare`` per constant is
+no better than typing one ``submit`` per constant. ``prepare from`` reads the
+whole batch as a JSON plan --- from a file with ``--file``, or on stdin --- and
+prepares each entry as if you had run ``prepare -- julia …`` by hand. Part I's
+seven-line sweep becomes one plan:
+
+.. code-block:: json
+
+   {
+     "group": "julia-sweep",
+     "defaults": { "setup": "mympienv" },
+     "jobs": [
+       { "job": "julia", "args": { "c-re": -0.123, "c-im": 0.745  } },
+       { "job": "julia", "args": { "c-re": -1.0,   "c-im": 0.0    } },
+       { "job": "julia", "args": { "c-re": -0.391, "c-im": -0.587 } },
+       { "job": "julia", "args": { "c-re": 0.285,  "c-im": 0.535  } },
+       { "job": "julia", "args": { "c-re": -0.7,   "c-im": 0.0    } },
+       { "job": "julia", "args": { "c-re": -1.25,  "c-im": 0.0    } },
+       { "job": "julia", "args": { "c-re": -0.1,   "c-im": 0.651  } }
+     ]
+   }
+
+``group`` tags every prepared job; ``defaults`` is a field map merged **under**
+each entry (so ``--setup mympienv`` is written once, not seven times); ``jobs``
+lists the entries. Within an entry, ``args`` is the job's own arguments (an object
+``{"c-re": -1.0}`` becomes ``--c-re -1.0``), and any other key is a submission
+option (``nodes``, ``walltime``, ...), exactly as on the ``prepare`` command line.
+Feed the plan on stdin or from a file:
+
+.. code-block:: console
+
+   $ ./exp.sh prepare from --file sweep.json
+   $ ./exp.sh prepare from < sweep.json
+
+The whole plan is validated before any job is prepared, so a malformed plan --- an
+unknown key, a missing ``job`` --- leaves nothing half-prepared. The jobs are
+prepared in plan order.
+
+**Vary a submission option with a matrix.** A ``jobs`` entry may be a ``matrix``
+block instead of a concrete entry. It expands to one prepared job per combination:
+the cartesian product of its ``axes``, minus every ``exclude``, plus each
+``include``. An ``args`` axis varies the job's own arguments; a bare axis key
+varies a submission option. To render a few constants at both one and two nodes,
+give an ``args`` axis and a ``nodes`` axis:
+
+.. code-block:: json
+
+   { "matrix": {
+       "job": "julia",
+       "axes": {
+         "args":  [ { "c-re": -0.123, "c-im": 0.745 }, { "c-re": -1.0, "c-im": 0.0 } ],
+         "nodes": [ 1, 2 ]
+       }
+   } }
+
+That single block expands to four prepared jobs (two constants times two node
+counts).
+
+**Inspect the batch.** Prepared jobs can be listed as follows.
+
+.. code-block:: console
+
+   $ ./exp.sh job list --status prepared
+
+**Release on your terms.** Two ``submit`` subcommands hand prepared jobs to the
+scheduler. ``submit prepared --id`` releases one specific job; ``submit next``
+releases the oldest prepared job, optionally narrowed by ``--type`` (the job name)
+or ``--group``. The claim is atomic, so concurrent releasers never double-submit a
+row, and ``submit next`` returns non-zero when nothing matches --- so a
+fill-the-queue loop drains a group and stops on its own:
+
+.. code-block:: console
+
+   $ ./exp.sh submit prepared --id 018f9c3a-7b2e-7c41-9d0a-1f2e3d4c5b6a --wait
+   $ while ./exp.sh submit next --group julia-sweep --wait; do :; done
+
+Releasing advances the *same* row through ``prepared`` --- ``submitted`` ---
+``running`` --- ``completed``; the UUID never changes, so the job you prepared and
+the job that ran are one recorded entity, and ``knit query`` sees the whole group
+at once:
+
+.. code-block:: console
+
+   $ ./exp.sh query sql --format column --header --exec \
+       "SELECT id, job, state, \"group\" FROM jobs WHERE \"group\" = 'julia-sweep'"
+
+Preparing separates *describing* a batch of runs from *releasing* them: the plan
+is the durable description, and the release policy is yours. It also leaves the
+database holding many jobs at once --- a staged sweep, some released and some
+still prepared. The next step is how you prune that batch back down: retire the
+jobs, runs, and artifacts you no longer need.
