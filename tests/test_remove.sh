@@ -161,6 +161,7 @@ _fs_fixture() {
         [[ "${output}" == *"--id"* ]]
         [[ "${output}" == *"--yes"* ]]
         [[ "${output}" == *"--dry-run"* ]]
+        [[ "${output}" == *"--keep-artifacts"* ]]
         [[ "${output}" == *"--keep-files"* ]]
         [[ "${output}" == *"--from-root"* ]]
     done
@@ -842,7 +843,7 @@ _fs_fixture() {
     _knit_remove_plain_outputs plain_out id_table "${erase[@]}"
     local -a rows=() edges=() removed=() left=()
     _knit_remove_build_report rows edges removed left \
-        id_table id_kind art_path plain_out false "${erase[@]}"
+        id_table id_kind art_path plain_out none "${erase[@]}"
 
     # Data rows: setup shows "type (name)", the job shows its state, the body row
     # is marked as such, and the artifact shows its path.
@@ -871,7 +872,7 @@ _fs_fixture() {
     [[ "${lefttext}" == *"output of submit:render"* ]]
 }
 
-@test "_knit_remove_build_report --keep-files moves the artifact into left-on-disk" {
+@test "_knit_remove_build_report --keep-artifacts moves the artifact into left-on-disk" {
     _stub_roots
     local -a erase=()
     _knit_remove_closure_downward erase S1
@@ -881,11 +882,11 @@ _fs_fixture() {
     _knit_remove_plain_outputs plain_out id_table "${erase[@]}"
     local -a rows=() edges=() removed=() left=()
     _knit_remove_build_report rows edges removed left \
-        id_table id_kind art_path plain_out true "${erase[@]}"
+        id_table id_kind art_path plain_out artifacts "${erase[@]}"
 
     # The artifact entry is no longer in the removed list...
     if _in "/ROOT/artifacts/frame.png" "${removed[@]}"; then
-        echo "artifact must be kept under --keep-files"; false
+        echo "artifact must be kept under --keep-artifacts"; false
     fi
     # ...but the job and setup dirs still are.
     _in "/ROOT/jobs/J1" "${removed[@]}"
@@ -894,8 +895,32 @@ _fs_fixture() {
     # It is listed as left on disk, alongside the plain output.
     local lefttext; lefttext="$(printf '%s\n' "${left[@]}")"
     [[ "${lefttext}" == *"/ROOT/artifacts/frame.png"* ]]
-    [[ "${lefttext}" == *"artifact, --keep-files"* ]]
+    [[ "${lefttext}" == *"artifact, --keep-artifacts"* ]]
     [[ "${lefttext}" == *"/data/metrics.json"* ]]
+}
+
+@test "_knit_remove_build_report --keep-files removes nothing and lists the whole tree" {
+    _stub_roots
+    local -a erase=()
+    _knit_remove_closure_downward erase S1
+    local -A id_table=() id_kind=() art_path=() art_type=()
+    _knit_remove_map_ids id_table id_kind art_path art_type "${erase[@]}"
+    local -A plain_out=()
+    _knit_remove_plain_outputs plain_out id_table "${erase[@]}"
+    local -a rows=() edges=() removed=() left=()
+    _knit_remove_build_report rows edges removed left \
+        id_table id_kind art_path plain_out files "${erase[@]}"
+
+    # Nothing is removed: the "removed" list is empty under --keep-files.
+    [ "${#removed[@]}" -eq 0 ]
+
+    # Every directory, the artifact, and the plain output are listed as left on
+    # disk, each tagged by kind.
+    local lefttext; lefttext="$(printf '%s\n' "${left[@]}")"
+    [[ "${lefttext}" == *"/ROOT/jobs/J1"* && "${lefttext}" == *"job directory, --keep-files"* ]]
+    [[ "${lefttext}" == *"/ROOT/setups/env"* && "${lefttext}" == *"setup directory, --keep-files"* ]]
+    [[ "${lefttext}" == *"/ROOT/artifacts/frame.png"* && "${lefttext}" == *"artifact, --keep-files"* ]]
+    [[ "${lefttext}" == *"/data/metrics.json"* && "${lefttext}" == *"output of submit:render"* ]]
 }
 
 @test "_knit_remove_build_report drops a plain output inside a removed directory" {
@@ -912,7 +937,7 @@ _fs_fixture() {
     )
     local -a rows=() edges=() removed=() left=()
     _knit_remove_build_report rows edges removed left \
-        id_table id_kind art_path plain_out false "${erase[@]}"
+        id_table id_kind art_path plain_out none "${erase[@]}"
 
     # The job dir is in the removed set...
     _in "/ROOT/jobs/J1" "${removed[@]}"
@@ -934,7 +959,7 @@ _fs_fixture() {
     local -A plain_out=([/ROOT/jobs/J1-extra/out.txt]="submit:render")
     local -a rows=() edges=() removed=() left=()
     _knit_remove_build_report rows edges removed left \
-        id_table id_kind art_path plain_out false "${erase[@]}"
+        id_table id_kind art_path plain_out none "${erase[@]}"
 
     _in "/ROOT/jobs/J1" "${removed[@]}"
     local lefttext; lefttext="$(printf '%s\n' "${left[@]}")"
@@ -999,13 +1024,29 @@ _fs_fixture() {
     [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "1" ]
 }
 
-@test "remove setup --id --dry-run --keep-files lists the artifact under Left on disk" {
+@test "remove setup --id --dry-run --keep-artifacts lists the artifact under Left on disk" {
+    _stub_roots
+    run _knit_invoke_command "remove" "setup" "--id" "S1" "--dry-run" "--keep-artifacts"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"Left on disk"* ]]
+    [[ "${output}" == *"artifact, --keep-artifacts"* ]]
+    [[ "${output}" == *"/ROOT/artifacts/frame.png"* ]]
+    # The directories are still removed under --keep-artifacts.
+    [[ "${output}" == *"Directories and artifacts removed"* ]]
+    [[ "${output}" == *"/ROOT/jobs/J1"* ]]
+}
+
+@test "remove setup --id --dry-run --keep-files lists the whole tree and removes nothing" {
     _stub_roots
     run _knit_invoke_command "remove" "setup" "--id" "S1" "--dry-run" "--keep-files"
     [ "$status" -eq 0 ]
     [[ "${output}" == *"Left on disk"* ]]
-    [[ "${output}" == *"artifact, --keep-files"* ]]
-    [[ "${output}" == *"/ROOT/artifacts/frame.png"* ]]
+    # The job/setup directories AND the artifact are all left on disk...
+    [[ "${output}" == *"/ROOT/jobs/J1"* && "${output}" == *"job directory, --keep-files"* ]]
+    [[ "${output}" == *"/ROOT/setups/env"* && "${output}" == *"setup directory, --keep-files"* ]]
+    [[ "${output}" == *"/ROOT/artifacts/frame.png"* && "${output}" == *"artifact, --keep-files"* ]]
+    # ...and nothing is reported as removed.
+    [[ "${output}" != *"Directories and artifacts removed"* ]]
 }
 
 @test "remove --dry-run still refuses a non-terminal job pulled in by cascade" {
@@ -1113,7 +1154,7 @@ _fs_fixture() {
     local -A art_path=([P1]=frame.png)
     local -A inst=([S1]=env [D1]=mydata)
     local -a failures=()
-    _knit_remove_filesystem failures id_kind art_path inst false J1 S1 D1 P1
+    _knit_remove_filesystem failures id_kind art_path inst none J1 S1 D1 P1
     [ "${#failures[@]}" -eq 0 ]
     [ ! -e "${BATS_TEST_TMPDIR}/root/jobs/J1" ]
     [ ! -e "${BATS_TEST_TMPDIR}/root/setups/env" ]
@@ -1121,6 +1162,37 @@ _fs_fixture() {
     [ ! -e "${BATS_TEST_TMPDIR}/root/resources/.mydata.resource.id" ]
     [ ! -e "${BATS_TEST_TMPDIR}/root/resources/.mydata.resource.type" ]
     [ ! -e "${BATS_TEST_TMPDIR}/root/artifacts/frame.png" ]
+}
+
+@test "_knit_remove_filesystem --keep-artifacts removes dirs but spares the artifact" {
+    _fs_fixture
+    local -A id_kind=([J1]=job [S1]=setup [D1]=resource [P1]=artifact)
+    local -A art_path=([P1]=frame.png)
+    local -A inst=([S1]=env [D1]=mydata)
+    local -a failures=()
+    _knit_remove_filesystem failures id_kind art_path inst artifacts J1 S1 D1 P1
+    [ "${#failures[@]}" -eq 0 ]
+    # The job/setup/resource directories are removed...
+    [ ! -e "${BATS_TEST_TMPDIR}/root/jobs/J1" ]
+    [ ! -e "${BATS_TEST_TMPDIR}/root/setups/env" ]
+    [ ! -e "${BATS_TEST_TMPDIR}/root/resources/mydata" ]
+    # ...but the artifact entry is spared.
+    [ -e "${BATS_TEST_TMPDIR}/root/artifacts/frame.png" ]
+}
+
+@test "_knit_remove_filesystem --keep-files touches nothing on disk" {
+    _fs_fixture
+    local -A id_kind=([J1]=job [S1]=setup [D1]=resource [P1]=artifact)
+    local -A art_path=([P1]=frame.png)
+    local -A inst=([S1]=env [D1]=mydata)
+    local -a failures=()
+    _knit_remove_filesystem failures id_kind art_path inst files J1 S1 D1 P1
+    [ "${#failures[@]}" -eq 0 ]
+    # Every directory and the artifact survive untouched.
+    [ -e "${BATS_TEST_TMPDIR}/root/jobs/J1" ]
+    [ -e "${BATS_TEST_TMPDIR}/root/setups/env" ]
+    [ -e "${BATS_TEST_TMPDIR}/root/resources/mydata" ]
+    [ -e "${BATS_TEST_TMPDIR}/root/artifacts/frame.png" ]
 }
 
 @test "_knit_remove_filesystem honors the owns-the-dir guard for setups and resources" {
@@ -1133,7 +1205,7 @@ _fs_fixture() {
     local -A art_path=()
     local -A inst=([S1]=env [D1]=mydata)
     local -a failures=()
-    _knit_remove_filesystem failures id_kind art_path inst false S1 D1
+    _knit_remove_filesystem failures id_kind art_path inst none S1 D1
     [ "${#failures[@]}" -eq 0 ]
     [ -d "${BATS_TEST_TMPDIR}/root/setups/env" ]
     [ -d "${BATS_TEST_TMPDIR}/root/resources/mydata" ]
@@ -1147,7 +1219,7 @@ _fs_fixture() {
     local -A art_path=()
     local -A inst=()
     local -a failures=()
-    _knit_remove_filesystem failures id_kind art_path inst false S1 D1 P1 Z1 ""
+    _knit_remove_filesystem failures id_kind art_path inst none S1 D1 P1 Z1 ""
     [ "${#failures[@]}" -eq 0 ]
     [ -d "${BATS_TEST_TMPDIR}/root/setups/env" ]
     [ -d "${BATS_TEST_TMPDIR}/root/resources/mydata" ]
@@ -1163,7 +1235,7 @@ _fs_fixture() {
     local -A art_path=([P1]=link.png)
     local -A inst=()
     local -a failures=()
-    _knit_remove_filesystem failures id_kind art_path inst false P1
+    _knit_remove_filesystem failures id_kind art_path inst none P1
     [ "${#failures[@]}" -eq 0 ]
     [ ! -L "${BATS_TEST_TMPDIR}/root/artifacts/link.png" ]
     [ -f "${outside}" ]
@@ -1179,7 +1251,7 @@ _fs_fixture() {
     local -A art_path=()
     local -A inst=()
     local -a failures=()
-    _knit_remove_filesystem failures id_kind art_path inst false J1
+    _knit_remove_filesystem failures id_kind art_path inst none J1
     chmod u+w "${jobs}"   # restore so teardown can clean up
     [ "${#failures[@]}" -eq 1 ]
     [[ "${failures[0]}" == *"/jobs/J1"* ]]
@@ -1205,7 +1277,7 @@ _fs_fixture() {
     [ -d "${BATS_TEST_TMPDIR}/root/artifacts" ]
 }
 
-@test "_knit_remove_report_left lists surviving plain outputs and kept artifacts" {
+@test "_knit_remove_report_left --keep-artifacts lists surviving plain outputs and kept artifacts" {
     _fs_fixture
     local metrics="${BATS_TEST_TMPDIR}/metrics.json"
     printf '{}\n' > "${metrics}"
@@ -1213,21 +1285,38 @@ _fs_fixture() {
     local -A id_kind=([P1]=artifact)
     local -A art_path=([P1]=frame.png)
     local -A plain=(["${metrics}"]=submit:render ["${gone}"]=submit:render)
-    run _knit_remove_report_left id_kind art_path plain true P1
+    local -A inst=()
+    run _knit_remove_report_left id_kind art_path plain inst artifacts P1
     [ "$status" -eq 0 ]
     [[ "${output}" == *"The following files/directories were NOT removed:"* ]]
     [[ "${output}" == *"${metrics}"* ]]
     [[ "${output}" == *"output of submit:render"* ]]
     [[ "${output}" != *"gone.json"* ]]
     [[ "${output}" == *"frame.png"* ]]
-    [[ "${output}" == *"artifact, --keep-files"* ]]
+    [[ "${output}" == *"artifact, --keep-artifacts"* ]]
+}
+
+@test "_knit_remove_report_left --keep-files lists surviving directories and the artifact" {
+    _fs_fixture
+    local -A id_kind=([J1]=job [S1]=setup [D1]=resource [P1]=artifact)
+    local -A art_path=([P1]=frame.png)
+    local -A plain=()
+    local -A inst=([S1]=env [D1]=mydata)
+    run _knit_remove_report_left id_kind art_path plain inst files J1 S1 D1 P1
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"The following files/directories were NOT removed:"* ]]
+    [[ "${output}" == *"jobs/J1"* && "${output}" == *"job directory, --keep-files"* ]]
+    [[ "${output}" == *"setups/env"* && "${output}" == *"setup directory, --keep-files"* ]]
+    [[ "${output}" == *"resources/mydata"* && "${output}" == *"resource directory, --keep-files"* ]]
+    [[ "${output}" == *"frame.png"* && "${output}" == *"artifact, --keep-files"* ]]
 }
 
 @test "_knit_remove_report_left prints nothing when nothing survived" {
     local -A id_kind=()
     local -A art_path=()
     local -A plain=(["/nonexistent/x"]=foo)
-    run _knit_remove_report_left id_kind art_path plain false
+    local -A inst=()
+    run _knit_remove_report_left id_kind art_path plain inst none
     [ "$status" -eq 0 ]
     [ -z "${output}" ]
 }
@@ -1242,18 +1331,36 @@ _fs_fixture() {
     [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "0" ]
 }
 
-@test "remove setup --id --yes --keep-files keeps the artifact file and lists it" {
+@test "remove setup --id --yes --keep-artifacts keeps the artifact file and lists it" {
     _fs_fixture
-    run _knit_invoke_command "remove" "setup" "--id" "S1" "--yes" "--keep-files"
+    run _knit_invoke_command "remove" "setup" "--id" "S1" "--yes" "--keep-artifacts"
     [ "$status" -eq 0 ]
     # The artifact file survives on disk and is reported as NOT removed...
     [ -e "${BATS_TEST_TMPDIR}/root/artifacts/frame.png" ]
     [[ "${output}" == *"The following files/directories were NOT removed:"* ]]
     [[ "${output}" == *"frame.png"* ]]
-    [[ "${output}" == *"artifact, --keep-files"* ]]
+    [[ "${output}" == *"artifact, --keep-artifacts"* ]]
     # ...but the job and setup directories are still removed, and the DB rows go.
     [ ! -e "${BATS_TEST_TMPDIR}/root/jobs/J1" ]
     [ ! -e "${BATS_TEST_TMPDIR}/root/setups/env" ]
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM artifacts WHERE id='P1';")" = "0" ]
+}
+
+@test "remove setup --id --yes --keep-files leaves the whole tree and erases the rows" {
+    _fs_fixture
+    run _knit_invoke_command "remove" "setup" "--id" "S1" "--yes" "--keep-files"
+    [ "$status" -eq 0 ]
+    # Nothing on disk is touched: the job/setup directories and the artifact all
+    # survive and are reported as NOT removed...
+    [ -e "${BATS_TEST_TMPDIR}/root/jobs/J1" ]
+    [ -e "${BATS_TEST_TMPDIR}/root/setups/env" ]
+    [ -e "${BATS_TEST_TMPDIR}/root/artifacts/frame.png" ]
+    [[ "${output}" == *"The following files/directories were NOT removed:"* ]]
+    [[ "${output}" == *"job directory, --keep-files"* ]]
+    [[ "${output}" == *"setup directory, --keep-files"* ]]
+    [[ "${output}" == *"artifact, --keep-files"* ]]
+    # ...but the database rows are still erased.
+    [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "0" ]
     [ "$(_knit_sqlite3 "SELECT count(*) FROM artifacts WHERE id='P1';")" = "0" ]
 }
 

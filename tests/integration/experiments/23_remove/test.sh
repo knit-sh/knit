@@ -18,8 +18,11 @@
 #   - remove artifact --path is refused while its producer is kept, and
 #     --from-root widens the erase set to the whole lineage;
 #   - remove setup --type / --name cascades to the job tree but keeps the
-#     resource, and --keep-files keeps and lists the artifact file;
-#   - remove setup then really erases the setup directory.
+#     resource; --keep-artifacts still removes the directories but keeps and
+#     lists the artifact file, while --keep-files makes no filesystem change at
+#     all and lists every kept directory and artifact under "Left on disk";
+#   - remove setup then really erases the setup directory;
+#   - remove resource --keep-files erases the row but leaves the directory.
 #
 # Run from inside the cluster login node as hpcuser:
 #   bash /shared/knit/tests/integration/experiments/23_remove/test.sh
@@ -179,12 +182,27 @@ check_grep "result.txt"     <(printf '%s\n' "${out}") \
 refute_contains "${out}" "(mysrc)" \
     "remove setup --type keeps the resource out"
 
-# --keep-files moves the artifact entry into "Left on disk".
+# --keep-artifacts still removes the directories but moves the artifact entry
+# into "Left on disk".
+out=$(./experiment.sh remove setup --name buildenv --keep-artifacts --dry-run)
+check_grep "Left on disk"  <(printf '%s\n' "${out}") \
+    "remove --keep-artifacts reports a Left on disk section"
+check_grep "artifact, --keep-artifacts" <(printf '%s\n' "${out}") \
+    "remove --keep-artifacts marks the kept artifact entry"
+check_grep "Directories and artifacts removed" <(printf '%s\n' "${out}") \
+    "remove --keep-artifacts still removes the directories"
+
+# --keep-files makes no filesystem change at all: every directory and the
+# artifact land in "Left on disk", and nothing is reported as removed.
 out=$(./experiment.sh remove setup --name buildenv --keep-files --dry-run)
 check_grep "Left on disk"  <(printf '%s\n' "${out}") \
     "remove --keep-files reports a Left on disk section"
-check_grep "keep-files"    <(printf '%s\n' "${out}") \
+check_grep "artifact, --keep-files" <(printf '%s\n' "${out}") \
     "remove --keep-files marks the kept artifact entry"
+check_grep "directory, --keep-files" <(printf '%s\n' "${out}") \
+    "remove --keep-files lists the kept directories"
+refute_contains "${out}" "Directories and artifacts removed" \
+    "remove --keep-files removes nothing"
 
 # Nothing was deleted by any dry-run.
 check_sqlite ".knit/knit.db" "SELECT count(*) FROM jobs WHERE id='${job_uuid}';" \
@@ -277,5 +295,21 @@ check_dir "resources/mysrc" "the resource directory still survives remove setup"
 check_sqlite ".knit/knit.db" \
     "SELECT count(*) FROM __provenance__ WHERE source_id='${resource_id}' AND edge_type='used_by';" \
     "0" "the resource -> setup used_by edge is detached after remove setup"
+
+# ==========================================================================
+# 7. remove resource --keep-files --yes: erase the row but leave every file.
+#    The last surviving entity is the resource; remove it with --keep-files and
+#    confirm the database row is gone while the on-disk directory stays.
+# ==========================================================================
+out=$(./experiment.sh remove resource --name mysrc --keep-files --yes)
+check_grep "resource directory, --keep-files" <(printf '%s\n' "${out}") \
+    "remove --keep-files lists the kept resource directory"
+refute_contains "${out}" "Directories and artifacts removed" \
+    "remove --keep-files removes nothing from disk"
+
+check_sqlite ".knit/knit.db" "SELECT count(*) FROM \"resource:srcpkg\";" "0" \
+    "remove --keep-files erased the resource row"
+check_dir "resources/mysrc" \
+    "remove --keep-files left the resource directory on disk"
 
 assert_summary
