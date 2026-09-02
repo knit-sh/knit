@@ -292,6 +292,100 @@ teardown() {
     knit_done
 }
 
+@test "knit_with_parameter_set --exclude drops the named parameters" {
+    knit_parameter_set "ex_set"
+    knit_with_required "nodes:integer" "Node count."
+    knit_with_optional "label:string" "none" "A label."
+    knit_with_flag "verbose" "Verbose mode."
+    knit_done
+
+    knit_register "ex_cmd" knit_empty "A command."
+    knit_with_parameter_set "ex_set" --exclude "label,verbose"
+    knit_done
+
+    _knit_set_find "_KNIT_CMD_ex_cmd_required" "nodes"
+    ! _knit_set_find "_KNIT_CMD_ex_cmd_optional" "label"
+    ! _knit_set_find "_KNIT_CMD_ex_cmd_flags" "verbose"
+}
+
+@test "knit_with_parameter_set --exclude frees a name for re-declaration" {
+    knit_parameter_set "free_set"
+    knit_with_optional "size:integer" "1" "Size (optional here)."
+    knit_done
+
+    knit_register "free_cmd" knit_empty "A command."
+    knit_with_parameter_set "free_set" --exclude "size"
+    knit_with_required "size:integer" "Size (required here)."
+    knit_done
+
+    _knit_set_find "_KNIT_CMD_free_cmd_required" "size"
+    ! _knit_set_find "_KNIT_CMD_free_cmd_optional" "size"
+}
+
+@test "knit_with_parameter_set --only imports just the named parameters" {
+    knit_parameter_set "only_set"
+    knit_with_required "nodes:integer" "Node count."
+    knit_with_optional "label:string" "none" "A label."
+    knit_with_flag "verbose" "Verbose mode."
+    knit_done
+
+    knit_register "only_cmd" knit_empty "A command."
+    knit_with_parameter_set "only_set" --only "nodes,verbose"
+    knit_done
+
+    _knit_set_find "_KNIT_CMD_only_cmd_required" "nodes"
+    _knit_set_find "_KNIT_CMD_only_cmd_flags" "verbose"
+    ! _knit_set_find "_KNIT_CMD_only_cmd_optional" "label"
+}
+
+@test "knit_with_parameter_set --exclude accepts hyphen/underscore and spaces" {
+    knit_parameter_set "norm_set"
+    knit_with_required "node-count:integer" "Node count."
+    knit_with_optional "label:string" "none" "A label."
+    knit_done
+
+    knit_register "norm_cmd" knit_empty "A command."
+    knit_with_parameter_set "norm_set" --exclude "node_count, label"
+    knit_done
+
+    ! _knit_set_find "_KNIT_CMD_norm_cmd_required" "node_count"
+    ! _knit_set_find "_KNIT_CMD_norm_cmd_optional" "label"
+}
+
+@test "knit_with_parameter_set --exclude fails for a name not in the set" {
+    knit_parameter_set "ex_bad_set"
+    knit_with_required "nodes:integer" "Node count."
+    knit_done
+
+    knit_register "ex_bad_cmd" knit_empty "A command."
+    run knit_with_parameter_set "ex_bad_set" --exclude "nosuch"
+    [ "$status" -eq 1 ]
+    knit_done
+}
+
+@test "knit_with_parameter_set --only fails for a name not in the set" {
+    knit_parameter_set "only_bad_set"
+    knit_with_required "nodes:integer" "Node count."
+    knit_done
+
+    knit_register "only_bad_cmd" knit_empty "A command."
+    run knit_with_parameter_set "only_bad_set" --only "nosuch"
+    [ "$status" -eq 1 ]
+    knit_done
+}
+
+@test "knit_with_parameter_set rejects --exclude and --only together" {
+    knit_parameter_set "both_set"
+    knit_with_required "nodes:integer" "Node count."
+    knit_with_optional "label:string" "none" "A label."
+    knit_done
+
+    knit_register "both_cmd" knit_empty "A command."
+    run knit_with_parameter_set "both_set" --exclude "nodes" --only "label"
+    [ "$status" -eq 1 ]
+    knit_done
+}
+
 @test "knit_parameter_set fails for invalid name" {
     run knit_parameter_set "invalid name"
     [ "$status" -eq 1 ]

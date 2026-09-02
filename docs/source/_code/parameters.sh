@@ -67,6 +67,32 @@ area() {
 @done
 # END pset
 
+# START pset-only
+# --only imports just the named parameters of a set (an allow-list); the rest are
+# left out.
+@command "width-only" "Report just the grid width."
+@with_parameter_set "grid" --only "width"
+width_only() {
+    echo "$(knit_get_parameter "width" "$@")"
+}
+@done
+# END pset-only
+
+# START pset-exclude
+# --exclude imports every parameter but the named ones, freeing a name so the
+# command can re-declare it differently (here "height" becomes optional).
+@command "flat-area" "Compute a grid area with an optional height."
+@with_parameter_set "grid" --exclude "height"
+@with_optional "height:integer" "1" "Grid height (defaults to 1)."
+flat_area() {
+    local width height
+    width=$(knit_get_parameter "width" "$@")
+    height=$(knit_get_parameter "height" "$@")
+    echo $(( width * height ))
+}
+@done
+# END pset-exclude
+
 # START extra
 # @with_extra documents the arguments accepted after "--"; the body reads them
 # starting at knit_extra_index.

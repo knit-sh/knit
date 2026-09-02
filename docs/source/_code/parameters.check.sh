@@ -26,6 +26,13 @@ check_eq "$(exp roll --seed 7)" "seed=7" "an explicit value overrides the env de
 # area: parameters imported from the "grid" parameter set.
 check_eq "$(exp area --width 3 --height 4)" "12" "the imported parameter set works"
 
+# width-only: --only imports just the named parameter of the set.
+check_eq "$(exp width-only --width 5)" "5" "--only imports just the named parameter"
+
+# flat-area: --exclude drops "height" so the command re-declares it as optional.
+check_eq "$(exp flat-area --width 3)" "3" "--exclude frees a name to re-declare (height defaults to 1)"
+check_eq "$(exp flat-area --width 3 --height 4)" "12" "the re-declared optional parameter works"
+
 # forward: everything after -- is forwarded to the body.
 check_eq "$(exp forward -- a b c)" "a b c" "trailing arguments are forwarded"
 

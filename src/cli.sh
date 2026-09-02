@@ -1682,20 +1682,69 @@ knit_with_flag() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_pset_filter_build()
+#
+# Parse a comma-separated --exclude / --only list into a filter set. Each named
+# parameter must exist in the source parameter set (across its required,
+# optional, and flag parameters), else the call is fatal --- this guards against
+# a typo silently importing the whole set. Names are normalized (hyphens and
+# underscores are interchangeable).
+#
+# @param[out] out Associative array to populate with the normalized names.
+# @param[in] pset_ns Namespace prefix of the source set (e.g. "_KNIT_PSET_foo").
+# @param[in] set_name Original set name, for error messages.
+# @param[in] mode Filter mode ("exclude" or "only"), for error messages.
+# @param[in] list Comma-separated list of parameter names.
+# ------------------------------------------------------------------------------
+_knit_pset_filter_build() {
+    local -n __knit_ret=$1; shift
+    local pset_ns="$1" set_name="$2" mode="$3" list="$4"
+    local raw name
+    local IFS=','
+    for raw in ${list}; do
+        # Trim surrounding whitespace so "a, b" works like "a,b".
+        raw="${raw#"${raw%%[![:space:]]*}"}"
+        raw="${raw%"${raw##*[![:space:]]}"}"
+        [[ -z "${raw}" ]] && continue
+        name=$(_knit_name_normalize "${raw}")
+        if ! _knit_set_find "${pset_ns}_required" "${name}" \
+           && ! _knit_set_find "${pset_ns}_optional" "${name}" \
+           && ! _knit_set_find "${pset_ns}_flags" "${name}"; then
+            knit_fatal "Parameter \"${raw}\" (--${mode}) is not in parameter set \"${set_name}\"."
+        fi
+        __knit_ret["${name}"]=1
+    done
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_with_parameter_set()
 #
-# Import all parameters from a previously defined parameter set into the command
+# Import parameters from a previously defined parameter set into the command
 # currently being registered. May be called multiple times with different sets.
 # Conflicts between the set's parameters and parameters already declared for the
 # command are reported as fatal errors.
 #
+# By default every parameter the set declares is imported. The optional
+# --exclude and --only options (mutually exclusive) narrow the import:
+#
+# - --exclude "a,b" imports the set minus the named parameters, freeing those
+#   names so the command can declare them itself (e.g. with a different kind or
+#   default).
+# - --only "a,b" imports only the named parameters (an allow-list).
+#
+# Every name in either list must exist in the set, else the call is fatal.
+#
 # @param[in] name Name of the parameter set to import.
+# @param[in] --exclude Optional comma-separated list of parameters to skip.
+# @param[in] --only Optional comma-separated allow-list of parameters to import.
 # ------------------------------------------------------------------------------
 knit_with_parameter_set() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_parameter_set should be used after a call to \"knit_register\"."
     fi
     _knit_wrapper_reject_declaration "knit_with_parameter_set"
+    knit_check_arguments "exclude only" "" "${@:2}" \
+        || knit_fatal "knit_with_parameter_set takes a set name and an optional --exclude or --only."
     local set_name="$1"
     local normalized
     normalized=$(_knit_name_normalize "${set_name}")
@@ -1708,7 +1757,26 @@ knit_with_parameter_set() {
     local cmd_ns="_KNIT_CMD_${cmd}"
     local param
 
+    # Resolve the optional --exclude / --only filter (mutually exclusive). The
+    # filter set holds the normalized names; filter_mode selects how to read it.
+    local exclude_list only_list filter_mode=""
+    exclude_list=$(knit_get_parameter "exclude" "${@:2}") || exclude_list=""
+    only_list=$(knit_get_parameter "only" "${@:2}") || only_list=""
+    if [[ -n "${exclude_list}" && -n "${only_list}" ]]; then
+        knit_fatal "knit_with_parameter_set accepts --exclude or --only, not both."
+    fi
+    # shellcheck disable=SC2034 # passed by name to the two helpers below
+    local -A filter=()
+    if [[ -n "${exclude_list}" ]]; then
+        filter_mode="exclude"
+        _knit_pset_filter_build filter "${pset_ns}" "${set_name}" "exclude" "${exclude_list}"
+    elif [[ -n "${only_list}" ]]; then
+        filter_mode="only"
+        _knit_pset_filter_build filter "${pset_ns}" "${set_name}" "only" "${only_list}"
+    fi
+
     while IFS= read -r param; do
+        _knit_pset_import_skip "${filter_mode}" filter "${param}" && continue
         _knit_reserve_name "${cmd_ns}" "${demangled_cmd}" "Parameter" "${param}" "${param}"
         local _src_desc="${pset_ns}_2_${param}_description"
         local _src_type="${pset_ns}_2_${param}_type"
@@ -1724,6 +1792,7 @@ knit_with_parameter_set() {
     done < <(_knit_set_iter "${pset_ns}_required")
 
     while IFS= read -r param; do
+        _knit_pset_import_skip "${filter_mode}" filter "${param}" && continue
         _knit_reserve_name "${cmd_ns}" "${demangled_cmd}" "Parameter" "${param}" "${param}"
         local _src_desc="${pset_ns}_2_${param}_description"
         local _src_type="${pset_ns}_2_${param}_type"
@@ -1741,6 +1810,7 @@ knit_with_parameter_set() {
     done < <(_knit_set_iter "${pset_ns}_optional")
 
     while IFS= read -r param; do
+        _knit_pset_import_skip "${filter_mode}" filter "${param}" && continue
         _knit_reserve_name "${cmd_ns}" "${demangled_cmd}" "Parameter" "${param}" "${param}"
         local _src_desc="${pset_ns}_2_${param}_description"
         printf -v "${cmd_ns}_2_${param}_description" '%s' "${!_src_desc}"
@@ -1752,6 +1822,31 @@ knit_with_parameter_set() {
         fi
         _knit_set_add "${cmd_ns}_flags" "${param}"
     done < <(_knit_set_iter "${pset_ns}_flags")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_pset_import_skip()
+#
+# Decide whether a parameter should be skipped while importing a parameter set,
+# given the active filter. Returns 0 (skip) when the mode is "exclude" and the
+# parameter is in the filter, or when the mode is "only" and the parameter is
+# NOT in the filter. Returns 1 (import) otherwise, including when no filter is
+# active.
+#
+# @param[in] mode Filter mode ("exclude", "only", or "" for no filter).
+# @param[in] filter_name Associative array holding the filter's normalized names.
+# @param[in] param Normalized parameter name under consideration.
+# @return 0 to skip the parameter, 1 to import it.
+# ------------------------------------------------------------------------------
+_knit_pset_import_skip() {
+    local mode="$1"
+    local -n _knit_filter="$2"
+    local param="$3"
+    case "${mode}" in
+        exclude) [[ -v _knit_filter["${param}"] ]] ;;
+        only)    [[ ! -v _knit_filter["${param}"] ]] ;;
+        *)       return 1 ;;
+    esac
 }
 
 # ------------------------------------------------------------------------------
