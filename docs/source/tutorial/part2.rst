@@ -520,9 +520,11 @@ nothing is touched. Point it at one finished job by its id:
      Directories and artifacts removed (1):
        jobs/018f9c3a-...
 
-     Left on disk (1):
-       jobs/018f9c3a-.../fractal.png   (output of render)
-
+The ``render`` app writes ``fractal.png`` into the job directory, so the PNG goes
+with ``jobs/018f9c3a-...`` above; the report does not list it a second time. A
+plain output written *outside* every removed directory would appear under a
+separate "Left on disk" heading, and so would an artifact kept by ``--keep-files``
+(described below).
 
 **Delete, with a confirmation.** Drop ``--dry-run`` and ``remove`` prints the same
 report, then prompts before touching anything:
