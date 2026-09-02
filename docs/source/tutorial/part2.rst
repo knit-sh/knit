@@ -259,8 +259,9 @@ output does not move the file or copy it anywhere --- it records a path and a
 digest against the row that produced it. That makes the image a **checksummed
 intermediate**: tracked, verifiable, and tied to its render, but local to the
 run. The next section introduces its counterpart, an **artifact**, which is a
-result Knit relocates and packages; the contrast between a checksummed file
-output that stays put and an artifact that is collected is the point of Step 5.
+result Knit relocates and records under a common root; the contrast between a
+checksummed file output that stays put and an artifact that is collected is the
+point of Step 5.
 
 .. note::
 
@@ -269,3 +270,87 @@ output that stays put and an artifact that is collected is the point of Step 5.
    the tree's contents --- and ``path`` is its unchecked counterpart, the way
    ``filename`` is for ``file``. Reach for ``directory`` when an output is a tree
    rather than a single file, and for ``path`` when you only need to *name* one.
+
+.. _tutorial-results-artifacts:
+
+Step 5 --- Results and artifacts: record the table as a result artifact
+-----------------------------------------------------------------------
+
+Part I's ``aggregate`` command is read-only bookkeeping. It is marked
+``@without_provenance``, so it records nothing: it runs two ``knit query sql``
+counts, prints a one-line summary, and leaves no trace that it ran or what it
+found. The numbers scroll past and are gone.
+
+This section turns ``aggregate`` into the command that produces the experiment's
+headline result. Two changes do it: drop ``@without_provenance`` so the command
+records its own row and provenance, and declare the table it builds as an
+**artifact**:
+
+.. knit-code:: ../_code/julia_artifact.sh
+   :language: bash
+   :start-after: # START aggregate
+   :end-before: # END aggregate
+
+Two Knit surfaces are new here.
+
+**A graph query builds the table.** Part I read the ``render`` table with
+``knit query sql``. Here ``knit query graph`` runs a **Cypher** query against the
+same provenance database, with ``--format csv`` so the result is a data table
+ready to write to a file. The pattern ``(r:run)-[:call]->(img:render)`` walks the
+provenance graph: a node label is a command or table name, ``-[:call]->`` is the
+edge Knit records when one command launches another, so the query visits every
+``render`` reached through the ``run`` that launched it. ``RETURN ... AS`` names
+the projected columns, and ``--header`` writes them as the CSV header row. (The
+``run`` row and the ``render`` row have distinct ids; the graph edge, not a shared
+key, is what ties them together, which is exactly what a graph query is for.)
+
+**An artifact records the result.** ``@with_artifact "table:file" ... --result``
+declares that the command produces a file artifact and that this artifact is the
+**result** --- what the experiment was for. Inside the body, ``knit_artifact_dir``
+gives the artifacts root, and ``knit_artifact "table" "inside.csv"`` binds the
+file that was written there. ``describe`` shows the declaration in its own
+section, flagged as a result:
+
+.. code-block:: console
+
+   $ ./exp.sh describe --only aggregate
+   ...
+     Artifacts
+     ---------
+       table  [file, result] Per-render inside metric, one row per image (CSV).
+
+An artifact is not a file output. The distinction is the point of this section:
+
+- A **file output** (Step 4) is a *column on the producing command's own table*.
+  It records a path and a checksum, and the file stays exactly where it was
+  written --- the PNG never moves. It is a tracked intermediate, local to the run.
+- An **artifact** is a *row in the framework-owned* ``artifacts`` *table*, a node
+  of its own, linked to the invocation that made it by a ``produced`` edge. Its
+  path is stored relative to the artifacts root --- never an absolute machine path
+  --- so the whole ``artifacts/`` tree can be moved or shipped and the records
+  still resolve. That relocatable, self-describing entry is the durable record of
+  what the run produced. ``--result`` changes nothing about how the artifact is
+  stored; it is only a marker that flags the entry as a headline output, so
+  ``describe`` and other surfaces can draw attention to it.
+
+Knit always checksums an artifact (there is no ``--no-checksum`` for it), and
+each artifacts-relative path is **write-once**: binding ``inside.csv`` twice is a
+fatal error, so a re-run either uses a fresh name or removes the old entry first
+--- Step 7 retires recorded entities and their artifacts.
+
+The before/after on this one command captures the whole idea. In Part I,
+``aggregate`` recorded nothing --- no row, no result, no file. In Part II the same
+command records a row, marks a result, writes a relocatable table, and leaves a
+``produced`` edge from that row to the table's node. That edge is queryable like
+any other. To find which command produced a given artifact, walk the
+``produced`` edge backwards:
+
+.. code-block:: console
+
+   $ ./exp.sh query graph --format column --header --exec \
+       "MATCH (t)-[e:produced]->(a:artifacts)
+          WHERE a.name = 'table' RETURN e.source_name, a.path, a.checksum"
+
+The experiment now has a result that outlives the run: a checksummed table, tied
+by provenance to the command that built it and, through it, to every render that
+went into it.
