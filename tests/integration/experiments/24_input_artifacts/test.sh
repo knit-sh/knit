@@ -106,12 +106,14 @@ check_sqlite ".knit/knit.db" \
     "1" \
     "the used_by edge source id matches the table artifact's row id"
 
-# Cypher: walk the full lineage produce -> table -> consume in one query
-# (query graph writes results to stdout, logs to stderr; strip any CR).
+# Cypher: walk the full lineage produce -> table -> consume in one query. The
+# consumer's name is read off the used_by edge (its target_name); the endpoint
+# node is left unlabeled, so its own columns are never projected (query graph
+# writes results to stdout, logs to stderr; strip any CR).
 walk=$(./experiment.sh query graph --exec \
-    "MATCH (a)-[:produced]->(art:artifacts)-[:used_by]->(b)
+    "MATCH (a)-[:produced]->(art:artifacts)-[e:used_by]->(b)
        WHERE art.path = 'table.csv'
-       RETURN b.target_name" \
+       RETURN e.target_name" \
     2>/dev/null | tr -d '\r')
 check_eq "${walk}" "consume" \
     "Cypher walks produce -> table -> consume end to end"

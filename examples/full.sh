@@ -942,15 +942,15 @@
 # producer, through the artifact, to every consumer — in one Cypher query:
 #
 #   ./full.sh query graph --format column --header --exec \
-#       "MATCH (a)-[:produced]->(art:artifacts)-[:used_by]->(b)
+#       "MATCH (a)-[pr:produced]->(art:artifacts)-[ub:used_by]->(b)
 #          WHERE art.path = 'table-3.csv'
-#          RETURN a.source_name, art.path, b.target_name"
+#          RETURN pr.source_name, art.path, ub.target_name"
 #
 # and "what consumed this artifact?" is the tail of that walk:
 #
 #   ./full.sh query graph --format column --header --exec \
-#       "MATCH (art:artifacts)-[:used_by]->(b)
-#          WHERE art.path = 'table-3.csv' RETURN b.target_name"
+#       "MATCH (art:artifacts)-[ub:used_by]->(b)
+#          WHERE art.path = 'table-3.csv' RETURN ub.target_name"
 #
 # `knit describe --only plot` reports the required kind statically (a
 # `table [required, artifact: csvfile]` annotation), no database read needed.

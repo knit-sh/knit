@@ -18,14 +18,15 @@ keyed on its artifacts-relative ``path``:
 .. code-block:: console
 
    $ ./exp.sh query graph --format column --header --exec \
-       "MATCH (p)-[:produced]->(a:artifacts)-[:used_by]->(c)
+       "MATCH (p)-[pr:produced]->(a:artifacts)-[ub:used_by]->(c)
           WHERE a.path = 'table.csv'
-          RETURN p.source_name, a.kind, c.target_name"
+          RETURN pr.source_name, a.kind, ub.target_name"
 
-The producing and consuming nodes need no label --- read them off the edges, so
-the same query works whatever commands sit at the ends. To list *everything* that
-read a given artifact, keep only the ``used_by`` half (``RETURN c.target_name``);
-to list every artifact a command consumed, match the ``used_by`` edge into it.
+The producing and consuming nodes need no label --- name them off the edges
+(``pr.source_name``, ``ub.target_name``), so the same query works whatever
+commands sit at the ends. To list *everything* that read a given artifact, keep
+only the ``used_by`` half (``RETURN ub.target_name``); to list every artifact a
+command consumed, match the ``used_by`` edge into it.
 
 The same walk in ``query sql`` joins the two ``__provenance__`` edges to the
 ``artifacts`` row on the artifact id:

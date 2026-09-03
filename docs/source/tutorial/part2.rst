@@ -394,9 +394,9 @@ edges meet at the same artifact node, so one query walks the whole chain
 .. code-block:: console
 
    $ ./exp.sh query graph --format column --header --exec \
-       "MATCH (p)-[:produced]->(a:artifacts)-[:used_by]->(c)
+       "MATCH (p)-[pr:produced]->(a:artifacts)-[ub:used_by]->(c)
           WHERE a.name = 'table'
-          RETURN p.source_name, a.kind, c.target_name"
+          RETURN pr.source_name, a.kind, ub.target_name"
 
 The experiment now has a result that outlives the run --- a checksummed,
 relocatable table --- and a lineage that runs both ways from it: back to the
