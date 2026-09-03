@@ -3,7 +3,7 @@
    categories: query, artifacts
    order: 70
    description: Recover which invocation produced a file by walking the produced edge from its artifacts row back to the producing command.
-   apis: query:graph, query:sql, knit_with_artifact
+   apis: query:graph, query:sql, knit_with_output_artifact
 
 Each artifact is recorded as one row in the ``artifacts`` table (its ``path``,
 ``name``, ``type``, ``checksum``, and ``result``), linked to the invocation that

@@ -9,7 +9,7 @@
 # currently implements: bootstrapping, machine profiles, metadata, typed
 # command parameters (including file/directory inputs and outputs whose paths and
 # sha256 content checksums are recorded), declaring the headline result and the
-# exportable artifacts of a command (@with_output --result / @with_artifact
+# exportable artifacts of a command (@with_output --result / @with_output_artifact
 # / knit_artifact), downloadable input artifacts fetched as named resources
 # (knit fetch / @with_resource), setups (reproducible environments, optionally
 # backed by a Spack environment), job submission to a batch scheduler (Slurm/PBS/Flux) — or to
@@ -848,13 +848,13 @@
 # out: the *result* (what the experiment was for) and the *artifacts* (the files
 # to package for a reviewer or a repository such as Zenodo). `tabulate` shows
 # both. It marks its `mean` output as the headline result with --result, and it
-# declares three file artifacts with @with_artifact, binding each a
+# declares three file artifacts with @with_output_artifact, binding each a
 # different way:
 #
 #   @with_output   "mean:real" "0" "..." --result   # a value result
-#   @with_artifact "table:file"  "..." --result      # artifact + result
-#   @with_artifact "figure:file" "..." --result      # artifact + result
-#   @with_artifact "dump:file"   "..."               # artifact, not a result
+#   @with_output_artifact "table:file"  "..." --result      # artifact + result
+#   @with_output_artifact "figure:file" "..." --result      # artifact + result
+#   @with_output_artifact "dump:file"   "..."               # artifact, not a result
 #
 # --result is orthogonal to type: it flags importance on any output (a scalar
 # such as `mean`, or a file) and moves nothing. Artifacts live under an
@@ -1414,7 +1414,7 @@ _batch() {
 #
 #   * a VALUE RESULT: `mean` is an ordinary output flagged --result, so knit
 #     describe highlights it as the headline number;
-#   * three ARTIFACTS declared with @with_artifact and bound three ways —
+#   * three ARTIFACTS declared with @with_output_artifact and bound three ways —
 #     `table` written straight into artifacts/, `figure` copied in with
 #     --copy-from, and `dump` referenced in place with --link-from.
 #
@@ -1428,9 +1428,9 @@ _batch() {
 @with_optional "runs:integer" "3"     "How many quick estimates to tabulate."
 @with_table
 @with_output   "mean:real" "0"        "Mean of the tabulated estimates (the headline result)." --result
-@with_artifact "table:file"  "The tabulated estimates (CSV)." --result
-@with_artifact "figure:file" "A one-line textual summary."    --result
-@with_artifact "dump:file"   "Raw run log, referenced in place (not the headline result)."
+@with_output_artifact "table:file"  "The tabulated estimates (CSV)." --result
+@with_output_artifact "figure:file" "A one-line textual summary."    --result
+@with_output_artifact "dump:file"   "Raw run log, referenced in place (not the headline result)."
 _tabulate() {
     local runs
     runs=$(knit_get_parameter "runs" "$@")

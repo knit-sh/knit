@@ -2,12 +2,12 @@
    title: Declare and bind an artifact
    categories: artifacts
    order: 50
-   description: Declare a produced file with knit_with_artifact, write it under knit_artifact_dir, then bind it with knit_artifact.
-   apis: knit_with_artifact, knit_artifact_dir, knit_artifact
+   description: Declare a produced file with knit_with_output_artifact, write it under knit_artifact_dir, then bind it with knit_artifact.
+   apis: knit_with_output_artifact, knit_artifact_dir, knit_artifact
 
 An **artifact** is a file or directory a command produces that you want kept for
 export --- a dataset, a plot, a captured config. Declare it with
-``knit_with_artifact "name:type" "description"`` (the type must be ``file`` or
+``knit_with_output_artifact "name:type" "description"`` (the type must be ``file`` or
 ``directory``), write it under the artifacts root reported by
 ``knit_artifact_dir``, then bind it from the body with ``knit_artifact``:
 

@@ -7,7 +7,7 @@
 # it produces. It drops `@without_provenance` (so it records its own row and
 # provenance), builds a CSV straight from the provenance graph with a Cypher query
 # (`knit query graph --format csv`), and declares that CSV as a result ARTIFACT
-# (`@with_artifact ... --result`) bound with `knit_artifact`. Everything else ---
+# (`@with_output_artifact ... --result`) bound with `knit_artifact`. Everything else ---
 # the git resource, the setup, the enum, the parameter set, the job, the
 # file-output app --- is unchanged from section 4.
 #
@@ -123,10 +123,10 @@ _render_app() {
 # Part I's aggregate was read-only bookkeeping (@without_provenance): it printed a
 # sum and left no trace. Now it produces a result. Dropping @without_provenance
 # lets it record its own row and provenance; @with_table gives it that row, and
-# @with_artifact declares the CSV it writes as the headline RESULT.
+# @with_output_artifact declares the CSV it writes as the headline RESULT.
 @command "aggregate" "Fan-in: tabulate every render into a result CSV."
 @with_table
-@with_artifact "table:file" "Per-render inside metric, one row per image (CSV)." --result
+@with_output_artifact "table:file" "Per-render inside metric, one row per image (CSV)." --result
 aggregate() {
     # knit_artifact_dir is the artifacts/ root: write into it, then declare.
     local out

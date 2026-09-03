@@ -74,11 +74,11 @@ teardown() {
     [ ! -e "${_KNIT_TEST_TMPDIR}/artifacts" ]
 }
 
-# ---------- knit_with_artifact ----------
+# ---------- knit_with_output_artifact ----------
 
-@test "knit_with_artifact adds the artifact to the artifacts set, not the outputs set" {
+@test "knit_with_output_artifact adds the artifact to the artifacts set, not the outputs set" {
     knit_register "art_cmd_1" knit_empty "A test command."
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     knit_done
     # An artifact is not an output column: it lives in the artifacts set (so knit
     # describe reports it as a produced entity) and is kept out of the outputs set.
@@ -87,18 +87,18 @@ teardown() {
     [ "${status}" -ne 0 ]
 }
 
-@test "knit_with_artifact records the type, default, and description" {
+@test "knit_with_output_artifact records the type, default, and description" {
     knit_register "art_cmd_2" knit_empty "A test command."
-    knit_with_artifact "report:directory" "The report tree."
+    knit_with_output_artifact "report:directory" "The report tree."
     knit_done
     [ "${_KNIT_CMD_art_cmd_2_3_report_type}" = "directory" ]
     [ "${_KNIT_CMD_art_cmd_2_3_report_description}" = "The report tree." ]
     [ "${_KNIT_CMD_art_cmd_2_3_report_default}" = "" ]
 }
 
-@test "knit_with_artifact adds no companion checksum column" {
+@test "knit_with_output_artifact adds no companion checksum column" {
     knit_register "art_cmd_3" knit_empty "A test command."
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     knit_done
     # The digest lives in the artifacts table, so no "<name>_checksum" companion
     # column is synthesized (unlike an ordinary file output).
@@ -112,7 +112,7 @@ teardown() {
     knit_register "art_cols" fn_art_cols "Test."
     knit_with_table
     knit_with_output "note:string" "" "A plain output."
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     fn_art_cols() {
         local out; out="$(knit_artifact_dir)"
         mkdir -p "${out}"
@@ -130,69 +130,69 @@ teardown() {
     [[ "${cols}" != *"table"* ]]
 }
 
-@test "knit_with_artifact records the file/directory existence marker" {
+@test "knit_with_output_artifact records the file/directory existence marker" {
     knit_register "art_cmd_3b" knit_empty "A test command."
-    knit_with_artifact "report:dir" "The report tree."
+    knit_with_output_artifact "report:dir" "The report tree."
     knit_done
     # The runtime existence/type check reads this marker even though there is no
     # companion checksum column.
     [ "${_KNIT_CMD_art_cmd_3b_fileparam_report}" = "output:directory:yes" ]
 }
 
-@test "knit_with_artifact accepts the dir alias" {
+@test "knit_with_output_artifact accepts the dir alias" {
     knit_register "art_cmd_4" knit_empty "A test command."
-    knit_with_artifact "report:dir" "The report tree."
+    knit_with_output_artifact "report:dir" "The report tree."
     knit_done
     _knit_set_find "_KNIT_CMD_art_cmd_4_artifacts" "report"
 }
 
-@test "knit_with_artifact rejects a non-file/directory type" {
+@test "knit_with_output_artifact rejects a non-file/directory type" {
     knit_register "art_cmd_5" knit_empty "A test command."
-    run knit_with_artifact "count:integer" "A count."
+    run knit_with_output_artifact "count:integer" "A count."
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"must be of type"* ]]
     knit_done
 }
 
-@test "knit_with_artifact rejects an unknown type" {
+@test "knit_with_output_artifact rejects an unknown type" {
     knit_register "art_cmd_6" knit_empty "A test command."
-    run knit_with_artifact "thing:nosuchtype" "A thing."
+    run knit_with_output_artifact "thing:nosuchtype" "A thing."
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"unknown type"* ]]
     knit_done
 }
 
-@test "knit_with_artifact rejects a missing type annotation" {
+@test "knit_with_output_artifact rejects a missing type annotation" {
     knit_register "art_cmd_7" knit_empty "A test command."
-    run knit_with_artifact "table" "No type."
+    run knit_with_output_artifact "table" "No type."
     [ "${status}" -ne 0 ]
     knit_done
 }
 
-@test "knit_with_artifact rejects an invalid name" {
+@test "knit_with_output_artifact rejects an invalid name" {
     knit_register "art_cmd_8" knit_empty "A test command."
-    run knit_with_artifact "bad name:file" "Bad name."
+    run knit_with_output_artifact "bad name:file" "Bad name."
     [ "${status}" -ne 0 ]
     knit_done
 }
 
-@test "knit_with_artifact fails outside of knit_register" {
-    run knit_with_artifact "table:file" "The results table."
+@test "knit_with_output_artifact fails outside of knit_register" {
+    run knit_with_output_artifact "table:file" "The results table."
     [ "${status}" -ne 0 ]
 }
 
-@test "knit_with_artifact rejects a duplicate declaration" {
+@test "knit_with_output_artifact rejects a duplicate declaration" {
     knit_register "art_cmd_9" knit_empty "A test command."
-    knit_with_artifact "table:file" "First declaration."
-    run knit_with_artifact "table:file" "Duplicate."
+    knit_with_output_artifact "table:file" "First declaration."
+    run knit_with_output_artifact "table:file" "Duplicate."
     [ "${status}" -ne 0 ]
     knit_done
 }
 
-@test "knit_with_artifact rejects a collision with a parameter" {
+@test "knit_with_output_artifact rejects a collision with a parameter" {
     knit_register "art_cmd_10" knit_empty "A test command."
     knit_with_required "table:string" "A parameter."
-    run knit_with_artifact "table:file" "Collides."
+    run knit_with_output_artifact "table:file" "Collides."
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"collides with a declared parameter"* ]]
     knit_done
@@ -200,7 +200,7 @@ teardown() {
 
 @test "a parameter rejects a name already used by an artifact" {
     knit_register "art_cmd_10b" knit_empty "A test command."
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     # The reverse order of the parameter/artifact collision: the shared name space
     # rejects a parameter that reuses an artifact's name.
     run knit_with_required "table:string" "Collides."
@@ -209,27 +209,27 @@ teardown() {
     knit_done
 }
 
-@test "knit_with_artifact is fatal on a wrapper" {
+@test "knit_with_output_artifact is fatal on a wrapper" {
     wrap_fn() { :; }
     knit_register_wrapper "art_wrap" "wrap_fn" "A wrapper."
-    run knit_with_artifact "table:file" "Nope."
+    run knit_with_output_artifact "table:file" "Nope."
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"cannot be used with a wrapper command"* ]]
     knit_done
 }
 
-@test "knit_with_artifact normalizes a hyphen in the artifact name" {
+@test "knit_with_output_artifact normalizes a hyphen in the artifact name" {
     knit_register "art_cmd_11" knit_empty "A test command."
-    knit_with_artifact "my-table:file" "The results table."
+    knit_with_output_artifact "my-table:file" "The results table."
     knit_done
     _knit_set_find "_KNIT_CMD_art_cmd_11_artifacts" "my_table"
     run _knit_set_find "_KNIT_CMD_art_cmd_11_outputs" "my_table"
     [ "${status}" -ne 0 ]
 }
 
-@test "knit_with_artifact ensures a table when the command declared none" {
+@test "knit_with_output_artifact ensures a table when the command declared none" {
     knit_register "art_cmd_15" knit_empty "A test command."
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     knit_done
     # A produced edge needs a producing row, so an artifact-only command gets a
     # default table named after the command.
@@ -237,17 +237,17 @@ teardown() {
     [ "${_KNIT_DB_REGISTERED_TABLES[art_cmd_15]}" = "art_cmd_15" ]
 }
 
-@test "knit_with_artifact leaves an explicitly declared table alone" {
+@test "knit_with_output_artifact leaves an explicitly declared table alone" {
     knit_register "art_cmd_16" knit_empty "A test command."
     knit_with_table "custom_tbl"
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     knit_done
     [ "${_KNIT_CMD_art_cmd_16_table}" = "custom_tbl" ]
 }
 
 @test "knit_with_output rejects a name already used by an artifact" {
     knit_register "art_cmd_17" knit_empty "A test command."
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     # An artifact shares the command's name space, so the name is taken even though
     # the artifact is not itself an output column.
     run knit_with_output "table:string" "" "Collides."
@@ -256,36 +256,36 @@ teardown() {
     knit_done
 }
 
-@test "knit_with_artifact rejects a name already used by an output" {
+@test "knit_with_output_artifact rejects a name already used by an output" {
     knit_register "art_cmd_18" knit_empty "A test command."
     knit_with_output "table:string" "" "An ordinary output."
-    run knit_with_artifact "table:file" "Collides."
+    run knit_with_output_artifact "table:file" "Collides."
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"collides with a declared output"* ]]
     knit_done
 }
 
-# ---------- knit_with_artifact --result ----------
+# ---------- knit_with_output_artifact --result ----------
 
-@test "knit_with_artifact --result also marks the artifact as a result" {
+@test "knit_with_output_artifact --result also marks the artifact as a result" {
     knit_register "art_cmd_12" knit_empty "A test command."
-    knit_with_artifact "table:file" "The results table." --result
+    knit_with_output_artifact "table:file" "The results table." --result
     knit_done
     _knit_set_find "_KNIT_CMD_art_cmd_12_artifacts" "table"
     _knit_set_find "_KNIT_CMD_art_cmd_12_results"   "table"
 }
 
-@test "knit_with_artifact without --result leaves the results set unpopulated" {
+@test "knit_with_output_artifact without --result leaves the results set unpopulated" {
     knit_register "art_cmd_13" knit_empty "A test command."
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     knit_done
     run _knit_set_find "_KNIT_CMD_art_cmd_13_results" "table"
     [ "${status}" -ne 0 ]
 }
 
-@test "knit_with_artifact rejects an unexpected flag" {
+@test "knit_with_output_artifact rejects an unexpected flag" {
     knit_register "art_cmd_14" knit_empty "A test command."
-    run knit_with_artifact "table:file" "The results table." --bogus
+    run knit_with_output_artifact "table:file" "The results table." --bogus
     [ "${status}" -ne 0 ]
     knit_done
 }
@@ -314,7 +314,7 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "bind_rel" fn_bind_rel "Test."
     knit_with_table
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     fn_bind_rel() {
         local out; out="$(knit_artifact_dir)"
         mkdir -p "${out}"
@@ -350,7 +350,7 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "bind_lookup" fn_bind_lookup "Test."
     knit_with_table
-    knit_with_artifact "figure:file" "A figure." --result
+    knit_with_output_artifact "figure:file" "A figure." --result
     fn_bind_lookup() {
         local out; out="$(knit_artifact_dir)"
         mkdir -p "${out}"
@@ -374,7 +374,7 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "bind_abs" fn_bind_abs "Test."
     knit_with_table
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     fn_bind_abs() {
         local out; out="$(knit_artifact_dir)"
         mkdir -p "${out}/aaa/bbb"
@@ -390,7 +390,7 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "bind_nest" fn_bind_nest "Test."
     knit_with_table
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     fn_bind_nest() {
         local out; out="$(knit_artifact_dir)"
         mkdir -p "${out}/aaa/bbb"
@@ -408,7 +408,7 @@ _use_artifacts_root() {
     printf 'hello\n' > "${outside}"
     knit_register "bind_out" fn_bind_out "Test."
     knit_with_table
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     # shellcheck disable=SC2317 # invoked through _knit_invoke_command
     fn_bind_out() { knit_artifact "table" "${_KNIT_TEST_TMPDIR}/outside.csv"; }
     knit_done
@@ -423,7 +423,7 @@ _use_artifacts_root() {
     printf 'payload\n' > "${target}"
     knit_register "bind_link" fn_bind_link "Test."
     knit_with_table
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     fn_bind_link() {
         local out; out="$(knit_artifact_dir)"
         mkdir -p "${out}"
@@ -442,7 +442,7 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "bind_dir" fn_bind_dir "Test."
     knit_with_table
-    knit_with_artifact "report:directory" "The report tree."
+    knit_with_output_artifact "report:directory" "The report tree."
     fn_bind_dir() {
         local out; out="$(knit_artifact_dir)"
         mkdir -p "${out}/report/sub"
@@ -463,7 +463,7 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "bind_miss" fn_bind_miss "Test."
     knit_with_table
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     # shellcheck disable=SC2317 # invoked through _knit_invoke_command
     fn_bind_miss() { knit_artifact "table" "table.csv"; }
     knit_done
@@ -476,7 +476,7 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "bind_type" fn_bind_type "Test."
     knit_with_table
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     fn_bind_type() {
         local out; out="$(knit_artifact_dir)"
         mkdir -p "${out}/table.csv"
@@ -492,8 +492,8 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "bind_twice" fn_bind_twice "Test."
     knit_with_table
-    knit_with_artifact "table:file" "The results table."
-    knit_with_artifact "copy:file" "A second name for the same path."
+    knit_with_output_artifact "table:file" "The results table."
+    knit_with_output_artifact "copy:file" "A second name for the same path."
     fn_bind_twice() {
         local out; out="$(knit_artifact_dir)"
         mkdir -p "${out}"
@@ -535,7 +535,7 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "bind_empty" fn_bind_empty "Test."
     knit_with_table
-    knit_with_artifact "table:file" "The results table."
+    knit_with_output_artifact "table:file" "The results table."
     # shellcheck disable=SC2317 # invoked through _knit_invoke_command
     fn_bind_empty() { knit_artifact "table" ""; }
     knit_done
@@ -551,7 +551,7 @@ _use_artifacts_root() {
     printf 'payload\n' > "${target}"
     knit_register "sc_link" fn_sc_link "Test."
     knit_with_table
-    knit_with_artifact "dataset:file" "Big dataset."
+    knit_with_output_artifact "dataset:file" "Big dataset."
     fn_sc_link() {
         knit_artifact "dataset" "sub/dataset.h5" \
             --link-from "${_KNIT_TEST_TMPDIR}/big.dat"
@@ -576,7 +576,7 @@ _use_artifacts_root() {
     printf 'figure\n' > "${src}"
     knit_register "sc_copy" fn_sc_copy "Test."
     knit_with_table
-    knit_with_artifact "figure:file" "A figure."
+    knit_with_output_artifact "figure:file" "A figure."
     fn_sc_copy() {
         knit_artifact "figure" "out/figure.svg" \
             --copy-from "${_KNIT_TEST_TMPDIR}/src.svg"
@@ -598,7 +598,7 @@ _use_artifacts_root() {
     printf 'b\n' > "${_KNIT_TEST_TMPDIR}/tree/sub/b.txt"
     knit_register "sc_copydir" fn_sc_copydir "Test."
     knit_with_table
-    knit_with_artifact "report:directory" "A report tree."
+    knit_with_output_artifact "report:directory" "A report tree."
     fn_sc_copydir() {
         knit_artifact "report" "report" --copy-from "${_KNIT_TEST_TMPDIR}/tree"
     }
@@ -618,7 +618,7 @@ _use_artifacts_root() {
     printf 'x\n' > "${_KNIT_TEST_TMPDIR}/x"
     knit_register "sc_both" fn_sc_both "Test."
     knit_with_table
-    knit_with_artifact "table:file" "A table."
+    knit_with_output_artifact "table:file" "A table."
     fn_sc_both() {
         knit_artifact "table" "table.csv" \
             --link-from "${_KNIT_TEST_TMPDIR}/x" \
@@ -635,7 +635,7 @@ _use_artifacts_root() {
     printf 'new\n' > "${_KNIT_TEST_TMPDIR}/src.csv"
     knit_register "sc_over" fn_sc_over "Test."
     knit_with_table
-    knit_with_artifact "table:file" "A table."
+    knit_with_output_artifact "table:file" "A table."
     fn_sc_over() {
         local out; out="$(knit_artifact_dir)"
         mkdir -p "${out}"
@@ -653,7 +653,7 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "sc_nosrc" fn_sc_nosrc "Test."
     knit_with_table
-    knit_with_artifact "table:file" "A table."
+    knit_with_output_artifact "table:file" "A table."
     fn_sc_nosrc() {
         knit_artifact "table" "table.csv" \
             --link-from "${_KNIT_TEST_TMPDIR}/nope.dat"
@@ -668,7 +668,7 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "sc_noarg" fn_sc_noarg "Test."
     knit_with_table
-    knit_with_artifact "table:file" "A table."
+    knit_with_output_artifact "table:file" "A table."
     # shellcheck disable=SC2317 # invoked through _knit_invoke_command
     fn_sc_noarg() { knit_artifact "table" "table.csv" --copy-from; }
     knit_done
@@ -681,7 +681,7 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "sc_bogus" fn_sc_bogus "Test."
     knit_with_table
-    knit_with_artifact "table:file" "A table."
+    knit_with_output_artifact "table:file" "A table."
     # shellcheck disable=SC2317 # invoked through _knit_invoke_command
     fn_sc_bogus() { knit_artifact "table" "table.csv" --bogus; }
     knit_done
@@ -696,8 +696,8 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "bind_many" fn_bind_many "Test."
     knit_with_table
-    knit_with_artifact "table:file" "A table."
-    knit_with_artifact "report:directory" "A report tree."
+    knit_with_output_artifact "table:file" "A table."
+    knit_with_output_artifact "report:directory" "A report tree."
     fn_bind_many() {
         local out; out="$(knit_artifact_dir)"
         mkdir -p "${out}/report"
@@ -726,7 +726,7 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "bind_atomic" fn_bind_atomic "Test."
     knit_with_table
-    knit_with_artifact "table:file" "A table."
+    knit_with_output_artifact "table:file" "A table."
     fn_bind_atomic() {
         local out; out="$(knit_artifact_dir)"
         mkdir -p "${out}"
@@ -747,7 +747,7 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "bind_suppressed" fn_bind_suppressed "Test."
     knit_with_table
-    knit_with_artifact "table:file" "A table."
+    knit_with_output_artifact "table:file" "A table."
     fn_bind_suppressed() {
         local out; out="$(knit_artifact_dir)"
         mkdir -p "${out}"
@@ -885,7 +885,7 @@ _use_artifacts_root() {
 
 # Set up one bound artifact for a synthetic command: the fileparam marker (for
 # the kind), the per-path binding stash (name + digest), and an optional
-# results-set entry, exactly as knit_with_artifact / knit_artifact would leave
+# results-set entry, exactly as knit_with_output_artifact / knit_artifact would leave
 # them at record time.
 _stash_binding() {
     local cmd="$1" rel="$2" name="$3" kind="$4" checksum="$5" is_result="${6:-0}"

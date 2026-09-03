@@ -39,8 +39,8 @@ knit_set_program_description "results-and-artifacts integration test experiment.
 knit_register_job "bundle" __bundle_job_fn "Produce a value result and two artifacts."
 knit_with_required "input:file"          "Input data file (its line count is the result)."
 knit_with_output   "lines:integer" "0"  "Line count of the input (the headline result)." --result
-knit_with_artifact "dataset:file"        "Large dataset, referenced in place." --result
-knit_with_artifact "figure:file"         "Small summary, copied in for durability."
+knit_with_output_artifact "dataset:file"        "Large dataset, referenced in place." --result
+knit_with_output_artifact "figure:file"         "Small summary, copied in for durability."
 __bundle_job_fn() {
     local input
     input=$(knit_get_parameter "input" "$@")

@@ -37,11 +37,11 @@ _env_setup() {
 @done
 
 # A job that runs in the setup and produces an artifact. @with_setup records
-# a used_by edge setup --> job; @with_artifact + knit_artifact record the
+# a used_by edge setup --> job; @with_output_artifact + knit_artifact record the
 # produced edge job --> artifact.
 @job "crunch" "Produce a result inside the env setup."
 @with_setup "env"
-@with_artifact "result:file" "The computed result."
+@with_output_artifact "result:file" "The computed result."
 _crunch() {
     local out
     out="$(knit_artifact_dir)"

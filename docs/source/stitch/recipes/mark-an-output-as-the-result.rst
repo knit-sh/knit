@@ -25,5 +25,5 @@ YAML views (see *Describe the command tree*). An unflagged output such as
 Set the value from the body with ``knit_output`` exactly as for any output (see
 *Emit outputs from a command*); the flag lives on the declaration, not the
 emission. For a file or directory you also want packaged for export, declare it
-with ``knit_with_artifact ... --result`` instead (see *Declare and bind an
+with ``knit_with_output_artifact ... --result`` instead (see *Declare and bind an
 artifact*).

@@ -77,7 +77,7 @@ knit_done
 # --------------------------------------------------------------------------
 knit_register_job "work" _work_job "Launch the compute app and produce an artifact."
 knit_with_setup    "env"
-knit_with_artifact "result:file" "The run's summary, copied in for durability."
+knit_with_output_artifact "result:file" "The run's summary, copied in for durability."
 _work_job() {
     knit run --procs 2 -- compute
 

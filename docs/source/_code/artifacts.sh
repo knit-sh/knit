@@ -28,7 +28,7 @@ measure() {
 # START declare
 @command "tabulate" "Write a data table as an artifact."
 @with_output   "rows:integer" "0" "How many rows were written." --result
-@with_artifact "table:file" "The data table (CSV)." --result
+@with_output_artifact "table:file" "The data table (CSV)." --result
 @with_table
 tabulate() {
     # knit_artifact_dir is the artifacts/ root: write into it, then declare.
@@ -45,8 +45,8 @@ tabulate() {
 
 # START shortcuts
 @command "collect" "Bind artifacts by copy and by reference."
-@with_artifact "figure:file"  "A small file, copied in for durability."
-@with_artifact "dataset:file" "A large file, referenced in place." --result
+@with_output_artifact "figure:file"  "A small file, copied in for durability."
+@with_output_artifact "dataset:file" "A large file, referenced in place." --result
 @with_table
 collect() {
     # --copy-from: snapshot a file into artifacts/ (missing parents are created).

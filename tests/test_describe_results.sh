@@ -15,8 +15,8 @@ _register_fixture() {
     knit_register "tabulate" knit_empty "Tabulate results."
     knit_with_output "pi:real" "0" "Estimated value of pi." --result
     knit_with_output "scratch:string" "" "Intermediate note."
-    knit_with_artifact "table:file" "Computed dataset (CSV)." --result
-    knit_with_artifact "dump:file" "Environment capture."
+    knit_with_output_artifact "table:file" "Computed dataset (CSV)." --result
+    knit_with_output_artifact "dump:file" "Environment capture."
     knit_done
 
     knit_register "greet" knit_empty "Say hello."

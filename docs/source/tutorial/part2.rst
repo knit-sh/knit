@@ -304,7 +304,7 @@ the projected columns, and ``--header`` writes them as the CSV header row. (The
 ``run`` row and the ``render`` row have distinct ids; the graph edge, not a shared
 key, is what ties them together, which is exactly what a graph query is for.)
 
-**An artifact records the result.** ``@with_artifact "table:file" ... --result``
+**An artifact records the result.** ``@with_output_artifact "table:file" ... --result``
 declares that the command produces a file artifact and that this artifact is the
 **result** --- what the experiment was for. Inside the body, ``knit_artifact_dir``
 gives the artifacts root, and ``knit_artifact "table" "inside.csv"`` binds the

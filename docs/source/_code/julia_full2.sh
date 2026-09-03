@@ -137,7 +137,7 @@ _render_app() {
 # relative to the artifacts root.
 @command "aggregate" "Fan-in: tabulate every render into a result CSV."
 @with_table
-@with_artifact "table:file" "Per-render inside metric, one row per image (CSV)." --result
+@with_output_artifact "table:file" "Per-render inside metric, one row per image (CSV)." --result
 aggregate() {
     local out
     out="$(knit_artifact_dir)"

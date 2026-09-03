@@ -263,7 +263,7 @@ _knit_register_artifact() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn knit_with_artifact()
+# @fn knit_with_output_artifact()
 #
 # This function should be called right after a call to knit_register (or one of
 # its variants) to declare an artifact that the command produces: a file or
@@ -275,7 +275,7 @@ _knit_register_artifact() {
 # Example:
 # ```
 # knit_register "tabulate" "tabulate" "Tabulate results."
-# knit_with_artifact "table:file" "The results table (CSV)."
+# knit_with_output_artifact "table:file" "The results table (CSV)."
 # tabulate() {
 #    out="$(knit_artifact_dir)"
 #    compute > "${out}/table.csv"
@@ -301,13 +301,13 @@ _knit_register_artifact() {
 # @param[in] --result Optional flag; mark the artifact as a result (what the
 #        experiment was for).
 # ------------------------------------------------------------------------------
-knit_with_artifact() {
+knit_with_output_artifact() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
-        knit_fatal "knit_with_artifact should be used after a call to \"knit_register\"."
+        knit_fatal "knit_with_output_artifact should be used after a call to \"knit_register\"."
     fi
-    _knit_wrapper_reject_declaration "knit_with_artifact"
+    _knit_wrapper_reject_declaration "knit_with_output_artifact"
     knit_check_arguments "" "result" "${@:3}" \
-        || knit_fatal "knit_with_artifact takes an artifact, a description, and an optional --result."
+        || knit_fatal "knit_with_output_artifact takes an artifact, a description, and an optional --result."
     local param_spec="$1"
     if [[ "${param_spec}" != *:* ]]; then
         knit_fatal "Artifact \"${param_spec}\" is missing a type annotation (expected \"name:type\")."
@@ -359,7 +359,7 @@ knit_with_artifact() {
 # @fn _knit_artifact_require_table()
 #
 # Guarantee that the command currently being registered will record an invocation
-# row, so a "produced" edge from it has a source. Called by knit_with_artifact.
+# row, so a "produced" edge from it has a source. Called by knit_with_output_artifact.
 # The row comes from the command's table; if the command declares its own table
 # (knit_with_table) nothing more is needed, so this only pushes a knit_done
 # callback (_knit_artifact_ensure_table_cb) that creates a default table when none

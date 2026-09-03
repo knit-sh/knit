@@ -1372,7 +1372,7 @@ _knit_decl_flag_present() {
 #
 # This is the marker half of a file/directory declaration. _knit_register_checksum
 # calls it and then also adds a companion "<name>-checksum" column;
-# knit_with_artifact calls it on its own, because an artifact records its digest
+# knit_with_output_artifact calls it on its own, because an artifact records its digest
 # in the artifacts table rather than in a column of the command's own table.
 #
 # @param[in] direction "input" (parameter) or "output".
