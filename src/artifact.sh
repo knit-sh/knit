@@ -30,12 +30,14 @@ _KNIT_ARTIFACTS_TABLE_ENSURED=""
 # Create the artifacts table if it does not already exist. Each row is one
 # produced artifact: a stable identity ("id", a uuidv7, the target of the
 # "produced" edge), the artifacts-relative "path" (UNIQUE, since an on-disk entry
-# is write-once), the declared "name" the producer used, the "type" ("file" or
-# "directory"), the content "checksum" ("sha256:<hex>"), and a "result" flag
-# (1 when declared --result, else 0). The schema is fixed here rather than
-# derived from a command's declared outputs (unlike a per-command table), so its
-# column order and the UNIQUE constraint on "path" are explicit. Called at
-# bootstrap alongside the metadata and __provenance__ tables.
+# is write-once), the declared "name" the producer used, the physical "type"
+# ("file" or "directory"), the semantic "kind" the producer declared ("csvfile",
+# "rundir", ...; "file"/"directory" for a bare builtin), the content "checksum"
+# ("sha256:<hex>"), and a "result" flag (1 when declared --result, else 0). The
+# schema is fixed here rather than derived from a command's declared outputs
+# (unlike a per-command table), so its column order and the UNIQUE constraint on
+# "path" are explicit. Called at bootstrap alongside the metadata and
+# __provenance__ tables.
 # ------------------------------------------------------------------------------
 _knit_artifacts_create_table() {
     local artifacts_ident
@@ -46,6 +48,7 @@ CREATE TABLE IF NOT EXISTS ${artifacts_ident} (
     path      TEXT UNIQUE,
     name      TEXT,
     type      TEXT,
+    kind      TEXT,
     checksum  TEXT,
     result    INTEGER
 );
@@ -86,17 +89,20 @@ _KNIT_DB_REGISTERED_TABLES["${_KNIT_ARTIFACTS_TABLE}"]="${_KNIT_ARTIFACTS_TABLE}
 #
 # Build (print, without executing) the INSERT for one artifacts row: one produced
 # artifact, with its uuid "id" (the target of the "produced" edge), its
-# artifacts-relative "path" (UNIQUE), the declared "name", the "type" ("file" or
-# "directory"), the content "checksum", and the "result" flag. The text columns
-# are single-quoted and escaped; "result" is emitted as a bare 0/1 integer (any
-# value other than "1" becomes 0). Meant to be composed with a "produced" edge
-# (see _knit_produced_edge_sql) into one transaction at record time, mirroring how
-# _knit_prov_edge_sql composes into _knit_db_record_invocation.
+# artifacts-relative "path" (UNIQUE), the declared "name", the physical "type"
+# ("file" or "directory"), the semantic "kind" ("csvfile"/"rundir"/...;
+# "file"/"directory" for a bare builtin), the content "checksum", and the
+# "result" flag. The text columns are single-quoted and escaped; "result" is
+# emitted as a bare 0/1 integer (any value other than "1" becomes 0). Meant to be
+# composed with a "produced" edge (see _knit_produced_edge_sql) into one
+# transaction at record time, mirroring how _knit_prov_edge_sql composes into
+# _knit_db_record_invocation.
 #
 # @param[in] id       UUID of the artifact row.
 # @param[in] path     Artifacts-relative path (UNIQUE).
 # @param[in] name     Declared artifact name.
-# @param[in] type     "file" or "directory".
+# @param[in] type     Physical type: "file" or "directory".
+# @param[in] kind     Semantic kind the producer declared.
 # @param[in] checksum Content digest of the resolved target ("sha256:<hex>").
 # @param[in] result   "1" for a declared result, else 0.
 # ------------------------------------------------------------------------------
@@ -105,25 +111,28 @@ _knit_artifacts_row_sql() {
     local path="$2"
     local name="$3"
     local type="$4"
-    local checksum="$5"
-    local result="$6"
+    local kind="$5"
+    local checksum="$6"
+    local result="$7"
 
-    local tbl esc_id esc_path esc_name esc_type esc_checksum
+    local tbl esc_id esc_path esc_name esc_type esc_kind esc_checksum
     _knit_db_sql_ident tbl "${_KNIT_ARTIFACTS_TABLE}"
     _knit_sql_escape esc_id "${id}"
     _knit_sql_escape esc_path "${path}"
     _knit_sql_escape esc_name "${name}"
     _knit_sql_escape esc_type "${type}"
+    _knit_sql_escape esc_kind "${kind}"
     _knit_sql_escape esc_checksum "${checksum}"
     local result_lit=0
     [[ "${result}" == "1" ]] && result_lit=1
 
-    printf 'INSERT INTO %s (id, path, name, type, checksum, result) VALUES (%s, %s, %s, %s, %s, %s);' \
+    printf 'INSERT INTO %s (id, path, name, type, kind, checksum, result) VALUES (%s, %s, %s, %s, %s, %s, %s);' \
         "${tbl}" \
         "'${esc_id}'" \
         "'${esc_path}'" \
         "'${esc_name}'" \
         "'${esc_type}'" \
+        "'${esc_kind}'" \
         "'${esc_checksum}'" \
         "${result_lit}"
 }
@@ -138,11 +147,12 @@ _knit_artifacts_row_sql() {
 # so the row, its "call" edge, and its produced artifacts are written atomically.
 #
 # Each binding was stashed by knit_artifact keyed on the artifacts-relative path;
-# the name and content digest come from that stash, while the type ("file" or
-# "directory") and the "result" flag are recovered from registration state (the
-# fileparam marker and the results set). A fresh uuid identifies each artifacts
-# row (the target of its "produced" edge). The caller's variable is left empty
-# when the command bound no artifact.
+# the name and content digest come from that stash, while the physical type
+# ("file" or "directory"), the semantic kind, and the "result" flag are recovered
+# from registration state (the fileparam marker holds the physical type, the
+# _3_<name>_type field holds the kind, and the results set holds the flag). A
+# fresh uuid identifies each artifacts row (the target of its "produced" edge).
+# The caller's variable is left empty when the command bound no artifact.
 #
 # @param[out] __knit_ret     Name of the variable to hold the built SQL.
 # @param[in]  cmd            Mangled command name of the producer.
@@ -165,22 +175,25 @@ _knit_artifacts_record_sql() {
     # recursing.
     local has_results=""
     _knit_set_exists "_KNIT_CMD_${cmd}_results" && has_results=1
-    local rel normalized kind marker marker_var result aid row_sql edge_sql
+    local rel normalized type kind marker marker_var kind_var result aid row_sql edge_sql
     local parts=""
     for rel in "${!_knit_ar_names[@]}"; do
         normalized="${_knit_ar_names[${rel}]}"
-        # Recover the declared kind ("file"/"directory") from the fileparam marker
-        # ("output:<kind>:yes") and the result flag from the results set.
+        # Recover the physical type ("file"/"directory") from the fileparam marker
+        # ("output:<type>:yes"), the semantic kind from registration state, and the
+        # result flag from the results set.
         marker_var="_KNIT_CMD_${cmd}_fileparam_${normalized}"
         marker="${!marker_var:-}"
-        kind="${marker#output:}"
-        kind="${kind%%:*}"
+        type="${marker#output:}"
+        type="${type%%:*}"
+        kind_var="_KNIT_CMD_${cmd}_3_${normalized}_type"
+        kind="${!kind_var:-}"
         result=0
         [[ -n "${has_results}" ]] \
             && _knit_set_find "_KNIT_CMD_${cmd}_results" "${normalized}" && result=1
         aid="$(_knit_uuidv7)"
         row_sql="$(_knit_artifacts_row_sql \
-            "${aid}" "${rel}" "${normalized}" "${kind}" "${_knit_ar_sums[${rel}]}" "${result}")"
+            "${aid}" "${rel}" "${normalized}" "${type}" "${kind}" "${_knit_ar_sums[${rel}]}" "${result}")"
         edge_sql="$(_knit_produced_edge_sql \
             "${producer_id}" "${producer_name}" "${aid}")"
         parts+="${row_sql}"$'\n'"${edge_sql}"$'\n'
@@ -372,13 +385,17 @@ _knit_register_artifact() {
 # its variants) to declare an artifact that the command produces: a file or
 # directory, kept under the artifacts root, that the command binds at runtime
 # with knit_artifact. It is the file/directory counterpart of knit_with_output.
-# The artifact name must include a type annotation using the "name:type" syntax,
-# and the type must be "file" or "directory" (the "dir" alias is accepted).
+# The artifact name must include a kind annotation using the "name:kind" syntax,
+# and the kind must be a registered artifact kind (see knit_register_artifact).
+# The builtin kinds "file", "directory", and the "dir" alias are always available;
+# a user kind such as "csvfile" is declared once at the top level. The physical
+# type behind the kind ("file" or "directory") drives the existence check and the
+# checksum, while the kind itself is recorded on the artifacts row.
 #
 # Example:
 # ```
 # knit_register "tabulate" "tabulate" "Tabulate results."
-# knit_with_output_artifact "table:file" "The results table (CSV)."
+# knit_with_output_artifact "table:csvfile" "The results table (CSV)."
 # tabulate() {
 #    out="$(knit_artifact_dir)"
 #    compute > "${out}/table.csv"
@@ -388,18 +405,18 @@ _knit_register_artifact() {
 #
 # Unlike an ordinary output, an artifact is NOT a column of the command's own
 # table. Each binding is recorded at runtime as one row in the framework-owned
-# artifacts table (its artifacts-relative path, name, type, content checksum, and
-# result flag) with a "produced" edge from the producing invocation, so a file
-# can be traced back to what made it. The content digest is always recorded for
-# an artifact, so there is no --no-checksum opt-out here. The artifact is added to
-# the command's artifacts set, and its type/description are kept in registration
-# state so knit describe can report it.
+# artifacts table (its artifacts-relative path, name, physical type, semantic
+# kind, content checksum, and result flag) with a "produced" edge from the
+# producing invocation, so a file can be traced back to what made it. The content
+# digest is always recorded for an artifact, so there is no --no-checksum opt-out
+# here. The artifact is added to the command's artifacts set, and its
+# kind/description are kept in registration state so knit describe can report it.
 #
 # Because a "produced" edge needs the producing invocation's row as its source, a
 # command that declares an artifact records an invocation row even if it declared
 # no table of its own: a table is ensured automatically at knit_done time.
 #
-# @param[in] param Artifact name followed by ":type" ("file" or "directory").
+# @param[in] param Artifact name followed by ":kind" (a registered artifact kind).
 # @param[in] description Description of the artifact.
 # @param[in] --result Optional flag; mark the artifact as a result (what the
 #        experiment was for).
@@ -413,18 +430,19 @@ knit_with_output_artifact() {
         || knit_fatal "knit_with_output_artifact takes an artifact, a description, and an optional --result."
     local param_spec="$1"
     if [[ "${param_spec}" != *:* ]]; then
-        knit_fatal "Artifact \"${param_spec}\" is missing a type annotation (expected \"name:type\")."
+        knit_fatal "Artifact \"${param_spec}\" is missing a kind annotation (expected \"name:kind\")."
     fi
     local param_name="${param_spec%%:*}"
-    local param_type="${param_spec#*:}"
+    local param_kind="${param_spec#*:}"
     if ! _knit_name_is_valid "${param_name}"; then
         knit_fatal "Artifact \"${param_name}\" does not have a valid name."
     fi
-    if ! knit_type_exists "${param_type}"; then
-        knit_fatal "Artifact \"${param_name}\" has unknown type \"${param_type}\"."
-    fi
-    if ! _knit_type_is_checksummable "${param_type}"; then
-        knit_fatal "Artifact \"${param_name}\" must be of type \"file\" or \"directory\", not \"${param_type}\"."
+    # The kind drives everything: it must be a registered artifact kind, and its
+    # backing physical type ("file"/"directory") feeds the fileparam marker, the
+    # runtime existence check, and the checksum.
+    local param_type
+    if ! _knit_artifact_kind_type param_type "${param_kind}"; then
+        knit_fatal "Artifact \"${param_name}\" has unknown kind \"${param_kind}\"."
     fi
     if [ -z "$2" ]; then
         knit_warning "Not describing artifact \"${param_name}\" undermines its understandability."
@@ -438,10 +456,10 @@ knit_with_output_artifact() {
     # column, is rejected uniformly. An artifact is not itself an output column,
     # but it shares the name space (it is referred to by name at runtime).
     _knit_reserve_name "_KNIT_CMD_${cmd}" "${demangled_cmd}" "Artifact" "${param_name}" "${output}"
-    knit_trace "Adding artifact \"${param_name}\" (type: ${param_type}) to command \"${demangled_cmd}\"."
+    knit_trace "Adding artifact \"${param_name}\" (kind: ${param_kind}) to command \"${demangled_cmd}\"."
     printf -v "_KNIT_CMD_${cmd}_3_${output}_description" '%s' "$2"
     printf -v "_KNIT_CMD_${cmd}_3_${output}_default"     '%s' ""
-    printf -v "_KNIT_CMD_${cmd}_3_${output}_type"        '%s' "${param_type}"
+    printf -v "_KNIT_CMD_${cmd}_3_${output}_type"        '%s' "${param_kind}"
     # An artifact is recorded as a row in the artifacts table (with a "produced"
     # edge), not as a column of the command's own table. It is kept in the
     # command's artifacts set (not the outputs set), so it synthesizes no
@@ -705,12 +723,13 @@ knit_artifact() {
         fi
     fi
     # Existence and declared-type match, following a symlink to its target. The
-    # fileparam marker holds the alias-resolved kind as "output:<kind>:yes".
+    # fileparam marker holds the alias-resolved physical type as
+    # "output:<type>:yes".
     local marker_var="_KNIT_CMD_${cmd}_fileparam_${normalized}"
     local marker="${!marker_var:-}"
-    local kind="${marker#output:}"
-    kind="${kind%%:*}"
-    _knit_checksum_require_exists "${demangled_cmd}" output "${name}" "${kind}" "${abs}"
+    local type="${marker#output:}"
+    type="${type%%:*}"
+    _knit_checksum_require_exists "${demangled_cmd}" output "${name}" "${type}" "${abs}"
     # Checksum the resolved target (recursive for a directory).
     local hex
     _knit_sha256 hex "${abs}"

@@ -87,13 +87,26 @@ teardown() {
     [ "${status}" -ne 0 ]
 }
 
-@test "knit_with_output_artifact records the type, default, and description" {
+@test "knit_with_output_artifact records the kind, default, and description" {
     knit_register "art_cmd_2" knit_empty "A test command."
     knit_with_output_artifact "report:directory" "The report tree."
     knit_done
+    # The _3_<name>_type field now holds the declared kind (here the builtin
+    # "directory" kind), not the physical type.
     [ "${_KNIT_CMD_art_cmd_2_3_report_type}" = "directory" ]
     [ "${_KNIT_CMD_art_cmd_2_3_report_description}" = "The report tree." ]
     [ "${_KNIT_CMD_art_cmd_2_3_report_default}" = "" ]
+}
+
+@test "knit_with_output_artifact records a user kind, keeping the physical type in the marker" {
+    knit_register_artifact "csvfile:file" "A CSV table."
+    knit_register "art_cmd_2b" knit_empty "A test command."
+    knit_with_output_artifact "table:csvfile" "The results table."
+    knit_done
+    # The registration state holds the kind; the fileparam marker keeps the
+    # physical type that the runtime existence check and checksum need.
+    [ "${_KNIT_CMD_art_cmd_2b_3_table_type}" = "csvfile" ]
+    [ "${_KNIT_CMD_art_cmd_2b_fileparam_table}" = "output:file:yes" ]
 }
 
 @test "knit_with_output_artifact adds no companion checksum column" {
@@ -146,19 +159,19 @@ teardown() {
     _knit_set_find "_KNIT_CMD_art_cmd_4_artifacts" "report"
 }
 
-@test "knit_with_output_artifact rejects a non-file/directory type" {
+@test "knit_with_output_artifact rejects a type that is not a registered kind" {
     knit_register "art_cmd_5" knit_empty "A test command."
     run knit_with_output_artifact "count:integer" "A count."
     [ "${status}" -ne 0 ]
-    [[ "${output}" == *"must be of type"* ]]
+    [[ "${output}" == *"unknown kind"* ]]
     knit_done
 }
 
-@test "knit_with_output_artifact rejects an unknown type" {
+@test "knit_with_output_artifact rejects an unknown kind" {
     knit_register "art_cmd_6" knit_empty "A test command."
-    run knit_with_output_artifact "thing:nosuchtype" "A thing."
+    run knit_with_output_artifact "thing:nosuchkind" "A thing."
     [ "${status}" -ne 0 ]
-    [[ "${output}" == *"unknown type"* ]]
+    [[ "${output}" == *"unknown kind"* ]]
     knit_done
 }
 
@@ -328,6 +341,8 @@ _use_artifacts_root() {
     [ "$(_art path)" = "table.csv" ]
     [ "$(_art name)" = "table" ]
     [ "$(_art type)" = "file" ]
+    # A bare builtin annotation records the kind as the physical type.
+    [ "$(_art kind)" = "file" ]
     [ "$(_art result)" = "0" ]
     local expected
     _knit_sha256 expected "${_ART_ROOT}/table.csv"
@@ -344,6 +359,26 @@ _use_artifacts_root() {
     [ "$(_knit_sqlite3 \
         "SELECT source_id FROM __provenance__ WHERE edge_type='produced';")" \
         = "$(_knit_sqlite3 "SELECT id FROM bind_rel;")" ]
+}
+
+@test "knit_artifact records the user kind and its physical type" {
+    _use_artifacts_root
+    knit_register_artifact "csvfile:file" "A CSV table."
+    knit_register "bind_kind" fn_bind_kind "Test."
+    knit_with_table
+    knit_with_output_artifact "table:csvfile" "The results table."
+    fn_bind_kind() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}"
+        printf 'hello\n' > "${out}/table.csv"
+        knit_artifact "table" "table.csv"
+    }
+    knit_done
+    _knit_invoke_command "bind_kind"
+    # The physical type drives existence/checksum; the semantic kind is recorded
+    # alongside it.
+    [ "$(_art type)" = "file" ]
+    [ "$(_art kind)" = "csvfile" ]
 }
 
 @test "knit_artifact reverse lookup recovers the producer from a file path" {
@@ -797,7 +832,7 @@ _use_artifacts_root() {
     local names
     names=$(sqlite3 "${_KNIT_DATABASE}" \
         "PRAGMA table_info('artifacts');" | cut -d'|' -f2 | tr '\n' ',')
-    [ "$names" = "id,path,name,type,checksum,result," ]
+    [ "$names" = "id,path,name,type,kind,checksum,result," ]
 }
 
 @test "create artifacts table makes path UNIQUE" {
@@ -858,38 +893,40 @@ _use_artifacts_root() {
 
 @test "artifacts row sql lists the columns and quotes the text fields" {
     local sql
-    sql=$(_knit_artifacts_row_sql "aid" "figure.png" "figure" "file" "sha256:abc" "0")
-    [[ "$sql" == 'INSERT INTO "artifacts" (id, path, name, type, checksum, result) VALUES '* ]]
-    [[ "$sql" == *"'aid', 'figure.png', 'figure', 'file', 'sha256:abc', 0);" ]]
+    sql=$(_knit_artifacts_row_sql "aid" "figure.png" "figure" "file" "csvfile" "sha256:abc" "0")
+    [[ "$sql" == 'INSERT INTO "artifacts" (id, path, name, type, kind, checksum, result) VALUES '* ]]
+    [[ "$sql" == *"'aid', 'figure.png', 'figure', 'file', 'csvfile', 'sha256:abc', 0);" ]]
 }
 
 @test "artifacts row sql emits result as a bare 1 for a declared result" {
     local sql
-    sql=$(_knit_artifacts_row_sql "aid" "p" "n" "file" "cs" "1")
+    sql=$(_knit_artifacts_row_sql "aid" "p" "n" "file" "k" "cs" "1")
     [[ "$sql" == *", 1);" ]]
 }
 
 @test "artifacts row sql coerces any non-1 result to 0" {
     local sql
-    sql=$(_knit_artifacts_row_sql "aid" "p" "n" "file" "cs" "")
+    sql=$(_knit_artifacts_row_sql "aid" "p" "n" "file" "k" "cs" "")
     [[ "$sql" == *", 0);" ]]
 }
 
 @test "artifacts row sql escapes single quotes in text fields" {
     local sql
-    sql=$(_knit_artifacts_row_sql "aid" "a'b" "n" "file" "cs" "0")
+    sql=$(_knit_artifacts_row_sql "aid" "a'b" "n" "file" "k" "cs" "0")
     [[ "$sql" == *"'a''b'"* ]]
 }
 
 # ---------- _knit_artifacts_record_sql ----------
 
 # Set up one bound artifact for a synthetic command: the fileparam marker (for
-# the kind), the per-path binding stash (name + digest), and an optional
-# results-set entry, exactly as knit_with_output_artifact / knit_artifact would leave
-# them at record time.
+# the physical type), the kind registration state, the per-path binding stash
+# (name + digest), and an optional results-set entry, exactly as
+# knit_with_output_artifact / knit_artifact would leave them at record time. The
+# semantic kind defaults to the physical type (as a bare builtin annotation would).
 _stash_binding() {
-    local cmd="$1" rel="$2" name="$3" kind="$4" checksum="$5" is_result="${6:-0}"
-    printf -v "_KNIT_CMD_${cmd}_fileparam_${name}" '%s' "output:${kind}:yes"
+    local cmd="$1" rel="$2" name="$3" type="$4" checksum="$5" is_result="${6:-0}" kind="${7:-$4}"
+    printf -v "_KNIT_CMD_${cmd}_fileparam_${name}" '%s' "output:${type}:yes"
+    printf -v "_KNIT_CMD_${cmd}_3_${name}_type" '%s' "${kind}"
     _knit_set_exists "_KNIT_CMD_${cmd}_artifact_name" \
         || declare -gA "_KNIT_CMD_${cmd}_artifact_name=()"
     _knit_set_exists "_KNIT_CMD_${cmd}_artifact_checksum" \
@@ -922,8 +959,8 @@ ${sql}
 EOF
     local row
     row=$(sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT path,name,type,checksum,result FROM artifacts;")
-    [ "${row}" = "figure.png|figure|file|sha256:abc|0" ]
+        "SELECT path,name,type,kind,checksum,result FROM artifacts;")
+    [ "${row}" = "figure.png|figure|file|file|sha256:abc|0" ]
     local edge
     edge=$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT source_id,source_name,target_name,edge_type FROM __provenance__;")
@@ -940,11 +977,11 @@ EOF
     [[ "${sql}" == *", 1);"* ]]
 }
 
-@test "artifacts record sql derives the directory kind from the fileparam marker" {
-    _stash_binding "prod3" "report" "report" "directory" "sha256:d" 0
+@test "artifacts record sql derives the physical type from the marker and the kind from registration state" {
+    _stash_binding "prod3" "report" "report" "directory" "sha256:d" 0 "rundir"
     local sql
     _knit_artifacts_record_sql sql "prod3" "pid" "producer"
-    [[ "${sql}" == *"'report', 'directory', 'sha256:d'"* ]]
+    [[ "${sql}" == *"'report', 'directory', 'rundir', 'sha256:d'"* ]]
 }
 
 @test "artifacts record sql leaves the produced edge times and alias NULL" {
