@@ -783,6 +783,28 @@ knit_input_artifact_path() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_input_artifact_param_kind()
+#
+# Store the artifact kind a parameter was declared with in the caller-named
+# variable, or the empty string when the parameter is an ordinary parameter (not
+# declared through knit_with_input_artifact). Reads the per-parameter marker
+# (_KNIT_CMD_<cmd>_input_artifact_<param>) that knit_with_input_artifact records,
+# so describe and --help can annotate an input-artifact parameter with its
+# required kind from the registration tables alone (no database read). The
+# parameter name must be normalized, as it is stored in the parameter sets.
+# Mirrors _knit_resource_param_type.
+#
+# @param[out] __knit_ret Name of the variable to hold the artifact kind (empty if none).
+# @param[in] cmd        Mangled command name.
+# @param[in] param      Normalized parameter name.
+# ------------------------------------------------------------------------------
+_knit_input_artifact_param_kind() {
+    local -n __knit_ret=$1
+    local __var="_KNIT_CMD_${2}_input_artifact_${3}"
+    __knit_ret="${!__var:-}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_input_artifact_before_cb()
 #
 # Before-callback installed by knit_with_input_artifact on the consuming command,

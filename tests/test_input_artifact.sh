@@ -353,3 +353,97 @@ _seed_artifact() {
     _knit_set_find "_KNIT_CMD_in_cmd_13_required" "input_table"
     [ "${_KNIT_CMD_in_cmd_13_input_artifact_input_table}" = "file" ]
 }
+
+# ---------- describe / --help surfacing ----------
+
+@test "_knit_input_artifact_param_kind reads the declared kind, empty for a plain param" {
+    knit_register_artifact "csvfile:file" "A CSV table."
+    knit_register "plot" _plot "Plot."
+    knit_with_input_artifact "input_table:csvfile" "The table to plot."
+    knit_with_required "title:string" "A title."
+    _plot() { :; }
+    knit_done
+    local cmd akind
+    cmd=$(_knit_command_mangle "plot")
+    _knit_input_artifact_param_kind akind "${cmd}" "input_table"
+    [ "${akind}" = "csvfile" ]
+    _knit_input_artifact_param_kind akind "${cmd}" "title"
+    [ -z "${akind}" ]
+}
+
+@test "--help annotates an input-artifact parameter with its kind" {
+    knit_register_artifact "csvfile:file" "A CSV table."
+    knit_register "plot" _plot "Plot."
+    knit_with_input_artifact "input_table:csvfile" "The table to plot."
+    _plot() { :; }
+    knit_done
+    run _knit_invoke_command "plot" --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[required, artifact: csvfile]"* ]]
+}
+
+@test "describe default shows the artifact kind on the parameter line" {
+    knit_register_artifact "csvfile:file" "A CSV table."
+    knit_register "plot" _plot "Plot."
+    knit_with_input_artifact "input_table:csvfile" "The table to plot."
+    _plot() { :; }
+    knit_done
+    run knit describe --format default --only plot
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"artifact: csvfile"* ]]
+}
+
+@test "describe json includes an artifact field for an input-artifact parameter" {
+    knit_register_artifact "csvfile:file" "A CSV table."
+    knit_register "plot" _plot "Plot."
+    knit_with_input_artifact "input_table:csvfile" "The table to plot."
+    _plot() { :; }
+    knit_done
+    run knit describe --format json --only plot
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'"artifact": "csvfile"'* ]]
+}
+
+@test "describe json omits the artifact field for a plain parameter" {
+    knit_register "plot" _plot "Plot."
+    knit_with_required "title:string" "A title."
+    _plot() { :; }
+    knit_done
+    run knit describe --format json --only plot
+    [ "$status" -eq 0 ]
+    [[ "$output" != *'"artifact"'* ]]
+}
+
+@test "describe yaml includes an artifact field for an input-artifact parameter" {
+    knit_register_artifact "csvfile:file" "A CSV table."
+    knit_register "plot" _plot "Plot."
+    knit_with_input_artifact "input_table:csvfile" "The table to plot."
+    _plot() { :; }
+    knit_done
+    run knit describe --format yaml --only plot
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"artifact: csvfile"* ]]
+}
+
+@test "describe markdown shows the artifact kind in the constraints column" {
+    knit_register_artifact "csvfile:file" "A CSV table."
+    knit_register "plot" _plot "Plot."
+    knit_with_input_artifact "input_table:csvfile" "The table to plot."
+    _plot() { :; }
+    knit_done
+    run knit describe --format markdown --only plot
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'artifact: `csvfile`'* ]]
+}
+
+@test "describe reports an output artifact's kind, not its physical type" {
+    knit_register_artifact "csvfile:file" "A CSV table."
+    knit_register "tabulate" _tabulate "Tabulate."
+    knit_with_output_artifact "table:csvfile" "The results table."
+    _tabulate() { :; }
+    knit_done
+    run knit describe --format json --only tabulate
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'"type": "csvfile"'* ]]
+    [[ "$output" != *'"type": "file"'* ]]
+}

@@ -2514,6 +2514,9 @@ _knit_print_options_block() {
         local rtype
         _knit_resource_param_type rtype "${cmd}" "${opt}"
         [[ -n "${rtype}" ]] && annotation+=", resource: ${rtype}"
+        local akind
+        _knit_input_artifact_param_kind akind "${cmd}" "${opt}"
+        [[ -n "${akind}" ]] && annotation+=", artifact: ${akind}"
         if [[ -v "${when_raw_var}" ]]; then
             annotation+=", when: ${!when_raw_var}"
         fi
