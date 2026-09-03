@@ -851,10 +851,15 @@
 # declares three file artifacts with @with_output_artifact, binding each a
 # different way:
 #
-#   @with_output   "mean:real" "0" "..." --result   # a value result
-#   @with_output_artifact "table:file"  "..." --result      # artifact + result
-#   @with_output_artifact "figure:file" "..." --result      # artifact + result
-#   @with_output_artifact "dump:file"   "..."               # artifact, not a result
+#   @with_output   "mean:real" "0" "..." --result       # a value result
+#   @with_output_artifact "table:csvfile" "..." --result # artifact + result
+#   @with_output_artifact "figure:file"   "..." --result # artifact + result
+#   @with_output_artifact "dump:file"     "..."          # artifact, not a result
+#
+# An artifact names a KIND rather than a bare type: `table` is a `csvfile` (a
+# semantic kind declared once with @artifact "csvfile:file"), while `figure` and
+# `dump` use the builtin `file` kind. The kind is what a consumer matches on
+# (see section 18); the physical type behind it drives checksumming.
 #
 # --result is orthogonal to type: it flags importance on any output (a scalar
 # such as `mean`, or a file) and moves nothing. Artifacts live under an
@@ -880,7 +885,7 @@
 #   ./full.sh query sql --format column --header --exec \
 #       "SELECT mean FROM tabulate"
 #   ./full.sh query sql --format column --header --exec \
-#       "SELECT name, type, path, result, checksum FROM artifacts"
+#       "SELECT name, type, kind, path, result, checksum FROM artifacts"
 #   ls -l artifacts/                # table.csv and summary.txt are real files,
 #                                   # raw.log is a symlink to the raw log
 #
@@ -908,7 +913,50 @@
 # directly on this layout, symlink handling, and per-artifact checksums.
 #
 # -----------------------------------------------------------------------------
-# 18. Remove recorded entities (knit remove)
+# 18. Consume an artifact (knit_with_input_artifact)
+# -----------------------------------------------------------------------------
+#   ./full.sh tabulate --runs 3
+#   ./full.sh plot --table table-3.csv
+#
+# Section 17 recorded the PRODUCING half of an artifact's lineage
+# (tabulate --produced--> table). `plot` records the CONSUMING half. It declares
+# the CSV table it reads with @with_input_artifact, naming the required KIND:
+#
+#   @with_input_artifact "table:csvfile" "..." --verify-checksum
+#
+# This registers a required string parameter whose value is the artifact's
+# artifacts-relative PATH — you pass `--table table-3.csv`, the same handle
+# `remove --path` uses. Before the body runs, knit resolves that path to its
+# `artifacts` row and checks it: an empty value, a path with no recorded
+# artifact, or an artifact whose kind is not `csvfile` is fatal — so pointing
+# `plot` at the `figure` artifact (a bare `file`, not a `csvfile`) is refused.
+# With --verify-checksum the resolved entry is re-hashed and a content change
+# since it was produced is fatal too. Inside the body knit_input_artifact_path
+# turns the recorded path into the absolute on-disk file:
+#
+#   csv="$(knit_input_artifact_path "$(knit_get_parameter table "$@")")"
+#
+# Because plot declares @with_table, the consume records a used_by provenance
+# edge from the artifact row to plot's row, completing the lineage
+# tabulate --produced--> table --used_by--> plot. Walk it end to end — from the
+# producer, through the artifact, to every consumer — in one Cypher query:
+#
+#   ./full.sh query graph --format column --header --exec \
+#       "MATCH (a)-[:produced]->(art:artifacts)-[:used_by]->(b)
+#          WHERE art.path = 'table-3.csv'
+#          RETURN a.source_name, art.path, b.target_name"
+#
+# and "what consumed this artifact?" is the tail of that walk:
+#
+#   ./full.sh query graph --format column --header --exec \
+#       "MATCH (art:artifacts)-[:used_by]->(b)
+#          WHERE art.path = 'table-3.csv' RETURN b.target_name"
+#
+# `knit describe --only plot` reports the required kind statically (a
+# `table [required, artifact: csvfile]` annotation), no database read needed.
+#
+# -----------------------------------------------------------------------------
+# 19. Remove recorded entities (knit remove)
 # -----------------------------------------------------------------------------
 #   ./full.sh remove job --id <uuid> --dry-run
 #
@@ -963,7 +1011,7 @@
 #   ./full.sh remove job --id <uuid> --keep-files --yes
 #
 # -----------------------------------------------------------------------------
-# 19. Clean up
+# 20. Clean up
 # -----------------------------------------------------------------------------
 #   rm -rf .knit setups jobs artifacts
 #
@@ -1407,6 +1455,17 @@ _batch() {
 @done
 
 # -----------------------------------------------------------------------------
+# csvfile — an artifact kind (see guided-tour sections 17 and 18).
+#
+# @artifact declares a semantic KIND backed by a physical type. `csvfile` is a
+# file that holds a CSV table. A producer stamps an artifact with this kind and a
+# consumer requires exactly it, so a non-CSV artifact is caught at consume time.
+# The builtin kinds `file`/`directory` need no declaration; a named kind like
+# this one is declared once, at the top level, and then referenced by name.
+# -----------------------------------------------------------------------------
+@artifact "csvfile:file" "A tabulated result in CSV format."
+
+# -----------------------------------------------------------------------------
 # tabulate — a command with a value result and file artifacts (guided-tour 17).
 #
 # It computes a few quick estimates, then records both what the run was for and
@@ -1418,17 +1477,20 @@ _batch() {
 #     `table` written straight into artifacts/, `figure` copied in with
 #     --copy-from, and `dump` referenced in place with --link-from.
 #
+# The `table` artifact carries the `csvfile` KIND (declared just above) instead
+# of a bare `file`, so the `plot` consumer below can require exactly a CSV table.
+#
 # knit_artifact records each artifact as a row in the framework-owned `artifacts`
 # table — its path (relative to the artifacts root from knit_artifact_dir, never
-# an absolute machine path), name, type, checksum, and result — linked to this
-# invocation's row by a `produced` edge, not a column of tabulate. Artifacts are
-# write-once, so the artifact names embed --runs to keep re-runs distinct.
+# an absolute machine path), name, type, kind, checksum, and result — linked to
+# this invocation's row by a `produced` edge, not a column of tabulate. Artifacts
+# are write-once, so the artifact names embed --runs to keep re-runs distinct.
 # -----------------------------------------------------------------------------
 @command "tabulate" "Tabulate pi estimates into exportable artifacts."
 @with_optional "runs:integer" "3"     "How many quick estimates to tabulate."
 @with_table
 @with_output   "mean:real" "0"        "Mean of the tabulated estimates (the headline result)." --result
-@with_output_artifact "table:file"  "The tabulated estimates (CSV)." --result
+@with_output_artifact "table:csvfile" "The tabulated estimates (CSV)." --result
 @with_output_artifact "figure:file" "A one-line textual summary."    --result
 @with_output_artifact "dump:file"   "Raw run log, referenced in place (not the headline result)."
 _tabulate() {
@@ -1473,6 +1535,38 @@ _tabulate() {
     # The headline value result, recorded in the DB row beside the artifacts.
     knit_output "mean" "${mean}"
     printf 'mean pi ~= %s  (%s runs; artifacts under %s)\n' "${mean}" "${runs}" "${out}"
+}
+@done
+
+# -----------------------------------------------------------------------------
+# plot — a command that CONSUMES a kinded artifact (guided-tour section 18).
+#
+# @with_input_artifact "table:csvfile" declares a dependency on a recorded
+# artifact of kind `csvfile`. It registers a REQUIRED string parameter whose
+# value is the artifact's artifacts-relative PATH (the same handle
+# `remove --path` uses). Before the body runs, a callback resolves that path to
+# its `artifacts` row and fatals if the row is missing or its kind is not
+# `csvfile`. --verify-checksum re-hashes the entry and fatals on a content
+# mismatch (off by default, so there is no hashing cost unless asked for).
+#
+# knit_input_artifact_path turns the recorded path into the absolute on-disk
+# file. Because plot declares @with_table, each run is a row, so the used_by edge
+# recorded from the artifact to plot has a target to point at. That completes the
+# lineage tabulate --produced--> table --used_by--> plot.
+# -----------------------------------------------------------------------------
+@command "plot" "Summarize a tabulated CSV artifact produced by tabulate."
+@with_input_artifact "table:csvfile" "Artifacts-relative path of the CSV table to read." --verify-checksum
+@with_table
+@with_output "rows:integer" "0" "Number of data rows in the consumed table." --result
+_plot() {
+    local csv
+    csv="$(knit_input_artifact_path "$(knit_get_parameter table "$@")")"
+
+    # The CSV has a one-line header; the remaining lines are the estimates.
+    local rows
+    rows=$(( $(wc -l < "${csv}") - 1 ))
+    knit_output "rows" "${rows}"
+    printf 'plot: %s holds %s tabulated estimate(s)\n' "${csv}" "${rows}"
 }
 @done
 
