@@ -129,15 +129,20 @@ _render_app() {
 }
 @done
 
+# --- Artifact kind ----------------------------------------------------------
+# A KIND is a semantic label backed by one physical type. `insidecsv` marks a
+# file as the inside-metric table, so a consumer can require that kind.
+@artifact "insidecsv:file" "Per-render inside metric, one row per image (CSV)."
+
 # --- Fan-in -----------------------------------------------------------------
 # Produces a result instead of just printing one. It records its own row and
 # provenance (no @without_provenance), builds a CSV straight from the provenance
-# graph with a Cypher query, and declares that CSV as a result ARTIFACT: a row in
-# the artifacts table, a `produced` edge, a content checksum, and a path stored
-# relative to the artifacts root.
+# graph with a Cypher query, and declares that CSV as a result ARTIFACT of kind
+# `insidecsv`: a row in the artifacts table, a `produced` edge, a content
+# checksum, and a path stored relative to the artifacts root.
 @command "aggregate" "Fan-in: tabulate every render into a result CSV."
 @with_table
-@with_output_artifact "table:file" "Per-render inside metric, one row per image (CSV)." --result
+@with_output_artifact "table:insidecsv" "Per-render inside metric, one row per image (CSV)." --result
 aggregate() {
     local out
     out="$(knit_artifact_dir)"
@@ -151,6 +156,27 @@ aggregate() {
     knit_artifact "table" "inside.csv"
 
     printf 'wrote %s\n' "${out}/inside.csv"
+}
+@done
+
+# --- Consumer ---------------------------------------------------------------
+# Consumes the artifact `aggregate` produced. @with_input_artifact requires a
+# recorded artifact of kind `insidecsv` (the value is its artifacts-relative
+# path); --verify-checksum re-hashes the bytes and refuses a table that changed
+# since it was produced. Reading it records a `used_by` edge from the artifact to
+# this command, mirroring the producer's `produced` edge.
+@command "report" "Read the inside-metric table and name the peak render."
+@with_input_artifact "table:insidecsv" "Artifacts-relative path of the table to read." --verify-checksum
+@with_table
+@with_output "peak:real" "0" "Largest inside metric across the rendered images." --result
+report() {
+    local csv
+    csv="$(knit_input_artifact_path "$(knit_get_parameter "table" "$@")")"
+
+    local peak
+    peak=$(tail -n +2 "${csv}" | cut -d, -f3 | sort -n | tail -1)
+    knit_output "peak" "${peak:-0}"
+    printf 'peak inside metric: %s\n' "${peak:-0}"
 }
 @done
 

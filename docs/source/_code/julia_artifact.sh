@@ -118,15 +118,24 @@ _render_app() {
 }
 @done
 
+# --- Artifact kind ----------------------------------------------------------
+# START kind
+# A KIND gives an artifact a semantic label backed by one physical type. Declared
+# once at the top level, `insidecsv` marks a file as *the inside-metric table*, so
+# a consumer can require that kind rather than merely "a file".
+@artifact "insidecsv:file" "Per-render inside metric, one row per image (CSV)."
+# END kind
+
 # --- Fan-in -----------------------------------------------------------------
 # START aggregate
 # Part I's aggregate was read-only bookkeeping (@without_provenance): it printed a
 # sum and left no trace. Now it produces a result. Dropping @without_provenance
 # lets it record its own row and provenance; @with_table gives it that row, and
-# @with_output_artifact declares the CSV it writes as the headline RESULT.
+# @with_output_artifact declares the CSV it writes as the headline RESULT --- and
+# names the `insidecsv` KIND, not the bare `file` type.
 @command "aggregate" "Fan-in: tabulate every render into a result CSV."
 @with_table
-@with_output_artifact "table:file" "Per-render inside metric, one row per image (CSV)." --result
+@with_output_artifact "table:insidecsv" "Per-render inside metric, one row per image (CSV)." --result
 aggregate() {
     # knit_artifact_dir is the artifacts/ root: write into it, then declare.
     local out
@@ -152,5 +161,32 @@ aggregate() {
 }
 @done
 # END aggregate
+
+# --- Consumer ---------------------------------------------------------------
+# START consume
+# `report` CONSUMES the artifact `aggregate` produced. @with_input_artifact
+# requires a recorded artifact of kind `insidecsv`; the parameter value is its
+# artifacts-relative path. Before the body runs, Knit resolves the path, refuses a
+# missing artifact or a wrong kind, and --- with --verify-checksum --- re-hashes
+# the bytes and refuses a table that changed since it was produced. Consuming the
+# artifact records a `used_by` edge from it to this command, the mirror of the
+# producer's `produced` edge.
+@command "report" "Read the inside-metric table and name the peak render."
+@with_input_artifact "table:insidecsv" "Artifacts-relative path of the table to read." --verify-checksum
+@with_table
+@with_output "peak:real" "0" "Largest inside metric across the rendered images." --result
+report() {
+    # Resolve the recorded artifacts-relative path to the on-disk file.
+    local csv
+    csv="$(knit_input_artifact_path "$(knit_get_parameter "table" "$@")")"
+
+    # The inside column is the third field; skip the header, take the maximum.
+    local peak
+    peak=$(tail -n +2 "${csv}" | cut -d, -f3 | sort -n | tail -1)
+    knit_output "peak" "${peak:-0}"
+    printf 'peak inside metric: %s\n' "${peak:-0}"
+}
+@done
+# END consume
 
 knit "$@"

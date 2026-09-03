@@ -304,12 +304,22 @@ the projected columns, and ``--header`` writes them as the CSV header row. (The
 ``run`` row and the ``render`` row have distinct ids; the graph edge, not a shared
 key, is what ties them together, which is exactly what a graph query is for.)
 
-**An artifact records the result.** ``@with_output_artifact "table:file" ... --result``
-declares that the command produces a file artifact and that this artifact is the
-**result** --- what the experiment was for. Inside the body, ``knit_artifact_dir``
-gives the artifacts root, and ``knit_artifact "table" "inside.csv"`` binds the
-file that was written there. ``describe`` shows the declaration in its own
-section, flagged as a result:
+**An artifact records the result, with a kind.** An artifact has a physical
+*type* --- ``file`` or ``directory`` --- and, optionally, a semantic **kind**: a
+label backed by one physical type that says what the file *means*. Declared once
+at the top level, ``insidecsv`` marks a file as *the inside-metric table*:
+
+.. knit-code:: ../_code/julia_artifact.sh
+   :language: bash
+   :start-after: # START kind
+   :end-before: # END kind
+
+``@with_output_artifact "table:insidecsv" ... --result`` then declares that the
+command produces an artifact of that kind and that it is the **result** --- what
+the experiment was for. Inside the body, ``knit_artifact_dir`` gives the artifacts
+root, and ``knit_artifact "table" "inside.csv"`` binds the file that was written
+there. The kind is recorded in the artifacts row and ``describe`` shows it (not
+the bare physical type) in the command's own section, flagged as a result:
 
 .. code-block:: console
 
@@ -317,7 +327,7 @@ section, flagged as a result:
    ...
      Artifacts
      ---------
-       table  [file, result] Per-render inside metric, one row per image (CSV).
+       table  [insidecsv, result] Per-render inside metric, one row per image (CSV).
 
 An artifact is not a file output. The distinction is the point of this section:
 
@@ -351,9 +361,47 @@ any other. To find which command produced a given artifact, walk the
        "MATCH (t)-[e:produced]->(a:artifacts)
           WHERE a.name = 'table' RETURN e.source_name, a.path, a.checksum"
 
-The experiment now has a result that outlives the run: a checksummed table, tied
-by provenance to the command that built it and, through it, to every render that
-went into it.
+**Consume the artifact.** A result is only half a lineage until something reads
+it. Part II adds a ``report`` command that consumes the table ``aggregate``
+produced and names the render with the largest inside metric:
+
+.. knit-code:: ../_code/julia_artifact.sh
+   :language: bash
+   :start-after: # START consume
+   :end-before: # END consume
+
+``@with_input_artifact "table:insidecsv"`` registers a required parameter whose
+value is the artifacts-relative path of a recorded artifact of kind
+``insidecsv``. Before the body runs, Knit resolves the path to its artifacts row
+and refuses the run when the value is empty, when no artifact is recorded there,
+or when the recorded kind is not ``insidecsv`` --- so ``report`` never reads the
+wrong kind of input. ``--verify-checksum`` adds one more guard: it re-hashes the
+bytes and refuses a table that changed since it was produced, against the digest
+``aggregate`` recorded. In the body, ``knit_input_artifact_path`` turns the stored
+path into the on-disk file to read. Run it against the table by its
+artifacts-relative path:
+
+.. code-block:: console
+
+   $ ./exp.sh report --table inside.csv
+   peak inside metric: 512345
+
+Consuming the artifact records a ``used_by`` edge **from the artifact's row to
+``report``**, the mirror of the ``produced`` edge ``aggregate`` left. The two
+edges meet at the same artifact node, so one query walks the whole chain
+``aggregate --produced--> table --used_by--> report``:
+
+.. code-block:: console
+
+   $ ./exp.sh query graph --format column --header --exec \
+       "MATCH (p)-[:produced]->(a:artifacts)-[:used_by]->(c)
+          WHERE a.name = 'table'
+          RETURN p.source_name, a.kind, c.target_name"
+
+The experiment now has a result that outlives the run --- a checksummed,
+relocatable table --- and a lineage that runs both ways from it: back to the
+command that built it and every render that went into it, and forward to every
+command that read it.
 
 .. _tutorial-prepare:
 
@@ -593,8 +641,9 @@ The complete experiment (Part II)
 Here is the whole refined experiment in one file. It is the Part I script with
 every Part II change from Steps 1--5 folded in: the git resource feeding the
 setup, the shared parameter set, the ``colormap`` enum, the app's checksummed
-file output, and the fan-in that produces a result artifact. Steps 6 and 7 add no
-code --- ``prepare`` and ``remove`` are console workflows over this same script.
+file output, the fan-in that produces a result artifact of kind ``insidecsv``,
+and the ``report`` consumer that reads it back. Steps 6 and 7 add no code ---
+``prepare`` and ``remove`` are console workflows over this same script.
 Save it as ``exp.sh`` next to a copy of ``knit.sh`` and make it executable
 (``chmod +x exp.sh``):
 
@@ -610,10 +659,12 @@ To run it from scratch:
    $ ./exp.sh setup --name mympienv -- juliaenv --src julia_src
    $ ./exp.sh submit --setup mympienv --wait -- julia --c-re -0.8 --c-im 0.156
    $ ./exp.sh aggregate
+   $ ./exp.sh report --table inside.csv
 
 ``fetch`` acquires the source once and records its commit; ``setup`` builds
 against that named instance; ``submit`` renders one image; ``aggregate`` writes
-``inside.csv`` as a result artifact and records its own row. From here the
+``inside.csv`` as a result artifact and records its own row; ``report`` consumes
+that artifact by kind and records a ``used_by`` edge back to it. From here the
 Part II workflows apply to this same script: :ref:`prepare <tutorial-prepare>` a
 whole sweep and release it, then :ref:`remove <tutorial-remove>` what you no
 longer need. Compare this file with :ref:`Part I's version <tutorial-full>` to

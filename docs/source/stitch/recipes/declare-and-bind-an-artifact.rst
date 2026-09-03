@@ -21,7 +21,10 @@ relative to it (``table.csv``) or as an absolute path within it; a path outside
 the root is fatal. knit records the artifact's value as that
 **artifacts-relative** path, so the database holds no absolute machine path and
 the record stays relocatable. Add ``--result`` (as on ``table`` here) to mark the
-artifact as the headline result too (see *Mark an output as the result*).
+artifact as the headline result too (see *Mark an output as the result*). To
+give the artifact a semantic *kind* --- so a consumer can require *a CSV table*
+rather than merely *a file* --- register the kind first and name it here (see
+*Declare an artifact kind*).
 
 knit records each artifact as one row in the framework-owned ``artifacts`` table
 --- its ``path``, ``name``, ``type``, content ``checksum``, and ``result`` flag
