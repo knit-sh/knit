@@ -33,6 +33,7 @@ _KNIT_SHORTHAND_PASSTHROUGH=(
     [done]=knit_done
     [empty]=knit_empty
     [resource]=knit_register_resource
+    [artifact]=knit_register_artifact
     [enum]=knit_enum
     [parameter_set]=knit_parameter_set
     [with_required]=knit_with_required

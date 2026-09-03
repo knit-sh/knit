@@ -233,6 +233,109 @@ knit_artifact_dir() {
 }
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_ARTIFACT_KINDS
+#
+# Registry mapping each artifact kind name to its backing physical type ("file"
+# or "directory"). A kind is an artifact's semantic category (e.g. "csvfile",
+# "rundir"); the physical type drives existence checks and checksumming. Seeded
+# with the builtin kinds "file" and "directory" (each backed by its own type) and
+# the "dir" alias (backed by "directory"), so a bare "name:file" / "name:directory"
+# declaration needs no knit_register_artifact call and re-registering one of them
+# is fatal. Extended by knit_register_artifact and consulted by
+# _knit_artifact_kind_type. Declared global (-g) so it survives being sourced from
+# within a function (as the bats tests do). Mirrors _KNIT_RESOURCES / _KNIT_ENUMS.
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_ARTIFACT_KINDS
+_KNIT_ARTIFACT_KINDS=([file]=file [directory]=directory [dir]=directory)
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_ARTIFACT_KIND_DESCRIPTIONS
+#
+# Companion registry mapping each artifact kind name to its one-line description,
+# shown by knit describe / --help. Populated alongside _KNIT_ARTIFACT_KINDS; the
+# builtin kinds carry a short default description.
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_ARTIFACT_KIND_DESCRIPTIONS
+_KNIT_ARTIFACT_KIND_DESCRIPTIONS=(
+    [file]="A single file."
+    [directory]="A directory tree."
+    [dir]="A directory tree."
+)
+
+# ------------------------------------------------------------------------------
+# @fn _knit_artifact_kind_type()
+#
+# Look up the physical type ("file" or "directory") backing an artifact kind and
+# store it in the caller-named variable. Returns non-zero when the kind is not
+# registered, leaving the variable untouched. Consulted by the output and input
+# artifact directives to resolve a declared "name:kind" annotation to its physical
+# type.
+#
+# @param[out] __knit_ret Name of the variable to hold the physical type.
+# @param[in]  kind       The artifact kind name.
+# @return 0 if the kind is registered, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_artifact_kind_type() {
+    local -n __knit_ret=$1
+    local kind="$2"
+    [[ -v _KNIT_ARTIFACT_KINDS["${kind}"] ]] || return 1
+    __knit_ret="${_KNIT_ARTIFACT_KINDS[${kind}]}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_register_artifact()
+#
+# Declare an artifact kind: a semantic category an artifact may carry (e.g.
+# "csvfile", "rundir"), backed by a physical type ("file" or "directory"). A
+# top-level declaration, like knit_enum — not called between knit_register and
+# knit_done. Once declared, a kind may be referenced by knit_with_output_artifact
+# and knit_with_input_artifact with the "name:kind" syntax.
+#
+# The builtin kinds "file", "directory", and the "dir" alias are pre-registered
+# (each backed by its matching type), so the common case needs no call here and
+# re-registering one of them is fatal.
+#
+# Example:
+# ```
+# knit_register_artifact "csvfile:file"     "Tabulated result in CSV format."
+# knit_register_artifact "rundir:directory" "A run's output directory."
+# ```
+#
+# @param[in] spec        Kind name followed by ":type" ("file" or "directory").
+# @param[in] description Optional one-line description for knit describe / --help.
+#
+# Fatal when the annotation has no ":type", when the kind name is invalid, when
+# the kind is already registered, or when the type is not a checksummable
+# ("file"/"directory") type.
+# ------------------------------------------------------------------------------
+knit_register_artifact() {
+    local spec="$1"
+    local description="${2:-}"
+    if [[ "${spec}" != *:* ]]; then
+        knit_fatal "Artifact kind \"${spec}\" is missing a type annotation (expected \"kind:type\")."
+    fi
+    local kind="${spec%%:*}"
+    local type="${spec#*:}"
+    if ! _knit_name_is_valid "${kind}"; then
+        knit_fatal "Artifact kind \"${kind}\" is not a valid name."
+    fi
+    if [[ -v _KNIT_ARTIFACT_KINDS["${kind}"] ]]; then
+        knit_fatal "Artifact kind \"${kind}\" is already registered."
+    fi
+    if ! knit_type_exists "${type}"; then
+        knit_fatal "Artifact kind \"${kind}\" has unknown type \"${type}\"."
+    fi
+    if ! _knit_type_is_checksummable "${type}"; then
+        knit_fatal "Artifact kind \"${kind}\" must be backed by type \"file\" or \"directory\", not \"${type}\"."
+    fi
+    local resolved
+    _knit_type_resolve_alias resolved "${type}"
+    _KNIT_ARTIFACT_KINDS["${kind}"]="${resolved}"
+    _KNIT_ARTIFACT_KIND_DESCRIPTIONS["${kind}"]="${description}"
+    knit_trace "Registering artifact kind \"${kind}\" (type: ${resolved})."
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_register_artifact()
 #
 # Add an artifact of the command being registered to its artifacts set: a name
