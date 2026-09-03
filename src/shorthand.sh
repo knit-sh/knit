@@ -42,6 +42,7 @@ _KNIT_SHORTHAND_PASSTHROUGH=(
     [with_extra]=knit_with_extra
     [with_output]=knit_with_output
     [with_output_artifact]=knit_with_output_artifact
+    [with_input_artifact]=knit_with_input_artifact
     [with_table]=knit_with_table
     [with_checksum]=knit_with_checksum
     [with_dispatch]=knit_with_dispatch

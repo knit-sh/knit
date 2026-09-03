@@ -743,3 +743,204 @@ knit_artifact() {
     # shellcheck disable=SC2034 # written through the nameref
     sums_ref["${rel}"]="sha256:${hex}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn knit_input_artifact_path()
+#
+# Resolve an input-artifact parameter value (an artifacts-relative path) into its
+# absolute on-disk location under the experiment's artifacts root and print it to
+# stdout. This is how the body of a command that consumes an artifact turns the
+# parameter value into a usable path:
+#
+# ```
+# csv="$(knit_input_artifact_path "$(knit_get_parameter input_table "$@")")"
+# ```
+#
+# The value must resolve inside the artifacts root (the same containment rule
+# knit_artifact enforces on a produced entry); an absolute path outside it is
+# fatal. Fatal too when the value is empty or the resolved entry does not exist,
+# since a body should never run against an artifact that is not present. Called at
+# most a handful of times per body (one per declared input artifact), so it
+# returns via stdout rather than a nameref. Mirrors knit_resource_path.
+#
+# @param[in] value The input-artifact parameter value (an artifacts-relative path).
+# ------------------------------------------------------------------------------
+knit_input_artifact_path() {
+    local value="$1"
+    if [[ -z "${value}" ]]; then
+        knit_fatal "knit_input_artifact_path requires an artifact path."
+    fi
+    local root
+    _knit_artifact_root root
+    local abs rel
+    if ! _knit_artifact_resolve_path abs rel "${root}" "${value}"; then
+        knit_fatal "Artifact path \"${value}\" is outside the artifacts directory \"${root}\"."
+    fi
+    if [[ ! -e "${abs}" && ! -L "${abs}" ]]; then
+        knit_fatal "Artifact \"${value}\" not found at \"${abs}\"."
+    fi
+    printf '%s\n' "${abs}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_input_artifact_before_cb()
+#
+# Before-callback installed by knit_with_input_artifact on the consuming command,
+# one per declared input-artifact parameter. Before the command body runs it
+# resolves the parameter value (an artifacts-relative path) to its row in the
+# framework-owned artifacts table and validates it:
+#   - the parameter value (the path) missing → fatal;
+#   - no artifacts row at that path → fatal (an unbootstrapped experiment has
+#     recorded no artifact, so it is treated as a missing row);
+#   - the recorded kind not equal to the declared kind → fatal (the physical type
+#     is implied by the kind, so it needs no separate check);
+#   - when --verify-checksum was declared, the recomputed digest of the resolved
+#     entry not equal to the recorded checksum → fatal.
+# Returning normally lets the command proceed; a fatal aborts it before the body
+# runs.
+#
+# The declared parameter name, required kind, and verify flag are bound at
+# registration time and carried as the first three arguments; the trailing
+# arguments are the command's own runtime arguments, scanned for the parameter
+# value. Mirrors _knit_resource_dep_before_cb.
+#
+# @param[in] param  Normalized name of the input-artifact parameter to read.
+# @param[in] kind   Artifact kind the resolved artifact must carry.
+# @param[in] verify "1" to re-verify the recorded checksum, empty to skip.
+# ------------------------------------------------------------------------------
+_knit_input_artifact_before_cb() {
+    local param="$1"
+    local kind="$2"
+    local verify="$3"
+    shift 3
+    local value
+    value=$(knit_get_parameter "${param}" "$@") || value=""
+    if [[ -z "${value}" ]]; then
+        local opt
+        _knit_str_underscores_to_hyphens opt "${param}"
+        knit_fatal "This command requires an artifact of kind \"${kind}\" (parameter --${opt})."
+    fi
+    # Resolve the path to its artifacts row. An unbootstrapped experiment has
+    # recorded no artifact, so leave the row empty and let the "no artifact" fatal
+    # below fire rather than query a database that does not exist.
+    local row=""
+    if _knit_is_bootstrapped; then
+        local tbl esc
+        _knit_db_sql_ident tbl "${_KNIT_ARTIFACTS_TABLE}"
+        _knit_sql_escape esc "${value}"
+        row=$(_knit_sqlite3 -separator '|' \
+            "SELECT kind, checksum FROM ${tbl} WHERE path='${esc}' LIMIT 1;" \
+            2>/dev/null) || row=""
+    fi
+    if [[ -z "${row}" ]]; then
+        knit_fatal "No artifact recorded at path \"${value}\"; an artifact of kind \"${kind}\" is required."
+    fi
+    local actual_kind recorded_sum
+    IFS='|' read -r actual_kind recorded_sum <<< "${row}"
+    if [[ "${actual_kind}" != "${kind}" ]]; then
+        knit_fatal "Artifact at \"${value}\" is of kind \"${actual_kind}\", but \"${kind}\" is required."
+    fi
+    # Opt-in re-verification: re-hash the resolved entry and compare it to the
+    # recorded digest, so a silently mutated artifact is caught before the body runs.
+    if [[ -n "${verify}" ]]; then
+        local path
+        path="$(knit_input_artifact_path "${value}")"
+        local hex
+        _knit_sha256 hex "${path}" \
+            || knit_fatal "Could not checksum artifact \"${value}\" for verification."
+        if [[ "sha256:${hex}" != "${recorded_sum}" ]]; then
+            knit_fatal "Artifact at \"${value}\" failed checksum verification: recorded \"${recorded_sum}\", got \"sha256:${hex}\"."
+        fi
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_with_input_artifact()
+#
+# Declare that the command currently being registered consumes a recorded
+# artifact of a given kind, given as `"name:kind"` (e.g. "input_table:csvfile").
+# Must be called between a knit_register* call and knit_done; a command may
+# declare several input artifacts. The `kind` must be a registered artifact kind
+# (see knit_register_artifact); the builtin kinds "file", "directory", and the
+# "dir" alias are always available. It is the consuming counterpart of
+# knit_with_output_artifact.
+#
+# Under the hood (mirroring knit_with_resource) this registers an ordinary
+# required string parameter named `name` whose value is the artifact's
+# artifacts-relative path, so the CLI, knit_get_parameter, and the backing table
+# all treat it as a plain value; the command body turns that path into an on-disk
+# location with knit_input_artifact_path. A per-parameter marker
+# (_KNIT_CMD_<cmd>_input_artifact_<param>=<kind>) records the required kind, and a
+# companion _input_artifact_verify_<param> marker records the --verify-checksum
+# opt-in; both are read by the validation before-callback and, later, by describe
+# / --help. A before-callback resolves the path to the artifacts row and validates
+# it (existence + kind, plus an opt-in checksum re-verification) before the body
+# runs.
+#
+# ```
+# knit_register "plot" plot "Plot a results table."
+# knit_with_input_artifact "input_table:csvfile" "The table to plot." --verify-checksum
+# plot() {
+#     local csv
+#     csv="$(knit_input_artifact_path "$(knit_get_parameter input_table "$@")")"
+#     gnuplot -e "..." "${csv}"
+# }
+# knit_done
+# ```
+#
+# Invoked as: `./exp.sh plot --input-table tables/run7.csv`.
+#
+# Wrappers cannot declare knit_with_input_artifact (they forward their arguments
+# verbatim and take no parsed parameters). Every declared input artifact is
+# required.
+#
+# @param[in] spec        The dependency as "name:kind" (a registered artifact kind).
+# @param[in] description One-line description of the input-artifact parameter.
+# @param[in] --verify-checksum Optional flag; re-verify the recorded checksum before
+#        the body runs.
+# ------------------------------------------------------------------------------
+knit_with_input_artifact() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_input_artifact must be called between a knit_register* call and knit_done."
+    fi
+    _knit_wrapper_reject_declaration "knit_with_input_artifact"
+    knit_check_arguments "" "verify-checksum" "${@:3}" \
+        || knit_fatal "knit_with_input_artifact takes an artifact, a description, and an optional --verify-checksum."
+
+    local spec="$1"
+    local description="$2"
+    if [[ "${spec}" != *:* ]]; then
+        knit_fatal "knit_with_input_artifact requires a \"name:kind\" annotation; got \"${spec}\"."
+    fi
+    local param_name="${spec%%:*}"
+    local param_kind="${spec#*:}"
+    if [[ -z "${param_name}" ]] || ! _knit_name_is_valid "${param_name}"; then
+        knit_fatal "knit_with_input_artifact: \"${param_name}\" is not a valid parameter name."
+    fi
+    if [[ -z "${param_kind}" ]]; then
+        knit_fatal "knit_with_input_artifact requires an artifact kind after the colon; got \"${spec}\"."
+    fi
+    # The kind must be a registered artifact kind (builtins included). The physical
+    # type it is backed by is implied by the kind, so it needs no separate check.
+    local param_type
+    if ! _knit_artifact_kind_type param_type "${param_kind}"; then
+        knit_fatal "knit_with_input_artifact references unknown artifact kind \"${param_kind}\"; register it with knit_register_artifact first."
+    fi
+
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local param
+    param=$(_knit_name_normalize "${param_name}")
+
+    # Record the required kind in a per-parameter marker, read by the validation
+    # before-callback and (later) by describe / --help.
+    printf -v "_KNIT_CMD_${cmd}_input_artifact_${param}" '%s' "${param_kind}"
+    # Record the --verify-checksum opt-in in a companion marker.
+    if _knit_decl_flag_present "verify-checksum" "${@:3}"; then
+        printf -v "_KNIT_CMD_${cmd}_input_artifact_verify_${param}" '%s' "1"
+    fi
+
+    # Register the underlying required string parameter whose value is the
+    # artifact's artifacts-relative path. Every input artifact is required.
+    [[ -z "${description}" ]] && description="Input artifact of kind \"${param_kind}\"."
+    knit_with_required "${param_name}:string" "${description}"
+}
