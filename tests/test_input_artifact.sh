@@ -240,6 +240,110 @@ _seed_artifact() {
     [[ "${output}" == *"failed checksum verification"* ]]
 }
 
+# ---------- used_by edges ----------
+
+@test "knit_with_input_artifact installs the validation before-callback" {
+    knit_register "consume_1" knit_empty "A consumer."
+    knit_with_input_artifact "input_table:file" "The table."
+    knit_done
+    local -n _bcbs="_KNIT_CMD_consume_1_before_cb"
+    [[ "${_bcbs[*]}" == *"_knit_input_artifact_before_cb"* ]]
+}
+
+@test "knit_with_input_artifact installs the used_by-edge after-callback" {
+    knit_register "consume_2" knit_empty "A consumer."
+    knit_with_input_artifact "input_table:file" "The table."
+    knit_done
+    local -n _acbs="_KNIT_CMD_consume_2_after_cb"
+    [[ "${_acbs[*]}" == *"_knit_input_artifact_after_cb"* ]]
+}
+
+@test "a consumer with knit_with_input_artifact records a used_by edge to the artifact" {
+    knit_register_artifact "csvfile:file" "A CSV table."
+    _seed_artifact "tables/run7.csv" "table" "file" "csvfile" "sha256:abc" 0
+    knit_register "plot" _plot "Plot."
+    knit_with_table "plot"
+    knit_with_input_artifact "input_table:csvfile" "The table."
+    _plot() { :; }
+    knit_done
+    _knit_invoke_command "plot" --input-table "tables/run7.csv"
+    # The edge's source is the artifacts row (id from the seeded row, name the
+    # "artifacts" node label), its target is the consumer's recorded row, and it
+    # has no duration.
+    [ "$(_knit_sqlite3 \
+        "SELECT source_id,source_name,target_name,edge_type,start_time,end_time FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" \
+        = "id-table|artifacts|plot|used_by||" ]
+    [ "$(_knit_sqlite3 "SELECT target_id FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" \
+        = "$(_knit_sqlite3 'SELECT id FROM plot;')" ]
+}
+
+@test "a consumer records no used_by edge when no artifact row exists at the path" {
+    # Seed a different path so the recorded artifact does not match the value; the
+    # before-callback would normally fatal, so drive the after-callback directly.
+    knit_register_artifact "csvfile:file" "A CSV table."
+    knit_register "plot" _plot "Plot."
+    knit_with_table "plot"
+    knit_with_input_artifact "input_table:csvfile" "The table."
+    _plot() { :; }
+    knit_done
+    _KNIT_EXECUTING_COMMAND=("$(_knit_command_mangle "plot")")
+    _KNIT_EXECUTING_ROW_ID=("target-uuid-1")
+    _knit_input_artifact_after_cb "input_table" "csvfile" "" \
+        --input-table "tables/absent.csv"
+    _knit_prov_ensure_table
+    [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" = "0" ]
+}
+
+@test "_knit_input_artifact_record_used_by_edge writes source, target, and NULL timestamps" {
+    _seed_artifact "tables/run7.csv" "table" "file" "csvfile" "sha256:abc" 0
+    knit_register "plot" _plot "Plot."
+    _plot() { :; }
+    knit_done
+    local cmd
+    cmd=$(_knit_command_mangle "plot")
+    _knit_input_artifact_record_used_by_edge "tables/run7.csv" "${cmd}" "target-uuid-9"
+    [ "$(_knit_sqlite3 \
+        "SELECT source_id,source_name,target_id,target_name,edge_type,start_time,end_time FROM ${_KNIT_PROV_TABLE};")" \
+        = "id-table|artifacts|target-uuid-9|plot|used_by||" ]
+}
+
+@test "_knit_input_artifact_record_used_by_edge records nothing for a without-provenance target" {
+    _seed_artifact "tables/run7.csv" "table" "file" "csvfile" "sha256:abc" 0
+    knit_register "plot" _plot "Plot."
+    knit_without_provenance
+    _plot() { :; }
+    knit_done
+    local cmd
+    cmd=$(_knit_command_mangle "plot")
+    _knit_input_artifact_record_used_by_edge "tables/run7.csv" "${cmd}" "target-uuid-9"
+    _knit_prov_ensure_table
+    [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE};")" = "0" ]
+}
+
+@test "the after-callback records nothing when the parameter value is empty" {
+    knit_register "plot" _plot "Plot."
+    _plot() { :; }
+    knit_done
+    _knit_input_artifact_after_cb "input_table" "csvfile" "" --input-table ""
+    _knit_prov_ensure_table
+    [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE};")" = "0" ]
+}
+
+@test "_knit_input_artifact_record_used_by_edge records nothing when unbootstrapped" {
+    _seed_artifact "tables/run7.csv" "table" "file" "csvfile" "sha256:abc" 0
+    knit_register "plot" _plot "Plot."
+    _plot() { :; }
+    knit_done
+    local cmd
+    cmd=$(_knit_command_mangle "plot")
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/nonexistent"
+    _knit_input_artifact_record_used_by_edge "tables/run7.csv" "${cmd}" "target-uuid-9"
+    _KNIT_IS_BOOTSTRAPPED="1"
+    _knit_prov_ensure_table
+    [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" = "0" ]
+}
+
 # ---------- @with_input_artifact shorthand ----------
 
 @test "the @with_input_artifact shorthand declares an input artifact" {

@@ -855,6 +855,75 @@ _knit_input_artifact_before_cb() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_input_artifact_record_used_by_edge()
+#
+# Record a "used_by" provenance edge from a consumed artifact to a consuming
+# invocation. The edge's source is the artifacts row (its id resolved by path,
+# its node name the "artifacts" label — the same node the "produced" edge points
+# at, so lineage joins as A --produced--> artifact --used_by--> B); its target is
+# the consumer. Delegates the gated write to _knit_record_used_by_edge, so it
+# records nothing when recording is disabled, on a suppressed rank, before
+# bootstrap, when the target does not participate in the graph, or when no row is
+# found at the path (empty id -> no edge). Mirrors
+# _knit_resource_record_used_by_edge.
+#
+# @param[in] value      Artifacts-relative path of the consumed artifact.
+# @param[in] target_cmd Mangled command name of the consumer (the edge target).
+# @param[in] target_id  Resolved row id of the consumer (the edge target).
+# ------------------------------------------------------------------------------
+_knit_input_artifact_record_used_by_edge() {
+    local value="$1"
+    local target_cmd="$2"
+    local target_id="$3"
+    # Resolve the artifacts row id by path. An unbootstrapped experiment has no
+    # database to read, so leave the id empty and let the gated edge writer drop
+    # the edge rather than query a database that does not exist.
+    local artifact_id=""
+    if _knit_is_bootstrapped; then
+        local tbl esc
+        _knit_db_sql_ident tbl "${_KNIT_ARTIFACTS_TABLE}"
+        _knit_sql_escape esc "${value}"
+        artifact_id=$(_knit_sqlite3 \
+            "SELECT id FROM ${tbl} WHERE path='${esc}' LIMIT 1;" \
+            2>/dev/null) || artifact_id=""
+    fi
+    _knit_record_used_by_edge "${artifact_id}" "${_KNIT_ARTIFACTS_TABLE}" \
+        "${target_cmd}" "${target_id}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_input_artifact_after_cb()
+#
+# After-callback installed by knit_with_input_artifact on the consuming command,
+# one per declared input-artifact parameter. It records a "used_by" edge from the
+# consumed artifact to the command itself. It runs as an after-callback (not the
+# before-callback that validates the artifact) because the consumer's frame is on
+# the executing stacks only from push time onward, so the consumer's resolved row
+# id — the edge target — is available here but not in the before-callback (this
+# mirrors _knit_resource_dep_after_cb).
+#
+# The declared parameter name, required kind, and verify flag are bound at
+# registration time and carried as the first three arguments (only the parameter
+# name is used here; the kind and verify flag are kept for symmetry with the
+# before-callback's bound arguments); the trailing arguments are the command's own
+# runtime arguments, scanned for the parameter value. A missing value is silently
+# skipped: the before-callback already fataled on it, so this is only reached with
+# a valid value.
+#
+# @param[in] param Normalized name of the input-artifact parameter to read.
+# ------------------------------------------------------------------------------
+_knit_input_artifact_after_cb() {
+    local param="$1"
+    shift 3
+    local value
+    value=$(knit_get_parameter "${param}" "$@") || value=""
+    [[ -z "${value}" ]] && return 0
+    [[ ${#_KNIT_EXECUTING_COMMAND[@]} -gt 0 ]] || return 0
+    _knit_input_artifact_record_used_by_edge "${value}" \
+        "${_KNIT_EXECUTING_COMMAND[-1]}" "${_KNIT_EXECUTING_ROW_ID[-1]}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_with_input_artifact()
 #
 # Declare that the command currently being registered consumes a recorded
@@ -875,7 +944,8 @@ _knit_input_artifact_before_cb() {
 # opt-in; both are read by the validation before-callback and, later, by describe
 # / --help. A before-callback resolves the path to the artifacts row and validates
 # it (existence + kind, plus an opt-in checksum re-verification) before the body
-# runs.
+# runs, and an after-callback records a "used_by" provenance edge from the consumed
+# artifact to this command.
 #
 # ```
 # knit_register "plot" plot "Plot a results table."
@@ -935,12 +1005,19 @@ knit_with_input_artifact() {
     # before-callback and (later) by describe / --help.
     printf -v "_KNIT_CMD_${cmd}_input_artifact_${param}" '%s' "${param_kind}"
     # Record the --verify-checksum opt-in in a companion marker.
+    local verify=""
     if _knit_decl_flag_present "verify-checksum" "${@:3}"; then
+        verify="1"
         printf -v "_KNIT_CMD_${cmd}_input_artifact_verify_${param}" '%s' "1"
     fi
 
     # Register the underlying required string parameter whose value is the
-    # artifact's artifacts-relative path. Every input artifact is required.
+    # artifact's artifacts-relative path, the before-callback that validates the
+    # named artifact before the body runs, and the after-callback that records the
+    # "used_by" provenance edge from the artifact to this command. Every input
+    # artifact is required.
     [[ -z "${description}" ]] && description="Input artifact of kind \"${param_kind}\"."
     knit_with_required "${param_name}:string" "${description}"
+    _knit_run_before _knit_input_artifact_before_cb "${param}" "${param_kind}" "${verify}"
+    _knit_run_after _knit_input_artifact_after_cb "${param}" "${param_kind}" "${verify}"
 }
