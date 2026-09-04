@@ -138,6 +138,58 @@ _knit_artifacts_row_sql() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_artifact_is_bound()
+#
+# Return 0 when the command bound the named artifact at least once in this
+# invocation, 1 otherwise. Consults the per-invocation binding stash filled by
+# knit_artifact (_KNIT_CMD_<cmd>_artifact_bound, keyed by normalized name).
+#
+# @param[in] cmd  Mangled command name.
+# @param[in] name Normalized artifact name.
+# @return 0 if bound, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_artifact_is_bound() {
+    local cmd="$1"
+    local name="$2"
+    _knit_set_exists "_KNIT_CMD_${cmd}_artifact_bound" || return 1
+    # shellcheck disable=SC2178 # nameref to the command's binding stash
+    local -n _knit_bound_ref="_KNIT_CMD_${cmd}_artifact_bound"
+    [[ -v _knit_bound_ref["${name}"] ]]
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_artifact_check_lower_bound()
+#
+# Enforce the lower bound of every variadic "+" output the command declared: a
+# "name:kind+" collection must bind at least one member. Called at record time,
+# after the body (see _knit_artifacts_record_sql), so a "+" output the body left
+# unbound is fatal and names the offending output. A "*" output that bound
+# nothing is allowed (a fan-out that produced nothing is not an error), and a
+# scalar output has no lower bound here (its at-most-once rule lives in
+# knit_artifact). Iterates the command's declared artifacts set and consults the
+# per-invocation binding stash.
+#
+# @param[in] cmd       Mangled command name of the producer.
+# @param[in] demangled Demangled producer name, used in the fatal message.
+# ------------------------------------------------------------------------------
+_knit_artifact_check_lower_bound() {
+    local cmd="$1"
+    local demangled="$2"
+    _knit_set_exists "_KNIT_CMD_${cmd}_artifacts" || return 0
+    local -a artifacts=()
+    _knit_set_array artifacts "_KNIT_CMD_${cmd}_artifacts"
+    local name variadic_var kind_var kind
+    for name in "${artifacts[@]}"; do
+        variadic_var="_KNIT_CMD_${cmd}_artifact_variadic_${name}"
+        [[ "${!variadic_var:-}" == "+" ]] || continue
+        _knit_artifact_is_bound "${cmd}" "${name}" && continue
+        kind_var="_KNIT_CMD_${cmd}_3_${name}_type"
+        kind="${!kind_var:-}"
+        knit_fatal "Artifact \"${name}\" (kind \"${kind}\", one or more) requires at least one knit_artifact binding, but command \"${demangled}\" bound none."
+    done
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_artifacts_record_sql()
 #
 # Build (into the caller's variable, without executing) the SQL that records every
@@ -165,6 +217,9 @@ _knit_artifacts_record_sql() {
     local producer_id="$3"
     local producer_name="$4"
     __knit_ret=""
+    # A "+" output must have bound at least one member; check before the early
+    # return below, which would otherwise skip a command that bound nothing.
+    _knit_artifact_check_lower_bound "${cmd}" "${producer_name}"
     _knit_set_exists "_KNIT_CMD_${cmd}_artifact_name" || return 0
     # shellcheck disable=SC2178 # nameref to the command's binding stash
     local -n _knit_ar_names="_KNIT_CMD_${cmd}_artifact_name"
@@ -293,6 +348,54 @@ _knit_artifact_kind_type() {
     local kind="$2"
     [[ -v _KNIT_ARTIFACT_KINDS["${kind}"] ]] || return 1
     __knit_ret="${_KNIT_ARTIFACT_KINDS[${kind}]}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_artifact_parse_kind()
+#
+# Split an optional trailing cardinality quantifier off the kind portion of an
+# artifact spec (the text after "name:"). A single trailing "*" (zero or more) or
+# "+" (one or more) marks the artifact as a variadic collection; a kind with no
+# quantifier is scalar. The bare kind (quantifier removed) and the quantifier
+# character ("" for scalar, "*", or "+") are stored in the caller's variables.
+# Shared by knit_with_output_artifact and knit_with_input_artifact so the syntax
+# and its validation cannot drift between the two directions.
+#
+# A kind carrying more than one trailing quantifier (e.g. "file**" or "file*+")
+# is fatal, so a typo is caught at registration rather than silently dropped. The
+# bare kind is not validated here (each caller validates it against the kind
+# registry as before).
+#
+# @param[out] __knit_ret1 Name of the variable to hold the bare kind.
+# @param[out] __knit_ret2 Name of the variable to hold the quantifier ("", "*", "+").
+# @param[in]  raw_kind    The kind portion of the spec (may carry a quantifier).
+# @param[in]  context     Caller name, used in the fatal message.
+# ------------------------------------------------------------------------------
+_knit_artifact_parse_kind() {
+    local -n __knit_ret1=$1
+    local -n __knit_ret2=$2
+    local raw_kind="$3"
+    local context="$4"
+    # The working locals are __-prefixed so they cannot shadow a caller that names
+    # its output variable "kind" or "quant" (a nameref resolves to the local of
+    # the same name, misdirecting the write — see the nameref-shadow gotcha).
+    local __knit_bare="${raw_kind}"
+    local __knit_quant=""
+    case "${__knit_bare}" in
+        *[*+])
+            __knit_quant="${__knit_bare: -1}"
+            __knit_bare="${__knit_bare%?}"
+            ;;
+    esac
+    # Strip one quantifier above; if another still trails, the spec carried more
+    # than one, which is malformed.
+    case "${__knit_bare}" in
+        *[*+])
+            knit_fatal "${context}: artifact kind \"${raw_kind}\" may carry at most one trailing quantifier (\"*\" or \"+\")."
+            ;;
+    esac
+    __knit_ret1="${__knit_bare}"
+    __knit_ret2="${__knit_quant}"
 }
 
 # ------------------------------------------------------------------------------
@@ -433,10 +536,15 @@ knit_with_output_artifact() {
         knit_fatal "Artifact \"${param_spec}\" is missing a kind annotation (expected \"name:kind\")."
     fi
     local param_name="${param_spec%%:*}"
-    local param_kind="${param_spec#*:}"
+    local param_kind_raw="${param_spec#*:}"
     if ! _knit_name_is_valid "${param_name}"; then
         knit_fatal "Artifact \"${param_name}\" does not have a valid name."
     fi
+    # A trailing "*" (zero or more) or "+" (one or more) on the kind marks a
+    # variadic collection: the body may bind this name several times. The bare
+    # kind drives everything else exactly as a scalar one.
+    local param_kind param_quant
+    _knit_artifact_parse_kind param_kind param_quant "${param_kind_raw}" "knit_with_output_artifact"
     # The kind drives everything: it must be a registered artifact kind, and its
     # backing physical type ("file"/"directory") feeds the fileparam marker, the
     # runtime existence check, and the checksum.
@@ -460,6 +568,12 @@ knit_with_output_artifact() {
     printf -v "_KNIT_CMD_${cmd}_3_${output}_description" '%s' "$2"
     printf -v "_KNIT_CMD_${cmd}_3_${output}_default"     '%s' ""
     printf -v "_KNIT_CMD_${cmd}_3_${output}_type"        '%s' "${param_kind}"
+    # Record the cardinality quantifier ("*"/"+") for a variadic collection so the
+    # bind guard, the post-body lower-bound check, and describe can tell a
+    # collection from a scalar. A scalar declares no marker.
+    if [[ -n "${param_quant}" ]]; then
+        printf -v "_KNIT_CMD_${cmd}_artifact_variadic_${output}" '%s' "${param_quant}"
+    fi
     # An artifact is recorded as a row in the artifacts table (with a "produced"
     # edge), not as a column of the command's own table. It is kept in the
     # command's artifacts set (not the outputs set), so it synthesizes no
@@ -691,10 +805,22 @@ knit_artifact() {
         || declare -gA "_KNIT_CMD_${cmd}_artifact_name=()"
     _knit_set_exists "_KNIT_CMD_${cmd}_artifact_checksum" \
         || declare -gA "_KNIT_CMD_${cmd}_artifact_checksum=()"
+    _knit_set_exists "_KNIT_CMD_${cmd}_artifact_bound" \
+        || declare -gA "_KNIT_CMD_${cmd}_artifact_bound=()"
     # shellcheck disable=SC2178 # nameref to the command's binding stash
     local -n names_ref="_KNIT_CMD_${cmd}_artifact_name"
     if [[ -v names_ref["${rel}"] ]]; then
         knit_fatal "Artifact path \"${rel}\" is already recorded for \"${demangled_cmd}\"; artifacts are write-once."
+    fi
+    # Bind-once for a scalar name. The write-once guard above keys on the PATH, so
+    # a scalar name bound to two different paths would otherwise pass silently. A
+    # variadic name (declared "name:kind*" / "name:kind+") may bind any number of
+    # times; a scalar name may bind at most once.
+    local variadic_var="_KNIT_CMD_${cmd}_artifact_variadic_${normalized}"
+    # shellcheck disable=SC2178 # nameref to the command's binding stash
+    local -n bound_ref="_KNIT_CMD_${cmd}_artifact_bound"
+    if [[ -z "${!variadic_var:-}" && -v bound_ref["${normalized}"] ]]; then
+        knit_fatal "Artifact \"${name}\" is already bound for \"${demangled_cmd}\"; a scalar artifact binds once (declare it \"${name}:<kind>*\" or \"${name}:<kind>+\" to bind several)."
     fi
     # Shortcut: materialize the entry from a source elsewhere, then fall through
     # to the same existence/type/checksum path as the direct-write form.
@@ -742,6 +868,10 @@ knit_artifact() {
     names_ref["${rel}"]="${normalized}"
     # shellcheck disable=SC2034 # written through the nameref
     sums_ref["${rel}"]="sha256:${hex}"
+    # Mark the name as bound, so a scalar name's bind-once guard fires on a second
+    # bind and the post-body "+" lower-bound check sees this name satisfied.
+    # shellcheck disable=SC2034 # written through the nameref
+    bound_ref["${normalized}"]=1
 }
 
 # ------------------------------------------------------------------------------
