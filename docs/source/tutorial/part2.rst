@@ -403,6 +403,47 @@ relocatable table --- and a lineage that runs both ways from it: back to the
 command that built it and every render that went into it, and forward to every
 command that read it.
 
+.. _tutorial-variadic-artifacts:
+
+Fan out and gather: variadic artifacts and glob inputs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+So far each artifact is a single file. A run often scatters a whole *set*
+instead --- one shard per seed, one frame per step --- whose count you do not
+know up front. Add a quantifier to the kind and the name becomes a
+**collection**: ``*`` means *zero or more* and ``+`` means *one or more*. The
+body then binds that one name once per member, and each binding is its own
+``artifacts`` row with its own ``produced`` edge:
+
+.. knit-code:: ../_code/variadic_artifacts.sh
+   :language: bash
+   :start-after: # START fanout
+   :end-before: # END fanout
+
+The quantifier is the only change from a scalar declaration. ``*`` accepts an
+empty fan-out; ``+`` requires at least one binding and is fatal after the body if
+none was made. The write-once rule still holds, so each member needs a distinct
+artifacts-relative path (here ``shard-${i}.csv``).
+
+A consumer gathers the whole set through a matching quantifier on an **input**
+artifact. Its argument is a comma-separated list of artifacts-relative paths, and
+any element with a glob metacharacter (``*``, ``?``, ``[``) is expanded against
+the artifacts root --- so one ``--shards 'shard-*.csv'`` discovers the whole
+fan-out. ``knit_input_artifact_paths`` fills a bash array with the resolved
+on-disk paths, in order, de-duplicated:
+
+.. knit-code:: ../_code/variadic_artifacts.sh
+   :language: bash
+   :start-after: # START glob
+   :end-before: # END glob
+
+Run the two in sequence --- ``shard --n 3`` then ``merge --shards
+'shard-*.csv'`` --- and the glob resolves to whatever the fan-out produced. Knit
+validates every resolved member before the body runs and records one ``used_by``
+edge per member, so the lineage ``shard --produced--> member --used_by--> merge``
+holds for every file in the set. Quote the glob so your shell does not expand it
+before Knit does.
+
 .. _tutorial-prepare:
 
 Step 6 --- Prepare: build a batch of runs, release them on your terms

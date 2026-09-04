@@ -10,7 +10,9 @@
 # command parameters (including file/directory inputs and outputs whose paths and
 # sha256 content checksums are recorded), declaring the headline result and the
 # exportable artifacts of a command (@with_output --result / @with_output_artifact
-# / knit_artifact), downloadable input artifacts fetched as named resources
+# / knit_artifact), variadic artifact collections that fan out and are gathered by
+# glob (name:kind* / name:kind+ / knit_input_artifact_paths), downloadable input
+# artifacts fetched as named resources
 # (knit fetch / @with_resource), setups (reproducible environments, optionally
 # backed by a Spack environment), job submission to a batch scheduler (Slurm/PBS/Flux) — or to
 # local background processes when no scheduler is present — MPI application
@@ -956,7 +958,52 @@
 # `table [required, artifact: csvfile]` annotation), no database read needed.
 #
 # -----------------------------------------------------------------------------
-# 19. Remove recorded entities (knit remove)
+# 19. Fan out and gather: variadic artifacts (name:kind* / name:kind+)
+# -----------------------------------------------------------------------------
+#   ./full.sh shard --n 3
+#   ./full.sh merge --shards 'shard-*.csv'
+#
+# Sections 17 and 18 bound and consumed ONE artifact at a time. A run often
+# scatters a whole SET instead — one shard per seed, one frame per step — whose
+# count you do not know up front. Add a quantifier to the KIND and the name
+# becomes a COLLECTION: `*` is zero-or-more, `+` is one-or-more. `shard` declares
+# a `*` output and binds the same name once per member, so one run scatters a
+# whole set — each binding is its own `artifacts` row with its own `produced`
+# edge:
+#
+#   @with_output_artifact "shards:csvfile*" "..."
+#   knit_artifact "shards" "shard-${i}.csv"       # bound once per member
+#
+# `*` accepts an empty fan-out; `+` requires at least one binding and is fatal
+# after the body if none was made. The write-once rule is unchanged, so each
+# member needs a distinct artifacts-relative path.
+#
+# `merge` gathers the whole set through a `+` input. Its argument is a
+# comma-separated list of artifacts-relative paths, and any element with a glob
+# metacharacter (*, ?, [) is expanded against the artifacts root — so one
+# `--shards 'shard-*.csv'` discovers the fan-out. knit_input_artifact_paths fills
+# a bash array with the resolved on-disk paths, in order, de-duplicated:
+#
+#   @with_input_artifact "shards:csvfile+" "..."
+#   knit_input_artifact_paths paths "$(knit_get_parameter shards "$@")"
+#
+# Quote the glob so your shell does not expand it before knit does. Knit
+# validates every resolved member before the body runs (containment, existence,
+# kind) and records one used_by edge per member, so the fan-out is fully joined
+# into the lineage shard --produced--> member --used_by--> merge. Walk the whole
+# group at once:
+#
+#   ./full.sh query graph --format column --header --exec \
+#       "MATCH (p)-[pr:produced]->(a:artifacts)-[ub:used_by]->(c)
+#          WHERE pr.source_name = 'shard' AND ub.target_name = 'merge'
+#          RETURN pr.source_name, a.path, ub.target_name"
+#
+# `knit describe --only shard` shows the collection as `shards [csvfile, zero or
+# more]`; `--only merge` shows `shards [required, artifact: csvfile, one or
+# more]`.
+#
+# -----------------------------------------------------------------------------
+# 20. Remove recorded entities (knit remove)
 # -----------------------------------------------------------------------------
 #   ./full.sh remove job --id <uuid> --dry-run
 #
@@ -1011,7 +1058,7 @@
 #   ./full.sh remove job --id <uuid> --keep-files --yes
 #
 # -----------------------------------------------------------------------------
-# 20. Clean up
+# 21. Clean up
 # -----------------------------------------------------------------------------
 #   rm -rf .knit setups jobs artifacts
 #
@@ -1567,6 +1614,51 @@ _plot() {
     rows=$(( $(wc -l < "${csv}") - 1 ))
     knit_output "rows" "${rows}"
     printf 'plot: %s holds %s tabulated estimate(s)\n' "${csv}" "${rows}"
+}
+@done
+
+# -----------------------------------------------------------------------------
+# shard / merge — variadic artifacts: a fan-out output and a glob input
+# (guided-tour section 19).
+#
+# shard declares a "*" (zero or more) output collection and binds the same name
+# once per member, so one run scatters several CSV shards — each its own
+# artifacts row and produced edge. merge declares a "+" (one or more) input and
+# reads every member through a single glob argument: knit_input_artifact_paths
+# expands `shard-*.csv` against the artifacts root and fills a bash array with the
+# resolved paths. This is the discover-and-merge pattern — scatter with `*`,
+# gather with a `+`/`*` glob — without either side hard-coding the member count.
+# -----------------------------------------------------------------------------
+@command "shard" "Fan out a range into several CSV shards (a * collection)."
+@with_optional "n:integer" "3" "How many shards to write."
+@with_table
+@with_output_artifact "shards:csvfile*" "The CSV shards (zero or more)."
+_shard() {
+    local n out i
+    n="$(knit_get_parameter "n" "$@")"
+    out="$(knit_artifact_dir)"
+    mkdir -p "${out}"
+    for (( i = 1; i <= n; i++ )); do
+        printf 'id,sq\n%d,%d\n' "${i}" "$(( i * i ))" > "${out}/shard-${i}.csv"
+        knit_artifact "shards" "shard-${i}.csv"     # one binding per member
+    done
+    printf 'wrote %s shard(s) under %s\n' "${n}" "${out}"
+}
+@done
+
+@command "merge" "Merge every shard matched by a glob (a + input)."
+@with_input_artifact "shards:csvfile+" "Artifacts-relative glob of the shards to merge (one or more)."
+@with_table
+@with_output "rows:integer" "0" "Total data rows across the merged shards." --result
+_merge() {
+    local -a paths=()
+    knit_input_artifact_paths paths "$(knit_get_parameter "shards" "$@")"
+    local total=0 p
+    for p in "${paths[@]}"; do
+        total=$(( total + $(wc -l < "${p}") - 1 ))  # drop each shard's header line
+    done
+    knit_output "rows" "${total}"
+    printf 'merged %s shard(s), %s data row(s)\n' "${#paths[@]}" "${total}"
 }
 @done
 
