@@ -913,6 +913,58 @@ knit_input_artifact_path() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_input_artifact_paths()
+#
+# Resolve a variadic input-artifact parameter value (a comma-separated list of
+# artifacts-relative paths, each possibly a glob) into an array of absolute
+# on-disk locations, filling a caller-named bash array. This is how the body of a
+# command that consumes a variadic ("name:kind*" / "name:kind+") input turns the
+# parameter value into usable paths, iterated safely — no comma splitting, so a
+# path that holds a space stays intact:
+#
+# ```
+# local -a tables
+# knit_input_artifact_paths tables "$(knit_get_parameter tables "$@")"
+# for csv in "${tables[@]}"; do cat "${csv}" >> combined.csv; done
+# ```
+#
+# The raw value is resolved with the shared list resolver (comma split, then glob
+# expansion relative to the artifacts root under nullglob, first-seen de-duped, in
+# order), the same one the before-callback validated against and the after-callback
+# recorded edges for, so the body's view cannot drift from validation and lineage.
+# Each resolved element is turned into its absolute path under the artifacts root;
+# an element that resolves outside that root is fatal (the same containment rule
+# knit_input_artifact_path enforces). An empty value fills the array with no
+# elements. The scalar knit_input_artifact_path is unchanged and still serves a
+# scalar input (one path, printed to stdout).
+#
+# This returns by nameref (not stdout) because the result is an array that may
+# hold paths with spaces, which a command-substitution capture would re-split.
+# Its internal locals are all "__"-prefixed: it is public API, so a caller may
+# name the output array anything, and a plain internal sharing that name would
+# shadow the nameref (see the project's nameref-shadow-collision note).
+#
+# @param[out] __knit_ret Name of the array variable to fill with absolute paths.
+# @param[in]  __raw      The raw parameter value (comma-separated list of paths).
+# ------------------------------------------------------------------------------
+knit_input_artifact_paths() {
+    local -n __knit_ret=$1
+    local __raw="$2"
+    __knit_ret=()
+    local __root
+    _knit_artifact_root __root
+    local -a __rels=()
+    _knit_input_artifact_resolve_list __rels "${__raw}" "${__root}"
+    local __rel __abs __discard
+    for __rel in "${__rels[@]}"; do
+        if ! _knit_artifact_resolve_path __abs __discard "${__root}" "${__rel}"; then
+            knit_fatal "Artifact path \"${__rel}\" is outside the artifacts directory \"${__root}\"."
+        fi
+        __knit_ret+=( "${__abs}" )
+    done
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_input_artifact_param_kind()
 #
 # Store the artifact kind a parameter was declared with in the caller-named
@@ -929,8 +981,10 @@ knit_input_artifact_path() {
 # @param[in] param      Normalized parameter name.
 # ------------------------------------------------------------------------------
 _knit_input_artifact_param_kind() {
+    # shellcheck disable=SC2178 # scalar nameref; __knit_ret is an array elsewhere in this file
     local -n __knit_ret=$1
     local __var="_KNIT_CMD_${2}_input_artifact_${3}"
+    # shellcheck disable=SC2178 # scalar nameref; __knit_ret is an array elsewhere in this file
     __knit_ret="${!__var:-}"
 }
 
@@ -958,6 +1012,7 @@ _knit_input_artifact_param_kind() {
 # @param[in]  root       The resolved (absolute) artifacts root.
 # ------------------------------------------------------------------------------
 _knit_input_artifact_resolve_list() {
+    # shellcheck disable=SC2178 # array nameref; __knit_ret is a scalar elsewhere in this file
     local -n __knit_ret=$1
     local raw="$2"
     local root="$3"
@@ -1165,7 +1220,7 @@ _knit_input_artifact_record_used_by_edge() {
 # @fn _knit_input_artifact_after_cb()
 #
 # After-callback installed by knit_with_input_artifact on the consuming command,
-# one per declared input-artifact parameter. It records a "used_by" edge from the
+# one per declared input-artifact parameter. It records a "used_by" edge from each
 # consumed artifact to the command itself. It runs as an after-callback (not the
 # before-callback that validates the artifact) because the consumer's frame is on
 # the executing stacks only from push time onward, so the consumer's resolved row
@@ -1174,23 +1229,47 @@ _knit_input_artifact_record_used_by_edge() {
 #
 # The declared parameter name, required kind, verify flag, and cardinality
 # quantifier are bound at registration time and carried as the first four
-# arguments (only the parameter name is used here; the rest are kept for symmetry
-# with the before-callback's bound arguments); the trailing arguments are the
-# command's own runtime arguments, scanned for the parameter value. A missing
-# value is silently skipped: the before-callback already fataled on it, so this is
-# only reached with a valid value.
+# arguments (the parameter name and the quantifier are used here); the trailing
+# arguments are the command's own runtime arguments, scanned for the parameter
+# value. A missing value is silently skipped: the before-callback already fataled
+# on it, so this is only reached with a valid value.
+#
+# A scalar input records the single edge for its one value. A variadic input
+# resolves its comma-separated value with the shared list resolver (the same one
+# the before-callback validated against) and records one "used_by" edge per
+# resolved element, so every consumed member joins the lineage; an empty "*" list
+# resolves to nothing and records no edge.
 #
 # @param[in] param Normalized name of the input-artifact parameter to read.
+# @param[in] kind  Required artifact kind (unused; kept for argument symmetry).
+# @param[in] verify Checksum opt-in flag (unused; kept for argument symmetry).
+# @param[in] quant Cardinality quantifier ("*"/"+"), empty for a scalar input.
 # ------------------------------------------------------------------------------
 _knit_input_artifact_after_cb() {
     local param="$1"
+    local quant="$4"
     shift 4
     local value
     value=$(knit_get_parameter "${param}" "$@") || value=""
     [[ -z "${value}" ]] && return 0
     [[ ${#_KNIT_EXECUTING_COMMAND[@]} -gt 0 ]] || return 0
-    _knit_input_artifact_record_used_by_edge "${value}" \
-        "${_KNIT_EXECUTING_COMMAND[-1]}" "${_KNIT_EXECUTING_ROW_ID[-1]}"
+    local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
+    local row_id="${_KNIT_EXECUTING_ROW_ID[-1]}"
+    # A scalar input records a single edge for its one value.
+    if [[ -z "${quant}" ]]; then
+        _knit_input_artifact_record_used_by_edge "${value}" "${cmd}" "${row_id}"
+        return 0
+    fi
+    # A variadic input records one edge per resolved element (the before-callback
+    # already validated each). An empty "*" list resolves to nothing, so no edge.
+    local root
+    _knit_artifact_root root
+    local -a elements=()
+    _knit_input_artifact_resolve_list elements "${value}" "${root}"
+    local element
+    for element in "${elements[@]}"; do
+        _knit_input_artifact_record_used_by_edge "${element}" "${cmd}" "${row_id}"
+    done
 }
 
 # ------------------------------------------------------------------------------

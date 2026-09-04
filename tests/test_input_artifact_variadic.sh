@@ -275,3 +275,122 @@ _seed_artifact() {
     [[ "${_bcbs[*]}" == *"_knit_input_artifact_before_cb"* ]]
     [[ "${_bcbs[*]}" == *"+"* ]]
 }
+
+# ---------- knit_input_artifact_paths (body accessor) ----------
+
+@test "input artifact paths resolves a comma list to absolute paths in order" {
+    local -a paths
+    knit_input_artifact_paths paths "b.csv,a.csv"
+    [ "${#paths[@]}" -eq 2 ]
+    [ "${paths[0]}" = "$(realpath -m "${_ART_ROOT}/b.csv")" ]
+    [ "${paths[1]}" = "$(realpath -m "${_ART_ROOT}/a.csv")" ]
+}
+
+@test "input artifact paths expands a glob to absolute paths, sorted" {
+    mkdir -p "${_ART_ROOT}/tables"
+    : > "${_ART_ROOT}/tables/b.csv"
+    : > "${_ART_ROOT}/tables/a.csv"
+    local -a paths
+    knit_input_artifact_paths paths "tables/*.csv"
+    [ "${#paths[@]}" -eq 2 ]
+    [ "${paths[0]}" = "$(realpath -m "${_ART_ROOT}/tables/a.csv")" ]
+    [ "${paths[1]}" = "$(realpath -m "${_ART_ROOT}/tables/b.csv")" ]
+}
+
+@test "input artifact paths keeps a resolved path that contains a space" {
+    mkdir -p "${_ART_ROOT}/my dir"
+    : > "${_ART_ROOT}/my dir/a.csv"
+    local -a paths
+    knit_input_artifact_paths paths "my dir/*.csv"
+    [ "${#paths[@]}" -eq 1 ]
+    [ "${paths[0]}" = "$(realpath -m "${_ART_ROOT}/my dir/a.csv")" ]
+}
+
+@test "input artifact paths fills an empty array for an empty value" {
+    local -a paths
+    knit_input_artifact_paths paths ""
+    [ "${#paths[@]}" -eq 0 ]
+}
+
+@test "input artifact paths is fatal on an element outside the artifacts root" {
+    local -a paths
+    run knit_input_artifact_paths paths "../escape.csv"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"outside the artifacts directory"* ]]
+}
+
+# ---------- _knit_input_artifact_after_cb: variadic used_by edges ----------
+
+@test "a variadic + consumer records one used_by edge per resolved element" {
+    knit_register_artifact "csvfile:file" "A CSV table."
+    _seed_artifact "tables/a.csv" "t" "file" "csvfile" "sha256:x" 0
+    _seed_artifact "tables/b.csv" "t" "file" "csvfile" "sha256:y" 0
+    knit_register "vplot" _vplot "Plot."
+    knit_with_table "vplot"
+    knit_with_input_artifact "tables:csvfile+" "The tables."
+    _vplot() { :; }
+    knit_done
+    _knit_invoke_command "vplot" --tables "tables/a.csv,tables/b.csv"
+    # One used_by edge per consumed member, each from its artifacts row to the
+    # consumer's recorded row.
+    [ "$(_knit_sqlite3 \
+        "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" -eq 2 ]
+    local rid
+    rid=$(_knit_sqlite3 "SELECT id FROM vplot;")
+    [ "$(_knit_sqlite3 \
+        "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE} \
+         WHERE edge_type='used_by' AND target_id='${rid}';")" -eq 2 ]
+    [ "$(_knit_sqlite3 \
+        "SELECT source_id FROM ${_KNIT_PROV_TABLE} \
+         WHERE edge_type='used_by' ORDER BY source_id;")" \
+        = "$(printf 'id-tables/a.csv\nid-tables/b.csv')" ]
+}
+
+@test "a variadic consumer records one edge per element for a glob" {
+    knit_register_artifact "csvfile:file" "A CSV table."
+    mkdir -p "${_ART_ROOT}/tables"
+    : > "${_ART_ROOT}/tables/a.csv"
+    : > "${_ART_ROOT}/tables/b.csv"
+    _seed_artifact "tables/a.csv" "t" "file" "csvfile" "sha256:x" 0
+    _seed_artifact "tables/b.csv" "t" "file" "csvfile" "sha256:y" 0
+    knit_register "gplot" _gplot "Plot."
+    knit_with_table "gplot"
+    knit_with_input_artifact "tables:csvfile+" "The tables."
+    _gplot() { :; }
+    knit_done
+    _knit_invoke_command "gplot" --tables "tables/*.csv"
+    [ "$(_knit_sqlite3 \
+        "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" -eq 2 ]
+}
+
+@test "a variadic star consumer with an empty list records no used_by edge" {
+    knit_register_artifact "csvfile:file" "A CSV table."
+    knit_register "eplot" _eplot "Plot."
+    knit_with_table "eplot"
+    knit_with_input_artifact "tables:csvfile*" "The tables."
+    _eplot() { :; }
+    knit_done
+    _knit_invoke_command "eplot" --tables ""
+    [ "$(_knit_sqlite3 \
+        "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" -eq 0 ]
+    # The consumer's own row is still recorded.
+    [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM eplot;")" -eq 1 ]
+}
+
+@test "the consumer row stores the raw pattern, not its expansion" {
+    knit_register_artifact "csvfile:file" "A CSV table."
+    mkdir -p "${_ART_ROOT}/tables"
+    : > "${_ART_ROOT}/tables/a.csv"
+    : > "${_ART_ROOT}/tables/b.csv"
+    _seed_artifact "tables/a.csv" "t" "file" "csvfile" "sha256:x" 0
+    _seed_artifact "tables/b.csv" "t" "file" "csvfile" "sha256:y" 0
+    knit_register "rplot" _rplot "Plot."
+    knit_with_table "rplot"
+    knit_with_input_artifact "tables:csvfile+" "The tables."
+    _rplot() { :; }
+    knit_done
+    _knit_invoke_command "rplot" --tables "tables/*.csv"
+    # The row keeps the raw glob the caller passed; the concrete set consumed lives
+    # in the per-element used_by edges.
+    [ "$(_knit_sqlite3 "SELECT tables FROM rplot;")" = "tables/*.csv" ]
+}
