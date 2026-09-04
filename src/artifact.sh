@@ -989,6 +989,74 @@ _knit_input_artifact_param_kind() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_output_artifact_quantifier()
+#
+# Store the cardinality quantifier a produced artifact was declared with in the
+# caller-named variable: "*" (zero or more), "+" (one or more), or the empty
+# string for a scalar artifact. Reads the per-name marker
+# (_KNIT_CMD_<cmd>_artifact_variadic_<name>) that knit_with_output_artifact
+# records, so describe and --help can mark a collection distinctly from a scalar
+# from the registration tables alone (no database read). The name must be
+# normalized, as it is stored in the artifacts set.
+#
+# @param[out] __knit_ret Name of the variable to hold the quantifier (empty if scalar).
+# @param[in] cmd        Mangled command name.
+# @param[in] name       Normalized artifact name.
+# ------------------------------------------------------------------------------
+_knit_output_artifact_quantifier() {
+    # shellcheck disable=SC2178 # scalar nameref; __knit_ret is an array elsewhere in this file
+    local -n __knit_ret=$1
+    local __var="_KNIT_CMD_${2}_artifact_variadic_${3}"
+    # shellcheck disable=SC2178 # scalar nameref; __knit_ret is an array elsewhere in this file
+    __knit_ret="${!__var:-}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_input_artifact_quantifier()
+#
+# Store the cardinality quantifier a consumed artifact parameter was declared
+# with in the caller-named variable: "*" (zero or more), "+" (one or more), or
+# the empty string for a scalar parameter. Reads the per-parameter marker
+# (_KNIT_CMD_<cmd>_input_artifact_variadic_<param>) that knit_with_input_artifact
+# records, so describe and --help can mark a collection distinctly from a scalar
+# from the registration tables alone (no database read). The parameter name must
+# be normalized, as it is stored in the parameter sets.
+#
+# @param[out] __knit_ret Name of the variable to hold the quantifier (empty if scalar).
+# @param[in] cmd        Mangled command name.
+# @param[in] param      Normalized parameter name.
+# ------------------------------------------------------------------------------
+_knit_input_artifact_quantifier() {
+    # shellcheck disable=SC2178 # scalar nameref; __knit_ret is an array elsewhere in this file
+    local -n __knit_ret=$1
+    local __var="_KNIT_CMD_${2}_input_artifact_variadic_${3}"
+    # shellcheck disable=SC2178 # scalar nameref; __knit_ret is an array elsewhere in this file
+    __knit_ret="${!__var:-}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_artifact_cardinality_phrase()
+#
+# Store the human-readable cardinality phrase for a quantifier in the
+# caller-named variable: "zero or more" for "*", "one or more" for "+", and the
+# empty string for a scalar (empty quantifier). Shared by every describe format
+# and --help so a collection reads the same way everywhere.
+#
+# @param[out] __knit_ret Name of the variable to hold the phrase (empty if scalar).
+# @param[in] quant      Cardinality quantifier ("*", "+", or empty).
+# ------------------------------------------------------------------------------
+_knit_artifact_cardinality_phrase() {
+    # shellcheck disable=SC2178 # scalar nameref; __knit_ret is an array elsewhere in this file
+    local -n __knit_ret=$1
+    # shellcheck disable=SC2178 # scalar nameref; __knit_ret is an array elsewhere in this file
+    case "$2" in
+        '*') __knit_ret="zero or more" ;;
+        '+') __knit_ret="one or more" ;;
+        *)   __knit_ret="" ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_input_artifact_resolve_list()
 #
 # Resolve a variadic input-artifact value into an array of artifacts-relative

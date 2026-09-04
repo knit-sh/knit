@@ -407,6 +407,13 @@ _knit_describe_json_param() {
     if [[ -n "${akind}" ]]; then
         _knit_describe_json_str s "${akind}"
         printf -v e '%s"artifact":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
+        local aquant aphrase
+        _knit_input_artifact_quantifier aquant "${cmd}" "${param}"
+        _knit_artifact_cardinality_phrase aphrase "${aquant}"
+        if [[ -n "${aphrase}" ]]; then
+            _knit_describe_json_str s "${aphrase}"
+            printf -v e '%s"cardinality":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
+        fi
     fi
     local when_raw_var="_KNIT_CMD_${cmd}_2_${param}_when_raw"
     if [[ -v "${when_raw_var}" ]]; then
@@ -549,6 +556,13 @@ _knit_describe_json_artifact() {
     printf -v e '%s"type":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     _knit_describe_json_str s "${desc}"
     printf -v e '%s"description":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
+    local aquant aphrase
+    _knit_output_artifact_quantifier aquant "${cmd}" "${output}"
+    _knit_artifact_cardinality_phrase aphrase "${aquant}"
+    if [[ -n "${aphrase}" ]]; then
+        _knit_describe_json_str s "${aphrase}"
+        printf -v e '%s"cardinality":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
+    fi
     local is_result=false
     _knit_describe_is_result "${cmd}" "${output}" && is_result=true
     printf -v e '%s"result":%s%s' "${inner}" "${cs}" "${is_result}"; entries+=("${e}")
@@ -906,6 +920,13 @@ _knit_describe_yaml_param() {
     if [[ -n "${akind}" ]]; then
         _knit_describe_yaml_scalar sc "${akind}" "${cont}"
         printf '%sartifact: %s\n' "${key}" "${sc}"
+        local aquant aphrase
+        _knit_input_artifact_quantifier aquant "${cmd}" "${param}"
+        _knit_artifact_cardinality_phrase aphrase "${aquant}"
+        if [[ -n "${aphrase}" ]]; then
+            _knit_describe_yaml_scalar sc "${aphrase}" "${cont}"
+            printf '%scardinality: %s\n' "${key}" "${sc}"
+        fi
     fi
     local when_raw_var="_KNIT_CMD_${cmd}_2_${param}_when_raw"
     if [[ -v "${when_raw_var}" ]]; then
@@ -1011,6 +1032,13 @@ _knit_describe_yaml_artifact() {
     printf '%stype: %s\n' "${key}" "${sc}"
     _knit_describe_yaml_scalar sc "${desc}" "${cont}"
     printf '%sdescription: %s\n' "${key}" "${sc}"
+    local aquant aphrase
+    _knit_output_artifact_quantifier aquant "${cmd}" "${output}"
+    _knit_artifact_cardinality_phrase aphrase "${aquant}"
+    if [[ -n "${aphrase}" ]]; then
+        _knit_describe_yaml_scalar sc "${aphrase}" "${cont}"
+        printf '%scardinality: %s\n' "${key}" "${sc}"
+    fi
     local is_result=false
     _knit_describe_is_result "${cmd}" "${output}" && is_result=true
     printf '%sresult: %s\n' "${key}" "${is_result}"
@@ -1302,7 +1330,7 @@ _knit_describe_default_options() {
     printf '%s%-*s  %s\n' "${cind}" "${max}" "--help" \
         "Print this help message and exit."
 
-    local desc dflt when_var ann cons rtype akind
+    local desc dflt when_var ann cons rtype akind aquant aphrase
     _knit_set_array __items "${req_var}"
     for opt in "${__items[@]}"; do
         _knit_param_description desc "${cmd}" "${opt}"
@@ -1316,6 +1344,9 @@ _knit_describe_default_options() {
         [[ -n "${rtype}" ]] && ann+=", resource: ${rtype}"
         _knit_input_artifact_param_kind akind "${cmd}" "${opt}"
         [[ -n "${akind}" ]] && ann+=", artifact: ${akind}"
+        _knit_input_artifact_quantifier aquant "${cmd}" "${opt}"
+        _knit_artifact_cardinality_phrase aphrase "${aquant}"
+        [[ -n "${aphrase}" ]] && ann+=", ${aphrase}"
         [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
     done
@@ -1331,6 +1362,11 @@ _knit_describe_default_options() {
         [[ -n "${cons}" ]] && ann+=", ${cons}"
         _knit_resource_param_type rtype "${cmd}" "${opt}"
         [[ -n "${rtype}" ]] && ann+=", resource: ${rtype}"
+        _knit_input_artifact_param_kind akind "${cmd}" "${opt}"
+        [[ -n "${akind}" ]] && ann+=", artifact: ${akind}"
+        _knit_input_artifact_quantifier aquant "${cmd}" "${opt}"
+        _knit_artifact_cardinality_phrase aphrase "${aquant}"
+        [[ -n "${aphrase}" ]] && ann+=", ${aphrase}"
         [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
     done
@@ -1416,12 +1452,15 @@ _knit_describe_default_artifacts() {
     done
 
     _knit_describe_default_heading "Artifacts" "${use_color}" "${indent}"
-    local type desc ann
+    local type desc ann quant phrase
     for o in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens o2 "${o}"
         _knit_output_type type "${cmd}" "${o}"
         _knit_output_description desc "${cmd}" "${o}"
         ann="${type}"
+        _knit_output_artifact_quantifier quant "${cmd}" "${o}"
+        _knit_artifact_cardinality_phrase phrase "${quant}"
+        [[ -n "${phrase}" ]] && ann+=", ${phrase}"
         _knit_describe_is_result "${cmd}" "${o}" && ann+=", result"
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${o2}" "${ann}" "${desc}"
     done
@@ -1606,7 +1645,7 @@ _knit_describe_md_constraints() {
     # The accumulator must not be named like any internal local of a helper it
     # passes itself to by name: _knit_describe_enum_constraint has its own
     # "local __out", which would shadow a nameref pointed at a caller "__out".
-    local acc __when_var __rtype __akind
+    local acc __when_var __rtype __akind __aquant __aphrase
     _knit_describe_enum_constraint acc "${__cmd}" "${__param}"
     _knit_resource_param_type __rtype "${__cmd}" "${__param}"
     if [[ -n "${__rtype}" ]]; then
@@ -1617,6 +1656,12 @@ _knit_describe_md_constraints() {
     if [[ -n "${__akind}" ]]; then
         [[ -n "${acc}" ]] && acc+='; '
         acc+="artifact: \`${__akind}\`"
+        _knit_input_artifact_quantifier __aquant "${__cmd}" "${__param}"
+        _knit_artifact_cardinality_phrase __aphrase "${__aquant}"
+        if [[ -n "${__aphrase}" ]]; then
+            [[ -n "${acc}" ]] && acc+='; '
+            acc+="${__aphrase}"
+        fi
     fi
     __when_var="_KNIT_CMD_${__cmd}_2_${__param}_when_raw"
     if [[ -v "${__when_var}" ]]; then
@@ -1757,13 +1802,16 @@ _knit_describe_md_artifacts() {
     local cmd="$1"
     printf '#### Artifacts\n\n'
     local -a rows=()
-    local o dname type desc row c_name c_type c_desc res
+    local o dname type desc row c_name c_type c_desc res aquant aphrase
     local -a __items
     _knit_set_array __items "_KNIT_CMD_${cmd}_artifacts"
     for o in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens dname "${o}"
         _knit_output_type type "${cmd}" "${o}"
         _knit_output_description desc "${cmd}" "${o}"
+        _knit_output_artifact_quantifier aquant "${cmd}" "${o}"
+        _knit_artifact_cardinality_phrase aphrase "${aquant}"
+        [[ -n "${aphrase}" ]] && type+=", ${aphrase}"
         res=""
         _knit_describe_is_result "${cmd}" "${o}" && res="result"
         _knit_describe_md_code c_name "${dname}"
