@@ -178,14 +178,14 @@ _seed_artifact() {
 # ---------- _knit_input_artifact_before_cb ----------
 
 @test "before-cb is fatal on an empty parameter value" {
-    run _knit_input_artifact_before_cb "input_table" "csvfile" ""
+    run _knit_input_artifact_before_cb "input_table" "csvfile" "" ""
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"requires an artifact of kind"* ]]
     [[ "${output}" == *"--input-table"* ]]
 }
 
 @test "before-cb is fatal when no artifact is recorded at the path" {
-    run _knit_input_artifact_before_cb "input_table" "csvfile" "" \
+    run _knit_input_artifact_before_cb "input_table" "csvfile" "" "" \
         --input-table "tables/absent.csv"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"No artifact recorded at path"* ]]
@@ -193,14 +193,14 @@ _seed_artifact() {
 
 @test "before-cb passes when the recorded kind matches" {
     _seed_artifact "tables/run7.csv" "table" "file" "csvfile" "sha256:abc" 0
-    run _knit_input_artifact_before_cb "input_table" "csvfile" "" \
+    run _knit_input_artifact_before_cb "input_table" "csvfile" "" "" \
         --input-table "tables/run7.csv"
     [ "${status}" -eq 0 ]
 }
 
 @test "before-cb is fatal on a kind mismatch" {
     _seed_artifact "figures/fig.svg" "figure" "file" "svgfile" "sha256:abc" 0
-    run _knit_input_artifact_before_cb "input_table" "csvfile" "" \
+    run _knit_input_artifact_before_cb "input_table" "csvfile" "" "" \
         --input-table "figures/fig.svg"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"is of kind \"svgfile\""* ]]
@@ -211,7 +211,7 @@ _seed_artifact() {
     _seed_artifact "tables/run7.csv" "table" "file" "csvfile" "sha256:abc" 0
     _KNIT_IS_BOOTSTRAPPED=""
     _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/nonexistent"
-    run _knit_input_artifact_before_cb "input_table" "csvfile" "" \
+    run _knit_input_artifact_before_cb "input_table" "csvfile" "" "" \
         --input-table "tables/run7.csv"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"No artifact recorded at path"* ]]
@@ -225,7 +225,7 @@ _seed_artifact() {
     local hex
     _knit_sha256 hex "${_ART_ROOT}/tables/run7.csv"
     _seed_artifact "tables/run7.csv" "table" "file" "csvfile" "sha256:${hex}" 0
-    run _knit_input_artifact_before_cb "input_table" "csvfile" "1" \
+    run _knit_input_artifact_before_cb "input_table" "csvfile" "1" "" \
         --input-table "tables/run7.csv"
     [ "${status}" -eq 0 ]
 }
@@ -234,7 +234,7 @@ _seed_artifact() {
     mkdir -p "${_ART_ROOT}/tables"
     printf 'the-data\n' > "${_ART_ROOT}/tables/run7.csv"
     _seed_artifact "tables/run7.csv" "table" "file" "csvfile" "sha256:deadbeef" 0
-    run _knit_input_artifact_before_cb "input_table" "csvfile" "1" \
+    run _knit_input_artifact_before_cb "input_table" "csvfile" "1" "" \
         --input-table "tables/run7.csv"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"failed checksum verification"* ]]
@@ -288,7 +288,7 @@ _seed_artifact() {
     knit_done
     _KNIT_EXECUTING_COMMAND=("$(_knit_command_mangle "plot")")
     _KNIT_EXECUTING_ROW_ID=("target-uuid-1")
-    _knit_input_artifact_after_cb "input_table" "csvfile" "" \
+    _knit_input_artifact_after_cb "input_table" "csvfile" "" "" \
         --input-table "tables/absent.csv"
     _knit_prov_ensure_table
     [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" = "0" ]
@@ -324,7 +324,7 @@ _seed_artifact() {
     knit_register "plot" _plot "Plot."
     _plot() { :; }
     knit_done
-    _knit_input_artifact_after_cb "input_table" "csvfile" "" --input-table ""
+    _knit_input_artifact_after_cb "input_table" "csvfile" "" "" --input-table ""
     _knit_prov_ensure_table
     [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE};")" = "0" ]
 }

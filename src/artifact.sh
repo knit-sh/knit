@@ -935,43 +935,97 @@ _knit_input_artifact_param_kind() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_input_artifact_before_cb()
+# @fn _knit_input_artifact_resolve_list()
 #
-# Before-callback installed by knit_with_input_artifact on the consuming command,
-# one per declared input-artifact parameter. Before the command body runs it
-# resolves the parameter value (an artifacts-relative path) to its row in the
-# framework-owned artifacts table and validates it:
-#   - the parameter value (the path) missing → fatal;
-#   - no artifacts row at that path → fatal (an unbootstrapped experiment has
-#     recorded no artifact, so it is treated as a missing row);
-#   - the recorded kind not equal to the declared kind → fatal (the physical type
-#     is implied by the kind, so it needs no separate check);
-#   - when --verify-checksum was declared, the recomputed digest of the resolved
-#     entry not equal to the recorded checksum → fatal.
-# Returning normally lets the command proceed; a fatal aborts it before the body
-# runs.
+# Resolve a variadic input-artifact value into an array of artifacts-relative
+# paths. The raw value is a comma-separated list; each element is resolved in two
+# steps: split on the comma, then expand. An element that holds a glob
+# metacharacter ("*", "?", "[") is expanded with bash pathname expansion relative
+# to the artifacts root, under nullglob, so a pattern matching nothing yields no
+# element (never the literal pattern) and recursive "**" stays disabled; the
+# artifacts-root prefix is then stripped so each match is an artifacts-relative
+# path (the form the artifacts row stores). An element with no metacharacter is
+# taken verbatim. An empty element (from an empty value or a stray comma) is
+# skipped. The result keeps element order, and within one globbed element bash's
+# sorted order, and is de-duplicated first-seen, so overlapping patterns do not
+# record a path twice. Word splitting is disabled during expansion, so a root or
+# element that holds a space stays intact. Shared by the input-artifact
+# before-callback, after-callback, and knit_input_artifact_paths, so validation,
+# edges, and the body's view cannot drift.
 #
-# The declared parameter name, required kind, and verify flag are bound at
-# registration time and carried as the first three arguments; the trailing
-# arguments are the command's own runtime arguments, scanned for the parameter
-# value. Mirrors _knit_resource_dep_before_cb.
-#
-# @param[in] param  Normalized name of the input-artifact parameter to read.
-# @param[in] kind   Artifact kind the resolved artifact must carry.
-# @param[in] verify "1" to re-verify the recorded checksum, empty to skip.
+# @param[out] __knit_ret Name of the array variable to fill with relative paths.
+# @param[in]  raw        The raw parameter value (comma-separated list of paths).
+# @param[in]  root       The resolved (absolute) artifacts root.
 # ------------------------------------------------------------------------------
-_knit_input_artifact_before_cb() {
-    local param="$1"
-    local kind="$2"
-    local verify="$3"
-    shift 3
-    local value
-    value=$(knit_get_parameter "${param}" "$@") || value=""
-    if [[ -z "${value}" ]]; then
-        local opt
-        _knit_str_underscores_to_hyphens opt "${param}"
-        knit_fatal "This command requires an artifact of kind \"${kind}\" (parameter --${opt})."
-    fi
+_knit_input_artifact_resolve_list() {
+    local -n __knit_ret=$1
+    local raw="$2"
+    local root="$3"
+    __knit_ret=()
+    [[ -z "${raw}" ]] && return 0
+    # Save the globbing options this resolver toggles, so the caller's shell state
+    # is left unchanged: nullglob ON (a no-match yields nothing) and globstar OFF
+    # ("**" is not recursive).
+    local had_nullglob=0 had_globstar=0
+    shopt -q nullglob && had_nullglob=1
+    shopt -q globstar && had_globstar=1
+    shopt -s nullglob
+    shopt -u globstar
+    local prefix="${root%/}/"
+    local -A seen=()
+    local -a elems=()
+    IFS=',' read -r -a elems <<< "${raw}"
+    # Disable word splitting for the glob assignment below, so a root or element
+    # that holds a space is not split; pathname expansion still yields one array
+    # element per match.
+    local IFS=''
+    local elem match rel
+    for elem in "${elems[@]}"; do
+        [[ -z "${elem}" ]] && continue
+        if [[ "${elem}" == *"*"* \
+           || "${elem}" == *"?"* \
+           || "${elem}" == *"["* ]]; then
+            # shellcheck disable=SC2206 # intentional glob (nullglob) into an array
+            local -a hits=( ${prefix}${elem} )
+            for match in "${hits[@]}"; do
+                rel="${match#"${prefix}"}"
+                [[ -v seen["${rel}"] ]] && continue
+                seen["${rel}"]=1
+                __knit_ret+=( "${rel}" )
+            done
+        else
+            [[ -v seen["${elem}"] ]] && continue
+            seen["${elem}"]=1
+            __knit_ret+=( "${elem}" )
+        fi
+    done
+    # Restore the globbing options to their prior state.
+    [[ "${had_nullglob}" == 1 ]] || shopt -u nullglob
+    [[ "${had_globstar}" == 1 ]] && shopt -s globstar
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_input_artifact_validate_one()
+#
+# Validate one resolved input-artifact element against the recorded artifacts
+# table: the path must name a recorded artifacts row (an unbootstrapped experiment
+# has recorded none, so a missing row is treated as "no artifact"), the recorded
+# kind must equal the declared kind (the physical type is implied by the kind, so
+# it needs no separate check), and — when --verify-checksum was declared — the
+# recomputed digest of the resolved entry must equal the recorded checksum. Any
+# failure is fatal and names the offending element, so the first bad element of a
+# variadic list aborts the command before its body runs. Shared by the scalar and
+# variadic paths of _knit_input_artifact_before_cb.
+#
+# @param[in] kind   Artifact kind the element must carry.
+# @param[in] verify "1" to re-verify the recorded checksum, empty to skip.
+# @param[in] value  The element's artifacts-relative path.
+# ------------------------------------------------------------------------------
+_knit_input_artifact_validate_one() {
+    local kind="$1"
+    local verify="$2"
+    local value="$3"
     # Resolve the path to its artifacts row. An unbootstrapped experiment has
     # recorded no artifact, so leave the row empty and let the "no artifact" fatal
     # below fire rather than query a database that does not exist.
@@ -1004,6 +1058,70 @@ _knit_input_artifact_before_cb() {
             knit_fatal "Artifact at \"${value}\" failed checksum verification: recorded \"${recorded_sum}\", got \"sha256:${hex}\"."
         fi
     fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_input_artifact_before_cb()
+#
+# Before-callback installed by knit_with_input_artifact on the consuming command,
+# one per declared input-artifact parameter. Before the command body runs it
+# resolves the parameter value and validates it. A scalar input carries a single
+# artifacts-relative path, validated as one element. A variadic input ("*"/"+")
+# carries a comma-separated list, resolved (split then glob, see
+# _knit_input_artifact_resolve_list) into elements that are validated in turn; the
+# first bad element is fatal and names which element. A missing value for a scalar
+# input is fatal, an empty "+" list is fatal, and an empty "*" list validates
+# trivially (the body simply receives no element). Each element is checked by
+# _knit_input_artifact_validate_one (existence + kind, plus an opt-in checksum).
+# Returning normally lets the command proceed; a fatal aborts it before the body
+# runs.
+#
+# The declared parameter name, required kind, verify flag, and cardinality
+# quantifier are bound at registration time and carried as the first four
+# arguments; the trailing arguments are the command's own runtime arguments,
+# scanned for the parameter value. Mirrors _knit_resource_dep_before_cb.
+#
+# @param[in] param  Normalized name of the input-artifact parameter to read.
+# @param[in] kind   Artifact kind the resolved artifact(s) must carry.
+# @param[in] verify "1" to re-verify the recorded checksum, empty to skip.
+# @param[in] quant  Cardinality quantifier: "" scalar, "*" zero or more, "+" one or more.
+# ------------------------------------------------------------------------------
+_knit_input_artifact_before_cb() {
+    local param="$1"
+    local kind="$2"
+    local verify="$3"
+    local quant="$4"
+    shift 4
+    local value
+    value=$(knit_get_parameter "${param}" "$@") || value=""
+    # Scalar input: a single path, required and validated as one element.
+    if [[ -z "${quant}" ]]; then
+        if [[ -z "${value}" ]]; then
+            local opt
+            _knit_str_underscores_to_hyphens opt "${param}"
+            knit_fatal "This command requires an artifact of kind \"${kind}\" (parameter --${opt})."
+        fi
+        _knit_input_artifact_validate_one "${kind}" "${verify}" "${value}"
+        return 0
+    fi
+    # Variadic input: a comma-separated list, each element split then globbed. The
+    # lower bound ("*" = 0, "+" = 1) applies to the expanded list.
+    local root
+    _knit_artifact_root root
+    local -a elements=()
+    _knit_input_artifact_resolve_list elements "${value}" "${root}"
+    if [[ ${#elements[@]} -eq 0 ]]; then
+        if [[ "${quant}" == "+" ]]; then
+            local opt
+            _knit_str_underscores_to_hyphens opt "${param}"
+            knit_fatal "This command requires at least one artifact of kind \"${kind}\" (parameter --${opt}); the list \"${value}\" resolved to nothing."
+        fi
+        return 0
+    fi
+    local element
+    for element in "${elements[@]}"; do
+        _knit_input_artifact_validate_one "${kind}" "${verify}" "${element}"
+    done
 }
 
 # ------------------------------------------------------------------------------
@@ -1054,19 +1172,19 @@ _knit_input_artifact_record_used_by_edge() {
 # id — the edge target — is available here but not in the before-callback (this
 # mirrors _knit_resource_dep_after_cb).
 #
-# The declared parameter name, required kind, and verify flag are bound at
-# registration time and carried as the first three arguments (only the parameter
-# name is used here; the kind and verify flag are kept for symmetry with the
-# before-callback's bound arguments); the trailing arguments are the command's own
-# runtime arguments, scanned for the parameter value. A missing value is silently
-# skipped: the before-callback already fataled on it, so this is only reached with
-# a valid value.
+# The declared parameter name, required kind, verify flag, and cardinality
+# quantifier are bound at registration time and carried as the first four
+# arguments (only the parameter name is used here; the rest are kept for symmetry
+# with the before-callback's bound arguments); the trailing arguments are the
+# command's own runtime arguments, scanned for the parameter value. A missing
+# value is silently skipped: the before-callback already fataled on it, so this is
+# only reached with a valid value.
 #
 # @param[in] param Normalized name of the input-artifact parameter to read.
 # ------------------------------------------------------------------------------
 _knit_input_artifact_after_cb() {
     local param="$1"
-    shift 3
+    shift 4
     local value
     value=$(knit_get_parameter "${param}" "$@") || value=""
     [[ -z "${value}" ]] && return 0
@@ -1135,13 +1253,19 @@ knit_with_input_artifact() {
         knit_fatal "knit_with_input_artifact requires a \"name:kind\" annotation; got \"${spec}\"."
     fi
     local param_name="${spec%%:*}"
-    local param_kind="${spec#*:}"
+    local param_kind_raw="${spec#*:}"
     if [[ -z "${param_name}" ]] || ! _knit_name_is_valid "${param_name}"; then
         knit_fatal "knit_with_input_artifact: \"${param_name}\" is not a valid parameter name."
     fi
-    if [[ -z "${param_kind}" ]]; then
+    if [[ -z "${param_kind_raw}" ]]; then
         knit_fatal "knit_with_input_artifact requires an artifact kind after the colon; got \"${spec}\"."
     fi
+    # A trailing "*" (zero or more) or "+" (one or more) on the kind marks a
+    # variadic input: the parameter value is a comma-separated list of paths, each
+    # split then glob-expanded relative to the artifacts root. The bare kind drives
+    # validation exactly as a scalar one.
+    local param_kind param_quant
+    _knit_artifact_parse_kind param_kind param_quant "${param_kind_raw}" "knit_with_input_artifact"
     # The kind must be a registered artifact kind (builtins included). The physical
     # type it is backed by is implied by the kind, so it needs no separate check.
     local param_type
@@ -1156,6 +1280,12 @@ knit_with_input_artifact() {
     # Record the required kind in a per-parameter marker, read by the validation
     # before-callback and (later) by describe / --help.
     printf -v "_KNIT_CMD_${cmd}_input_artifact_${param}" '%s' "${param_kind}"
+    # Record the cardinality quantifier ("*"/"+") for a variadic input so the
+    # before-callback, after-callback, and describe can tell a list from a scalar.
+    # A scalar declares no marker.
+    if [[ -n "${param_quant}" ]]; then
+        printf -v "_KNIT_CMD_${cmd}_input_artifact_variadic_${param}" '%s' "${param_quant}"
+    fi
     # Record the --verify-checksum opt-in in a companion marker.
     local verify=""
     if _knit_decl_flag_present "verify-checksum" "${@:3}"; then
@@ -1163,13 +1293,18 @@ knit_with_input_artifact() {
         printf -v "_KNIT_CMD_${cmd}_input_artifact_verify_${param}" '%s' "1"
     fi
 
-    # Register the underlying required string parameter whose value is the
-    # artifact's artifacts-relative path, the before-callback that validates the
-    # named artifact before the body runs, and the after-callback that records the
-    # "used_by" provenance edge from the artifact to this command. Every input
-    # artifact is required.
+    # Register the underlying string parameter whose value is the artifact's
+    # artifacts-relative path (a comma-separated list for a variadic input), the
+    # before-callback that validates the named artifact(s) before the body runs, and
+    # the after-callback that records the "used_by" provenance edge(s). A scalar or
+    # "+" input is required; a "*" input is optional and defaults to empty, so an
+    # absent or empty list is allowed.
     [[ -z "${description}" ]] && description="Input artifact of kind \"${param_kind}\"."
-    knit_with_required "${param_name}:string" "${description}"
-    _knit_run_before _knit_input_artifact_before_cb "${param}" "${param_kind}" "${verify}"
-    _knit_run_after _knit_input_artifact_after_cb "${param}" "${param_kind}" "${verify}"
+    if [[ "${param_quant}" == "*" ]]; then
+        knit_with_optional "${param_name}:string" "" "${description}"
+    else
+        knit_with_required "${param_name}:string" "${description}"
+    fi
+    _knit_run_before _knit_input_artifact_before_cb "${param}" "${param_kind}" "${verify}" "${param_quant}"
+    _knit_run_after _knit_input_artifact_after_cb "${param}" "${param_kind}" "${verify}" "${param_quant}"
 }
