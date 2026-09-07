@@ -92,7 +92,7 @@ done
 
 check_file "${jobdir}/.stdout" "job stdout captured"
 check_grep "marker: zlibenv-built" "${jobdir}/.stdout" \
-    "job inherited the setup's exported marker"
+    "job inherited the setup's declared marker"
 check_grep "spack_env: .*/spack-env" "${jobdir}/.stdout" \
     "job re-activated the Spack environment (SPACK_ENV set)"
 check_grep "zlib: found" "${jobdir}/.stdout" \

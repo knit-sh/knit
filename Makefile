@@ -108,8 +108,8 @@ check-ai: knit.sh
 shellcheck:
 	shellcheck $(KNIT_SOURCE)
 
-.PHONY: doccheck
-doccheck:
+.PHONY: check-comments
+check-comments:
 	@status=0; \
 	for f in src/*.sh; do \
 		bash maint/doccheck.sh "$$f" || status=1; \

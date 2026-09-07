@@ -16,11 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Run doccheck
+      - name: Run check-comments
         id: doccheck
         run: |
           set +e
-          output=$(make doccheck 2>&1)
+          output=$(make check-comments 2>&1)
           status=$?
           set -e
           if [ $status -ne 0 ]; then

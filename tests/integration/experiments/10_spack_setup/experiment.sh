@@ -21,8 +21,8 @@ knit_register_setup "zlibenv" __zlibenv_setup "Build a Spack environment with zl
 knit_with_spack_specs "zlib"
 __zlibenv_setup() {
     # The Spack environment is already built and activated by the time this body
-    # runs. Export a marker so the dependent job can confirm inheritance.
-    export SPACK_SETUP_MARKER="zlibenv-built"
+    # runs. Declare a marker so the dependent job can confirm inheritance.
+    knit_setup_env_set SPACK_SETUP_MARKER "zlibenv-built"
 }
 knit_done
 
