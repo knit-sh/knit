@@ -48,4 +48,9 @@ check_contains "${job_path}" "/doc/marker/bin" \
 check_contains "${job_path}" "setups/tools/bin" \
     "the setup prepended its own PATH entry onto the job's PATH"
 
+# The setup is sourced once (by the jobscript), so its prepended bin appears
+# exactly once — not doubled by a second activation.
+bin_count=$(printf '%s' "${job_path}" | tr ':' '\n' | grep -cE '/setups/tools/bin$' || true)
+check_eq "${bin_count}" "1" "the setup's bin is prepended exactly once (no double-source)"
+
 dc_summary

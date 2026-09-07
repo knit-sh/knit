@@ -673,8 +673,13 @@ _knit_job_killed_trap() {
 # Before-callback installed on every setup subcommand by knit_register_job.
 # Verifies that KNIT_JOB_PREFIX is set, ensuring the job was invoked through
 # `knit submit` rather than called directly, installs the pre-termination signal
-# handler, marks the job "running", records the allocated hostnames, and sources
-# the setup environment when the job uses one.
+# handler, marks the job "running", and records the allocated hostnames.
+#
+# It does NOT source the setup environment: the jobscript already sources the
+# setup's .activate.sh before it re-enters the experiment (see
+# _knit_sched_write_jobscript), and the exports survive the exec, so the
+# environment is already active here. Sourcing again would re-apply the
+# composable env_append/env_prepend lines and double their entries.
 # ------------------------------------------------------------------------------
 _knit_job_before_cb() {
     if [[ ! -v KNIT_JOB_PREFIX ]]; then
@@ -686,12 +691,6 @@ _knit_job_before_cb() {
     trap '_knit_job_killed_trap' HUP TERM USR1
     _knit_job_set_state "running"
     _knit_job_record_hostnames
-    # Setup-less jobs (no knit_with_setup) run without a KNIT_SETUP_PREFIX, so
-    # there is no environment to source.
-    if [[ -n "${KNIT_SETUP_PREFIX:-}" ]]; then
-        # shellcheck disable=SC1091
-        source "${KNIT_SETUP_PREFIX}/.activate.sh"
-    fi
 }
 
 # ------------------------------------------------------------------------------

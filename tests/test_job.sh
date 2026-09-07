@@ -207,17 +207,20 @@ _stub_hostfile() {
     [ "$status" -ne 0 ]
 }
 
-@test "job before callback sources .activate.sh, marks running, records hosts" {
+@test "job before callback marks running and records hosts without re-sourcing the setup env" {
     export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
+    # The jobscript already sources .activate.sh before re-entering the experiment
+    # (see _knit_sched_write_jobscript), so the before-callback must NOT source it
+    # again: a second source would double composable env_append/env_prepend entries.
+    # The canary must therefore stay unset.
     printf 'export _KNIT_JOB_CANARY=activated\n' > "${KNIT_SETUP_PREFIX}/.activate.sh"
     _seed_jobs "job" "submitted"
     _stub_hostfile
     _knit_job_before_cb
-    [ "${_KNIT_JOB_CANARY}" = "activated" ]
+    [ -z "${_KNIT_JOB_CANARY:-}" ]
     [ "$(_state_of "job")" = "running" ]
     [ "$(_hostnames_of "job")" = "nodeA,nodeB" ]
-    unset _KNIT_JOB_CANARY
 }
 
 @test "job before callback marks running without sourcing when there is no setup" {

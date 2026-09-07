@@ -434,12 +434,15 @@ _knit_sched_write_jobscript() {
         # Setup-less jobs (no knit_with_setup) carry no setup directory.
         if [[ -n "${setup_path}" ]]; then
             printf 'export KNIT_SETUP_PREFIX=%q\n' "${setup_path}"
-            # Source the setup environment before re-entering the experiment.
-            # Optional parameter defaults written as ENV[...] are resolved during
-            # argument expansion, which happens before the job's before-callback
-            # sources the environment, so the setup's exported variables must
-            # already be present in this shell. They survive the exec below
-            # because they are exported.
+            # Source the setup environment once, here, before re-entering the
+            # experiment. This is the sole activation of the setup for a job: the
+            # job's before-callback deliberately does not source it again (a second
+            # source would double composable env_append/env_prepend entries). It
+            # must happen here rather than in the before-callback because optional
+            # parameter defaults written as ENV[...] are resolved during argument
+            # expansion, which runs before any before-callback, so the setup's
+            # exported variables must already be present in this shell. They survive
+            # the exec below because they are exported.
             printf 'source %q\n' "${setup_path}/.activate.sh"
         fi
         # Pass the experiment's .knit down: the jump below moves the compute-side
