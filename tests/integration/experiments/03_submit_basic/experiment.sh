@@ -2,7 +2,7 @@
 # Integration test experiment 03_submit_basic.
 #
 # Registers:
-#   - a setup "env" that exports a variable captured into .activate.sh
+#   - a setup "env" that declares a variable recorded into .activate.sh
 #   - a job "hello" that prints that variable and the compute-node hostname
 #
 # The job is submitted with `knit submit`, which generates a batch script and
@@ -16,8 +16,8 @@ knit_set_program_description "Basic job submission integration test experiment."
 
 knit_register_setup "env" __env_setup_fn "Prepare a trivial environment."
 __env_setup_fn() {
-    # Exported so it is captured into <setup>/.activate.sh and visible to the job.
-    export GREETING="hello-from-setup"
+    # Declared so it is recorded into <setup>/.activate.sh and visible to the job.
+    knit_setup_env_set GREETING "hello-from-setup"
 }
 knit_done
 

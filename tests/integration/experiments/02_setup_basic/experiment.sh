@@ -3,7 +3,7 @@
 #
 # Registers a single setup called "basic" that:
 #   1. Writes a greeting file into $KNIT_SETUP_PREFIX
-#   2. Exports MY_GREETING so it ends up in .activate.sh
+#   2. Declares MY_GREETING so it ends up in .activate.sh
 
 source knit.sh
 
@@ -18,8 +18,8 @@ __basic_setup_fn() {
     # Write the message to a file in the setup directory.
     printf '%s\n' "${message}" > "${KNIT_SETUP_PREFIX}/greeting.txt"
 
-    # Export a variable so it appears in .activate.sh.
-    export MY_GREETING="${message}"
+    # Declare a variable so it is recorded into .activate.sh.
+    knit_setup_env_set MY_GREETING "${message}"
 }
 knit_done
 

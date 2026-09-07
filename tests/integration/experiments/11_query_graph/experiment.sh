@@ -24,8 +24,8 @@ knit_set_program_description "knit query graph end-to-end integration test exper
 # A setup consumed by the job (--setup), so a "used_by" edge is recorded.
 knit_register_setup "env" __env_setup_fn "Prepare a trivial environment."
 __env_setup_fn() {
-    # Exported so it is captured into <setup>/.activate.sh and visible to the job.
-    export ANALYZE_MARKER="env-built"
+    # Declared so it is recorded into <setup>/.activate.sh and visible to the job.
+    knit_setup_env_set ANALYZE_MARKER "env-built"
 }
 knit_done
 

@@ -2,7 +2,7 @@
 # Integration test experiment 21_multi_bootstrap.
 #
 # Registers just enough to record a real run before re-running bootstrap:
-#   - a user setup "env" that exports a variable captured into .activate.sh
+#   - a user setup "env" that declares a variable recorded into .activate.sh
 #   - a job "hello" that prints that variable and the compute-node hostname
 #
 # The test bootstraps, submits "hello" (recording a "jobs" row and creating a
@@ -14,8 +14,8 @@ knit_set_program_description "Re-runnable bootstrap (update mode) integration te
 
 knit_register_setup "env" __env_setup_fn "Prepare a trivial environment."
 __env_setup_fn() {
-    # Exported so it is captured into <setup>/.activate.sh and visible to the job.
-    export GREETING="hello-from-setup"
+    # Declared so it is recorded into <setup>/.activate.sh and visible to the job.
+    knit_setup_env_set GREETING "hello-from-setup"
 }
 knit_done
 

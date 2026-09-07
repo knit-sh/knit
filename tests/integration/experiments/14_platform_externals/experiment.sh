@@ -30,7 +30,7 @@ knit_with_spack_specs "gmake"
 __makeenv_setup() {
     # The Spack environment is already built and activated by the time this body
     # runs; gmake came from the profile's external, so nothing was compiled.
-    export SPACK_SETUP_MARKER="makeenv-built"
+    knit_setup_env_set SPACK_SETUP_MARKER "makeenv-built"
 }
 knit_done
 

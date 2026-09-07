@@ -10,7 +10,7 @@
 #
 #   - Setup "mpienv" compiles mpi_allreduce.c with the cluster's mpicc (OpenMPI
 #     on Slurm, MPICH on PBS — the same MPI knit's launcher auto-detects) and
-#     exports the resulting binary's absolute path. The launcher forwards that
+#     records the resulting binary's absolute path. The launcher forwards that
 #     path (like any setup env var) to every rank.
 #
 #   - App "allreduce" runs that compiled binary once per rank. The binary calls
@@ -37,9 +37,9 @@ __mpienv_setup_fn() {
     mkdir -p "${KNIT_SETUP_PREFIX}/bin"
     bin="${KNIT_SETUP_PREFIX}/bin/mpi_allreduce"
     mpicc -O2 -o "${bin}" "${src}"
-    # Absolute path, baked from KNIT_SETUP_PREFIX; captured into .activate.sh and
+    # Absolute path, baked from KNIT_SETUP_PREFIX; recorded into .activate.sh and
     # forwarded to every rank by the launcher.
-    export MPI_ALLREDUCE_BIN="${bin}"
+    knit_setup_env_set MPI_ALLREDUCE_BIN "${bin}"
 }
 knit_done
 

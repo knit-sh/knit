@@ -100,7 +100,7 @@ EOF
     cmd=$(_knit_command_mangle "setup:libs")
     local -a cbs
     eval "cbs=(\"\${_KNIT_CMD_${cmd}_after_cb[@]}\")"
-    # The generic dump must come first (it truncates .activate.sh), the spack
+    # The generic writer must come first (it truncates .activate.sh), the spack
     # re-activation block last (it appends and is authoritative).
     [[ "${cbs[0]}" == *_knit_setup_after_cb* ]]
     [[ "${cbs[-1]}" == *_knit_setup_spack_env_after_cb* ]]

@@ -256,8 +256,9 @@ _knit_setup_before_cb() {
 # exists — its contents inlined. Inlining (rather than sourcing) keeps .activate.sh
 # self-contained and re-initializes the module system for consumers. When there is
 # no profile the platform fragment is absent and only the shebang/marker are
-# emitted. Shared by the generic setup after-callback (which appends an environment
-# dump) and the builtin "default" setup's after-callback (which emits nothing more).
+# emitted. Shared by the generic setup after-callback (which appends the setup's
+# declared activation lines) and the builtin "default" setup's after-callback
+# (which emits nothing more).
 # ------------------------------------------------------------------------------
 _knit_setup_write_activate_header() {
     local platform="${_KNIT_PREFIX}/platform.sh"
@@ -275,37 +276,30 @@ _knit_setup_write_activate_header() {
 #
 # After-callback installed on every setup subcommand by knit_register_setup.
 # Inlines the platform activation (${_KNIT_PREFIX}/platform.sh) at the top of
-# `$KNIT_SETUP_PREFIX/.activate.sh`, then dumps all exported environment variables
-# so that jobs depending on this setup can source that file to reproduce the build
-# environment. Inlining (rather than sourcing) keeps .activate.sh self-contained
-# and re-initializes the module system for consumers, above the env dump.
+# `$KNIT_SETUP_PREFIX/.activate.sh`, then writes the activation lines the setup
+# body declared through the knit_setup_env_* / knit_setup_activate_line functions,
+# in call order. A job depending on this setup sources that file to reproduce the
+# build environment. Inlining the platform (rather than sourcing) keeps
+# .activate.sh self-contained and re-initializes the module system for consumers,
+# above the declared lines.
 #
-# Dynamic bash internals (BASH_*, SHLVL, _, OLDPWD, PPID, RANDOM, LINENO,
-# SECONDS, KNIT_SETUP_PREFIX) are excluded from the dump. FLUX_URI is also
-# excluded: it is a per-instance handle to the Flux instance that owns the
-# current shell, so a job that runs under "flux batch" (its own sub-instance)
-# must keep the FLUX_URI that Flux gives it, not the one the setup captured on
-# the login node.
+# The declared lines are composable: an append/prepend extends the job's own
+# variable rather than replacing it, so nothing snapshots the login-node state. A
+# setup that declares nothing produces a header-only .activate.sh. The Spack and
+# launcher after-callbacks (registered after this one) append their blocks last,
+# so activation order is header -> declared lines -> spack -> launcher.
 # ------------------------------------------------------------------------------
 _knit_setup_after_cb() {
     local activate="${KNIT_SETUP_PREFIX}/.activate.sh"
     {
         _knit_setup_write_activate_header
-        local var
-        while IFS= read -r var; do
-            case "${var}" in
-                BASH_*|SHLVL|_|OLDPWD|PPID|RANDOM|LINENO|SECONDS|KNIT_SETUP_PREFIX|FLUX_URI)
-                    continue ;;
-            esac
-            # Skip readonly variables (e.g. KNIT_VERSION): re-exporting them when
-            # a job sources .activate.sh fails with "readonly variable".
-            local decl flags
-            decl="$(declare -p "${var}" 2>/dev/null)"
-            flags="${decl#declare -}"
-            flags="${flags%% *}"
-            [[ "${flags}" == *r* ]] && continue
-            printf 'export %s=%s\n' "${var}" "$(printf '%q' "${!var}")"
-        done < <(compgen -e)
+        if [[ ${#_KNIT_SETUP_ACTIVATE_LINES[@]} -gt 0 ]]; then
+            printf '\n# Environment declared by the setup body\n'
+            local line
+            for line in "${_KNIT_SETUP_ACTIVATE_LINES[@]}"; do
+                printf '%s\n' "${line}"
+            done
+        fi
     } > "${activate}"
     chmod +x "${activate}"
 }

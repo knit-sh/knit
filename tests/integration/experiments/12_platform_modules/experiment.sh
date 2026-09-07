@@ -23,7 +23,7 @@ knit_register_setup "modenv" __modenv_setup \
     "A setup that inherits the profile's loaded modules."
 __modenv_setup() {
     # The platform activation (module loads) already happened before this body.
-    export MODENV_MARKER="modenv-built"
+    knit_setup_env_set MODENV_MARKER "modenv-built"
 }
 knit_done
 

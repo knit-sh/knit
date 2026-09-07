@@ -59,7 +59,7 @@ teardown() {
     [[ "${result}" == *"Provides an MPI launcher"* ]]
 }
 
-@test "knit_provides_launcher installs its after callback after the generic dump" {
+@test "knit_provides_launcher installs its after callback after the generic writer" {
     knit_register_setup "mpienv" "_test_setup_fn" "Build MPI."
     knit_provides_launcher
     knit_done
@@ -67,7 +67,7 @@ teardown() {
     cmd=$(_knit_command_mangle "setup:mpienv")
     local -a cbs
     eval "cbs=(\"\${_KNIT_CMD_${cmd}_after_cb[@]}\")"
-    # The generic dump truncates .activate.sh and must run first; the launcher
+    # The generic writer truncates .activate.sh and must run first; the launcher
     # contract appends and must run after.
     [[ "${cbs[0]}" == *_knit_setup_after_cb* ]]
     [[ "${cbs[-1]}" == *_knit_setup_provides_launcher_after_cb* ]]

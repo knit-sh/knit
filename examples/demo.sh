@@ -294,9 +294,10 @@ _juliaenv_setup() {
     cmake --build "${KNIT_SETUP_PREFIX}/build"
     cmake --install "${KNIT_SETUP_PREFIX}/build"
 
-    # Put the installed binary on PATH for dependent jobs; captured into
-    # .activate.sh next to the Spack re-activation block and inherited by jobs.
-    export PATH="${KNIT_SETUP_PREFIX}/bin:${PATH}"
+    # Put the installed binary on PATH for dependent jobs; recorded into
+    # .activate.sh next to the Spack re-activation block as a composable prepend,
+    # so it extends each job's own PATH rather than freezing this build shell's.
+    knit_setup_env_prepend PATH "${KNIT_SETUP_PREFIX}/bin"
 }
 @done
 

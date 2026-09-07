@@ -1210,7 +1210,7 @@ estimate() {
 # -----------------------------------------------------------------------------
 # mcenv — a setup: prepare a reproducible Monte-Carlo environment.
 #
-# Writes a params file into the setup directory and exports MC_SEED / MC_SAMPLES
+# Writes a params file into the setup directory and declares MC_SEED / MC_SAMPLES
 # so that jobs depending on this setup inherit them (via .activate.sh).
 # -----------------------------------------------------------------------------
 @setup "mcenv" "Prepare a reproducible Monte-Carlo environment."
@@ -1225,9 +1225,9 @@ _mcenv_setup() {
     printf 'seed=%s\nsamples=%s\n' "${seed}" "${samples}" \
         > "${KNIT_SETUP_PREFIX}/params.txt"
 
-    # Exported variables are captured into .activate.sh and re-hydrated by jobs.
-    export MC_SEED="${seed}"
-    export MC_SAMPLES="${samples}"
+    # Declared variables are recorded into .activate.sh and re-hydrated by jobs.
+    knit_setup_env_set MC_SEED "${seed}"
+    knit_setup_env_set MC_SAMPLES "${samples}"
 }
 @done
 
@@ -1240,7 +1240,9 @@ _mcenv_setup() {
 #
 #   @setup "mpienv" "Provide MPICH as the launcher."
 #   @provides_launcher
-#   _mpienv_setup() { module load mpich; }   # puts mpiexec/mpirun on PATH
+#   _mpienv_setup() {
+#       knit_setup_activate_line "module load mpich"   # puts mpiexec/mpirun on PATH
+#   }
 #   @done
 #
 # It is left commented out here because @provides_launcher fatals when it
@@ -1453,10 +1455,10 @@ _sweep_job() {
 @with_spack_specs "zlib"
 _mclib_setup() {
     # The Spack environment is already built and activated here, so packages
-    # from the specs are on PATH / LD_LIBRARY_PATH. Anything exported is
-    # captured into .activate.sh (next to the Spack re-activation block) and
+    # from the specs are on PATH / LD_LIBRARY_PATH. Anything declared is
+    # recorded into .activate.sh (next to the Spack re-activation block) and
     # inherited by dependent jobs.
-    export MC_LIB="zlib"
+    knit_setup_env_set MC_LIB "zlib"
 }
 @done
 

@@ -51,18 +51,19 @@ check_grep "Hello from knit" "setups/my-env/greeting.txt" \
     "greeting.txt contains the message parameter"
 
 # --------------------------------------------------------------------------
-# Assertions: .activate.sh captures exported variable
+# Assertions: .activate.sh records the declared variable
 # --------------------------------------------------------------------------
 check_grep "MY_GREETING" "setups/my-env/.activate.sh" \
     ".activate.sh contains MY_GREETING"
 check_grep "Hello.*from.*knit" "setups/my-env/.activate.sh" \
     ".activate.sh contains the greeting value"
 
-# KNIT_SETUP_PREFIX must NOT appear in .activate.sh (it is excluded by design).
+# The declarative model records only what the setup body declares; KNIT_SETUP_PREFIX
+# was never declared, so it must not appear in .activate.sh.
 if grep -q "KNIT_SETUP_PREFIX" "setups/my-env/.activate.sh"; then
     fail "KNIT_SETUP_PREFIX must not appear in .activate.sh"
 else
-    __assert_pass "KNIT_SETUP_PREFIX excluded from .activate.sh"
+    __assert_pass "KNIT_SETUP_PREFIX absent from .activate.sh"
 fi
 
 # --------------------------------------------------------------------------

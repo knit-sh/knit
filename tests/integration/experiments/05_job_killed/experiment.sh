@@ -16,8 +16,8 @@ knit_set_program_description "Job-kill status-tracking integration test experime
 
 knit_register_setup "env" __env_setup_fn "Prepare a trivial environment."
 __env_setup_fn() {
-    # Exported so a non-empty .activate.sh is produced for the job to source.
-    export KNIT_KILLED_CANARY="present"
+    # Declared so a non-empty .activate.sh is produced for the job to source.
+    knit_setup_env_set KNIT_KILLED_CANARY "present"
 }
 knit_done
 

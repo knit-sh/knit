@@ -45,16 +45,15 @@ knit_done
 # Setup "env" — consumes the fetched source and exports a marker derived from
 # it, so the marker travels resource -> setup -> job -> app.
 # --------------------------------------------------------------------------
-knit_register_setup "env" _env_setup "Read the fetched source and export a marker."
+knit_register_setup "env" _env_setup "Read the fetched source and declare a marker."
 knit_with_resource "src:srcpkg" "Name of the fetched source package to read."
 _env_setup() {
     local src
     src="$(knit_resource_path "$(knit_get_parameter src "$@")")"
-    # Copy the source's marker into the setup prefix and export it so it lands
+    # Copy the source's marker into the setup prefix and declare it so it lands
     # in .activate.sh and is inherited by any job that requires this setup.
     cp "${src}/marker.txt" "${KNIT_SETUP_PREFIX}/marker.txt"
-    export REMOVE_MARKER
-    REMOVE_MARKER="$(cat "${KNIT_SETUP_PREFIX}/marker.txt")"
+    knit_setup_env_set REMOVE_MARKER "$(cat "${KNIT_SETUP_PREFIX}/marker.txt")"
 }
 knit_done
 

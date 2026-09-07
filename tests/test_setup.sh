@@ -13,6 +13,10 @@ setup() {
     # Setups resolve under <experiment-root>/setups (the __setup_path__ fallback);
     # tests reference this root directly.
     _KNIT_TEST_SETUP_ROOT="${_KNIT_TEST_TMPDIR}/setups"
+
+    # The declared-activation-line array is global; start each test with an empty
+    # set so a line declared by one test does not leak into the next.
+    _KNIT_SETUP_ACTIVATE_LINES=()
 }
 
 teardown() {
@@ -141,49 +145,47 @@ teardown() {
     [ -x "${KNIT_SETUP_PREFIX}/.activate.sh" ]
 }
 
-@test "setup after callback writes exported variable to .activate.sh" {
+@test "setup after callback writes declared activation lines to .activate.sh" {
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
-    export _KNIT_TEST_CANARY="hello_world"
+    _KNIT_SETUP_ACTIVATE_LINES=('export _KNIT_TEST_CANARY=hello_world')
     _knit_setup_after_cb
     grep -q '_KNIT_TEST_CANARY' "${KNIT_SETUP_PREFIX}/.activate.sh"
 }
 
-@test "setup after callback excludes SHLVL from .activate.sh" {
+@test "setup after callback writes declared lines in call order" {
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
+    _KNIT_SETUP_ACTIVATE_LINES=('export FIRST=1' 'export SECOND=2')
     _knit_setup_after_cb
-    ! grep -q '^export SHLVL=' "${KNIT_SETUP_PREFIX}/.activate.sh"
+    local activate="${KNIT_SETUP_PREFIX}/.activate.sh"
+    local first_line second_line
+    first_line=$(grep -n '^export FIRST=' "${activate}" | head -1 | cut -d: -f1)
+    second_line=$(grep -n '^export SECOND=' "${activate}" | head -1 | cut -d: -f1)
+    [ "${first_line}" -lt "${second_line}" ]
 }
 
-@test "setup after callback excludes KNIT_SETUP_PREFIX itself from .activate.sh" {
+@test "setup after callback does not snapshot ambient exported variables" {
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
+    # The declarative model records only what the setup body declares; an ambient
+    # exported variable must never be frozen into .activate.sh.
+    export _KNIT_TEST_AMBIENT="should_not_appear"
+    _KNIT_SETUP_ACTIVATE_LINES=()
     _knit_setup_after_cb
-    ! grep -q '^export KNIT_SETUP_PREFIX=' "${KNIT_SETUP_PREFIX}/.activate.sh"
+    ! grep -q '_KNIT_TEST_AMBIENT' "${KNIT_SETUP_PREFIX}/.activate.sh"
 }
 
-@test "setup after callback excludes FLUX_URI from .activate.sh" {
+@test "setup after callback produces a header-only .activate.sh when nothing is declared" {
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
-    # FLUX_URI is a per-instance handle: a job under "flux batch" must keep the
-    # one Flux gives it, not the one captured on the login node.
-    export FLUX_URI="local:///run/flux/local-0"
+    rm -f "${_KNIT_PREFIX}/platform.sh"
+    _KNIT_SETUP_ACTIVATE_LINES=()
     _knit_setup_after_cb
-    ! grep -q '^export FLUX_URI=' "${KNIT_SETUP_PREFIX}/.activate.sh"
+    ! grep -q '^export ' "${KNIT_SETUP_PREFIX}/.activate.sh"
 }
 
-@test "setup after callback excludes readonly variables from .activate.sh" {
+@test "setup after callback produces a source-able .activate.sh" {
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
-    # A readonly exported variable cannot be re-exported: sourcing .activate.sh
-    # would fail with "readonly variable", so it must be skipped.
-    declare -xr _KNIT_TEST_RO="frozen"
+    _KNIT_SETUP_ACTIVATE_LINES=('export _KNIT_TEST_CANARY=hello_world')
     _knit_setup_after_cb
-    ! grep -q '_KNIT_TEST_RO' "${KNIT_SETUP_PREFIX}/.activate.sh"
-}
-
-@test "setup after callback produces a source-able .activate.sh (no readonly errors)" {
-    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
-    # KNIT_VERSION is declared readonly by knit; the generated file must be
-    # source-able in a fresh shell that has knit.sh loaded (KNIT_VERSION set).
-    _knit_setup_after_cb
-    run bash -c "source knit.sh >/dev/null 2>&1; source '${KNIT_SETUP_PREFIX}/.activate.sh'"
+    run bash -c "source '${KNIT_SETUP_PREFIX}/.activate.sh'"
     [ "$status" -eq 0 ]
 }
 
@@ -208,13 +210,14 @@ teardown() {
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
     printf '%s\n' '# knit platform environment (generated at bootstrap)' \
                   'module load cray-mpich' > "${_KNIT_PREFIX}/platform.sh"
+    _KNIT_SETUP_ACTIVATE_LINES=('export DECLARED=1')
     _knit_setup_after_cb
     local activate="${KNIT_SETUP_PREFIX}/.activate.sh"
     grep -Fq 'module load cray-mpich' "${activate}"
-    # The inlined platform block must precede the environment dump.
+    # The inlined platform block must precede the declared activation lines.
     local platform_line export_line
     platform_line=$(grep -n 'module load cray-mpich' "${activate}" | head -1 | cut -d: -f1)
-    export_line=$(grep -n '^export ' "${activate}" | head -1 | cut -d: -f1)
+    export_line=$(grep -n '^export DECLARED=' "${activate}" | head -1 | cut -d: -f1)
     [ "${platform_line}" -lt "${export_line}" ]
 }
 

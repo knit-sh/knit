@@ -17,7 +17,7 @@ knit_set_program_description "Job hostname reporting integration test experiment
 
 knit_register_setup "env" __env_setup_fn "Prepare a trivial environment."
 __env_setup_fn() {
-    export HOSTS_MARKER="ok"
+    knit_setup_env_set HOSTS_MARKER "ok"
 }
 knit_done
 

@@ -10,8 +10,8 @@
 #     none, so the launcher precedence skips the machine tier.
 #   - the "lmpi" setup module-loads the non-system MPI (mpiB: mpich on Slurm,
 #     openmpi on PBS, from experiment 12's infra) in its body and declares
-#     knit_provides_launcher. Its .activate.sh freezes the module-modified PATH
-#     plus `export KNIT_PROVIDED_LAUNCHER=<impl>`.
+#     knit_provides_launcher. Its .activate.sh records the module load (composable,
+#     so it re-runs on the job shell) plus `export KNIT_PROVIDED_LAUNCHER=<impl>`.
 #   - a job requiring that setup runs `knit run --procs 4`; the launcher resolves
 #     from the frozen contract to mpiB, which launches 4 distinct ranks. The probe
 #     app confirms the world size, that mpiexec is the module install (not the
@@ -117,8 +117,8 @@ export LAPTOP_MPI_MODULE="${MOD_MPI}"
 check_file "setups/lmpi/.activate.sh" "lmpi setup produced .activate.sh"
 check_grep "export KNIT_PROVIDED_LAUNCHER=${MOD_MPI}" "setups/lmpi/.activate.sh" \
     "setup froze the module MPI (${MOD_MPI}) as the launcher contract"
-check_grep "${MOD_PREFIX}/bin" "setups/lmpi/.activate.sh" \
-    "setup froze the module-modified PATH (${MOD_PREFIX}/bin) into .activate.sh"
+check_grep "module load ${MOD_MPI}" "setups/lmpi/.activate.sh" \
+    "setup recorded the module load into .activate.sh (composable, not a PATH snapshot)"
 
 # ==========================================================================
 # Submit the job. It requires the lmpi setup; `knit run` resolves the launcher

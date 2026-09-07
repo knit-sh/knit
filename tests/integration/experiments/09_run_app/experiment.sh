@@ -30,9 +30,9 @@ source knit.sh
 
 knit_set_program_description "knit run (app launch) integration test experiment."
 
-knit_register_setup "env" __env_setup_fn "Export a marker for forwarding checks."
+knit_register_setup "env" __env_setup_fn "Declare a marker for forwarding checks."
 __env_setup_fn() {
-    export RUN_APP_MARKER="forwarded-ok"
+    knit_setup_env_set RUN_APP_MARKER "forwarded-ok"
 }
 knit_done
 

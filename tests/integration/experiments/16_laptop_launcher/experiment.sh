@@ -40,11 +40,12 @@ knit_register_setup "lmpi" __lmpi_setup \
 knit_provides_launcher
 __lmpi_setup() {
     # No profile initialized the module system, so do it here, then load the MPI
-    # named for this image. Its bin lands on PATH; the generic setup after-cb
-    # freezes that PATH and knit_provides_launcher freezes the detected launcher.
-    # shellcheck disable=SC1091 # image-provided module init
-    source /etc/profile.d/modules.sh
-    module load "${LAPTOP_MPI_MODULE}"
+    # named for this image. Both lines are recorded into .activate.sh, so a
+    # consuming job re-runs them and the MPI's bin lands on the job's own PATH at
+    # activation time. Running them now also puts the MPI on PATH for this build
+    # shell, so knit_provides_launcher detects and freezes the launcher contract.
+    knit_setup_activate_line "source /etc/profile.d/modules.sh"
+    knit_setup_activate_line "module load ${LAPTOP_MPI_MODULE}"
 }
 knit_done
 
