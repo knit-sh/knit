@@ -13,6 +13,19 @@
 declare -gA _KNIT_SETUPS
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_SETUP_ACTIVATE_LINES
+#
+# Per-invocation array of activation lines a setup body declared through the
+# knit_setup_env_* / knit_setup_activate_line functions. Reset to empty at the
+# start of each setup's execution (in _knit_setup_before_cb) and read by the
+# generic setup after-callback, which writes the lines into
+# `$KNIT_SETUP_PREFIX/.activate.sh` in call order. Declared global (-g) so the
+# body functions and the after-callback share the same array.
+# ------------------------------------------------------------------------------
+declare -ga _KNIT_SETUP_ACTIVATE_LINES
+_KNIT_SETUP_ACTIVATE_LINES=()
+
+# ------------------------------------------------------------------------------
 # @fn _knit_has_user_setup()
 #
 # Return 0 when at least one user setup instance exists directly under the given
@@ -224,11 +237,14 @@ _knit_setup_source_platform() {
 # Verifies that KNIT_SETUP_PREFIX is set, ensuring the setup was invoked
 # through `knit setup` rather than called directly, then sources the platform
 # environment so the setup body builds against the platform's modules and env.
+# Also clears the declared-activation-line array so each setup invocation starts
+# with an empty set of lines.
 # ------------------------------------------------------------------------------
 _knit_setup_before_cb() {
     if [[ ! -v KNIT_SETUP_PREFIX ]]; then
         knit_fatal "Setup commands must be invoked via \"knit setup [OPTIONS] -- <setup> [OPTIONS]\", not directly."
     fi
+    _KNIT_SETUP_ACTIVATE_LINES=()
     _knit_setup_source_platform
 }
 
@@ -292,6 +308,164 @@ _knit_setup_after_cb() {
         done < <(compgen -e)
     } > "${activate}"
     chmod +x "${activate}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_setup_require_body()
+#
+# Guard shared by the declarative activation functions (knit_setup_env_* /
+# knit_setup_activate_line): fatal unless the caller runs from inside a setup
+# body. A setup body is the case where the currently executing command has type
+# "setup"; this excludes a job body (which also sets KNIT_SETUP_PREFIX, because it
+# sources the setup's environment) and any use outside a registered command.
+#
+# @param[in] fn Name of the calling function, used in the error message.
+# ------------------------------------------------------------------------------
+_knit_setup_require_body() {
+    local fn="$1"
+    if [[ ${#_KNIT_EXECUTING_COMMAND[@]} -gt 0 ]]; then
+        local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
+        local type_var="_KNIT_CMD_${cmd}_type"
+        [[ "${!type_var:-}" == "setup" ]] && return 0
+    fi
+    knit_fatal "${fn} must be called from within a setup body."
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_setup_validate_var()
+#
+# Validate that a variable name given to a declarative activation function is a
+# valid shell identifier (^[A-Za-z_][A-Za-z0-9_]*$). Fatal otherwise; returns
+# normally on a match.
+#
+# @param[in] var The variable name to validate.
+# ------------------------------------------------------------------------------
+_knit_setup_validate_var() {
+    local var="$1"
+    if [[ ! "${var}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        knit_fatal "Invalid variable name \"${var}\": must match ^[A-Za-z_][A-Za-z0-9_]*\$."
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_setup_env_set()
+#
+# Declare that a setup sets an environment variable. Called from a setup body, it
+# both exports VAR=value in the current build shell and records
+# `export VAR=<value>` into the setup's .activate.sh, so every dependent job gets
+# the same assignment. The value is recorded with printf %q so any characters
+# survive re-sourcing.
+#
+# @param[in] var   The variable name (a shell identifier).
+# @param[in] value The value to assign.
+# ------------------------------------------------------------------------------
+knit_setup_env_set() {
+    local var="$1"
+    local value="$2"
+    _knit_setup_require_body "knit_setup_env_set"
+    _knit_setup_validate_var "${var}"
+    export "${var}=${value}"
+    local line
+    printf -v line 'export %s=%q' "${var}" "${value}"
+    _KNIT_SETUP_ACTIVATE_LINES+=("${line}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_setup_env_append()
+#
+# Declare that a setup appends an entry to a colon-separated list variable (e.g.
+# PATH). Called from a setup body, it both appends to VAR in the current build
+# shell and records a composable line into the setup's .activate.sh:
+# `export VAR="${VAR:+${VAR}:}"<value>`. That line extends the job's own VAR at
+# activation time rather than replacing it, and is empty-safe (no leading colon
+# when VAR was unset).
+#
+# @param[in] var   The list variable name (a shell identifier).
+# @param[in] value The entry to append.
+# ------------------------------------------------------------------------------
+knit_setup_env_append() {
+    local var="$1"
+    local value="$2"
+    _knit_setup_require_body "knit_setup_env_append"
+    _knit_setup_validate_var "${var}"
+    local current="${!var:-}"
+    export "${var}=${current:+${current}:}${value}"
+    # The ${VAR} reference stays literal so it composes at job time; the %q value
+    # fragment sits OUTSIDE the double quotes, because %q produces
+    # unquoted-context quoting.
+    local line
+    # shellcheck disable=SC2016 # ${VAR} is a literal reference recorded verbatim
+    printf -v line 'export %s="${%s:+${%s}:}"%q' "${var}" "${var}" "${var}" "${value}"
+    _KNIT_SETUP_ACTIVATE_LINES+=("${line}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_setup_env_prepend()
+#
+# Declare that a setup prepends an entry to a colon-separated list variable.
+# Called from a setup body, it both prepends to VAR in the current build shell
+# and records a composable line into the setup's .activate.sh:
+# `export VAR=<value>"${VAR:+:${VAR}}"`. That line prefixes the job's own VAR at
+# activation time rather than replacing it, and is empty-safe (no trailing colon
+# when VAR was unset).
+#
+# @param[in] var   The list variable name (a shell identifier).
+# @param[in] value The entry to prepend.
+# ------------------------------------------------------------------------------
+knit_setup_env_prepend() {
+    local var="$1"
+    local value="$2"
+    _knit_setup_require_body "knit_setup_env_prepend"
+    _knit_setup_validate_var "${var}"
+    local current="${!var:-}"
+    export "${var}=${value}${current:+:${current}}"
+    # The %q value fragment sits OUTSIDE the double quotes (unquoted-context
+    # quoting); the ${VAR} reference stays literal so it composes at job time.
+    local line
+    # shellcheck disable=SC2016 # ${VAR} is a literal reference recorded verbatim
+    printf -v line 'export %s=%q"${%s:+:${%s}}"' "${var}" "${value}" "${var}" "${var}"
+    _KNIT_SETUP_ACTIVATE_LINES+=("${line}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_setup_env_unset()
+#
+# Declare that a setup unsets an environment variable. Called from a setup body,
+# it both unsets VAR in the current build shell and records `unset VAR` into the
+# setup's .activate.sh.
+#
+# @param[in] var The variable name to unset (a shell identifier).
+# ------------------------------------------------------------------------------
+knit_setup_env_unset() {
+    local var="$1"
+    _knit_setup_require_body "knit_setup_env_unset"
+    _knit_setup_validate_var "${var}"
+    unset "${var}"
+    local line
+    printf -v line 'unset %s' "${var}"
+    _KNIT_SETUP_ACTIVATE_LINES+=("${line}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_setup_activate_line()
+#
+# Declare a verbatim activation line. Called from a setup body, it both runs the
+# line in the current build shell (so the rest of the body sees its effect) and
+# records it verbatim into the setup's .activate.sh, so every dependent job runs
+# the same line. Use it for activation steps that the env helpers do not cover,
+# e.g. `module load gcc/12` or `source <some tool's env script>`.
+#
+# @param[in] line The shell line to run now and record.
+# ------------------------------------------------------------------------------
+knit_setup_activate_line() {
+    local line="$1"
+    _knit_setup_require_body "knit_setup_activate_line"
+    _KNIT_SETUP_ACTIVATE_LINES+=("${line}")
+    # The line is the setup author's own code — no more dangerous than typing it
+    # on the next line of the body — so it is safe to eval here. Eval runs last so
+    # its exit status is the function's: a failing activation line surfaces as a
+    # failing setup command rather than being swallowed.
+    eval "${line}"
 }
 
 # ------------------------------------------------------------------------------
