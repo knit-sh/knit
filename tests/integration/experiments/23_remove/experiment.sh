@@ -34,11 +34,17 @@ source knit.sh
 knit_set_program_description "knit remove end-to-end integration test experiment."
 
 # --------------------------------------------------------------------------
-# Resource "srcpkg" — a local directory linked in by `knit fetch`. Its path
-# comes from the environment (test.sh builds the directory in the work area).
+# Resource "srcpkg" — a local directory linked in by `knit fetch`. The source
+# package sits next to this script (test.sh builds it there). Resolve its path
+# relative to the script, not from the environment: the compute node re-sources
+# this experiment when the job re-enters it, and PBS does not forward the
+# submit-time environment the way Slurm and Flux do. An environment variable set
+# at submit time would be empty on the compute node and abort the re-entry before
+# the job runs.
 # --------------------------------------------------------------------------
+_srcpkg_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/srcpkg"
 knit_register_resource "srcpkg" "A source package fetched from a local path."
-knit_with_local "${RES_LOCAL_PATH}"
+knit_with_local "${_srcpkg_dir}"
 knit_done
 
 # --------------------------------------------------------------------------

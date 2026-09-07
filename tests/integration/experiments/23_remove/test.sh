@@ -66,11 +66,13 @@ check_absent() {
 
 # --------------------------------------------------------------------------
 # Build the local source package the "srcpkg" resource links, with the marker
-# the setup reads and forwards to the app.
+# the setup reads and forwards to the app. The experiment resolves this path
+# relative to itself (both files sit in WORKDIR), so no environment variable is
+# needed — which matters on PBS, where the submit-time environment is not
+# forwarded to the compute node.
 # --------------------------------------------------------------------------
 mkdir -p "${WORKDIR}/srcpkg"
 printf 'from-resource\n' > "${WORKDIR}/srcpkg/marker.txt"
-export RES_LOCAL_PATH="${WORKDIR}/srcpkg"
 
 # --------------------------------------------------------------------------
 # 1. bootstrap — provisions the private sqlite (and builds knit-graph, used for
