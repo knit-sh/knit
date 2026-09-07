@@ -128,7 +128,7 @@ your experiment script, `source` it, and you are ready to go.
 
 Knit is develop by the following people.
 
-- [Matthieu Dorier](https://mdorier.github.io/) (@mdorier), Argonne National Laboratory
+- [Matthieu Dorier](https://mdorier.github.io/) ([@mdorier](https://github.com/mdorier)), Argonne National Laboratory
 
 ## Contributing
 
