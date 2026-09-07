@@ -355,14 +355,15 @@
 # -----------------------------------------------------------------------------
 #   ./full.sh setup --name env -- mcenv --seed 123
 #
-# A "setup" builds/prepares an environment and snapshots the resulting shell
-# environment into <dir>/.activate.sh. Setups are identified by NAME, not path:
+# A "setup" builds/prepares an environment and DECLARES the environment changes
+# it wants dependent commands to inherit, one composable line per declaration in
+# <dir>/.activate.sh. Setups are identified by NAME, not path:
 # `--name env` materializes it at <setup-root>/env — here ./setups/env (see the
-# --setup-path root from step 2). Here `mcenv` writes a params file and exports
-# MC_SEED / MC_SAMPLES. Note the `--` : arguments before it configure `setup`;
-# arguments after it are passed to the named setup.
+# --setup-path root from step 2). Here `mcenv` writes a params file and declares
+# MC_SEED / MC_SAMPLES with `knit_setup_env_set`. Note the `--` : arguments
+# before it configure `setup`; arguments after it are passed to the named setup.
 #
-#   cat setups/env/.activate.sh  # the captured environment (sourced by jobs)
+#   cat setups/env/.activate.sh  # the declared activation lines (sourced by jobs)
 #   cat setups/env/params.txt    # written by the setup function
 #
 # A name is a single path component (matching [A-Za-z0-9._-]); `default` is

@@ -45,7 +45,7 @@ _juliaenv_setup() {
     cmake --build "${KNIT_SETUP_PREFIX}/build"
     cmake --install "${KNIT_SETUP_PREFIX}/build"
 
-    export PATH="${KNIT_SETUP_PREFIX}/bin:${PATH}"
+    knit_setup_env_prepend PATH "${KNIT_SETUP_PREFIX}/bin"
 }
 @done
 

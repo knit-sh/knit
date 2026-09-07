@@ -112,9 +112,12 @@ Two things make this reproducible. ``@with_spack_specs`` declares a
 ``cmake`` and ``libpng`` and activates them *before* the body runs, so
 the body finds them regardless of what the host has installed.
 And ``KNIT_SETUP_PREFIX`` is a private directory
-Knit creates for a setup instance; everything the body installs there is
-captured, and exporting ``PATH`` makes the installed binary visible to commands
-that depend on the setup.
+Knit creates for a setup instance; everything the body installs there stays with
+the setup. The body does not snapshot its shell: it *declares* the environment it
+wants dependent commands to inherit. ``knit_setup_env_prepend PATH
+"${KNIT_SETUP_PREFIX}/bin"`` records a composable line, so each command that
+depends on the setup adds the installed binary to its own ``PATH`` instead of
+overwriting it.
 
 .. note::
 

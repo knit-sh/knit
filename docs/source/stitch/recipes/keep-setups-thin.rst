@@ -3,7 +3,7 @@
    categories: setup
    order: 15
    description: Delegate dependency installation to a package manager and keep the setup body minimal.
-   apis: knit_with_spack_specs, knit_with_spack_env
+   apis: knit_with_spack_specs, knit_with_spack_env, knit_setup_env_set
 
 A setup body should do as little as possible. Every command it runs by hand ---
 cloning a repository, ``./configure``, ``make``, downloading a tarball --- is one
@@ -27,5 +27,5 @@ steps then become one more spec that Spack builds, versions, and locks like any
 other dependency, and the setup body shrinks to nothing.
 
 Keep in the body only what genuinely cannot be a package: writing a config or
-params file, exporting an environment variable, or creating a directory under
-``KNIT_SETUP_PREFIX``.
+params file, declaring an environment variable with ``knit_setup_env_set``, or
+creating a directory under ``KNIT_SETUP_PREFIX``.

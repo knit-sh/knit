@@ -38,8 +38,10 @@ _juliaenv_setup() {
     cmake --build "${KNIT_SETUP_PREFIX}/build"
     cmake --install "${KNIT_SETUP_PREFIX}/build"
 
-    # Put the installed binary on PATH for any command that depends on this setup.
-    export PATH="${KNIT_SETUP_PREFIX}/bin:${PATH}"
+    # Put the installed binary on the PATH of every command that depends on this
+    # setup. knit_setup_env_prepend records a composable line, so each dependent
+    # command keeps its own PATH and gains this entry.
+    knit_setup_env_prepend PATH "${KNIT_SETUP_PREFIX}/bin"
 }
 @done
 # END setup
