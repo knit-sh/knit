@@ -42,6 +42,7 @@ KNIT_SOURCE = src/global.sh   \
               src/ai.sh       \
               src/query.sh    \
               src/remove.sh   \
+              src/bundle.sh   \
               src/skills.sh   \
               src/shorthand.sh \
               src/main.sh

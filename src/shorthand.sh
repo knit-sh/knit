@@ -52,6 +52,7 @@ _KNIT_SHORTHAND_PASSTHROUGH=(
     [with_parameter_set]=knit_with_parameter_set
     [with_provenance]=knit_with_provenance
     [without_provenance]=knit_without_provenance
+    [bundle_requires]=knit_bundle_requires
     [with_resource]=knit_with_resource
     [with_setup]=knit_with_setup
     [without_setup]=knit_without_setup
