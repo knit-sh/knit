@@ -62,21 +62,67 @@ _knit_bundle_default_output() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bundle_relpath()
+#
+# Store, in the caller-named variable, an absolute path expressed relative to the
+# experiment root. A path under the root has its "<root>/" prefix stripped, so it
+# lands at the same place when the archive is unpacked. A path outside the root is
+# a portability hazard (an absolute stored root, say) and is returned unchanged
+# for now; the warn-and-normalize handling comes in a later milestone.
+#
+# @param[out] __knit_ret Name of the variable to hold the relative path.
+# @param[in] root The absolute experiment root.
+# @param[in] abs The absolute path to make relative.
+# ------------------------------------------------------------------------------
+_knit_bundle_relpath() {
+    local -n __knit_ret=$1
+    local root="$2" abs="$3"
+    if [[ "${abs}" == "${root}/"* ]]; then
+        __knit_ret="${abs#"${root}/"}"
+    else
+        __knit_ret="${abs}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_bundle_collect()
 #
 # Fill a caller-named array with the archive contents, each as a path relative to
-# the experiment root. This is the minimal default set: the experiment script,
-# the knit.sh framework beside it, the pruned .knit directory (the database
-# only), and the literal entries the user declared with knit_bundle_requires.
-# Glob expansion, full tree collection, and the include/exclude filters are added
-# in later milestones; this milestone adds the required entries verbatim.
+# the experiment root. The default set carries what makes the experiment readable
+# and re-runnable: the experiment script, the knit.sh framework beside it, the
+# pruned .knit directory (the database only), the user-declared required files,
+# each setup's small manifest files, each job's logs and scripts, and the declared
+# artifacts. It leaves out the bulky, regenerable parts: the provisioned tools
+# under .knit, each setup's built environment, and the fetched resources.
+#
+# The options nameref selects what to include. Each key holds "true"/"false"
+# except include_resources, which holds a comma-separated resource-name list:
+#   - no_knit              drop the knit.sh framework file;
+#   - no_db                drop .knit/knit.db;
+#   - no_job_logs          drop each job's .stdout / .stderr;
+#   - no_job_scripts       drop each job's .job.sh / .job.id;
+#   - include_job_content  also pack the user content of each job directory;
+#   - no_artifacts         drop the artifacts tree;
+#   - include_all_resources  pack every fetched resource;
+#   - include_resources    pack the named fetched resources.
+#
+# The experiment script, knit.sh, .knit/knit.db, and the user-declared required
+# files are added unconditionally, so a later prune step can warn about a missing
+# one. Every framework-enumerated path (setup, job, artifact, resource) is added
+# only when it exists on disk (a regular path or a symlink, even a broken one), so
+# an absent optional manifest — a non-Spack setup has no spack.yaml, say — is
+# skipped silently rather than warned about. Glob expansion of the required
+# entries and the portability validations come in a later milestone.
 #
 # @param[out] __knit_ret Name of the array to fill with relative paths.
+# @param[in] opts Name of an associative array of include/exclude options.
 # @param[in] root The absolute experiment root.
 # ------------------------------------------------------------------------------
 _knit_bundle_collect() {
     # shellcheck disable=SC2178 # nameref to the caller's array
     local -n __knit_ret=$1; shift
+    # shellcheck disable=SC2178 # nameref to the caller's options array
+    local -n __knit_opts=$1; shift
     local root="$1"
     __knit_ret=()
 
@@ -87,10 +133,11 @@ _knit_bundle_collect() {
 
     # The framework: knit.sh sits beside the script, so the experiment can source
     # it. The exact framework version must travel with the bundle.
-    __knit_ret+=("knit.sh")
+    [[ "${__knit_opts[no_knit]:-false}" != "true" ]] && __knit_ret+=("knit.sh")
 
-    # The pruned .knit: the provenance database only, not the provisioned tools.
-    __knit_ret+=(".knit/knit.db")
+    # The pruned .knit: the provenance database only, not the provisioned tools
+    # (.knit/spack, .knit/sqlite, .knit/jq), which bootstrap re-provisions.
+    [[ "${__knit_opts[no_db]:-false}" != "true" ]] && __knit_ret+=(".knit/knit.db")
 
     # The extra files the user declared. They are stored verbatim here; their
     # validation and glob expansion happen in a later milestone.
@@ -98,6 +145,108 @@ _knit_bundle_collect() {
     for req in "${_KNIT_BUNDLE_REQUIRES[@]}"; do
         [[ -n "${req}" ]] && __knit_ret+=("${req}")
     done
+
+    # Setup manifests: the small identifying files under each setup instance —
+    # enough to rebuild the environment — but never the built spack-env tree.
+    local setup_root setup_rel
+    _knit_setup_root setup_root
+    if [[ -d "${setup_root}" ]]; then
+        _knit_bundle_relpath setup_rel "${root}" "${setup_root}"
+        local d name f abs
+        for d in "${setup_root}"/*/; do
+            [[ -d "${d}" ]] || continue
+            name="${d%/}"; name="${name##*/}"
+            for f in .activate.sh .setup.type .setup.id spack.yaml spack.lock; do
+                abs="${d}${f}"
+                [[ -e "${abs}" || -L "${abs}" ]] \
+                    && __knit_ret+=("${setup_rel}/${name}/${f}")
+            done
+        done
+    fi
+
+    # Job directories: the logs and the scripts by default; the job body's own
+    # content only when include_job_content is set (it is unbounded in size).
+    local job_root job_rel
+    _knit_job_root job_root
+    if [[ -d "${job_root}" ]]; then
+        _knit_bundle_relpath job_rel "${root}" "${job_root}"
+        local d name reljob f abs entry base
+        for d in "${job_root}"/*/; do
+            [[ -d "${d}" ]] || continue
+            name="${d%/}"; name="${name##*/}"
+            reljob="${job_rel}/${name}"
+            if [[ "${__knit_opts[no_job_logs]:-false}" != "true" ]]; then
+                for f in .stdout .stderr; do
+                    abs="${d}${f}"
+                    [[ -e "${abs}" || -L "${abs}" ]] \
+                        && __knit_ret+=("${reljob}/${f}")
+                done
+            fi
+            if [[ "${__knit_opts[no_job_scripts]:-false}" != "true" ]]; then
+                for f in .job.sh .job.id; do
+                    abs="${d}${f}"
+                    [[ -e "${abs}" || -L "${abs}" ]] \
+                        && __knit_ret+=("${reljob}/${f}")
+                done
+            fi
+            if [[ "${__knit_opts[include_job_content]:-false}" == "true" ]]; then
+                # User content is everything the body wrote into its cwd, beyond
+                # the framework's own log, script, and submit-metadata dotfiles.
+                for entry in "${d}"* "${d}".*; do
+                    [[ -e "${entry}" || -L "${entry}" ]] || continue
+                    base="${entry##*/}"
+                    case "${base}" in
+                        .|..|.stdout|.stderr|.job.sh|.job.id|.submit) continue ;;
+                    esac
+                    __knit_ret+=("${reljob}/${base}")
+                done
+            fi
+        done
+    fi
+
+    # Declared artifacts: the whole results tree (tar/zip recurse into it). This
+    # is the point of the experiment, so it travels unless dropped explicitly.
+    if [[ "${__knit_opts[no_artifacts]:-false}" != "true" ]]; then
+        local artifact_root artifact_rel
+        _knit_artifact_root artifact_root
+        if [[ -d "${artifact_root}" ]]; then
+            _knit_bundle_relpath artifact_rel "${root}" "${artifact_root}"
+            __knit_ret+=("${artifact_rel}")
+        fi
+    fi
+
+    # Fetched resources: excluded by default (large, and re-fetchable from their
+    # recorded source). Embedded all at once, or by name, on request.
+    local include_all="${__knit_opts[include_all_resources]:-false}"
+    local include_list="${__knit_opts[include_resources]:-}"
+    if [[ "${include_all}" == "true" || -n "${include_list}" ]]; then
+        local resource_root resource_rel
+        _knit_resource_root resource_root
+        if [[ -d "${resource_root}" ]]; then
+            _knit_bundle_relpath resource_rel "${root}" "${resource_root}"
+            if [[ "${include_all}" == "true" ]]; then
+                # A plain-glob "*" skips the .<name>.resource.* sidecar markers,
+                # so only the instances themselves are packed.
+                local r base
+                for r in "${resource_root}"/*; do
+                    [[ -e "${r}" || -L "${r}" ]] || continue
+                    base="${r##*/}"
+                    __knit_ret+=("${resource_rel}/${base}")
+                done
+            else
+                local rname abs
+                local -a rnames
+                IFS=',' read -r -a rnames <<< "${include_list}"
+                for rname in "${rnames[@]}"; do
+                    [[ -n "${rname}" ]] || continue
+                    abs="${resource_root}/${rname}"
+                    [[ -e "${abs}" || -L "${abs}" ]] \
+                        && __knit_ret+=("${resource_rel}/${rname}")
+                done
+            fi
+        fi
+    fi
+
     return 0
 }
 
@@ -212,13 +361,44 @@ _knit_bundle() {
     local fmt="tar"
     [[ "${zip_flag}" == "true" ]] && fmt="zip"
 
+    # The include/exclude filters. Each flag is read with a "false" fallback so a
+    # direct call (in a test, say) that never went through CLI flag expansion is
+    # treated as "flag not set"; include_resources defaults to the empty list.
+    local no_knit no_db no_job_logs no_job_scripts include_job_content no_artifacts
+    local include_all_resources include_resources
+    no_knit="$(knit_get_parameter "no-knit" "$@")"                       || no_knit="false"
+    no_db="$(knit_get_parameter "no-db" "$@")"                           || no_db="false"
+    no_job_logs="$(knit_get_parameter "no-job-logs" "$@")"               || no_job_logs="false"
+    no_job_scripts="$(knit_get_parameter "no-job-scripts" "$@")"         || no_job_scripts="false"
+    include_job_content="$(knit_get_parameter "include-job-content" "$@")" || include_job_content="false"
+    no_artifacts="$(knit_get_parameter "no-artifacts" "$@")"             || no_artifacts="false"
+    include_all_resources="$(knit_get_parameter "include-all-resources" "$@")" || include_all_resources="false"
+    include_resources="$(knit_get_parameter "include-resources" "$@")"   || include_resources=""
+
+    # The two resource selectors overlap, so naming both is a usage error.
+    if [[ "${include_all_resources}" == "true" && -n "${include_resources}" ]]; then
+        knit_fatal "bundle: --include-all-resources and --include-resources are mutually exclusive."
+    fi
+
+    # shellcheck disable=SC2034 # read by _knit_bundle_collect through a nameref
+    local -A bundle_opts=(
+        [no_knit]="${no_knit}"
+        [no_db]="${no_db}"
+        [no_job_logs]="${no_job_logs}"
+        [no_job_scripts]="${no_job_scripts}"
+        [include_job_content]="${include_job_content}"
+        [no_artifacts]="${no_artifacts}"
+        [include_all_resources]="${include_all_resources}"
+        [include_resources]="${include_resources}"
+    )
+
     local root
     _knit_experiment_root root
 
     [[ -z "${output}" ]] && _knit_bundle_default_output output "${fmt}"
 
     local -a candidates=()
-    _knit_bundle_collect candidates "${root}"
+    _knit_bundle_collect candidates bundle_opts "${root}"
 
     local -a paths=()
     _knit_bundle_prune_paths paths "${root}" "${candidates[@]}"
@@ -242,4 +422,20 @@ knit_with_optional "output:path" "" \
     "Archive path (default ./<project>-bundle.tar.gz, or .zip with --zip)."
 knit_with_flag "zip" \
     "Write a .zip archive instead of .tar.gz."
+knit_with_flag "no-knit" \
+    "Leave out the knit.sh framework file."
+knit_with_flag "no-db" \
+    "Leave out the provenance database (.knit/knit.db)."
+knit_with_flag "no-job-logs" \
+    "Leave out each job's .stdout and .stderr."
+knit_with_flag "no-job-scripts" \
+    "Leave out each job's .job.sh and .job.id."
+knit_with_flag "include-job-content" \
+    "Also pack the user content of each job directory (unbounded in size)."
+knit_with_flag "no-artifacts" \
+    "Leave out the declared artifacts."
+knit_with_optional "include-resources:string" "" \
+    "Pack the named fetched resources (comma-separated names)."
+knit_with_flag "include-all-resources" \
+    "Pack every fetched resource (mutually exclusive with --include-resources)."
 knit_done

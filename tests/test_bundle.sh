@@ -198,3 +198,198 @@ teardown() {
     run tar -tzf "${out}"
     [[ "${output}" != *"dangling.txt"* ]]
 }
+
+# ---------- default inventory, filters, and pruned .knit (M3) ----------
+
+# Return 0 if the first argument appears among the remaining arguments.
+_collect_has() {
+    local needle="$1"; shift
+    local e
+    for e in "$@"; do [[ "${e}" == "${needle}" ]] && return 0; done
+    return 1
+}
+
+# Build a full experiment tree under BUNDLE_ROOT: a Spack setup (with a built
+# spack-env that must be pruned), one job directory (logs, scripts, submit
+# metadata, and user content), an artifact, a fetched resource with its sidecar
+# marker, and the provisioned tools under .knit that must never be packed.
+_populate_tree() {
+    mkdir -p "${BUNDLE_ROOT}/setups/mclib/spack-env/deep"
+    : > "${BUNDLE_ROOT}/setups/mclib/.activate.sh"
+    printf 'setup\n'   > "${BUNDLE_ROOT}/setups/mclib/.setup.type"
+    printf 'sid\n'     > "${BUNDLE_ROOT}/setups/mclib/.setup.id"
+    printf 'spack:\n'  > "${BUNDLE_ROOT}/setups/mclib/spack.yaml"
+    printf 'lock\n'    > "${BUNDLE_ROOT}/setups/mclib/spack.lock"
+    printf 'binary\n'  > "${BUNDLE_ROOT}/setups/mclib/spack-env/deep/lib.so"
+
+    mkdir -p "${BUNDLE_ROOT}/jobs/job1"
+    printf 'out\n'     > "${BUNDLE_ROOT}/jobs/job1/.stdout"
+    printf 'err\n'     > "${BUNDLE_ROOT}/jobs/job1/.stderr"
+    printf '#!/bin/sh\n' > "${BUNDLE_ROOT}/jobs/job1/.job.sh"
+    printf '42\n'      > "${BUNDLE_ROOT}/jobs/job1/.job.id"
+    printf 'meta\n'    > "${BUNDLE_ROOT}/jobs/job1/.submit"
+    printf 'x,y\n'     > "${BUNDLE_ROOT}/jobs/job1/slice.csv"
+
+    mkdir -p "${BUNDLE_ROOT}/artifacts"
+    printf 'result\n'  > "${BUNDLE_ROOT}/artifacts/result.txt"
+
+    mkdir -p "${BUNDLE_ROOT}/resources/dataset"
+    printf 'data\n'    > "${BUNDLE_ROOT}/resources/dataset/file.dat"
+    printf 'image\n'   > "${BUNDLE_ROOT}/resources/.dataset.resource.type"
+
+    mkdir -p "${BUNDLE_ROOT}/.knit/spack" "${BUNDLE_ROOT}/.knit/sqlite" \
+             "${BUNDLE_ROOT}/.knit/jq"
+    printf 'x\n'       > "${BUNDLE_ROOT}/.knit/spack/foo"
+}
+
+@test "collect includes setup manifests, job logs and scripts, and artifacts by default" {
+    _populate_tree
+    local -A opts=()
+    local -a out=()
+    _knit_bundle_collect out opts "${BUNDLE_ROOT}"
+    run _collect_has "setups/mclib/.activate.sh" "${out[@]}"; [ "${status}" -eq 0 ]
+    run _collect_has "setups/mclib/.setup.type"  "${out[@]}"; [ "${status}" -eq 0 ]
+    run _collect_has "setups/mclib/.setup.id"    "${out[@]}"; [ "${status}" -eq 0 ]
+    run _collect_has "setups/mclib/spack.yaml"   "${out[@]}"; [ "${status}" -eq 0 ]
+    run _collect_has "setups/mclib/spack.lock"   "${out[@]}"; [ "${status}" -eq 0 ]
+    run _collect_has "jobs/job1/.stdout"         "${out[@]}"; [ "${status}" -eq 0 ]
+    run _collect_has "jobs/job1/.stderr"         "${out[@]}"; [ "${status}" -eq 0 ]
+    run _collect_has "jobs/job1/.job.sh"         "${out[@]}"; [ "${status}" -eq 0 ]
+    run _collect_has "jobs/job1/.job.id"         "${out[@]}"; [ "${status}" -eq 0 ]
+    run _collect_has "artifacts"                 "${out[@]}"; [ "${status}" -eq 0 ]
+}
+
+@test "collect prunes a setup's built spack-env tree" {
+    _populate_tree
+    local -A opts=()
+    local -a out=()
+    _knit_bundle_collect out opts "${BUNDLE_ROOT}"
+    run _collect_has "setups/mclib/spack-env" "${out[@]}"
+    [ "${status}" -ne 0 ]
+    run _collect_has "setups/mclib/spack-env/deep/lib.so" "${out[@]}"
+    [ "${status}" -ne 0 ]
+}
+
+@test "collect never packs the provisioned tools under .knit" {
+    _populate_tree
+    local -A opts=()
+    local -a out=()
+    _knit_bundle_collect out opts "${BUNDLE_ROOT}"
+    # The pruned .knit carries the database only.
+    run _collect_has ".knit/knit.db" "${out[@]}"; [ "${status}" -eq 0 ]
+    local e bad=""
+    for e in "${out[@]}"; do
+        case "${e}" in
+            .knit/spack*|.knit/sqlite*|.knit/jq*) bad="${e}" ;;
+        esac
+    done
+    [ -z "${bad}" ]
+}
+
+@test "--no-knit drops the knit.sh framework file" {
+    _populate_tree
+    local -A opts=([no_knit]=true)
+    local -a out=()
+    _knit_bundle_collect out opts "${BUNDLE_ROOT}"
+    run _collect_has "knit.sh" "${out[@]}"
+    [ "${status}" -ne 0 ]
+}
+
+@test "--no-db drops the provenance database" {
+    _populate_tree
+    local -A opts=([no_db]=true)
+    local -a out=()
+    _knit_bundle_collect out opts "${BUNDLE_ROOT}"
+    run _collect_has ".knit/knit.db" "${out[@]}"
+    [ "${status}" -ne 0 ]
+}
+
+@test "--no-job-logs drops job logs but keeps job scripts" {
+    _populate_tree
+    local -A opts=([no_job_logs]=true)
+    local -a out=()
+    _knit_bundle_collect out opts "${BUNDLE_ROOT}"
+    run _collect_has "jobs/job1/.stdout" "${out[@]}"; [ "${status}" -ne 0 ]
+    run _collect_has "jobs/job1/.stderr" "${out[@]}"; [ "${status}" -ne 0 ]
+    run _collect_has "jobs/job1/.job.sh" "${out[@]}"; [ "${status}" -eq 0 ]
+}
+
+@test "--no-job-scripts drops job scripts but keeps job logs" {
+    _populate_tree
+    local -A opts=([no_job_scripts]=true)
+    local -a out=()
+    _knit_bundle_collect out opts "${BUNDLE_ROOT}"
+    run _collect_has "jobs/job1/.job.sh" "${out[@]}"; [ "${status}" -ne 0 ]
+    run _collect_has "jobs/job1/.job.id" "${out[@]}"; [ "${status}" -ne 0 ]
+    run _collect_has "jobs/job1/.stdout" "${out[@]}"; [ "${status}" -eq 0 ]
+}
+
+@test "--no-artifacts drops the artifacts tree" {
+    _populate_tree
+    local -A opts=([no_artifacts]=true)
+    local -a out=()
+    _knit_bundle_collect out opts "${BUNDLE_ROOT}"
+    run _collect_has "artifacts" "${out[@]}"
+    [ "${status}" -ne 0 ]
+}
+
+@test "job user content is excluded by default" {
+    _populate_tree
+    local -A opts=()
+    local -a out=()
+    _knit_bundle_collect out opts "${BUNDLE_ROOT}"
+    run _collect_has "jobs/job1/slice.csv" "${out[@]}"
+    [ "${status}" -ne 0 ]
+}
+
+@test "--include-job-content packs job user content but not the framework dotfiles" {
+    _populate_tree
+    local -A opts=([include_job_content]=true)
+    local -a out=()
+    _knit_bundle_collect out opts "${BUNDLE_ROOT}"
+    run _collect_has "jobs/job1/slice.csv" "${out[@]}"; [ "${status}" -eq 0 ]
+    # The submit-metadata dotfile is framework internal, never user content.
+    run _collect_has "jobs/job1/.submit" "${out[@]}"; [ "${status}" -ne 0 ]
+}
+
+@test "fetched resources are excluded by default" {
+    _populate_tree
+    local -A opts=()
+    local -a out=()
+    _knit_bundle_collect out opts "${BUNDLE_ROOT}"
+    run _collect_has "resources/dataset" "${out[@]}"
+    [ "${status}" -ne 0 ]
+}
+
+@test "--include-resources packs the named resource only" {
+    _populate_tree
+    mkdir -p "${BUNDLE_ROOT}/resources/other"
+    printf 'o\n' > "${BUNDLE_ROOT}/resources/other/x"
+    local -A opts=([include_resources]=dataset)
+    local -a out=()
+    _knit_bundle_collect out opts "${BUNDLE_ROOT}"
+    run _collect_has "resources/dataset" "${out[@]}"; [ "${status}" -eq 0 ]
+    run _collect_has "resources/other"   "${out[@]}"; [ "${status}" -ne 0 ]
+}
+
+@test "--include-all-resources packs every instance but not the sidecar markers" {
+    _populate_tree
+    mkdir -p "${BUNDLE_ROOT}/resources/other"
+    printf 'o\n' > "${BUNDLE_ROOT}/resources/other/x"
+    local -A opts=([include_all_resources]=true)
+    local -a out=()
+    _knit_bundle_collect out opts "${BUNDLE_ROOT}"
+    run _collect_has "resources/dataset" "${out[@]}"; [ "${status}" -eq 0 ]
+    run _collect_has "resources/other"   "${out[@]}"; [ "${status}" -eq 0 ]
+    run _collect_has "resources/.dataset.resource.type" "${out[@]}"
+    [ "${status}" -ne 0 ]
+}
+
+@test "bundle fatals when both resource selectors are given" {
+    _populate_tree
+    local out="${BUNDLE_ROOT}/out.tar.gz"
+    run _knit_bundle --output "${out}" \
+        --include-all-resources true --include-resources dataset
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"mutually exclusive"* ]]
+}
