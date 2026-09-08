@@ -5,9 +5,10 @@ setup() {
     knit_test_require_sqlite
     knit_test_db_setup
 
-    # Start each test from a clean slate: the array is global and persists
-    # across the sourced framework, so reset it explicitly.
+    # Start each test from a clean slate: the arrays are global and persist
+    # across the sourced framework, so reset them explicitly.
     _KNIT_BUNDLE_REQUIRES=()
+    _KNIT_BUNDLE_AUTO_REQUIRES=()
 
     # Build a throwaway experiment tree: a root directory holding .knit/knit.db,
     # the experiment script, and the knit.sh framework beside it. The root is
@@ -141,14 +142,15 @@ teardown() {
     [[ "${output}" == *"config/params.yaml"* ]]
 }
 
-@test "bundle skips a missing required file with a warning, without failing" {
+@test "bundle fatals on a missing required file, naming it" {
+    # A user-declared required file that does not exist is a clear error (M5),
+    # unlike the framework-enumerated optional paths, which are skipped silently.
     knit_bundle_requires "config/absent.yaml"
     local out="${BUNDLE_ROOT}/out.tar.gz"
     run _knit_bundle --output "${out}"
-    [ "${status}" -eq 0 ]
-    [[ "${output}" == *"absent.yaml"* ]]
-    run tar -tzf "${out}"
-    [[ "${output}" != *"absent.yaml"* ]]
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"config/absent.yaml"* ]]
+    [ ! -e "${out}" ]
 }
 
 @test "bundle --zip yields a zip archive" {
@@ -486,4 +488,150 @@ _populate_tree() {
     run _knit_bundle --size true
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"only meaningful with --dry-run"* ]]
+}
+
+# ---------- requires validation, glob expansion, warnings (M5) ----------
+
+@test "bundle fatals on an absolute required path" {
+    knit_bundle_requires "/etc/hosts"
+    run _knit_bundle --output "${BUNDLE_ROOT}/out.tar.gz"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"absolute"* ]]
+    [[ "${output}" == *"/etc/hosts"* ]]
+    [ ! -e "${BUNDLE_ROOT}/out.tar.gz" ]
+}
+
+@test "bundle fatals on a required path that escapes the tree" {
+    knit_bundle_requires "../evil.txt"
+    run _knit_bundle --output "${BUNDLE_ROOT}/out.tar.gz"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"escapes"* ]]
+    [ ! -e "${BUNDLE_ROOT}/out.tar.gz" ]
+}
+
+@test "bundle expands a required glob and packs every match" {
+    mkdir -p "${BUNDLE_ROOT}/inputs"
+    printf 'a\n' > "${BUNDLE_ROOT}/inputs/a.dat"
+    printf 'b\n' > "${BUNDLE_ROOT}/inputs/b.dat"
+    printf 'c\n' > "${BUNDLE_ROOT}/inputs/c.txt"
+    knit_bundle_requires "inputs/*.dat"
+    local out="${BUNDLE_ROOT}/out.tar.gz"
+    _knit_bundle --output "${out}"
+    run tar -tzf "${out}"
+    [[ "${output}" == *"inputs/a.dat"* ]]
+    [[ "${output}" == *"inputs/b.dat"* ]]
+    # A non-matching file is left out.
+    [[ "${output}" != *"inputs/c.txt"* ]]
+}
+
+@test "bundle warns on a required glob that matches nothing, without failing" {
+    knit_bundle_requires "inputs/*.dat"
+    local out="${BUNDLE_ROOT}/out.tar.gz"
+    run _knit_bundle --output "${out}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"matched nothing"* ]]
+    [ -e "${out}" ]
+}
+
+@test "bundle warns and normalizes an absolute stored root, packing its content" {
+    # An artifact root bootstrapped as an absolute path outside the tree, as with
+    # results staged on a parallel filesystem.
+    local ext; ext="$(mktemp -d)"
+    mkdir -p "${ext}/artifacts"
+    printf 'result\n' > "${ext}/artifacts/result.txt"
+    _knit_sqlite3_write \
+        "INSERT INTO metadata (key, value) VALUES ('__artifact_path__', '${ext}/artifacts');"
+    local out="${BUNDLE_ROOT}/out.tar.gz"
+    run _knit_bundle --output "${out}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"outside the experiment tree"* ]]
+    # The content is packed under the normalized relative location.
+    run tar -tzf "${out}"
+    [[ "${output}" == *"artifacts/result.txt"* ]]
+    rm -rf "${ext}"
+}
+
+@test "bundle warns about an unselected local-only resource" {
+    # Mark a resource type "mydata" as local, as knit_with_local would, then place
+    # an instance with its type sidecar. The marker uses the mangled command name.
+    _KNIT_CMD_fetch__1__mydata_fetch_method="local"
+    mkdir -p "${BUNDLE_ROOT}/resources/ds"
+    printf 'x\n' > "${BUNDLE_ROOT}/resources/ds/file"
+    printf 'mydata\n' > "${BUNDLE_ROOT}/resources/.ds.resource.type"
+
+    run _knit_bundle --output "${BUNDLE_ROOT}/out.tar.gz"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"local resource"* ]]
+    [[ "${output}" == *"ds"* ]]
+}
+
+@test "bundle does not warn about a selected local resource" {
+    _KNIT_CMD_fetch__1__mydata_fetch_method="local"
+    mkdir -p "${BUNDLE_ROOT}/resources/ds"
+    printf 'x\n' > "${BUNDLE_ROOT}/resources/ds/file"
+    printf 'mydata\n' > "${BUNDLE_ROOT}/resources/.ds.resource.type"
+
+    run _knit_bundle --output "${BUNDLE_ROOT}/out.tar.gz" --include-resources ds
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"local resource"* ]]
+}
+
+@test "bundle does not warn about an unselected non-local resource" {
+    # A git-backed resource has a remote source, so leaving it out is safe.
+    _KNIT_CMD_fetch__1__mydata_fetch_method="git"
+    mkdir -p "${BUNDLE_ROOT}/resources/ds"
+    printf 'x\n' > "${BUNDLE_ROOT}/resources/ds/file"
+    printf 'mydata\n' > "${BUNDLE_ROOT}/resources/.ds.resource.type"
+
+    run _knit_bundle --output "${BUNDLE_ROOT}/out.tar.gz"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"local resource"* ]]
+}
+
+# ---------- knit_with_spack_env auto-require (M5) ----------
+
+@test "knit_with_spack_env file form records a bundle auto-require" {
+    _KNIT_BUNDLE_AUTO_REQUIRES=()
+    _spack_setup_fn() { :; }
+    knit_register_setup "libs" "_spack_setup_fn" "Build deps."
+    knit_with_spack_env "envs/mclib.yaml"
+    knit_done
+    run _collect_has "envs/mclib.yaml" "${_KNIT_BUNDLE_AUTO_REQUIRES[@]}"
+    [ "${status}" -eq 0 ]
+}
+
+@test "knit_with_spack_env stdin form records no bundle auto-require" {
+    _KNIT_BUNDLE_AUTO_REQUIRES=()
+    _spack_setup_fn() { :; }
+    knit_register_setup "libs" "_spack_setup_fn" "Build deps."
+    knit_with_spack_env <<'EOF'
+spack:
+  specs:
+    - zlib
+EOF
+    knit_done
+    [ "${#_KNIT_BUNDLE_AUTO_REQUIRES[@]}" -eq 0 ]
+}
+
+@test "an auto-required spack manifest is packed into the bundle" {
+    mkdir -p "${BUNDLE_ROOT}/envs"
+    printf 'spack:\n' > "${BUNDLE_ROOT}/envs/mclib.yaml"
+    _KNIT_BUNDLE_AUTO_REQUIRES=("envs/mclib.yaml")
+    local out="${BUNDLE_ROOT}/out.tar.gz"
+    _knit_bundle --output "${out}"
+    run tar -tzf "${out}"
+    [[ "${output}" == *"envs/mclib.yaml"* ]]
+}
+
+@test "a missing auto-required path warns but does not fatal" {
+    # Unlike the user's own required list, an auto-required path is lenient: a
+    # missing one is skipped with a warning so the bundle still succeeds.
+    _KNIT_BUNDLE_AUTO_REQUIRES=("envs/absent.yaml")
+    local out="${BUNDLE_ROOT}/out.tar.gz"
+    run _knit_bundle --output "${out}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"envs/absent.yaml"* ]]
+    [ -e "${out}" ]
+    run tar -tzf "${out}"
+    [[ "${output}" != *"envs/absent.yaml"* ]]
 }

@@ -1121,6 +1121,10 @@ knit_with_spack_env() {
     if [[ -n "$1" ]]; then
         mode="file"
         source="$(realpath -m "$1" 2>/dev/null || printf '%s' "$1")"
+        # The manifest is an input the bundle should carry. Record it verbatim (the
+        # user's typed path, not the resolved absolute form, so relative-path
+        # handling applies at bundle time); "knit bundle" validates it there.
+        _knit_bundle_auto_require "$1"
     else
         # No path given: the manifest must arrive on stdin (here-doc, here-string,
         # or pipe). If stdin is an interactive terminal there is nothing to read
