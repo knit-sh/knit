@@ -393,3 +393,97 @@ _populate_tree() {
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"mutually exclusive"* ]]
 }
+
+# ---------- --dry-run, --list, --size (M4) ----------
+
+@test "--dry-run writes no archive" {
+    _populate_tree
+    local out="${BUNDLE_ROOT}/out.tar.gz"
+    run _knit_bundle --output "${out}" --dry-run true
+    [ "${status}" -eq 0 ]
+    [ ! -e "${out}" ]
+}
+
+@test "--dry-run prints a tree that lists the expected entries" {
+    _populate_tree
+    run _knit_bundle --dry-run true
+    [ "${status}" -eq 0 ]
+    # The synthesized intermediate directories appear as tree nodes.
+    [[ "${output}" == *"experiment.sh"* ]]
+    [[ "${output}" == *"knit.sh"* ]]
+    [[ "${output}" == *".knit/"* || "${output}" == *"knit.db"* ]]
+    [[ "${output}" == *"setups/"* ]]
+    [[ "${output}" == *"mclib/"* ]]
+    [[ "${output}" == *"jobs/"* ]]
+    [[ "${output}" == *"artifacts/"* ]]
+    # A box connector is present, so the output is drawn as a tree.
+    [[ "${output}" == *"── "* ]]
+}
+
+@test "--dry-run tree header is the archive root name" {
+    _populate_tree
+    _knit_sqlite3_write \
+        "INSERT INTO metadata (key, value) VALUES ('__project__', 'montecarlo-pi');"
+    run _knit_bundle --dry-run true
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"montecarlo-pi-bundle/"* ]]
+}
+
+@test "--dry-run --list prints a flat, root-relative path list" {
+    _populate_tree
+    run _knit_bundle --dry-run true --list true
+    [ "${status}" -eq 0 ]
+    # Every line is a bare relative path: no box connectors, no leading slash.
+    [[ "${output}" != *"── "* ]]
+    local line
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] && continue
+        [[ "${line}" != /* ]]
+    done <<< "${output}"
+    [[ "${output}" == *"experiment.sh"* ]]
+    [[ "${output}" == *"setups/mclib/.activate.sh"* ]]
+    [[ "${output}" == *"artifacts"* ]]
+}
+
+@test "--dry-run --list --size annotates paths and totals correctly" {
+    _populate_tree
+    # A required file of a known size, so the reported byte count is predictable.
+    printf '0123456789' > "${BUNDLE_ROOT}/ten.txt"   # exactly 10 bytes, no newline
+    knit_bundle_requires "ten.txt"
+    run _knit_bundle --dry-run true --list true --size true
+    [ "${status}" -eq 0 ]
+    # The ten-byte file is annotated with its size.
+    [[ "${output}" == *"10  ten.txt"* ]]
+    # A TOTAL line closes the report.
+    [[ "${output}" == *"TOTAL"* ]]
+    # The total equals the sum of the per-entry sizes.
+    local sum=0 sz rest
+    while read -r sz rest; do
+        [[ "${rest}" == "TOTAL" ]] && { [ "${sz}" -eq "${sum}" ]; continue; }
+        [[ "${sz}" =~ ^[0-9]+$ ]] && sum=$(( sum + sz ))
+    done <<< "${output}"
+}
+
+@test "--size counts a symlink's target size, not the link" {
+    # A ten-byte target linked in from outside the tree; du -L must follow it.
+    local ext; ext="$(mktemp -d)"
+    printf '0123456789' > "${ext}/target.txt"        # exactly 10 bytes
+    ln -s "${ext}/target.txt" "${BUNDLE_ROOT}/link.txt"
+    knit_bundle_requires "link.txt"
+    run _knit_bundle --dry-run true --list true --size true
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"10  link.txt"* ]]
+    rm -rf "${ext}"
+}
+
+@test "--list without --dry-run is a usage error" {
+    run _knit_bundle --list true
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"only meaningful with --dry-run"* ]]
+}
+
+@test "--size without --dry-run is a usage error" {
+    run _knit_bundle --size true
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"only meaningful with --dry-run"* ]]
+}

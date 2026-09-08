@@ -342,14 +342,167 @@ _knit_bundle_write_archive() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bundle_print_list()
+#
+# Print the planned bundle contents as a flat list, one path per line, each
+# relative to the experiment root. This is the --dry-run --list form. When size
+# mode is on, each line is prefixed with the path's size in bytes and a final
+# TOTAL line gives the sum; the size of a symlink is its target's real size (du
+# dereferences with -L), and the size of a directory is its recursive content.
+#
+# @param[in] size_mode "true" to annotate each path with its size in bytes.
+# @param[in] root The absolute experiment root.
+# @param[in] ... The relative paths to print.
+# ------------------------------------------------------------------------------
+_knit_bundle_print_list() {
+    local size_mode="$1" root="$2"; shift 2
+    local rel abs sz total=0
+    for rel in "$@"; do
+        [[ -z "${rel}" ]] && continue
+        if [[ "${size_mode}" == "true" ]]; then
+            abs="${root}/${rel}"
+            sz="$(du -sbL -- "${abs}" 2>/dev/null | cut -f1)"; sz="${sz:-0}"
+            total=$(( total + sz ))
+            printf '%12d  %s\n' "${sz}" "${rel}"
+        else
+            printf '%s\n' "${rel}"
+        fi
+    done
+    [[ "${size_mode}" == "true" ]] && printf '%12d  %s\n' "${total}" "TOTAL"
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_bundle_render_tree()
+#
+# Render one directory level of the bundle tree, then recurse into each child
+# directory. It draws the box connectors ("├──", "└──", "│") from the child's
+# position among its siblings. A node is shown with a trailing "/" when it has
+# packed children or is a directory on disk. When size mode is on, a node that is
+# a real bundle entry (named in the collected path list, so a leaf here) is
+# annotated with its size in bytes and that size is added to the running total.
+#
+# @param[in] kidsname Name of the parent-to-children map (a value per line).
+# @param[in] realname Name of the set of real bundle entries (leaf paths).
+# @param[in] prefix The indentation drawn before this level's connectors.
+# @param[in] parentpath The path whose children this call renders ("" is root).
+# @param[in] size_mode "true" to annotate real entries with their size.
+# @param[in] root The absolute experiment root.
+# @param[in,out] totalname Name of the running byte-total variable.
+# ------------------------------------------------------------------------------
+_knit_bundle_render_tree() {
+    local kidsname="$1" realname="$2" prefix="$3" parentpath="$4"
+    local size_mode="$5" root="$6" totalname="$7"
+    local -n _kids="${kidsname}"
+    local -n _real="${realname}"
+    local -n _tot="${totalname}"
+    # A bash associative-array key may not be empty, so the top level is keyed by
+    # a sentinel (STX) that no relative path can hold.
+    local rootkey=$'\x02'
+    local raw="${_kids[${parentpath}]:-}"
+    [[ -z "${raw}" ]] && return 0
+
+    local -a arr=()
+    local line
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] && arr+=("${line}")
+    done <<< "${raw}"
+
+    local n=${#arr[@]} i comp childpath connector childprefix name haskids abs sz
+    for (( i=0; i<n; i++ )); do
+        comp="${arr[i]}"
+        if [[ "${parentpath}" == "${rootkey}" ]]; then
+            childpath="${comp}"
+        else
+            childpath="${parentpath}/${comp}"
+        fi
+        if (( i == n-1 )); then
+            connector="└── "; childprefix="    "
+        else
+            connector="├── "; childprefix="│   "
+        fi
+        haskids=""
+        [[ -n "${_kids[${childpath}]:-}" ]] && haskids=1
+        abs="${root}/${childpath}"
+        name="${comp}"
+        { [[ -n "${haskids}" ]] || [[ -d "${abs}" ]]; } && name="${comp}/"
+        if [[ "${size_mode}" == "true" && -n "${_real[${childpath}]:-}" ]]; then
+            sz="$(du -sbL -- "${abs}" 2>/dev/null | cut -f1)"; sz="${sz:-0}"
+            _tot=$(( _tot + sz ))
+            printf '%s%s%s  (%d bytes)\n' "${prefix}" "${connector}" "${name}" "${sz}"
+        else
+            printf '%s%s%s\n' "${prefix}" "${connector}" "${name}"
+        fi
+        [[ -n "${haskids}" ]] && _knit_bundle_render_tree \
+            "${kidsname}" "${realname}" "${prefix}${childprefix}" \
+            "${childpath}" "${size_mode}" "${root}" "${totalname}"
+    done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_bundle_print_tree()
+#
+# Print the planned bundle contents as a tree, like the layout in the design
+# document. This is the default --dry-run form. It builds a parent-to-children
+# map from the flat path list (synthesizing the intermediate directories that no
+# entry names on its own), prints a root header from the archive label, and hands
+# the rendering to _knit_bundle_render_tree. When size mode is on, each real entry
+# is annotated with its size and a final TOTAL line gives the sum.
+#
+# @param[in] size_mode "true" to annotate each entry with its size in bytes.
+# @param[in] root The absolute experiment root.
+# @param[in] label The archive root name shown as the tree header.
+# @param[in] ... The relative paths to render.
+# ------------------------------------------------------------------------------
+_knit_bundle_print_tree() {
+    local size_mode="$1" root="$2" label="$3"; shift 3
+    local -A tkids=() tseen=() treal=()
+    # A bash associative-array key may not be empty, so the top level is keyed by
+    # a sentinel (STX) that no relative path can hold.
+    local rootkey=$'\x02'
+    local p parent comp childpath seenkey
+    local -a comps
+    for p in "$@"; do
+        [[ -z "${p}" ]] && continue
+        # shellcheck disable=SC2034 # treal is read by _knit_bundle_render_tree through a nameref
+        treal["${p}"]=1
+        IFS='/' read -r -a comps <<< "${p}"
+        parent="${rootkey}"
+        for comp in "${comps[@]}"; do
+            [[ -z "${comp}" ]] && continue
+            if [[ "${parent}" == "${rootkey}" ]]; then
+                childpath="${comp}"
+            else
+                childpath="${parent}/${comp}"
+            fi
+            seenkey="${parent}"$'\x1f'"${comp}"
+            if [[ -z "${tseen[${seenkey}]:-}" ]]; then
+                tseen["${seenkey}"]=1
+                tkids["${parent}"]+="${comp}"$'\n'
+            fi
+            parent="${childpath}"
+        done
+    done
+
+    printf '%s/\n' "${label}"
+    local total=0
+    _knit_bundle_render_tree tkids treal "" "${rootkey}" "${size_mode}" "${root}" total
+    [[ "${size_mode}" == "true" ]] && printf '%12d  %s\n' "${total}" "TOTAL"
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_bundle()
 #
 # Body of "knit bundle": pack the experiment into one shippable archive. It reads
 # the --output and --zip options, resolves the experiment root, computes the
 # default output path when none is given, collects the minimal default contents,
-# drops any path the writer cannot pack, and writes the archive. The command is
-# read-only: it declares no table and takes knit_without_provenance, so it records
-# no row and writes no provenance edge.
+# and drops any path the writer cannot pack. With --dry-run it prints the planned
+# contents (a tree, or a flat list with --list, and sizes with --size) and writes
+# nothing; otherwise it writes the archive. The command is read-only: it declares
+# no table and takes knit_without_provenance, so it records no row and writes no
+# provenance edge.
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
@@ -375,9 +528,23 @@ _knit_bundle() {
     include_all_resources="$(knit_get_parameter "include-all-resources" "$@")" || include_all_resources="false"
     include_resources="$(knit_get_parameter "include-resources" "$@")"   || include_resources=""
 
+    # The inspection options: --dry-run writes nothing; --list and --size shape
+    # the dry-run output and are meaningful only with it.
+    local dry_run list_flag size_flag
+    dry_run="$(knit_get_parameter "dry-run" "$@")"   || dry_run="false"
+    list_flag="$(knit_get_parameter "list" "$@")"    || list_flag="false"
+    size_flag="$(knit_get_parameter "size" "$@")"    || size_flag="false"
+
     # The two resource selectors overlap, so naming both is a usage error.
     if [[ "${include_all_resources}" == "true" && -n "${include_resources}" ]]; then
         knit_fatal "bundle: --include-all-resources and --include-resources are mutually exclusive."
+    fi
+
+    # --list and --size only shape the dry-run report; they do nothing to a real
+    # archive, so naming either without --dry-run is a usage error.
+    if [[ "${dry_run}" != "true" ]] \
+        && { [[ "${list_flag}" == "true" ]] || [[ "${size_flag}" == "true" ]]; }; then
+        knit_fatal "bundle: --list and --size are only meaningful with --dry-run."
     fi
 
     # shellcheck disable=SC2034 # read by _knit_bundle_collect through a nameref
@@ -402,6 +569,21 @@ _knit_bundle() {
 
     local -a paths=()
     _knit_bundle_prune_paths paths "${root}" "${candidates[@]}"
+
+    # --dry-run reports the planned contents and writes no archive.
+    if [[ "${dry_run}" == "true" ]]; then
+        if [[ "${list_flag}" == "true" ]]; then
+            _knit_bundle_print_list "${size_flag}" "${root}" "${paths[@]}"
+        else
+            # The tree header is the archive root name: the output basename with
+            # its format extension removed.
+            local label
+            label="$(basename -- "${output}")"
+            label="${label%.zip}"; label="${label%.tar.gz}"; label="${label%.tgz}"
+            _knit_bundle_print_tree "${size_flag}" "${root}" "${label}" "${paths[@]}"
+        fi
+        return 0
+    fi
 
     _knit_bundle_write_archive "${fmt}" "${output}" "${root}" "${paths[@]}"
 
@@ -438,4 +620,10 @@ knit_with_optional "include-resources:string" "" \
     "Pack the named fetched resources (comma-separated names)."
 knit_with_flag "include-all-resources" \
     "Pack every fetched resource (mutually exclusive with --include-resources)."
+knit_with_flag "dry-run" \
+    "Print the planned contents and write no archive."
+knit_with_flag "list" \
+    "With --dry-run, print a flat list of paths instead of a tree."
+knit_with_flag "size" \
+    "With --dry-run, annotate each entry with its size and print a total."
 knit_done
