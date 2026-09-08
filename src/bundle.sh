@@ -854,9 +854,10 @@ _knit_bundle_print_tree() {
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_bundle() {
-    local output zip_flag
+    local output zip_flag ro_crate
     output="$(knit_get_parameter "output" "$@")"   || output=""
     zip_flag="$(knit_get_parameter "zip" "$@")"     || zip_flag="false"
+    ro_crate="$(knit_get_parameter "ro-crate" "$@")" || ro_crate="false"
 
     local fmt="tar"
     [[ "${zip_flag}" == "true" ]] && fmt="zip"
@@ -921,6 +922,19 @@ _knit_bundle() {
     local -a paths=()
     _knit_bundle_prune_paths paths "${root}" "${candidates[@]}"
 
+    # With --ro-crate, generate the manifest describing exactly these packed
+    # files, then carry it at the archive root. It is written to a temporary file
+    # and mapped into the archive through the extern map (like an out-of-tree
+    # path), so the writer stages it at "ro-crate-metadata.json" and the dry-run
+    # report lists it. The temporary file is removed before returning.
+    local rocrate_tmp=""
+    if [[ "${ro_crate}" == "true" ]]; then
+        rocrate_tmp="$(mktemp)"
+        _knit_bundle_rocrate_generate "${rocrate_tmp}" "${root}" "${paths[@]}"
+        _KNIT_BUNDLE_EXTERN["ro-crate-metadata.json"]="${rocrate_tmp}"
+        paths+=("ro-crate-metadata.json")
+    fi
+
     # --dry-run reports the planned contents and writes no archive.
     if [[ "${dry_run}" == "true" ]]; then
         if [[ "${list_flag}" == "true" ]]; then
@@ -933,10 +947,13 @@ _knit_bundle() {
             label="${label%.zip}"; label="${label%.tar.gz}"; label="${label%.tgz}"
             _knit_bundle_print_tree "${size_flag}" "${root}" "${label}" "${paths[@]}"
         fi
+        [[ -n "${rocrate_tmp}" ]] && rm -f -- "${rocrate_tmp}"
         return 0
     fi
 
     _knit_bundle_write_archive "${fmt}" "${output}" "${root}" "${paths[@]}"
+
+    [[ -n "${rocrate_tmp}" ]] && rm -f -- "${rocrate_tmp}"
 
     knit_info "Wrote bundle to %s" "${output}"
 }
@@ -955,6 +972,8 @@ knit_with_optional "output:path" "" \
     "Archive path (default ./<project>-bundle.tar.gz, or .zip with --zip)."
 knit_with_flag "zip" \
     "Write a .zip archive instead of .tar.gz."
+knit_with_flag "ro-crate" \
+    "Also write an ro-crate-metadata.json manifest at the archive root."
 knit_with_flag "no-knit" \
     "Leave out the knit.sh framework file."
 knit_with_flag "no-db" \
