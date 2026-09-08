@@ -76,6 +76,11 @@ title = "Cleanup"
 summary = "Erasing recorded entities and their provenance with knit remove, from a single row to a whole lineage."
 
 [[category]]
+slug = "bundle"
+title = "Bundle & export"
+summary = "Packing an experiment into one shippable archive with knit bundle, and exporting a standard RO-Crate manifest of its provenance."
+
+[[category]]
 slug = "profiles"
 title = "Profiles"
 summary = "Selecting a machine profile at bootstrap and reading its scheduler, launcher, and hardware fields."

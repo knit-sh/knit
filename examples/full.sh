@@ -21,7 +21,10 @@
 # provenance edges with `knit_as`, querying the database and its provenance
 # graph with `knit query` (read-only SQL, a schema catalog, and Cypher over the
 # recorded provenance), provenance-aware deletion of recorded entities and
-# everything that depended on them with `knit remove`, commands that are usable
+# everything that depended on them with `knit remove`, packing the whole
+# experiment — code, provenance, logs, and results — into one shippable archive,
+# optionally a standard RO-Crate research object, with `knit bundle` and `knit
+# export ro-crate`, commands that are usable
 # before bootstrap
 # (`@usable_before_bootstrap`), state-aware `--help` guidance that gates,
 # hides, and highlights commands by the live experiment state (`@usable_if` /
@@ -1059,7 +1062,75 @@
 #   ./full.sh remove job --id <uuid> --keep-files --yes
 #
 # -----------------------------------------------------------------------------
-# 21. Clean up
+# 21. Bundle the experiment to ship it (knit bundle / knit export ro-crate)
+# -----------------------------------------------------------------------------
+#   ./full.sh bundle
+#
+# When the experiment is done, `knit bundle` packs it into one archive that
+# unpacks anywhere and still works — the thing you send a collaborator or deposit
+# in a repository such as Zenodo. Every path inside is relative to the experiment
+# script at the archive root, and a symlink pointing outside the tree (common on
+# HPC, where results live on a parallel filesystem and are linked back in) is
+# dereferenced, so its content travels instead of a link that dangles elsewhere.
+#
+# The default output is ./pi-demo-bundle.tar.gz (the --project name from step 2,
+# falling back to the script name without .sh). Pick the path with --output, and
+# write a zip — what Zenodo and WorkflowHub expect — with --zip:
+#
+#   ./full.sh bundle --output /tmp/pi.zip --zip
+#
+# What travels, by default: the CODE (this script and knit.sh), the PROVENANCE
+# DATABASE (a pruned .knit/knit.db — the DB alone, not the provisioned tooling),
+# the JOB LOGS and SCRIPTS, the SETUP MANIFESTS (.activate.sh, spack.yaml/lock —
+# the specs, not the built tree), and the declared ARTIFACTS. What is left out is
+# what is bulky and REGENERABLE: the built Spack environments, the provisioned
+# .knit/spack|sqlite|jq toolchain, and fetched resources — each re-created by a
+# fresh `bootstrap` and the recorded specs. So a reproducer unpacks the archive,
+# runs `./full.sh bootstrap`, and rebuilds the environment from the embedded
+# manifests. In short: knit EMBEDS what is small and defining, and REFERENCES
+# (records how to rebuild) what is large and derivable.
+#
+# Adjust the contents with the include/exclude flags: drop a default group with
+# --no-knit / --no-db / --no-job-logs / --no-job-scripts / --no-artifacts, pack a
+# job's own working files with --include-job-content, and pack fetched resources
+# (off by default) by name with --include-resources myseeds or all of them with
+# --include-all-resources.
+#
+# The side files this script declared with knit_bundle_requires (the top of the
+# file: notes.txt and seed-list/*.txt) are carried too — the files knit does not
+# otherwise track. A glob is expanded at bundle time; a required path that does
+# not exist is an error naming it, so create notes.txt (section 5) first or drop
+# the line.
+#
+# Preview the exact contents before writing anything with --dry-run. It prints
+# the planned files as a tree; add --list for a flat, root-relative list and
+# --size to annotate each entry with its size (a symlink counts its target's real
+# size) and a total:
+#
+#   ./full.sh bundle --dry-run
+#   ./full.sh bundle --dry-run --list --size
+#
+# With --ro-crate, knit also writes an ro-crate-metadata.json at the archive root,
+# describing the packed files with the RO-Crate 1.1 / Process Run Crate vocabulary
+# (one CreateAction per recorded run, wired to its inputs and outputs). The
+# archive is then a self-describing research object; --ro-crate --zip is ready for
+# Zenodo or WorkflowHub:
+#
+#   ./full.sh bundle --ro-crate --zip --output pi-demo.zip
+#
+# To inspect or regenerate that manifest ALONE — no archive, no copied files —
+# use `knit export ro-crate`. It describes the on-disk files by their current
+# relative paths. --output defaults to ./ro-crate-metadata.json; --output - writes
+# to stdout for a pipe:
+#
+#   ./full.sh export ro-crate
+#   ./full.sh export ro-crate --output - | jq '.["@graph"] | length'
+#
+# `bundle` and `export ro-crate` both need a bootstrapped experiment (they read
+# knit.db) and are read-only: they record nothing and change no experiment state.
+#
+# -----------------------------------------------------------------------------
+# 22. Clean up
 # -----------------------------------------------------------------------------
 #   rm -rf .knit setups jobs artifacts
 #
@@ -1081,6 +1152,14 @@ source knit.sh
 
 knit_set_program_description \
     "A guided tour of knit: estimate pi with Monte-Carlo, locally or as a job."
+
+# Side files this experiment needs but knit does not otherwise track. `knit
+# bundle` (guided-tour section 21) packs them into the shippable archive. The
+# declaration is record-only — it never touches the filesystem — so it is safe
+# even before these files exist; `knit bundle` validates them when it runs. A
+# plain path is one file or directory; a glob is expanded at bundle time.
+knit_bundle_requires "notes.txt"        # the optional notes file from section 5
+knit_bundle_requires "seed-list/*.txt"  # the seed list staged in section 12
 
 # A user-defined enum type, usable as a parameter type below.
 @enum "numfmt" "decimal" "scientific"

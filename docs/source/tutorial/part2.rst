@@ -676,6 +676,79 @@ filesystem change at all --- every directory, artifact, and plain output stays,
 each listed under "Left on disk"; use it to prune the provenance while leaving
 the whole on-disk tree untouched.
 
+.. _tutorial-bundle:
+
+Step 8 --- Bundle: ship the finished experiment
+-----------------------------------------------
+
+The experiment is done: it fetched its source, built an environment, rendered
+images across a cluster, aggregated a result artifact, and recorded every step.
+Now package it to send to a collaborator or deposit in a repository such as
+Zenodo. Like Steps 6 and 7, this adds no code --- it is a console workflow over
+the same script.
+
+``knit bundle`` packs the whole experiment into one archive that unpacks anywhere
+and still works:
+
+.. code-block:: console
+
+   $ ./exp.sh bundle
+   [knit:info] Wrote bundle to julia-bundle.tar.gz
+
+Every path inside the archive is relative to ``exp.sh`` at the root, so the tree
+relocates cleanly. A symlink that points *outside* the tree --- on HPC the
+rendered images often live on a parallel filesystem and are linked back in --- is
+**dereferenced**, so its content travels rather than a link that would dangle on
+the reproducer's machine.
+
+**Embedded vs referenced.** The bundle draws a deliberate line. It *embeds* what
+is small and defining, and *references* (records how to rebuild) what is large and
+derivable:
+
+- **Embedded by default:** the code (``exp.sh`` and ``knit.sh``), the provenance
+  database (a pruned ``.knit/knit.db`` --- just the database, not the provisioned
+  tooling around it), the job logs and scripts, the setup manifests
+  (``.activate.sh`` and the ``spack.yaml`` / ``spack.lock`` that pin the
+  environment), and the declared artifacts (``inside.csv`` and the images).
+- **Referenced, not embedded:** the built Spack environment and the provisioned
+  ``.knit/spack``, ``.knit/sqlite``, ``.knit/jq`` toolchain (gigabytes,
+  regenerable), and the fetched ``julia_code`` git resource (re-fetchable from the
+  commit Knit recorded).
+
+So a reproducer unpacks the archive, runs ``./exp.sh bootstrap``, re-fetches the
+source, and rebuilds the environment from the embedded ``spack.lock`` --- a
+faithful reconstruction from a small archive, not a multi-gigabyte copy of a
+machine. Tune the line with the include/exclude flags: ``--no-knit`` /
+``--no-db`` / ``--no-artifacts`` and friends drop a default group, while
+``--include-job-content`` and ``--include-resources <name>`` pull bulky content
+in. Files Knit does not track --- a config, a plotting script --- ride along when
+the script declares them with ``knit_bundle_requires`` (see the *Bundle & export*
+stitches).
+
+Preview the exact contents before writing anything with ``--dry-run``, and write
+a zip (what Zenodo and WorkflowHub expect) with ``--zip``:
+
+.. code-block:: console
+
+   $ ./exp.sh bundle --dry-run --size
+   $ ./exp.sh bundle --zip --output julia.zip
+
+**A standard research object.** Add ``--ro-crate`` and Knit writes an
+``ro-crate-metadata.json`` at the archive root, describing the packed files with
+the `RO-Crate <https://www.researchobject.org/ro-crate/>`_ 1.1 / Process Run
+Crate vocabulary --- one ``CreateAction`` per recorded run, wired to its inputs
+and outputs. The archive is then self-describing and FAIR-friendly, and
+``--ro-crate --zip`` is ready to upload as-is:
+
+.. code-block:: console
+
+   $ ./exp.sh bundle --ro-crate --zip --output julia.zip
+
+To inspect or regenerate that manifest on its own --- no archive, no copied files
+--- use ``knit export ro-crate`` (``--output -`` writes it to stdout). Both read
+``knit.db`` and record nothing, so they are safe to run at any time after
+bootstrap.
+
 The complete experiment (Part II)
 ---------------------------------
 
