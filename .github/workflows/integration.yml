@@ -38,7 +38,7 @@ jobs:
       - name: Log in to ghcr.io
         # Needed to push (main) and for the authenticated pull path; public images
         # pull without it, and a pull miss falls back to a local build.
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
