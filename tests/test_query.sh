@@ -80,6 +80,91 @@ teardown() {
     [ "${#types[@]}" -eq 0 ]
 }
 
+# ---------- _knit_query_resolve_extra ----------
+
+@test "resolve extra with no sources yields only the current database" {
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps ""
+    [ "${#dbs[@]}" -eq 1 ]
+    [ "${dbs[0]}" = "${_KNIT_DATABASE}" ]
+    [ "${#tmps[@]}" -eq 0 ]
+}
+
+@test "resolve extra reads a directory source's .knit/knit.db" {
+    mkdir -p "${BATS_TEST_TMPDIR}/expt/.knit"
+    : > "${BATS_TEST_TMPDIR}/expt/.knit/knit.db"
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps "${BATS_TEST_TMPDIR}/expt"
+    [ "${dbs[0]}" = "${_KNIT_DATABASE}" ]
+    [ "${dbs[1]}" = "${BATS_TEST_TMPDIR}/expt/.knit/knit.db" ]
+    [ "${#tmps[@]}" -eq 0 ]
+}
+
+@test "resolve extra uses a database file source as-is" {
+    : > "${BATS_TEST_TMPDIR}/other.db"
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps "${BATS_TEST_TMPDIR}/other.db"
+    [ "${dbs[1]}" = "${BATS_TEST_TMPDIR}/other.db" ]
+    [ "${#tmps[@]}" -eq 0 ]
+}
+
+@test "resolve extra extracts only the db member from a bundle to a temp dir" {
+    # Build a bundle the way `knit bundle` writes one: members stored with no
+    # leading "./" (tar -C <root> <member>), carrying the database plus another
+    # file that a query never needs.
+    mkdir -p "${BATS_TEST_TMPDIR}/tree/.knit"
+    printf 'DBCONTENT\n' > "${BATS_TEST_TMPDIR}/tree/.knit/knit.db"
+    printf 'FRAMEWORK\n'  > "${BATS_TEST_TMPDIR}/tree/knit.sh"
+    tar -czf "${BATS_TEST_TMPDIR}/b.tar.gz" \
+        -C "${BATS_TEST_TMPDIR}/tree" .knit/knit.db knit.sh
+
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps "${BATS_TEST_TMPDIR}/b.tar.gz"
+
+    [ "${#tmps[@]}" -eq 1 ]
+    [ -d "${tmps[0]}" ]
+    [ "${dbs[1]}" = "${tmps[0]}/.knit/knit.db" ]
+    [ -f "${dbs[1]}" ]
+    grep -q "DBCONTENT" "${dbs[1]}"
+    # Only the database was extracted, not the rest of the bundle.
+    [ ! -e "${tmps[0]}/knit.sh" ]
+
+    # The caller owns cleanup; removing the temp dir leaves nothing behind.
+    rm -rf "${tmps[0]}"
+    [ ! -e "${tmps[0]}" ]
+}
+
+@test "resolve extra keeps mixed sources in order after the current db" {
+    mkdir -p "${BATS_TEST_TMPDIR}/d/.knit"; : > "${BATS_TEST_TMPDIR}/d/.knit/knit.db"
+    : > "${BATS_TEST_TMPDIR}/f.db"
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps "${BATS_TEST_TMPDIR}/d,${BATS_TEST_TMPDIR}/f.db"
+    [ "${dbs[0]}" = "${_KNIT_DATABASE}" ]
+    [ "${dbs[1]}" = "${BATS_TEST_TMPDIR}/d/.knit/knit.db" ]
+    [ "${dbs[2]}" = "${BATS_TEST_TMPDIR}/f.db" ]
+}
+
+@test "resolve extra tolerates empty fields from a trailing comma" {
+    : > "${BATS_TEST_TMPDIR}/f.db"
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps "${BATS_TEST_TMPDIR}/f.db,"
+    [ "${#dbs[@]}" -eq 2 ]
+    [ "${dbs[1]}" = "${BATS_TEST_TMPDIR}/f.db" ]
+}
+
+@test "resolve extra fatals on a source that is not dir, db, or bundle" {
+    run _knit_query_resolve_extra dbs tmps "${BATS_TEST_TMPDIR}/nope"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"is not a directory, a database file, or a bundle"* ]]
+}
+
+@test "resolve extra fatals when a directory has no .knit/knit.db" {
+    mkdir -p "${BATS_TEST_TMPDIR}/empty"
+    run _knit_query_resolve_extra dbs tmps "${BATS_TEST_TMPDIR}/empty"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"no readable database"* ]]
+}
+
 # ---------- _knit_query_annotate_catalog ----------
 
 @test "annotate catalog appends command aliases and column types" {

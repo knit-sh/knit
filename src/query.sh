@@ -225,6 +225,71 @@ _knit_query_column_types() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_query_resolve_extra()
+#
+# Resolve the --extra source list into the ordered list of database files that
+# form the query lens, together with the temporary directories the caller must
+# remove after the query. Each comma-separated <src> is one of:
+#   - a directory     -> its <dir>/.knit/knit.db is used;
+#   - a database file -> used as-is;
+#   - a bundle (a .tar.gz or .tgz from `knit bundle`) -> extracted to a fresh
+#     temporary directory whose .knit/knit.db is used; the temporary directory is
+#     added to the cleanup list.
+# The current experiment database (_KNIT_DATABASE) is always the first element,
+# so an empty --extra yields exactly [current] and a single-database query is
+# unchanged. Extra sources follow in the order given. A source that is neither a
+# directory, a database file, nor a bundle, or one that resolves to a database
+# that is not readable, is fatal. Empty fields (from a trailing comma) are
+# skipped.
+#
+# @param[out] __knit_ret1 Name of the array to fill with database paths (current first).
+# @param[out] __knit_ret2 Name of the array to fill with temporary dirs to remove.
+# @param[in] spec The raw --extra value (comma-separated; empty for none).
+# ------------------------------------------------------------------------------
+_knit_query_resolve_extra() {
+    local -n __knit_ret1=$1
+    local -n __knit_ret2=$2
+    shift 2
+    local spec="$1"
+
+    __knit_ret1=("${_KNIT_DATABASE}")
+    __knit_ret2=()
+
+    [[ -z "${spec}" ]] && return 0
+
+    local -a sources=()
+    IFS=',' read -r -a sources <<< "${spec}"
+
+    local src db tmp
+    for src in "${sources[@]}"; do
+        [[ -z "${src}" ]] && continue
+        if [[ -d "${src}" ]]; then
+            db="${src}/.knit/knit.db"
+        elif [[ -f "${src}" && ( "${src}" == *.tar.gz || "${src}" == *.tgz ) ]]; then
+            tmp="$(mktemp -d "${TMPDIR:-/tmp}/knit.query.XXXXXX")"
+            __knit_ret2+=("${tmp}")
+            # Extract only the database member: a bundle also carries knit.sh, the
+            # experiment script, job logs, and artifacts, none of which a query
+            # reads. `knit bundle` stores the member as ".knit/knit.db" (no
+            # leading "./"), so name it exactly.
+            if ! tar -xzf "${src}" -C "${tmp}" ".knit/knit.db" 2>/dev/null; then
+                knit_fatal "knit query --extra: cannot extract .knit/knit.db from bundle \"%s\"." "${src}"
+            fi
+            db="${tmp}/.knit/knit.db"
+        elif [[ -f "${src}" ]]; then
+            db="${src}"
+        else
+            knit_fatal "knit query --extra: source \"%s\" is not a directory, a database file, or a bundle." "${src}"
+        fi
+        if [[ ! -r "${db}" ]]; then
+            knit_fatal "knit query --extra: no readable database at \"%s\" (from source \"%s\")." "${db}" "${src}"
+        fi
+        __knit_ret1+=("${db}")
+    done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # The query_format enum (shared by 'ai query', 'query graph', and 'query sql') is
 # defined in src/ai.sh, which loads before this file, so its type resolves when
 # the `format:query_format` parameters below are declared.
@@ -239,6 +304,8 @@ _knit_is_builtin
 knit_without_provenance
 knit_with_required "exec:string" \
     "The Cypher statement to run (passed verbatim to knit-graph)."
+knit_with_optional "extra:string" "" \
+    "Comma-separated extra sources to query alongside this experiment's database. Each is a directory (its .knit/knit.db is used), a database file, or a bundle (.tar.gz, extracted to a temporary directory). The current database is always included."
 knit_with_optional "format:query_format" "list" \
     "Output mode: list, json, box, csv, markdown, table, line, html, ascii, column, tabs." \
     --when '.explain != "true" and .ast != "true"'
@@ -319,6 +386,8 @@ _knit_is_builtin
 knit_without_provenance
 knit_with_required "exec:string" \
     "The SQL statement to run (must be read-only)."
+knit_with_optional "extra:string" "" \
+    "Comma-separated extra sources to query alongside this experiment's database. Each is a directory (its .knit/knit.db is used), a database file, or a bundle (.tar.gz, extracted to a temporary directory). The current database is always included."
 knit_with_optional "format:query_format" "list" \
     "Output mode: list, json, box, csv, markdown, table, line, html, ascii, column, tabs."
 knit_with_flag "header" \
