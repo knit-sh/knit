@@ -631,12 +631,13 @@ _require_knit_graph() {
     [[ "$output" != *"alpha"* ]]
 }
 
-@test "query graph without --extra still runs directly on the current database" {
+@test "query graph without --extra queries the single-database lens" {
     knit_test_require_sqlite
     _require_knit_graph
     _seed_two_platforms alpha beta
 
-    # No platforms node without --extra; a plain node query hits only the current db.
+    # Without --extra the lens spans only the current database, so a plain node
+    # query sees just its rows.
     run _knit_query_graph --exec "MATCH (j:jobs) RETURN j.id ORDER BY j.id"
     [ "$status" -eq 0 ]
     [ "${#lines[@]}" -eq 1 ]
@@ -781,30 +782,70 @@ setup:libs=setup:libs" ]
 
 # ---------- knit query graph ----------
 
-@test "query graph forwards names, output flags, database and Cypher" {
+# Seed the current database with one platform and a jobs table (the single-database
+# lens every `query graph`/`query sql` runs over, even without --extra).
+_seed_one_platform() {
+    local name="$1"
+    _knit_sqlite3_write "
+        CREATE TABLE metadata(key TEXT, value TEXT);
+        INSERT INTO metadata VALUES('__platform__','${name}'),('__arch__','x86_64');
+        CREATE TABLE jobs(id TEXT, state TEXT);
+        INSERT INTO jobs VALUES('j1','done'),('j2','run');"
+}
+
+@test "query graph resolves (p:platform) without --extra" {
+    knit_test_require_sqlite
+    _require_knit_graph
+    _seed_one_platform solo
+
+    run _knit_query_graph --exec \
+        "MATCH (p:platform)-[:executed]->(j:jobs) RETURN p.id, j.id ORDER BY j.id"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "solo|j1" ]
+    [ "${lines[1]}" = "solo|j2" ]
+}
+
+@test "query graph resolves the command-name map over the single-database lens" {
+    knit_test_require_sqlite
+    _require_knit_graph
     _KNIT_DB_REGISTERED_TABLES=([jobs]="submit")
-    local argfile="${BATS_TEST_TMPDIR}/kg-args"
-    _knit_knit_graph() { printf '%s\n' "$*" > "${argfile}"; }
-    run knit query graph --exec "MATCH (j:\`jobs\`) RETURN j.id"
+    _seed_one_platform solo
+
+    # The 'submit' command label resolves to the jobs table via the live map.
+    run _knit_query_graph --exec "MATCH (j:submit) RETURN j.id ORDER BY j.id"
     [ "$status" -eq 0 ]
-    [ "$(cat "${argfile}")" = "--names jobs=submit -list -noheader ${_KNIT_DATABASE} MATCH (j:\`jobs\`) RETURN j.id" ]
+    [ "${lines[0]}" = "j1" ]
+    [ "${lines[1]}" = "j2" ]
 }
 
-@test "query graph honours --format/--header/--separator" {
-    local argfile="${BATS_TEST_TMPDIR}/kg-args"
-    _knit_knit_graph() { printf '%s\n' "$*" > "${argfile}"; }
-    run knit query graph --format json --header --separator ";" --exec "MATCH (n) RETURN n"
+@test "query graph honours --format/--header without --extra" {
+    knit_test_require_sqlite
+    _require_knit_graph
+    _seed_one_platform solo
+
+    # Called as the body (not via the dispatcher), so the flag arrives in its
+    # already-expanded "--header true" form.
+    run _knit_query_graph --format csv --header true \
+        --exec "MATCH (j:jobs) RETURN j.id ORDER BY j.id"
     [ "$status" -eq 0 ]
-    [[ "$(cat "${argfile}")" == *"-json -header -separator ; ${_KNIT_DATABASE} MATCH (n) RETURN n" ]]
+    # sqlite csv mode emits CRLF line endings; strip the trailing CR to compare.
+    [ "${lines[0]%$'\r'}" = "id" ]
+    [ "${lines[1]%$'\r'}" = "j1" ]
+    [ "${lines[2]%$'\r'}" = "j2" ]
 }
 
-@test "query graph passes --explain through to knit-graph" {
-    local argfile="${BATS_TEST_TMPDIR}/kg-args"
-    _knit_knit_graph() { printf '%s\n' "$*" > "${argfile}"; }
-    run knit query graph --explain --exec "MATCH (n) RETURN n"
+@test "query graph --explain prints the transpiled SQL without --extra" {
+    knit_test_require_sqlite
+    _require_knit_graph
+    _seed_one_platform solo
+
+    run _knit_query_graph --explain true \
+        --exec "MATCH (p:platform)-[:executed]->(j:jobs) RETURN p.id"
     [ "$status" -eq 0 ]
-    [[ "$(cat "${argfile}")" == "--explain "* ]]
-    [[ "$(cat "${argfile}")" == *"${_KNIT_DATABASE} MATCH (n) RETURN n" ]]
+    # It is SQL over the lens views, not query results.
+    [[ "$output" == *"__provenance__"* ]]
+    [[ "$output" == *"platforms"* ]]
+    [[ "$output" != *"solo"* ]]
 }
 
 @test "query graph --ast omits database, names and output flags" {
@@ -840,20 +881,23 @@ setup:libs=setup:libs" ]
 
 # ---------- knit query sql ----------
 
-@test "query sql forwards mode args and the SQL to sqlite3" {
-    local argfile="${BATS_TEST_TMPDIR}/sql-args"
-    _knit_sqlite3() { printf '%s\n' "$*" > "${argfile}"; }
-    run knit query sql --exec "SELECT 1"
+@test "query sql applies --format over the lens (csv)" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE t(name TEXT, n INT); INSERT INTO t VALUES('a',1);"
+    run knit query sql --format csv --exec "SELECT name, n FROM t"
     [ "$status" -eq 0 ]
-    [ "$(cat "${argfile}")" = "-cmd .mode list -cmd .headers off SELECT 1" ]
+    # sqlite csv mode emits CRLF line endings; strip the CR for the comparison.
+    [ "${output//$'\r'/}" = "a,1" ]
 }
 
-@test "query sql honours --format/--header/--separator" {
-    local argfile="${BATS_TEST_TMPDIR}/sql-args"
-    _knit_sqlite3() { printf '%s\n' "$*" > "${argfile}"; }
-    run knit query sql --format csv --header --separator ";" --exec "SELECT 1"
+@test "query sql honours --format/--header/--separator over the lens" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE t(name TEXT, n INT); INSERT INTO t VALUES('a',1);"
+    run knit query sql --format list --header --separator ";" \
+        --exec "SELECT name, n FROM t"
     [ "$status" -eq 0 ]
-    [ "$(cat "${argfile}")" = "-cmd .mode csv -cmd .headers on -cmd .separator ; SELECT 1" ]
+    [ "${lines[0]}" = "name;n" ]
+    [ "${lines[1]}" = "a;1" ]
 }
 
 @test "query sql rejects a non-read-only statement" {
@@ -871,10 +915,12 @@ setup:libs=setup:libs" ]
     [[ "${output}" == *"read-only"* ]]
 }
 
-@test "query sql propagates sqlite3's non-zero exit" {
-    _knit_sqlite3() { return 5; }
-    run knit query sql --exec "SELECT 1"
-    [ "$status" -eq 5 ]
+@test "query sql propagates a query error as a non-zero exit" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE t(x);"
+    # A read-only statement that fails at run time (unknown table) propagates.
+    run knit query sql --exec "SELECT * FROM no_such_table"
+    [ "$status" -ne 0 ]
 }
 
 @test "query sql formats a real read query end-to-end" {

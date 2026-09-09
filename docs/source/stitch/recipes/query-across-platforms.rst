@@ -24,8 +24,9 @@ from ``knit bundle``, whose database is extracted to a temporary directory):
        --exec "SELECT id, state FROM jobs"
 
 The current experiment's own database is always part of the lens; ``--extra``
-adds the others. With no ``--extra``, both commands behave exactly as they do
-against one database.
+adds the others. With no ``--extra`` the lens spans just the current database, so
+results match a single-database query --- and the ``platform`` node below is still
+present, so ``(p:platform)`` works even against one database.
 
 **The platform is a node.** Inside the lens every database contributes a
 ``platform`` node whose properties are that machine's fingerprint (``arch``,

@@ -84,6 +84,15 @@ sql_lines() {
 }
 
 # --------------------------------------------------------------------------
+# The platform node is available even WITHOUT --extra: a query over the single
+# current database still resolves (p:platform), tagged with this platform.
+# --------------------------------------------------------------------------
+solo=$(./experiment.sh query graph --exec \
+    "MATCH (p:platform)-[:executed]->(j:jobs) RETURN p.id" 2>/dev/null | tr -d '\r')
+check_eq "${solo}" "alpha" \
+    "query graph resolves (p:platform) without --extra, tagged with this platform"
+
+# --------------------------------------------------------------------------
 # The lens spans both databases: the platforms view has both platforms.
 # --------------------------------------------------------------------------
 platforms=$(sql_lines "SELECT id FROM platforms ORDER BY id;")

@@ -632,6 +632,10 @@ _knit_query_cleanup_tmps() {
 # ------------------------------------------------------------------------------
 _knit_query_warn_fingerprint_mismatch() {
     local preamble="$1"
+    # No platforms view (no lens database had a metadata table) means nothing to
+    # check. A bootstrapped experiment always has one, so this only skips on a
+    # bare database.
+    [[ "${preamble}" == *'CREATE TEMP VIEW "platforms"'* ]] || return 0
     local dups
     dups="$(_knit_sqlite3 "${preamble}
 SELECT id FROM platforms WHERE id IS NOT NULL AND id <> '' GROUP BY id HAVING count(*) > 1;")" \
@@ -720,20 +724,23 @@ knit_with_extra "Extra arguments forwarded verbatim to knit-graph after --."
 # --explain knit-graph prints the generated SQL instead of running it; with --ast
 # it prints the parse tree (no database, map, or output flags needed).
 # --explain and --ast are mutually exclusive. Anything after a trailing `--` is
-# forwarded to knit-graph verbatim. knit-graph's exit status is propagated.
+# forwarded to knit-graph verbatim. Its exit status is propagated.
 #
-# With --extra the query spans a read-only lens over the current database and the
-# extra sources. knit-graph is used only as a transpiler there: it --explains the
-# Cypher against a synthesized catalog (whose schema mirrors the lens, including
-# the platforms node), and knit runs the resulting SQL over the lens itself so
-# aggregation, ORDER BY, and DISTINCT are correct across every platform. The names
-# map gains a `platforms=platform` entry so `(p:platform)` resolves to the lens's
-# synthesized platforms view. --explain then prints that transpiled SQL. Without
-# --extra the query runs directly against the current database, exactly as before.
+# The query always spans a read-only lens over the current database plus any
+# --extra sources (a lens over one database when there is no --extra). knit-graph
+# is used only as a transpiler: it --explains the Cypher against a synthesized
+# catalog (whose schema mirrors the lens, including the platforms node), and knit
+# runs the resulting SQL over the lens itself, so `(p:platform)` works with or
+# without --extra and aggregation/ORDER BY/DISTINCT are correct across every
+# platform. The names map gains a `platforms=platform` entry so `(p:platform)`
+# resolves to the lens's synthesized platforms view. --explain prints that
+# transpiled SQL. (--ast is the one path that does not build a lens: it needs no
+# database at all.) knit-graph's output modes are byte-identical to sqlite's, so
+# routing every query through sqlite does not change the rendered result.
 #
 # @param[in] ... The command invocation arguments, plus optional knit-graph args
 #        after `--`.
-# @return The exit status of knit-graph (direct) or sqlite3 (lens).
+# @return The exit status of knit-graph (--ast) or sqlite3 (the lens query).
 # ------------------------------------------------------------------------------
 _knit_query_graph() {
     local args=("$@")
@@ -763,24 +770,12 @@ _knit_query_graph() {
     local names_spec
     _knit_query_build_names names_spec
 
-    # Direct mode (no --extra): run knit-graph on the current database, as before.
-    if [[ -z "${extra_spec}" ]]; then
-        local -a out_flags=()
-        _knit_query_graph_output_flags out_flags "${fmt}" "${hdr}" "${sep}"
-
-        local -a kg_args=()
-        [[ "${explain}" == "true" ]] && kg_args+=(--explain)
-        [[ -n "${names_spec}" ]] && kg_args+=(--names "${names_spec}")
-        kg_args+=("${out_flags[@]}")
-        kg_args+=("${_KNIT_DATABASE}" "${exec_query}")
-        kg_args+=("${extra[@]}")
-
-        _knit_knit_graph "${kg_args[@]}"
-        return "$?"
-    fi
-
-    # Lens mode: transpile the Cypher against a synthesized catalog, then run the
-    # resulting SQL over the lens (or just print it for --explain).
+    # Every query runs over a lens, even with no --extra: a lens over the single
+    # current database still synthesizes the platform node and its executed edges,
+    # so (p:platform) works without --extra. --extra just widens the lens to more
+    # databases. knit-graph is used only to transpile the Cypher against a
+    # synthesized catalog; knit runs the resulting SQL over the lens (or prints it
+    # for --explain).
     local -a lens_dbs=() lens_tmps=()
     _knit_query_resolve_extra lens_dbs lens_tmps "${extra_spec}"
 
@@ -854,10 +849,12 @@ knit_with_optional "separator:string" "" \
 # `ai query` uses, so SQL and Cypher results present identically. sqlite3's exit
 # status is propagated.
 #
-# With --extra the query runs over a read-only lens spanning the current database
-# and the extra sources (see _knit_query_exec_over_lens); the statement refers to
-# tables by their bare names, which resolve to the lens's union views. Without
-# --extra the query runs directly against the current database, exactly as before.
+# The statement always runs over a read-only lens spanning the current database
+# plus any --extra sources (a lens over one database when there is no --extra),
+# so the synthesized `platforms` view and its `executed` edges are queryable with
+# or without --extra. It refers to tables by their bare names, which resolve to
+# the lens's union views; the real `metadata` table is not shadowed, so it is
+# still queryable directly.
 #
 # @param[in] ... The command invocation arguments.
 # @return The exit status of sqlite3, or fatal on a non-read-only statement.
@@ -881,11 +878,6 @@ _knit_query_sql() {
 
     local -a mode_args=()
     _knit_ai_query_mode_args mode_args "${fmt}" "${no_header}" "${sep}"
-
-    if [[ -z "${extra}" ]]; then
-        _knit_sqlite3 "${mode_args[@]}" "${exec_sql}"
-        return "$?"
-    fi
 
     # shellcheck disable=SC2034 # lens_dbs/lens_tmps are filled and read by nameref
     local -a lens_dbs=() lens_tmps=()
