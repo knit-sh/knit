@@ -618,6 +618,33 @@ _knit_query_cleanup_tmps() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_query_warn_fingerprint_mismatch()
+#
+# Warn when two lens databases claim the same platform name with different
+# fingerprints. Such a pair survives the platforms view's plain UNION as two rows
+# with the same id, so a duplicated id is exactly the mismatch. Each mismatched
+# platform is reported once; nothing is dropped, so the query still spans every
+# database. An unnamed platform (empty id) is not a same-name claim and is ignored.
+# The project name is deliberately not checked (a platform may be named per
+# machine). Best effort: a failed check query is silent, never fatal.
+#
+# @param[in] preamble The lens preamble (which creates the platforms view).
+# ------------------------------------------------------------------------------
+_knit_query_warn_fingerprint_mismatch() {
+    local preamble="$1"
+    local dups
+    dups="$(_knit_sqlite3 "${preamble}
+SELECT id FROM platforms WHERE id IS NOT NULL AND id <> '' GROUP BY id HAVING count(*) > 1;")" \
+        || return 0
+    local name
+    while IFS= read -r name; do
+        [[ -z "${name}" ]] && continue
+        knit_warning "knit query --extra: platform \"%s\" appears with differing fingerprints (profile, scheduler, launcher, architecture, or knit version) across the queried databases; every variant is included in the results." \
+            "${name}"
+    done <<< "${dups}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_query_exec_over_lens()
 #
 # Run one SQL statement over the query lens assembled from the already-resolved
@@ -625,10 +652,11 @@ _knit_query_cleanup_tmps() {
 # a single _knit_sqlite3 session, because the views are session-scoped; the
 # statement refers to the lens views by their bare names. Both `query sql` and
 # `query graph` route their --extra path through here (graph after transpiling its
-# Cypher to SQL), so lens assembly and execution live in one place. The caller
-# resolves the databases and cleans up any temporary directories afterward. The
-# output flags are sqlite3 dot-commands, so a caller shapes the result the same way
-# an ordinary single-database query does.
+# Cypher to SQL), so lens assembly and execution live in one place. Before running
+# the query, a same-name/different-fingerprint platform mismatch is surfaced as a
+# warning. The caller resolves the databases and cleans up any temporary
+# directories afterward. The output flags are sqlite3 dot-commands, so a caller
+# shapes the result the same way an ordinary single-database query does.
 #
 # @param[in] __knit_dbs Name of the array of lens database paths (main first).
 # @param[in] sql        The SQL to run over the lens.
@@ -644,6 +672,8 @@ _knit_query_exec_over_lens() {
 
     local preamble
     _knit_query_build_lens_preamble preamble "${__knit_dbs[@]}"
+
+    _knit_query_warn_fingerprint_mismatch "${preamble}"
 
     _knit_sqlite3 "${out_flags[@]}" "${preamble}
 ${sql}"

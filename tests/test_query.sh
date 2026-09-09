@@ -442,6 +442,73 @@ _seed_two_platforms() {
     [ -z "$(find "${TMPDIR}" -maxdepth 1 -name 'knit.query.*')" ]
 }
 
+# ---------- fingerprint mismatch warning ----------
+
+@test "query sql --extra warns on same-name different-fingerprint platforms" {
+    knit_test_require_sqlite
+    # Both databases claim platform "poseidon" but with a different architecture.
+    _knit_sqlite3_write "CREATE TABLE metadata(key TEXT,value TEXT);
+        INSERT INTO metadata VALUES('__platform__','poseidon'),('__arch__','x86_64');
+        CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j1');"
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" \
+        "CREATE TABLE metadata(key TEXT,value TEXT);
+         INSERT INTO metadata VALUES('__platform__','poseidon'),('__arch__','aarch64');
+         CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j2');"
+
+    run _knit_query_sql --exec "SELECT id FROM jobs ORDER BY id;" \
+        --extra "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"differing fingerprints"* ]]
+    [[ "$output" == *"poseidon"* ]]
+    # Nothing is dropped: rows from both databases are still returned.
+    [[ "$output" == *"j1"* ]]
+    [[ "$output" == *"j2"* ]]
+}
+
+@test "query sql --extra does not warn when fingerprints match" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE metadata(key TEXT,value TEXT);
+        INSERT INTO metadata VALUES('__platform__','poseidon'),('__arch__','x86_64');
+        CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j1');"
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" \
+        "CREATE TABLE metadata(key TEXT,value TEXT);
+         INSERT INTO metadata VALUES('__platform__','poseidon'),('__arch__','x86_64');
+         CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j2');"
+
+    run _knit_query_sql --exec "SELECT id FROM jobs ORDER BY id;" \
+        --extra "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"differing fingerprints"* ]]
+}
+
+@test "query sql --extra does not warn on distinct platform names" {
+    knit_test_require_sqlite
+    _seed_two_platforms alpha beta
+
+    run _knit_query_sql --exec "SELECT id FROM jobs ORDER BY id;" \
+        --extra "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"differing fingerprints"* ]]
+}
+
+@test "fingerprint mismatch warning ignores an unnamed platform" {
+    knit_test_require_sqlite
+    # Two databases with no platform name but differing fingerprints: an empty
+    # name is not a same-name claim, so it must not warn.
+    _knit_sqlite3_write "CREATE TABLE metadata(key TEXT,value TEXT);
+        INSERT INTO metadata VALUES('__platform__',''),('__arch__','x86_64');
+        CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j1');"
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" \
+        "CREATE TABLE metadata(key TEXT,value TEXT);
+         INSERT INTO metadata VALUES('__platform__',''),('__arch__','aarch64');
+         CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j2');"
+
+    run _knit_query_sql --exec "SELECT id FROM jobs ORDER BY id;" \
+        --extra "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"differing fingerprints"* ]]
+}
+
 # ---------- _knit_query_build_catalog ----------
 
 @test "build catalog mirrors the union schema with id TEXT and platforms" {
