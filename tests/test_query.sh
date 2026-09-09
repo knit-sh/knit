@@ -218,11 +218,10 @@ ${sql}"
     [ "${lines[0]}" = "r1" ]
 }
 
-@test "lens preamble excludes metadata and __provenance__" {
+@test "lens preamble does not union metadata as a command table" {
     knit_test_require_sqlite
     _knit_sqlite3_write "CREATE TABLE jobs(id TEXT);
-        CREATE TABLE metadata(key TEXT, value TEXT);
-        CREATE TABLE __provenance__(source_id TEXT);"
+        CREATE TABLE metadata(key TEXT, value TEXT);"
     "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" "CREATE TABLE jobs(id TEXT);"
 
     local -a dbs=() tmps=()
@@ -230,9 +229,10 @@ ${sql}"
     local preamble
     _knit_query_build_lens_preamble preamble "${dbs[@]}"
 
+    # A command table gets a union view; metadata is turned into platforms, not
+    # unioned key/value rows.
     [[ "${preamble}" == *'CREATE TEMP VIEW "jobs"'* ]]
-    [[ "${preamble}" != *'"metadata"'* ]]
-    [[ "${preamble}" != *'"__provenance__"'* ]]
+    [[ "${preamble}" != *'CREATE TEMP VIEW "metadata"'* ]]
 }
 
 @test "lens attaches extra databases read-only" {
@@ -254,6 +254,117 @@ ${sql}"
     run _lens_query "SELECT id FROM jobs;" ""
     [ "$status" -eq 0 ]
     [ "${lines[0]}" = "j1" ]
+}
+
+# ---------- _knit_query_build_lens_preamble: platforms + executed edges ----------
+
+# Seed the current database and an extra database, each with a metadata table
+# carrying a platform fingerprint and a jobs table. NAME_A/NAME_B set the
+# __platform__ of each.
+_seed_two_platforms() {
+    local name_a="$1" name_b="$2"
+    _knit_sqlite3_write "
+        CREATE TABLE metadata(key TEXT, value TEXT);
+        INSERT INTO metadata VALUES('__platform__','${name_a}'),('__arch__','x86_64'),('__scheduler__','slurm');
+        CREATE TABLE jobs(id TEXT, state TEXT);
+        INSERT INTO jobs VALUES('j1','done');"
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" "
+        CREATE TABLE metadata(key TEXT, value TEXT);
+        INSERT INTO metadata VALUES('__platform__','${name_b}'),('__arch__','aarch64'),('__scheduler__','pbs');
+        CREATE TABLE jobs(id TEXT, state TEXT);
+        INSERT INTO jobs VALUES('j2','run');"
+}
+
+@test "platforms view has one row per database with the fingerprint columns" {
+    knit_test_require_sqlite
+    _seed_two_platforms alpha beta
+
+    run _lens_query "SELECT id||'/'||arch||'/'||scheduler FROM platforms ORDER BY id;" \
+        "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "alpha/x86_64/slurm" ]
+    [ "${lines[1]}" = "beta/aarch64/pbs" ]
+}
+
+@test "platforms view collapses identical platform rows with UNION" {
+    knit_test_require_sqlite
+    # Both databases claim the same platform with the same fingerprint.
+    _seed_two_platforms same same
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" \
+        "UPDATE metadata SET value='x86_64' WHERE key='__arch__';
+         UPDATE metadata SET value='slurm' WHERE key='__scheduler__';"
+
+    run _lens_query "SELECT count(*) FROM platforms;" "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "1" ]
+}
+
+@test "executed edges tag each row with its platform via a flat hop" {
+    knit_test_require_sqlite
+    _seed_two_platforms alpha beta
+    # _KNIT_DB_REGISTERED_TABLES is reset per test, so the jobs table's command
+    # name defaults to "jobs" -- the executed edge's target_name matches that.
+    run _lens_query "
+        SELECT p.id||'->'||j.id
+        FROM platforms p
+        JOIN __provenance__ e
+          ON e.edge_type='executed' AND e.source_name='platform' AND e.source_id=p.id
+        JOIN jobs j
+          ON e.target_name='jobs' AND e.target_id=j.id
+        ORDER BY p.id;" "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "alpha->j1" ]
+    [ "${lines[1]}" = "beta->j2" ]
+}
+
+@test "executed edges carry NULL timestamps and alias" {
+    knit_test_require_sqlite
+    _seed_two_platforms alpha beta
+
+    run _lens_query "
+        SELECT count(*) FROM __provenance__
+        WHERE edge_type='executed'
+          AND start_time IS NULL AND end_time IS NULL AND alias IS NULL;" \
+        "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "2" ]
+}
+
+@test "executed edge target_name is the command name for the table" {
+    knit_test_require_sqlite
+    _seed_two_platforms alpha beta
+    # A registered table whose command name differs from the table name: the
+    # executed edge must carry the command name, matching knit-graph resolution.
+    _KNIT_DB_REGISTERED_TABLES=([jobs]="submit")
+
+    run _lens_query \
+        "SELECT DISTINCT target_name FROM __provenance__ WHERE edge_type='executed';" \
+        "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "submit" ]
+}
+
+@test "provenance view unions real edges beside the synthesized ones" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "
+        CREATE TABLE metadata(key TEXT, value TEXT);
+        INSERT INTO metadata VALUES('__platform__','alpha');
+        CREATE TABLE jobs(id TEXT);
+        INSERT INTO jobs VALUES('j1');
+        CREATE TABLE __provenance__(source_id TEXT, source_name TEXT, target_id TEXT,
+            target_name TEXT, edge_type TEXT, start_time REAL, end_time REAL, alias TEXT);
+        INSERT INTO __provenance__ VALUES('s','setup','j1','jobs','used_by',NULL,NULL,NULL);"
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" "
+        CREATE TABLE metadata(key TEXT, value TEXT);
+        INSERT INTO metadata VALUES('__platform__','beta');
+        CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j2');"
+
+    # The real used_by edge from the current db survives beside the executed edges.
+    run _lens_query \
+        "SELECT edge_type||':'||target_id FROM __provenance__ WHERE edge_type='used_by';" \
+        "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "used_by:j1" ]
 }
 
 # ---------- _knit_query_annotate_catalog ----------

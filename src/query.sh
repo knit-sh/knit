@@ -301,9 +301,15 @@ _knit_query_resolve_extra() {
 # simply contributes no arm). Columns are reconciled from each database's schema:
 # the view's column list is the union of the arms' columns, and an arm fills a
 # column it lacks with `NULL AS "<col>"`, so script or knit-version drift does not
-# break the union. The metadata and __provenance__ tables are excluded: metadata
-# becomes the synthesized `platforms` view and __provenance__ its own union view,
-# both built by a later step.
+# break the union.
+#
+# Two framework tables are handled specially rather than unioned raw. A synthesized
+# `platforms` view holds one row per lens database, read from that database's
+# metadata (the platform name as id, the fingerprint keys as columns), with a plain
+# UNION so identical platforms collapse. The `__provenance__` view unions every
+# database's real edges and adds a synthesized `executed` edge from each database's
+# platform to every node-table row on it, so a query can go
+# `(p:platform)-[:executed]->(n)`.
 #
 # The returned text is meant to be prepended, in a single _knit_sqlite3
 # invocation, to the query that reads the views, because ATTACH and TEMP VIEW are
@@ -337,8 +343,7 @@ _knit_query_build_lens_preamble() {
         fi
         intro_selects+=("SELECT '${schema}' AS s, m.name AS t, ti.name AS c, ti.cid AS cid \
 FROM ${schema}.sqlite_master m JOIN pragma_table_info(m.name, '${schema}') ti \
-WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%' \
-AND m.name NOT IN ('metadata', '__provenance__')")
+WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%'")
     done
 
     # One introspection pass over the whole lens: (schema, table, column, cid) for
@@ -361,16 +366,28 @@ AND m.name NOT IN ('metadata', '__provenance__')")
         || knit_fatal "knit query --extra: could not read the schema of the lens databases."
 
     # Collect, per table: the schemas that hold it, which columns each holds, and
-    # the union column order (first seen wins).
+    # the union column order (first seen wins). metadata and __provenance__ are
+    # framework tables handled specially (the platforms view and the provenance
+    # view), so their presence per schema is recorded but they are kept out of the
+    # command-table structures.
     local -A table_in_schema=() presence=() col_seen=()
     local -A col_order=()
     local -a table_order=()
     local -A table_seen=()
+    local -A meta_present=() prov_present=()
     # cid is read only to keep the field alignment; ordering is done in SQL.
     local s t c cid
     # shellcheck disable=SC2034 # cid consumed by read to keep field alignment
     while IFS='|' read -r s t c cid; do
         [[ -z "${t}" ]] && continue
+        if [[ "${t}" == "metadata" ]]; then
+            meta_present["${s}"]=1
+            continue
+        fi
+        if [[ "${t}" == "__provenance__" ]]; then
+            prov_present["${s}"]=1
+            continue
+        fi
         if [[ -z "${table_seen["${t}"]:-}" ]]; then
             table_seen["${t}"]=1
             table_order+=("${t}")
@@ -411,6 +428,66 @@ AND m.name NOT IN ('metadata', '__provenance__')")
         printf -v arms_joined '%s UNION ALL ' "${arms[@]}"
         stmts+=("CREATE TEMP VIEW ${qt} AS ${arms_joined% UNION ALL };")
     done
+
+    # Synthesize the platforms view: one row per lens database, read from that
+    # database's metadata, the platform name as id and the fingerprint keys as
+    # columns. A plain UNION collapses identical platform rows; a same-name row
+    # whose fingerprint differs survives as a second row (surfaced by a later
+    # step). The column<-key mapping mirrors the fingerprint bootstrap records.
+    local -a fp_cols=(id profile scheduler launcher arch knit_version)
+    local -a fp_keys=(__platform__ __profile__ __scheduler__ __launcher__ __arch__ __knit_version__)
+    local -a plat_arms=() psel=()
+    local ek
+    for k in "${!dbs[@]}"; do
+        if (( k == 0 )); then schema="main"; else schema="p${k}"; fi
+        [[ -z "${meta_present["${schema}"]:-}" ]] && continue
+        psel=()
+        for i in "${!fp_cols[@]}"; do
+            _knit_sql_quote_identifier qc "${fp_cols[i]}"
+            _knit_sql_escape ek "${fp_keys[i]}"
+            psel+=("(SELECT value FROM ${schema}.metadata WHERE key='${ek}') AS ${qc}")
+        done
+        printf -v sel_joined '%s, ' "${psel[@]}"
+        plat_arms+=("SELECT ${sel_joined%, }")
+    done
+    if (( ${#plat_arms[@]} > 0 )); then
+        printf -v arms_joined '%s UNION ' "${plat_arms[@]}"
+        stmts+=("CREATE TEMP VIEW \"platforms\" AS ${arms_joined% UNION };")
+    fi
+
+    # Synthesize the __provenance__ view: the real edges of every database, plus a
+    # synthesized "executed" edge from each database's platform to every node-table
+    # row on it. A node's target_name is the command name knit-graph resolves the
+    # node's label to, so the platform-to-node hop matches a
+    # (p:platform)-[:executed]->(n) query. The platform is the edge source, as the
+    # used_by convention keeps the relationship a single flat hop.
+    local -a prov_arms=()
+    local prov_cols="source_id, source_name, target_id, target_name, edge_type, start_time, end_time, alias"
+    for k in "${!dbs[@]}"; do
+        if (( k == 0 )); then schema="main"; else schema="p${k}"; fi
+        [[ -n "${prov_present["${schema}"]:-}" ]] \
+            && prov_arms+=("SELECT ${prov_cols} FROM ${schema}.\"__provenance__\"")
+    done
+    local cmdname ecmd eplat_key
+    _knit_sql_escape eplat_key "__platform__"
+    for t in "${table_order[@]}"; do
+        cmdname="${_KNIT_DB_REGISTERED_TABLES[${t}]:-${t}}"
+        _knit_sql_escape ecmd "${cmdname}"
+        _knit_sql_quote_identifier qt "${t}"
+        for k in "${!dbs[@]}"; do
+            if (( k == 0 )); then schema="main"; else schema="p${k}"; fi
+            [[ -z "${table_in_schema["${schema}|${t}"]:-}" ]] && continue
+            # A node table without an id cannot anchor an edge, and its platform is
+            # read from metadata; skip an arm that lacks either.
+            [[ -z "${presence["${schema}|${t}|id"]:-}" ]] && continue
+            [[ -z "${meta_present["${schema}"]:-}" ]] && continue
+            prov_arms+=("SELECT (SELECT value FROM ${schema}.metadata WHERE key='${eplat_key}') AS source_id, 'platform' AS source_name, \"id\" AS target_id, '${ecmd}' AS target_name, 'executed' AS edge_type, NULL AS start_time, NULL AS end_time, NULL AS alias FROM ${schema}.${qt}")
+        done
+    done
+    if (( ${#prov_arms[@]} > 0 )); then
+        printf -v arms_joined '%s UNION ALL ' "${prov_arms[@]}"
+        stmts+=("CREATE TEMP VIEW \"__provenance__\" AS ${arms_joined% UNION ALL };")
+    fi
 
     local out=""
     (( ${#stmts[@]} > 0 )) && printf -v out '%s\n' "${stmts[@]}"
