@@ -704,6 +704,13 @@ _knit_bootstrap() {
     knit metadata store --key "__profile_json__"           --value "${profile_json}"
     knit metadata store --key "__scheduler__"              --value "${scheduler}"
     knit metadata store --key "__launcher__"               --value "${launcher}"
+    # Machine fingerprint, recorded once at first bootstrap. A cross-platform
+    # query filters on or returns the architecture, and the Knit version that
+    # produced this database is a drift signal when the same experiment ran on
+    # more than one platform. The platform name, scheduler, and launcher above
+    # complete the fingerprint.
+    knit metadata store --key "__arch__"                   --value "$(uname -m)"
+    knit metadata store --key "__knit_version__"           --value "${KNIT_VERSION}"
     knit metadata store --key "__default_queue__"          --value "${default_queue}"
     knit metadata store --key "__default_walltime__"       --value "${default_walltime}"
     knit metadata store --key "__default_scheduler_args__" --value "${default_scheduler_args}"

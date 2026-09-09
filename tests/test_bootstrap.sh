@@ -429,6 +429,19 @@ _bootstrap_launcher_stubs() {
     grep -q -- '--key __platform__ --value override' "${meta}"
 }
 
+# ---------- first bootstrap: machine fingerprint (__arch__ / __knit_version__) ----------
+
+@test "bootstrap records __arch__ and __knit_version__ at first bootstrap" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+
+    run _knit_bootstrap --scheduler local --launcher none
+    [ "$status" -eq 0 ]
+
+    grep -q -- "--key __arch__ --value $(uname -m)" "${meta}"
+    grep -q -- "--key __knit_version__ --value ${KNIT_VERSION}" "${meta}"
+}
+
 @test "bootstrap with a none-launcher profile freezes __launcher__=none without detection" {
     local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
     _bootstrap_launcher_stubs "${calls}" "${meta}"
