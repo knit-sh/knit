@@ -496,6 +496,45 @@ WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%'")
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_query_exec_over_lens()
+#
+# Run one SQL statement over the query lens built from the current database plus
+# the --extra sources. The lens preamble (ATTACH + TEMP VIEWs) and the statement
+# run in a single _knit_sqlite3 session, because the views are session-scoped; the
+# statement refers to the lens views by their bare names. Any temporary directory
+# a bundle source created is removed afterward. sqlite3's exit status is returned.
+# Both `query sql` and `query graph` route their --extra path through here (graph
+# after transpiling its Cypher to SQL), so lens assembly, execution, and cleanup
+# live in one place. The output flags are sqlite3 dot-commands, so a caller shapes
+# the result the same way an ordinary single-database query does.
+#
+# @param[in] extra The raw --extra spec (comma-separated sources).
+# @param[in] sql   The SQL to run over the lens.
+# @param[in] ...   sqlite3 output flags (the mode/header/separator dot-commands).
+# @return The exit status of sqlite3.
+# ------------------------------------------------------------------------------
+_knit_query_exec_over_lens() {
+    local extra="$1" sql="$2"
+    shift 2
+    local -a out_flags=("$@")
+
+    local -a lens_dbs=() lens_tmps=()
+    _knit_query_resolve_extra lens_dbs lens_tmps "${extra}"
+    local preamble
+    _knit_query_build_lens_preamble preamble "${lens_dbs[@]}"
+
+    local status=0
+    _knit_sqlite3 "${out_flags[@]}" "${preamble}
+${sql}" || status=$?
+
+    local d
+    for d in "${lens_tmps[@]}"; do
+        [[ -n "${d}" ]] && rm -rf -- "${d}"
+    done
+    return "${status}"
+}
+
+# ------------------------------------------------------------------------------
 # The query_format enum (shared by 'ai query', 'query graph', and 'query sql') is
 # defined in src/ai.sh, which loads before this file, so its type resolves when
 # the `format:query_format` parameters below are declared.
@@ -612,14 +651,20 @@ knit_with_optional "separator:string" "" \
 # `ai query` uses, so SQL and Cypher results present identically. sqlite3's exit
 # status is propagated.
 #
+# With --extra the query runs over a read-only lens spanning the current database
+# and the extra sources (see _knit_query_exec_over_lens); the statement refers to
+# tables by their bare names, which resolve to the lens's union views. Without
+# --extra the query runs directly against the current database, exactly as before.
+#
 # @param[in] ... The command invocation arguments.
 # @return The exit status of sqlite3, or fatal on a non-read-only statement.
 # ------------------------------------------------------------------------------
 _knit_query_sql() {
     local args=("$@")
 
-    local exec_sql
+    local exec_sql extra
     exec_sql="$(knit_get_parameter "exec" "${args[@]}")"
+    extra="$(knit_get_parameter "extra" "${args[@]}")" || extra=""
 
     if ! _knit_ai_sql_is_readonly "${exec_sql}"; then
         knit_fatal "knit query sql: only read-only statements are allowed (leading SELECT/WITH/EXPLAIN/PRAGMA, no write keywords)."
@@ -634,6 +679,10 @@ _knit_query_sql() {
     local -a mode_args=()
     _knit_ai_query_mode_args mode_args "${fmt}" "${no_header}" "${sep}"
 
-    _knit_sqlite3 "${mode_args[@]}" "${exec_sql}"
+    if [[ -z "${extra}" ]]; then
+        _knit_sqlite3 "${mode_args[@]}" "${exec_sql}"
+    else
+        _knit_query_exec_over_lens "${extra}" "${exec_sql}" "${mode_args[@]}"
+    fi
 }
 knit_done

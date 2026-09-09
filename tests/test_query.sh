@@ -367,6 +367,81 @@ _seed_two_platforms() {
     [ "${lines[0]}" = "used_by:j1" ]
 }
 
+# ---------- query sql --extra (end to end) ----------
+
+@test "query sql --extra reads across two databases tagged by platform" {
+    knit_test_require_sqlite
+    _seed_two_platforms alpha beta
+
+    run _knit_query_sql --exec "
+        SELECT p.id||':'||j.state
+        FROM platforms p
+        JOIN __provenance__ e
+          ON e.edge_type='executed' AND e.source_name='platform' AND e.source_id=p.id
+        JOIN jobs j ON e.target_name='jobs' AND e.target_id=j.id
+        ORDER BY p.id;" --extra "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "alpha:done" ]
+    [ "${lines[1]}" = "beta:run" ]
+}
+
+@test "query sql --extra unions a plain table across databases" {
+    knit_test_require_sqlite
+    _seed_two_platforms alpha beta
+
+    run _knit_query_sql --exec "SELECT id FROM jobs ORDER BY id;" \
+        --extra "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "j1" ]
+    [ "${lines[1]}" = "j2" ]
+}
+
+@test "query sql without --extra queries only the current database" {
+    knit_test_require_sqlite
+    _seed_two_platforms alpha beta
+
+    run _knit_query_sql --exec "SELECT id FROM jobs ORDER BY id;"
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 1 ]
+    [ "${lines[0]}" = "j1" ]
+}
+
+@test "query sql --extra still rejects a non-read-only statement" {
+    knit_test_require_sqlite
+    _seed_two_platforms alpha beta
+
+    run _knit_query_sql --exec "DROP TABLE jobs;" --extra "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"only read-only statements are allowed"* ]]
+}
+
+@test "query sql --extra removes the bundle temp directory after running" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE metadata(key TEXT, value TEXT);
+        INSERT INTO metadata VALUES('__platform__','alpha');
+        CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j1');"
+    # A bundle carrying a second platform's database.
+    mkdir -p "${BATS_TEST_TMPDIR}/tree/.knit"
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/tree/.knit/knit.db" \
+        "CREATE TABLE metadata(key TEXT, value TEXT);
+         INSERT INTO metadata VALUES('__platform__','beta');
+         CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j2');"
+    tar -czf "${BATS_TEST_TMPDIR}/b.tar.gz" \
+        -C "${BATS_TEST_TMPDIR}/tree" .knit/knit.db
+
+    # Confine bundle extraction to a controlled TMPDIR so leftovers are visible.
+    export TMPDIR="${BATS_TEST_TMPDIR}/scratch"
+    mkdir -p "${TMPDIR}"
+
+    run _knit_query_sql --exec "SELECT id FROM jobs ORDER BY id;" \
+        --extra "${BATS_TEST_TMPDIR}/b.tar.gz"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "j1" ]
+    [ "${lines[1]}" = "j2" ]
+    # No extracted bundle directory is left behind.
+    [ -z "$(find "${TMPDIR}" -maxdepth 1 -name 'knit.query.*')" ]
+}
+
 # ---------- _knit_query_annotate_catalog ----------
 
 @test "annotate catalog appends command aliases and column types" {
