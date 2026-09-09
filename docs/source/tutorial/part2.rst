@@ -304,6 +304,16 @@ the projected columns, and ``--header`` writes them as the CSV header row. (The
 ``run`` row and the ``render`` row have distinct ids; the graph edge, not a shared
 key, is what ties them together, which is exactly what a graph query is for.)
 
+.. note::
+
+   Run this experiment on a second machine and you get a second, independent
+   ``.knit/knit.db``. ``knit query`` can read both at once without merging them:
+   ``--extra <dir|db|bundle>,...`` opens other platforms' databases alongside
+   this one at read time. Inside that union every database is a ``platform``
+   node --- ``(p:platform)-[:executed]->(r:run)`` --- so one query returns every
+   platform's results tagged by ``p.id`` and filtered by machine attributes such
+   as ``p.arch``. See the *Query across platforms* stitch for the full recipe.
+
 **An artifact records the result, with a kind.** An artifact has a physical
 *type* --- ``file`` or ``directory`` --- and, optionally, a semantic **kind**: a
 label backed by one physical type that says what the file *means*. Declared once

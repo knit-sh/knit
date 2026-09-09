@@ -768,6 +768,26 @@
 # SQL knit-graph generates for a query. `knit query` only ever reads, so it is
 # safe to run at any time after bootstrap.
 #
+# Querying ACROSS platforms. When the same experiment has run on more than one
+# machine, each run leaves its own single-platform ./.knit/knit.db. `--extra`
+# queries the current database TOGETHER WITH other platforms' databases at read
+# time, without merging them: knit builds a throwaway read-only union, runs the
+# query, and discards it, so every database (and any bundle made from it) stays
+# single-platform. Each --extra source is a directory (its .knit/knit.db is
+# used), a database file, or a bundle (.tar.gz from `knit bundle`). Inside the
+# union every database is a `platform` node whose properties are its fingerprint
+# (arch, scheduler, launcher, profile, knit_version) and an `executed` edge to
+# every row that ran on it, so the platform is one hop from any command:
+#
+#   ./full.sh query graph --extra ../run-on-pbs --exec \
+#       "MATCH (p:platform)-[:executed]->(j:submit) WHERE p.arch = 'aarch64' RETURN p.id, j.job"
+#   ./full.sh query sql --extra ../run-on-pbs,polaris.tar.gz --format csv --header --exec \
+#       "SELECT id, state FROM jobs"
+#
+# The query spans one union, so aggregation and ORDER BY are correct across all
+# platforms at once. If two databases claim the same platform name with a
+# different fingerprint, knit warns and keeps both.
+#
 # -----------------------------------------------------------------------------
 # 16. Prepare jobs now, release them later (prepare)
 # -----------------------------------------------------------------------------
