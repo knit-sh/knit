@@ -165,6 +165,97 @@ teardown() {
     [[ "$output" == *"no readable database"* ]]
 }
 
+# ---------- _knit_query_build_lens_preamble ----------
+
+# Run a query over the lens built for the current database plus the given extra
+# sources, printing the result. Assembles the preamble and prepends it to the SQL
+# in a single _knit_sqlite3 session, as the query commands will.
+_lens_query() {
+    local sql="$1"; shift
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps "$1"
+    local preamble
+    _knit_query_build_lens_preamble preamble "${dbs[@]}"
+    _knit_sqlite3 "${preamble}
+${sql}"
+}
+
+@test "lens unions a table with the same schema across two databases" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT, state TEXT); INSERT INTO jobs VALUES('j1','done');"
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" \
+        "CREATE TABLE jobs(id TEXT, state TEXT); INSERT INTO jobs VALUES('j2','run');"
+
+    run _lens_query "SELECT id||':'||state FROM jobs ORDER BY id;" "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "j1:done" ]
+    [ "${lines[1]}" = "j2:run" ]
+}
+
+@test "lens reconciles a drifted schema by NULL-filling missing columns" {
+    knit_test_require_sqlite
+    # The current db lacks the "extra" column the other db added.
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT, state TEXT); INSERT INTO jobs VALUES('j1','done');"
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" \
+        "CREATE TABLE jobs(id TEXT, state TEXT, extra TEXT); INSERT INTO jobs VALUES('j2','run','E');"
+
+    run _lens_query \
+        "SELECT id||':'||IFNULL(extra,'<null>') FROM jobs ORDER BY id;" \
+        "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "j1:<null>" ]
+    [ "${lines[1]}" = "j2:E" ]
+}
+
+@test "lens includes a table present in only one database" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j1');"
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" \
+        "CREATE TABLE jobs(id TEXT); CREATE TABLE runs(id TEXT); INSERT INTO runs VALUES('r1');"
+
+    run _lens_query "SELECT id FROM runs;" "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "r1" ]
+}
+
+@test "lens preamble excludes metadata and __provenance__" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT);
+        CREATE TABLE metadata(key TEXT, value TEXT);
+        CREATE TABLE __provenance__(source_id TEXT);"
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" "CREATE TABLE jobs(id TEXT);"
+
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps "${BATS_TEST_TMPDIR}/x.db"
+    local preamble
+    _knit_query_build_lens_preamble preamble "${dbs[@]}"
+
+    [[ "${preamble}" == *'CREATE TEMP VIEW "jobs"'* ]]
+    [[ "${preamble}" != *'"metadata"'* ]]
+    [[ "${preamble}" != *'"__provenance__"'* ]]
+}
+
+@test "lens attaches extra databases read-only" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT);"
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" \
+        "CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j2');"
+
+    # A write against the union view's underlying attached table must be refused.
+    run _lens_query "INSERT INTO p1.jobs VALUES('nope');" "${BATS_TEST_TMPDIR}/x.db"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"readonly"* ]]
+}
+
+@test "lens over a single database still builds a working view" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j1');"
+
+    run _lens_query "SELECT id FROM jobs;" ""
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "j1" ]
+}
+
 # ---------- _knit_query_annotate_catalog ----------
 
 @test "annotate catalog appends command aliases and column types" {

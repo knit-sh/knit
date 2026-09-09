@@ -290,6 +290,135 @@ _knit_query_resolve_extra() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_query_build_lens_preamble()
+#
+# Build the SQL preamble that turns a _knit_sqlite3 session into the query lens: a
+# read-only union over the resolved lens databases. The first database is the
+# session's own main schema (it is _KNIT_DATABASE, which _knit_sqlite3 opens), so
+# only the extra databases are ATTACHed, each read-only as p1, p2, ... . For every
+# command table found in any lens database, a `CREATE TEMP VIEW "<table>"` unions
+# that table across every database that has it (a database that lacks the table
+# simply contributes no arm). Columns are reconciled from each database's schema:
+# the view's column list is the union of the arms' columns, and an arm fills a
+# column it lacks with `NULL AS "<col>"`, so script or knit-version drift does not
+# break the union. The metadata and __provenance__ tables are excluded: metadata
+# becomes the synthesized `platforms` view and __provenance__ its own union view,
+# both built by a later step.
+#
+# The returned text is meant to be prepended, in a single _knit_sqlite3
+# invocation, to the query that reads the views, because ATTACH and TEMP VIEW are
+# session-scoped. The source databases are only read; the views live in the temp
+# schema and vanish with the session.
+#
+# @param[out] __knit_ret Name of the variable to hold the preamble SQL.
+# @param[in] ... The lens database paths (index 0 = current/main, rest ATTACHed).
+# ------------------------------------------------------------------------------
+_knit_query_build_lens_preamble() {
+    # shellcheck disable=SC2178 # nameref to the caller's scalar (SQL text)
+    local -n __knit_ret=$1
+    shift
+    local -a dbs=("$@")
+
+    # ATTACH the extra databases read-only, and build the per-schema introspection
+    # SELECTs. The first database is already the session's main schema. The
+    # `file:...?mode=ro` URI is the only way ATTACH can open read-only; paths from
+    # the resolver are plain filesystem paths, so only the SQL-literal quote needs
+    # escaping here.
+    local -a attach_lines=()
+    local -a intro_selects=()
+    local k schema esc
+    for k in "${!dbs[@]}"; do
+        if (( k == 0 )); then
+            schema="main"
+        else
+            schema="p${k}"
+            _knit_sql_escape esc "${dbs[k]}"
+            attach_lines+=("ATTACH 'file:${esc}?mode=ro' AS ${schema};")
+        fi
+        intro_selects+=("SELECT '${schema}' AS s, m.name AS t, ti.name AS c, ti.cid AS cid \
+FROM ${schema}.sqlite_master m JOIN pragma_table_info(m.name, '${schema}') ti \
+WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%' \
+AND m.name NOT IN ('metadata', '__provenance__')")
+    done
+
+    # One introspection pass over the whole lens: (schema, table, column, cid) for
+    # every command table. cid orders columns within a table; s keeps a table's
+    # own-schema columns ahead of columns only a drifted database adds.
+    local intro_sql joined="" i
+    for i in "${!intro_selects[@]}"; do
+        if (( i == 0 )); then
+            joined="${intro_selects[i]}"
+        else
+            joined+=$'\nUNION ALL\n'"${intro_selects[i]}"
+        fi
+    done
+    intro_sql=""
+    (( ${#attach_lines[@]} > 0 )) && printf -v intro_sql '%s\n' "${attach_lines[@]}"
+    intro_sql+="${joined} ORDER BY t, s, cid;"
+
+    local intro_out
+    intro_out="$(_knit_sqlite3 "${intro_sql}")" \
+        || knit_fatal "knit query --extra: could not read the schema of the lens databases."
+
+    # Collect, per table: the schemas that hold it, which columns each holds, and
+    # the union column order (first seen wins).
+    local -A table_in_schema=() presence=() col_seen=()
+    local -A col_order=()
+    local -a table_order=()
+    local -A table_seen=()
+    # cid is read only to keep the field alignment; ordering is done in SQL.
+    local s t c cid
+    # shellcheck disable=SC2034 # cid consumed by read to keep field alignment
+    while IFS='|' read -r s t c cid; do
+        [[ -z "${t}" ]] && continue
+        if [[ -z "${table_seen["${t}"]:-}" ]]; then
+            table_seen["${t}"]=1
+            table_order+=("${t}")
+        fi
+        table_in_schema["${s}|${t}"]=1
+        presence["${s}|${t}|${c}"]=1
+        if [[ -z "${col_seen["${t}|${c}"]:-}" ]]; then
+            col_seen["${t}|${c}"]=1
+            col_order["${t}"]+="${c}"$'\n'
+        fi
+    done <<< "${intro_out}"
+
+    # Emit a UNION view per table, each arm listing the union columns in the same
+    # order and NULL-filling the ones it lacks.
+    local -a stmts=("${attach_lines[@]}")
+    local qt qc col sel_joined arms_joined
+    local -a ucols sel arms
+    for t in "${table_order[@]}"; do
+        _knit_sql_quote_identifier qt "${t}"
+        mapfile -t ucols <<< "${col_order["${t}"]}"
+        arms=()
+        for k in "${!dbs[@]}"; do
+            if (( k == 0 )); then schema="main"; else schema="p${k}"; fi
+            [[ -z "${table_in_schema["${schema}|${t}"]:-}" ]] && continue
+            sel=()
+            for col in "${ucols[@]}"; do
+                [[ -z "${col}" ]] && continue
+                _knit_sql_quote_identifier qc "${col}"
+                if [[ -n "${presence["${schema}|${t}|${col}"]:-}" ]]; then
+                    sel+=("${qc}")
+                else
+                    sel+=("NULL AS ${qc}")
+                fi
+            done
+            printf -v sel_joined '%s, ' "${sel[@]}"
+            arms+=("SELECT ${sel_joined%, } FROM ${schema}.${qt}")
+        done
+        printf -v arms_joined '%s UNION ALL ' "${arms[@]}"
+        stmts+=("CREATE TEMP VIEW ${qt} AS ${arms_joined% UNION ALL };")
+    done
+
+    local out=""
+    (( ${#stmts[@]} > 0 )) && printf -v out '%s\n' "${stmts[@]}"
+    # shellcheck disable=SC2178 # nameref to the caller's scalar (SQL text)
+    __knit_ret="${out}"
+}
+
+# ------------------------------------------------------------------------------
 # The query_format enum (shared by 'ai query', 'query graph', and 'query sql') is
 # defined in src/ai.sh, which loads before this file, so its type resolves when
 # the `format:query_format` parameters below are declared.
