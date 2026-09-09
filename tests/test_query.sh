@@ -442,6 +442,140 @@ _seed_two_platforms() {
     [ -z "$(find "${TMPDIR}" -maxdepth 1 -name 'knit.query.*')" ]
 }
 
+# ---------- _knit_query_build_catalog ----------
+
+@test "build catalog mirrors the union schema with id TEXT and platforms" {
+    knit_test_require_sqlite
+    _seed_two_platforms alpha beta
+
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps "${BATS_TEST_TMPDIR}/x.db"
+    local cat
+    _knit_query_build_catalog cat "${dbs[@]}"
+
+    run "${_KNIT_SQLITE_EXE}" "${cat}" \
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
+    [[ "$output" == *"__provenance__"* ]]
+    [[ "$output" == *"jobs"* ]]
+    [[ "$output" == *"platforms"* ]]
+    # metadata is not a catalog table.
+    [[ "$output" != *"metadata"* ]]
+
+    # jobs is a node table: its id column is declared TEXT.
+    run "${_KNIT_SQLITE_EXE}" "${cat}" \
+        "SELECT type FROM pragma_table_info('jobs') WHERE name='id';"
+    [ "$output" = "TEXT" ]
+    rm -f "${cat}"
+}
+
+@test "build catalog reconciles a drifted column into the union" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE metadata(key TEXT,value TEXT);
+        INSERT INTO metadata VALUES('__platform__','alpha');
+        CREATE TABLE jobs(id TEXT, state TEXT);"
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" \
+        "CREATE TABLE metadata(key TEXT,value TEXT);
+         INSERT INTO metadata VALUES('__platform__','beta');
+         CREATE TABLE jobs(id TEXT, state TEXT, note TEXT);"
+
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps "${BATS_TEST_TMPDIR}/x.db"
+    local cat
+    _knit_query_build_catalog cat "${dbs[@]}"
+
+    # The column only the extra database has is present in the catalog jobs table.
+    run "${_KNIT_SQLITE_EXE}" "${cat}" \
+        "SELECT name FROM pragma_table_info('jobs') ORDER BY name;"
+    [[ "$output" == *"note"* ]]
+    rm -f "${cat}"
+}
+
+# ---------- query graph --extra (end to end, needs the knit-graph binary) ----------
+
+# Point _KNIT_KNITGRAPH_EXE at the in-tree build, or skip when it is absent (it is
+# not built in the unit-test environment; the live path is covered by integration).
+_require_knit_graph() {
+    local kg="${BATS_TEST_DIRNAME}/../knit-graph/build/src/knit-graph"
+    [[ -x "${kg}" ]] || skip "knit-graph binary not built"
+    _KNIT_KNITGRAPH_EXE="${kg}"
+}
+
+@test "query graph --extra spans platforms via a synthesized catalog" {
+    knit_test_require_sqlite
+    _require_knit_graph
+    _seed_two_platforms alpha beta
+
+    run _knit_query_graph --extra "${BATS_TEST_TMPDIR}/x.db" --exec \
+        "MATCH (p:platform)-[:executed]->(j:jobs) RETURN p.id, j.state ORDER BY p.id"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "alpha|done" ]
+    [ "${lines[1]}" = "beta|run" ]
+}
+
+@test "query graph --extra aggregates correctly across platforms" {
+    knit_test_require_sqlite
+    _require_knit_graph
+    _knit_sqlite3_write "CREATE TABLE metadata(key TEXT,value TEXT);
+        INSERT INTO metadata VALUES('__platform__','alpha');
+        CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('a1'),('a2'),('a3');"
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" \
+        "CREATE TABLE metadata(key TEXT,value TEXT);
+         INSERT INTO metadata VALUES('__platform__','beta');
+         CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('b1');"
+
+    run _knit_query_graph --extra "${BATS_TEST_TMPDIR}/x.db" --exec \
+        "MATCH (p:platform)-[:executed]->(j:jobs) RETURN p.id, count(j.id) ORDER BY p.id"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "alpha|3" ]
+    [ "${lines[1]}" = "beta|1" ]
+}
+
+@test "query graph --extra transpiles against the drifted union schema" {
+    knit_test_require_sqlite
+    _require_knit_graph
+    _knit_sqlite3_write "CREATE TABLE metadata(key TEXT,value TEXT);
+        INSERT INTO metadata VALUES('__platform__','alpha');
+        CREATE TABLE jobs(id TEXT, state TEXT); INSERT INTO jobs VALUES('j1','done');"
+    # Only the extra database's jobs has a "note" column.
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" \
+        "CREATE TABLE metadata(key TEXT,value TEXT);
+         INSERT INTO metadata VALUES('__platform__','beta');
+         CREATE TABLE jobs(id TEXT, state TEXT, note TEXT);
+         INSERT INTO jobs VALUES('j2','run','N');"
+
+    run _knit_query_graph --extra "${BATS_TEST_TMPDIR}/x.db" --exec \
+        "MATCH (p:platform)-[:executed]->(j:jobs) WHERE j.note = 'N' RETURN p.id"
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 1 ]
+    [ "${lines[0]}" = "beta" ]
+}
+
+@test "query graph --explain --extra prints the transpiled SQL without running it" {
+    knit_test_require_sqlite
+    _require_knit_graph
+    _seed_two_platforms alpha beta
+
+    run _knit_query_graph --extra "${BATS_TEST_TMPDIR}/x.db" --explain true --exec \
+        "MATCH (p:platform)-[:executed]->(j:jobs) RETURN p.id"
+    [ "$status" -eq 0 ]
+    # It is SQL over the lens views, not query results.
+    [[ "$output" == *"__provenance__"* ]]
+    [[ "$output" == *"platforms"* ]]
+    [[ "$output" != *"alpha"* ]]
+}
+
+@test "query graph without --extra still runs directly on the current database" {
+    knit_test_require_sqlite
+    _require_knit_graph
+    _seed_two_platforms alpha beta
+
+    # No platforms node without --extra; a plain node query hits only the current db.
+    run _knit_query_graph --exec "MATCH (j:jobs) RETURN j.id ORDER BY j.id"
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 1 ]
+    [ "${lines[0]}" = "j1" ]
+}
+
 # ---------- _knit_query_annotate_catalog ----------
 
 @test "annotate catalog appends command aliases and column types" {

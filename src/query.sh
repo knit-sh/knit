@@ -290,6 +290,72 @@ _knit_query_resolve_extra() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_query_lens_schema()
+#
+# Run one introspection pass over the lens and return two things the lens builders
+# share: the ATTACH statements for the extra databases (the first database is the
+# session's own main schema, so only the rest are attached, read-only as p1, p2,
+# ...), and the raw `schema|table|column` rows for every table in every lens
+# database. metadata and __provenance__ are included in the rows so a caller can
+# classify them as it needs. Rows are ordered by table, then schema, then column
+# id, so a table's own-schema columns come before columns a drifted database adds.
+# The `file:...?mode=ro` URI is the only way ATTACH opens a database read-only;
+# paths from the resolver are plain filesystem paths, so only the SQL-literal quote
+# needs escaping.
+#
+# @param[out] __knit_ret1 Name of the array to fill with the ATTACH statements.
+# @param[out] __knit_ret2 Name of the variable to fill with the introspection rows.
+# @param[in] ... The lens database paths (index 0 = current/main, rest ATTACHed).
+# ------------------------------------------------------------------------------
+_knit_query_lens_schema() {
+    # shellcheck disable=SC2178 # nameref to the caller's array (attach lines)
+    local -n __knit_ret1=$1
+    # shellcheck disable=SC2178 # nameref to the caller's scalar (rows text)
+    local -n __knit_ret2=$2
+    shift 2
+    local -a dbs=("$@")
+
+    # __knit_attach_lines is __-prefixed on purpose: callers pass their own output
+    # array (named "attach_lines") as $1, so a plain local of that name here would
+    # be aliased by the __knit_ret1 nameref (the shadow-collision gotcha).
+    local -a __knit_attach_lines=()
+    local -a intro_selects=()
+    local k schema esc
+    for k in "${!dbs[@]}"; do
+        if (( k == 0 )); then
+            schema="main"
+        else
+            schema="p${k}"
+            _knit_sql_escape esc "${dbs[k]}"
+            __knit_attach_lines+=("ATTACH 'file:${esc}?mode=ro' AS ${schema};")
+        fi
+        intro_selects+=("SELECT '${schema}' AS s, m.name AS t, ti.name AS c, ti.cid AS cid \
+FROM ${schema}.sqlite_master m JOIN pragma_table_info(m.name, '${schema}') ti \
+WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%'")
+    done
+
+    local joined="" i
+    for i in "${!intro_selects[@]}"; do
+        if (( i == 0 )); then
+            joined="${intro_selects[i]}"
+        else
+            joined+=$'\nUNION ALL\n'"${intro_selects[i]}"
+        fi
+    done
+    local intro_sql=""
+    (( ${#__knit_attach_lines[@]} > 0 )) && printf -v intro_sql '%s\n' "${__knit_attach_lines[@]}"
+    # cid orders columns within a table; it drives ORDER BY but is not output.
+    intro_sql+="SELECT s, t, c FROM (${joined}) ORDER BY t, s, cid;"
+
+    __knit_ret1=("${__knit_attach_lines[@]}")
+    local rows
+    rows="$(_knit_sqlite3 "${intro_sql}")" \
+        || knit_fatal "knit query --extra: could not read the schema of the lens databases."
+    # shellcheck disable=SC2178 # nameref to the caller's scalar (rows text)
+    __knit_ret2="${rows}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_query_build_lens_preamble()
 #
 # Build the SQL preamble that turns a _knit_sqlite3 session into the query lens: a
@@ -325,45 +391,9 @@ _knit_query_build_lens_preamble() {
     shift
     local -a dbs=("$@")
 
-    # ATTACH the extra databases read-only, and build the per-schema introspection
-    # SELECTs. The first database is already the session's main schema. The
-    # `file:...?mode=ro` URI is the only way ATTACH can open read-only; paths from
-    # the resolver are plain filesystem paths, so only the SQL-literal quote needs
-    # escaping here.
     local -a attach_lines=()
-    local -a intro_selects=()
-    local k schema esc
-    for k in "${!dbs[@]}"; do
-        if (( k == 0 )); then
-            schema="main"
-        else
-            schema="p${k}"
-            _knit_sql_escape esc "${dbs[k]}"
-            attach_lines+=("ATTACH 'file:${esc}?mode=ro' AS ${schema};")
-        fi
-        intro_selects+=("SELECT '${schema}' AS s, m.name AS t, ti.name AS c, ti.cid AS cid \
-FROM ${schema}.sqlite_master m JOIN pragma_table_info(m.name, '${schema}') ti \
-WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%'")
-    done
-
-    # One introspection pass over the whole lens: (schema, table, column, cid) for
-    # every command table. cid orders columns within a table; s keeps a table's
-    # own-schema columns ahead of columns only a drifted database adds.
-    local intro_sql joined="" i
-    for i in "${!intro_selects[@]}"; do
-        if (( i == 0 )); then
-            joined="${intro_selects[i]}"
-        else
-            joined+=$'\nUNION ALL\n'"${intro_selects[i]}"
-        fi
-    done
-    intro_sql=""
-    (( ${#attach_lines[@]} > 0 )) && printf -v intro_sql '%s\n' "${attach_lines[@]}"
-    intro_sql+="${joined} ORDER BY t, s, cid;"
-
     local intro_out
-    intro_out="$(_knit_sqlite3 "${intro_sql}")" \
-        || knit_fatal "knit query --extra: could not read the schema of the lens databases."
+    _knit_query_lens_schema attach_lines intro_out "${dbs[@]}"
 
     # Collect, per table: the schemas that hold it, which columns each holds, and
     # the union column order (first seen wins). metadata and __provenance__ are
@@ -375,10 +405,8 @@ WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%'")
     local -a table_order=()
     local -A table_seen=()
     local -A meta_present=() prov_present=()
-    # cid is read only to keep the field alignment; ordering is done in SQL.
-    local s t c cid
-    # shellcheck disable=SC2034 # cid consumed by read to keep field alignment
-    while IFS='|' read -r s t c cid; do
+    local k schema s t c
+    while IFS='|' read -r s t c; do
         [[ -z "${t}" ]] && continue
         if [[ "${t}" == "metadata" ]]; then
             meta_present["${s}"]=1
@@ -437,7 +465,7 @@ WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%'")
     local -a fp_cols=(id profile scheduler launcher arch knit_version)
     local -a fp_keys=(__platform__ __profile__ __scheduler__ __launcher__ __arch__ __knit_version__)
     local -a plat_arms=() psel=()
-    local ek
+    local ek i
     for k in "${!dbs[@]}"; do
         if (( k == 0 )); then schema="main"; else schema="p${k}"; fi
         [[ -z "${meta_present["${schema}"]:-}" ]] && continue
@@ -496,42 +524,129 @@ WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%'")
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_query_build_catalog()
+#
+# Create a throwaway catalog database whose empty tables mirror the lens's union
+# schema, and return its path. knit-graph --explain reads only the catalog schema
+# (its tables and columns, an `id TEXT` column marking a node table), so an empty
+# union-schema database is enough for it to transpile a Cypher query against the
+# lens. This is always synthesized rather than reusing a lens database, because no
+# lens database holds the synthesized `platforms` table, and because it reconciles
+# a drifted schema into the union all in one place. The caller removes the file.
+#
+# The catalog declares: every command table with `id TEXT` first and its union
+# columns after (a column already named id is not repeated); the `platforms` table
+# (id plus the fingerprint columns) when any lens database has metadata; and the
+# `__provenance__` edge table. Column storage types other than the id marker do not
+# affect transpilation, so non-id columns are declared TEXT.
+#
+# @param[out] __knit_ret Name of the variable to hold the catalog database path.
+# @param[in] ... The lens database paths.
+# ------------------------------------------------------------------------------
+_knit_query_build_catalog() {
+    # shellcheck disable=SC2178 # nameref to the caller's scalar (catalog path)
+    local -n __knit_ret=$1
+    shift
+    local -a dbs=("$@")
+
+    local -a attach_lines=()
+    local intro_out
+    _knit_query_lens_schema attach_lines intro_out "${dbs[@]}"
+
+    # Union columns per command table (first seen); note whether any database has
+    # metadata (so the platforms table is created only when the lens has it).
+    local -a table_order=()
+    local -A table_seen=() col_seen=() col_order=()
+    local meta_seen="" s t c
+    while IFS='|' read -r s t c; do
+        [[ -z "${t}" ]] && continue
+        [[ "${t}" == "metadata" ]] && { meta_seen=1; continue; }
+        [[ "${t}" == "__provenance__" ]] && continue
+        if [[ -z "${table_seen["${t}"]:-}" ]]; then
+            table_seen["${t}"]=1
+            table_order+=("${t}")
+        fi
+        if [[ -z "${col_seen["${t}|${c}"]:-}" ]]; then
+            col_seen["${t}|${c}"]=1
+            col_order["${t}"]+="${c}"$'\n'
+        fi
+    done <<< "${intro_out}"
+
+    local -a ddl=() ucols cols
+    local qt qc col cols_joined
+    for t in "${table_order[@]}"; do
+        _knit_sql_quote_identifier qt "${t}"
+        mapfile -t ucols <<< "${col_order["${t}"]}"
+        cols=('"id" TEXT')
+        for col in "${ucols[@]}"; do
+            [[ -z "${col}" || "${col}" == "id" ]] && continue
+            _knit_sql_quote_identifier qc "${col}"
+            cols+=("${qc} TEXT")
+        done
+        printf -v cols_joined '%s, ' "${cols[@]}"
+        ddl+=("CREATE TABLE ${qt} (${cols_joined%, });")
+    done
+    [[ -n "${meta_seen}" ]] && ddl+=('CREATE TABLE "platforms" ("id" TEXT, "profile" TEXT, "scheduler" TEXT, "launcher" TEXT, "arch" TEXT, "knit_version" TEXT);')
+    ddl+=('CREATE TABLE "__provenance__" (source_id TEXT, source_name TEXT, target_id TEXT, target_name TEXT, edge_type TEXT, start_time REAL, end_time REAL, alias TEXT);')
+
+    # __knit_catalog_db is __-prefixed on purpose: the caller passes its own output
+    # variable (named "catalog_db") as $1, so a plain local of that name here would
+    # be aliased by the __knit_ret nameref (the shadow-collision gotcha).
+    local __knit_catalog_db ddl_sql
+    __knit_catalog_db="$(mktemp "${TMPDIR:-/tmp}/knit.catalog.XXXXXX")"
+    printf -v ddl_sql '%s\n' "${ddl[@]}"
+    _knit_run_isolated "${_KNIT_SQLITE_EXE}" "${__knit_catalog_db}" "${ddl_sql}" \
+        || knit_fatal "knit query --extra: could not build the lens catalog database."
+    # shellcheck disable=SC2178 # nameref to the caller's scalar (catalog path)
+    __knit_ret="${__knit_catalog_db}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_query_cleanup_tmps()
+#
+# Remove the temporary directories a lens created (bundle extraction). Empty
+# entries are ignored. Called by a query body after the query has run.
+#
+# @param[in] __knit_tmps Name of the array of temporary directories to remove.
+# ------------------------------------------------------------------------------
+_knit_query_cleanup_tmps() {
+    local -n __knit_tmps=$1
+    local d
+    for d in "${__knit_tmps[@]}"; do
+        [[ -n "${d}" ]] && rm -rf -- "${d}"
+    done
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_query_exec_over_lens()
 #
-# Run one SQL statement over the query lens built from the current database plus
-# the --extra sources. The lens preamble (ATTACH + TEMP VIEWs) and the statement
-# run in a single _knit_sqlite3 session, because the views are session-scoped; the
-# statement refers to the lens views by their bare names. Any temporary directory
-# a bundle source created is removed afterward. sqlite3's exit status is returned.
-# Both `query sql` and `query graph` route their --extra path through here (graph
-# after transpiling its Cypher to SQL), so lens assembly, execution, and cleanup
-# live in one place. The output flags are sqlite3 dot-commands, so a caller shapes
-# the result the same way an ordinary single-database query does.
+# Run one SQL statement over the query lens assembled from the already-resolved
+# lens databases. The lens preamble (ATTACH + TEMP VIEWs) and the statement run in
+# a single _knit_sqlite3 session, because the views are session-scoped; the
+# statement refers to the lens views by their bare names. Both `query sql` and
+# `query graph` route their --extra path through here (graph after transpiling its
+# Cypher to SQL), so lens assembly and execution live in one place. The caller
+# resolves the databases and cleans up any temporary directories afterward. The
+# output flags are sqlite3 dot-commands, so a caller shapes the result the same way
+# an ordinary single-database query does.
 #
-# @param[in] extra The raw --extra spec (comma-separated sources).
-# @param[in] sql   The SQL to run over the lens.
-# @param[in] ...   sqlite3 output flags (the mode/header/separator dot-commands).
+# @param[in] __knit_dbs Name of the array of lens database paths (main first).
+# @param[in] sql        The SQL to run over the lens.
+# @param[in] ...        sqlite3 output flags (mode/header/separator dot-commands).
 # @return The exit status of sqlite3.
 # ------------------------------------------------------------------------------
 _knit_query_exec_over_lens() {
-    local extra="$1" sql="$2"
-    shift 2
+    local -n __knit_dbs=$1
+    shift
+    local sql="$1"
+    shift
     local -a out_flags=("$@")
 
-    local -a lens_dbs=() lens_tmps=()
-    _knit_query_resolve_extra lens_dbs lens_tmps "${extra}"
     local preamble
-    _knit_query_build_lens_preamble preamble "${lens_dbs[@]}"
+    _knit_query_build_lens_preamble preamble "${__knit_dbs[@]}"
 
-    local status=0
     _knit_sqlite3 "${out_flags[@]}" "${preamble}
-${sql}" || status=$?
-
-    local d
-    for d in "${lens_tmps[@]}"; do
-        [[ -n "${d}" ]] && rm -rf -- "${d}"
-    done
-    return "${status}"
+${sql}"
 }
 
 # ------------------------------------------------------------------------------
@@ -577,9 +692,18 @@ knit_with_extra "Extra arguments forwarded verbatim to knit-graph after --."
 # --explain and --ast are mutually exclusive. Anything after a trailing `--` is
 # forwarded to knit-graph verbatim. knit-graph's exit status is propagated.
 #
+# With --extra the query spans a read-only lens over the current database and the
+# extra sources. knit-graph is used only as a transpiler there: it --explains the
+# Cypher against a synthesized catalog (whose schema mirrors the lens, including
+# the platforms node), and knit runs the resulting SQL over the lens itself so
+# aggregation, ORDER BY, and DISTINCT are correct across every platform. The names
+# map gains a `platforms=platform` entry so `(p:platform)` resolves to the lens's
+# synthesized platforms view. --explain then prints that transpiled SQL. Without
+# --extra the query runs directly against the current database, exactly as before.
+#
 # @param[in] ... The command invocation arguments, plus optional knit-graph args
 #        after `--`.
-# @return The exit status of knit-graph.
+# @return The exit status of knit-graph (direct) or sqlite3 (lens).
 # ------------------------------------------------------------------------------
 _knit_query_graph() {
     local args=("$@")
@@ -587,10 +711,11 @@ _knit_query_graph() {
     # --explain and --ast are mutually exclusive; that is enforced declaratively
     # by the --when constraint on the --ast flag (see the registration above), so
     # no imperative check is needed here.
-    local exec_query explain ast
+    local exec_query explain ast extra_spec
     exec_query="$(knit_get_parameter "exec" "${args[@]}")"
     explain="$(knit_get_parameter "explain" "${args[@]}")" || explain="false"
     ast="$(knit_get_parameter "ast" "${args[@]}")"         || ast="false"
+    extra_spec="$(knit_get_parameter "extra" "${args[@]}")" || extra_spec=""
 
     local extra_index
     extra_index=$(knit_extra_index "${args[@]}")
@@ -608,17 +733,65 @@ _knit_query_graph() {
     local names_spec
     _knit_query_build_names names_spec
 
-    local -a out_flags=()
-    _knit_query_graph_output_flags out_flags "${fmt}" "${hdr}" "${sep}"
+    # Direct mode (no --extra): run knit-graph on the current database, as before.
+    if [[ -z "${extra_spec}" ]]; then
+        local -a out_flags=()
+        _knit_query_graph_output_flags out_flags "${fmt}" "${hdr}" "${sep}"
 
-    local -a kg_args=()
-    [[ "${explain}" == "true" ]] && kg_args+=(--explain)
-    [[ -n "${names_spec}" ]] && kg_args+=(--names "${names_spec}")
-    kg_args+=("${out_flags[@]}")
-    kg_args+=("${_KNIT_DATABASE}" "${exec_query}")
-    kg_args+=("${extra[@]}")
+        local -a kg_args=()
+        [[ "${explain}" == "true" ]] && kg_args+=(--explain)
+        [[ -n "${names_spec}" ]] && kg_args+=(--names "${names_spec}")
+        kg_args+=("${out_flags[@]}")
+        kg_args+=("${_KNIT_DATABASE}" "${exec_query}")
+        kg_args+=("${extra[@]}")
 
-    _knit_knit_graph "${kg_args[@]}"
+        _knit_knit_graph "${kg_args[@]}"
+        return "$?"
+    fi
+
+    # Lens mode: transpile the Cypher against a synthesized catalog, then run the
+    # resulting SQL over the lens (or just print it for --explain).
+    local -a lens_dbs=() lens_tmps=()
+    _knit_query_resolve_extra lens_dbs lens_tmps "${extra_spec}"
+
+    # (p:platform) must resolve to the synthesized platforms view.
+    if [[ -n "${names_spec}" ]]; then
+        names_spec+=$'\nplatforms=platform'
+    else
+        names_spec="platforms=platform"
+    fi
+
+    local catalog_db
+    _knit_query_build_catalog catalog_db "${lens_dbs[@]}"
+
+    local -a explain_args=(--explain --names "${names_spec}" \
+        "${catalog_db}" "${exec_query}")
+    explain_args+=("${extra[@]}")
+
+    local generated_sql status=0
+    generated_sql="$(_knit_knit_graph "${explain_args[@]}")" || status=$?
+    rm -f -- "${catalog_db}"
+    if (( status != 0 )); then
+        _knit_query_cleanup_tmps lens_tmps
+        return "${status}"
+    fi
+
+    if [[ "${explain}" == "true" ]]; then
+        printf '%s\n' "${generated_sql}"
+        _knit_query_cleanup_tmps lens_tmps
+        return 0
+    fi
+
+    # Output shaping moves to sqlite3 (the lens runs the SQL), so translate the
+    # shared output options to sqlite3 dot-commands as `query sql` does.
+    local no_header="true"
+    [[ "${hdr}" == "true" ]] && no_header="false"
+    local -a mode_args=()
+    _knit_ai_query_mode_args mode_args "${fmt}" "${no_header}" "${sep}"
+
+    _knit_query_exec_over_lens lens_dbs "${generated_sql}" "${mode_args[@]}" || status=$?
+    _knit_query_cleanup_tmps lens_tmps
+    return "${status}"
 }
 knit_done
 
@@ -681,8 +854,15 @@ _knit_query_sql() {
 
     if [[ -z "${extra}" ]]; then
         _knit_sqlite3 "${mode_args[@]}" "${exec_sql}"
-    else
-        _knit_query_exec_over_lens "${extra}" "${exec_sql}" "${mode_args[@]}"
+        return "$?"
     fi
+
+    # shellcheck disable=SC2034 # lens_dbs/lens_tmps are filled and read by nameref
+    local -a lens_dbs=() lens_tmps=()
+    _knit_query_resolve_extra lens_dbs lens_tmps "${extra}"
+    local status=0
+    _knit_query_exec_over_lens lens_dbs "${exec_sql}" "${mode_args[@]}" || status=$?
+    _knit_query_cleanup_tmps lens_tmps
+    return "${status}"
 }
 knit_done
