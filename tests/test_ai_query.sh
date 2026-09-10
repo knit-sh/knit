@@ -411,6 +411,91 @@ _seed_two_platforms_ai() {
     [[ "$output" != *"3"* ]]
 }
 
+# ---------- --extra (cross-platform lens, Cypher path) ----------
+
+# Point _KNIT_KNITGRAPH_EXE at the in-tree build, or skip when it is absent (it
+# is not built in every unit-test environment; the live path is covered by
+# integration).
+_require_knit_graph() {
+    local kg="${BATS_TEST_DIRNAME}/../knit-graph/build/src/knit-graph"
+    [[ -x "${kg}" ]] || skip "knit-graph binary not built"
+    _KNIT_KNITGRAPH_EXE="${kg}"
+}
+
+@test "ai query --lang cypher --extra transpiles and runs over the lens" {
+    _require_knit_graph
+    _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
+    export KNIT_T_KEY="sk-secret"
+    _seed_two_platforms_ai
+    # (p:platform) resolves to the synthesized platforms view across both dbs.
+    _stub_curl_seq "$(_sql_resp 'MATCH (p:platform) RETURN p.id')"
+
+    run knit ai query --question "which platforms" --lang cypher \
+        --extra "${BETA_DB}" --format csv
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alpha"* ]]
+    [[ "$output" == *"beta"* ]]
+}
+
+@test "ai query --lang cypher feeds a transpile error back and recovers" {
+    _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
+    export KNIT_T_KEY="sk-secret"
+    _seed_two_platforms_ai
+    # Stub the transpiler: fail on the "bad" Cypher, transpile the good one to SQL.
+    _knit_knit_graph() {
+        local cy="${!#}"
+        if [[ "${cy}" == *bad* ]]; then
+            printf 'cypher parse error near "bad"\n' >&2
+            return 1
+        fi
+        printf 'SELECT id FROM platforms ORDER BY id\n'
+    }
+    _stub_curl_seq \
+        "$(_sql_resp 'MATCH bad RETURN x')" \
+        "$(_sql_resp 'MATCH (p:platform) RETURN p.id')"
+
+    run knit ai query --question "which platforms" --lang cypher \
+        --extra "${BETA_DB}" --format csv
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alpha"* ]]
+    [[ "$output" == *"beta"* ]]
+    # Two provider calls; the second carried the transpile error back.
+    [ "$(cat "${KNIT_T_SEQ}/n")" = "2" ]
+    local body2; body2=$(cat "${KNIT_T_SEQ}/body_2")
+    [[ "$(printf '%s' "${body2}" | jq -r '.messages[-1].content')" == *"Translating that Cypher"* ]]
+    [[ "$(printf '%s' "${body2}" | jq -r '.messages[-1].content')" == *"parse error"* ]]
+}
+
+@test "ai query --lang cypher feeds an execution error back and recovers" {
+    _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
+    export KNIT_T_KEY="sk-secret"
+    _seed_two_platforms_ai
+    # Stub the transpiler: the first Cypher transpiles to SQL that fails over the
+    # lens (no such view); the second transpiles to valid SQL.
+    _knit_knit_graph() {
+        local cy="${!#}"
+        if [[ "${cy}" == *first* ]]; then
+            printf 'SELECT id FROM no_such_view\n'
+            return 0
+        fi
+        printf 'SELECT id FROM platforms ORDER BY id\n'
+    }
+    _stub_curl_seq \
+        "$(_sql_resp 'MATCH (first) RETURN x')" \
+        "$(_sql_resp 'MATCH (p:platform) RETURN p.id')"
+
+    run knit ai query --question "which platforms" --lang cypher \
+        --extra "${BETA_DB}" --format csv
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alpha"* ]]
+    [[ "$output" == *"beta"* ]]
+    # Two provider calls; the second carried the sqlite execution error back.
+    [ "$(cat "${KNIT_T_SEQ}/n")" = "2" ]
+    local body2; body2=$(cat "${KNIT_T_SEQ}/body_2")
+    [[ "$(printf '%s' "${body2}" | jq -r '.messages[-1].content')" == *"Running the SQL translated"* ]]
+    [[ "$(printf '%s' "${body2}" | jq -r '.messages[-1].content')" == *"no_such_view"* ]]
+}
+
 # ---------- --lang ----------
 
 @test "ai query forwards --lang to the query loop" {
@@ -494,6 +579,22 @@ _seed_two_platforms_ai() {
 
     # Default (no --extra): no cross-platform note.
     run _knit_ai_query_system_prompt sql
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"Cross-platform querying"* ]]
+}
+
+@test "query system prompt cypher half describes the platform node only with --extra" {
+    _KNIT_DB_REGISTERED_TABLES=([jobs]="submit")
+
+    # has_extra=true: the Cypher half describes the platform node and executed edge.
+    run _knit_ai_query_system_prompt cypher true
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Cross-platform querying"* ]]
+    [[ "$output" == *"executed"* ]]
+    [[ "$output" == *"(p:platform)"* ]]
+
+    # Default (no --extra): no cross-platform note.
+    run _knit_ai_query_system_prompt cypher
     [ "$status" -eq 0 ]
     [[ "$output" != *"Cross-platform querying"* ]]
 }

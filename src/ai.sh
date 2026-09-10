@@ -902,6 +902,18 @@ Cypher authoring rules (avoid these footguns):
 
 Node label map (table=command, either side usable as a label):
 ${names_spec}"
+        if [[ "${has_extra}" == "true" ]]; then
+            cypher_half+="
+
+Cross-platform querying (--extra is in effect):
+- The query runs over a read-only union of several platforms' databases.
+- Each platform is a \`platform\` node whose id is the platform name and whose
+  columns are profile, scheduler, launcher, arch, knit_version. A \`platform\`
+  node connects to every row that ran on it with an \`executed\` edge, so
+  (p:platform)-[:executed]->(n) tags each node with the platform it ran on and
+  a p.arch (or other) filter selects one platform, e.g.
+  MATCH (p:platform)-[:executed]->(j:jobs) WHERE p.arch = 'x86_64' RETURN j.id."
+        fi
     fi
 
     local prompt="${intro}"
@@ -997,6 +1009,23 @@ _knit_ai_query_loop() {
     local names_spec
     _knit_query_build_names names_spec
 
+    # Cypher-over-lens prep (loop-invariant). When the dispatcher supplied a lens,
+    # a Cypher round transpiles the query with knit-graph against a synthesized
+    # catalog and runs the resulting SQL over the lens (like `query graph`), so
+    # copy the lens db paths once (to build that catalog each round) and extend
+    # the name map so (p:platform) resolves to the synthesized platforms view.
+    local -a lens_paths=()
+    local cypher_names_spec="${names_spec}"
+    if [[ -n "${lens_array}" ]]; then
+        local -n __knit_lens_ref="${lens_array}"
+        lens_paths=("${__knit_lens_ref[@]}")
+        if [[ -n "${cypher_names_spec}" ]]; then
+            cypher_names_spec+=$'\nplatforms=platform'
+        else
+            cypher_names_spec="platforms=platform"
+        fi
+    fi
+
     local i resp message sql out lang sql_status
     local last_sql="" last_err=""
     for (( i = 1; i <= max_iterations; i++ )); do
@@ -1032,11 +1061,54 @@ _knit_ai_query_loop() {
             return 0
         fi
 
-        # Cypher path: route through knit-graph with the name map and output
-        # flags. knit-graph itself rejects write clauses (non-zero exit), so no
-        # separate read-only guard is needed; a failing round feeds knit-graph's
-        # error back to the model, exactly like the SQL branch below.
+        # Cypher path. With a lens (the dispatcher's normal path), knit-graph is
+        # used only as a transpiler: it --explains the Cypher against a
+        # synthesized catalog whose schema mirrors the lens (including the
+        # platforms node), and knit runs the resulting SQL over the lens, exactly
+        # as `query graph` does. Two error sources feed back to the model: a
+        # transpile error from knit-graph, and an execution error from sqlite.
+        # Without a lens (standalone unit calls), knit-graph runs the Cypher
+        # directly against the database and rejects write clauses itself.
         if [[ "${lang}" == "cypher" ]]; then
+            if [[ -n "${lens_array}" ]]; then
+                # Transpile against a fresh catalog built from the lens schema,
+                # then remove it right away (mirrors `query graph`; no leak on the
+                # error path).
+                local catalog_db generated_sql kg_status=0
+                _knit_query_build_catalog catalog_db "${lens_paths[@]}"
+                generated_sql=$(_knit_knit_graph --explain \
+                    --names "${cypher_names_spec}" "${catalog_db}" "${sql}" 2>&1) \
+                    || kg_status=$?
+                rm -f -- "${catalog_db}"
+                if (( kg_status != 0 )); then
+                    last_err="${generated_sql}"
+                    [[ "${verbose}" == "true" ]] && \
+                        printf 'ai: knit-graph transpile error:\n%s\n' "${last_err}" >&2
+                    # shellcheck disable=SC2016 # $m/$e are jq variables, not shell
+                    messages=$(_knit_jq -n \
+                        --argjson m "${messages}" \
+                        --arg e "${last_err}" \
+                        '$m + [{role: "user", content: ("Translating that Cypher to SQL failed with this error:\n" + $e + "\nReturn a corrected single read-only Cypher query only.")}]')
+                    continue
+                fi
+                out=$(_knit_query_exec_over_lens "${lens_array}" \
+                    "${generated_sql}" "${mode_args[@]}" 2>&1)
+                sql_status=$?
+                if (( sql_status == 0 )); then
+                    printf '%s\n' "${out}"
+                    return 0
+                fi
+                last_err="${out}"
+                [[ "${verbose}" == "true" ]] && \
+                    printf 'ai: sqlite error (from the transpiled Cypher):\n%s\n' "${last_err}" >&2
+                # shellcheck disable=SC2016 # $m/$e are jq variables, not shell
+                messages=$(_knit_jq -n \
+                    --argjson m "${messages}" \
+                    --arg e "${last_err}" \
+                    '$m + [{role: "user", content: ("Running the SQL translated from that Cypher failed with this error:\n" + $e + "\nReturn a corrected single read-only Cypher query only.")}]')
+                continue
+            fi
+
             local -a kg_args=()
             [[ -n "${names_spec}" ]] && kg_args+=(--names "${names_spec}")
             kg_args+=("${graph_flags[@]}")
