@@ -793,10 +793,16 @@ _knit_ai_extract_query() {
 # model isn't tempted to use the other backend; with `auto` (the default) both
 # halves and the when-to-prefer-each guidance are emitted and the model chooses.
 #
+# When has_extra is "true" (the caller passed --extra), a cross-platform note is
+# appended to the SQL half: the query runs over a read-only union of several
+# platforms' databases, and a synthesized `platforms` view lists them.
+#
 # @param[in] lang Pinned language ("auto"/"sql"/"cypher"); defaults to "auto".
+# @param[in] has_extra "true" when the query spans a cross-platform lens.
 # ------------------------------------------------------------------------------
 _knit_ai_query_system_prompt() {
     local lang="${1:-auto}"
+    local has_extra="${2:-false}"
     local schema summary names_spec
     schema=$(_knit_sqlite3 ".schema" 2>/dev/null)
     summary=$(_knit_ai_describe_summary)
@@ -858,6 +864,16 @@ When to prefer each:
 
 Database schema:
 ${schema}"
+        if [[ "${has_extra}" == "true" ]]; then
+            sql_half+="
+
+Cross-platform querying (--extra is in effect):
+- The query runs over a read-only union of several platforms' databases. Each
+  command table (runs, jobs, ...) unions the rows of every platform.
+- A \"platforms\" view lists the queried platforms, one row each, with columns:
+  id (the platform name), profile, scheduler, launcher, arch, knit_version.
+  Query it to compare platforms."
+        fi
     fi
 
     local cypher_half=""
@@ -940,6 +956,10 @@ ${summary}"
 # @param[in] separator Optional column separator for csv/list modes.
 # @param[in] lang Pinned language ("auto"/"sql"/"cypher"); "auto" defers to the
 #             per-statement detection, sql/cypher override it.
+# @param[in] lens_array Optional name of the resolved lens database array (current
+#             first, extras after). When given, generated SQL runs over that
+#             read-only lens; when empty, SQL runs directly on the read path (used
+#             by standalone unit calls that need no lens).
 # @return 0 on a successful (or --query-only) run; fatals on hitting the cap.
 # ------------------------------------------------------------------------------
 _knit_ai_query_loop() {
@@ -955,6 +975,7 @@ _knit_ai_query_loop() {
     local no_header="${10}"
     local separator="${11}"
     local lang_pinned="${12}"
+    local lens_array="${13:-}"
 
     local messages
     # shellcheck disable=SC2016 # $system/$question are jq variables, not shell
@@ -976,7 +997,7 @@ _knit_ai_query_loop() {
     local names_spec
     _knit_query_build_names names_spec
 
-    local i resp message sql out lang
+    local i resp message sql out lang sql_status
     local last_sql="" last_err=""
     for (( i = 1; i <= max_iterations; i++ )); do
         resp=$(_knit_ai_chat_request "${base_url}" "${api_key}" "${model}" \
@@ -1046,7 +1067,18 @@ _knit_ai_query_loop() {
             continue
         fi
 
-        if out=$(_knit_sqlite3 "${mode_args[@]}" "${sql}" 2>&1); then
+        # Run the generated SQL over the lens when the dispatcher supplied one
+        # (its array name in lens_array), else directly on the read path for a
+        # standalone call. Both capture stderr so a failure feeds back to the
+        # model; on success the result is printed as-is.
+        if [[ -n "${lens_array}" ]]; then
+            out=$(_knit_query_exec_over_lens "${lens_array}" "${sql}" "${mode_args[@]}" 2>&1)
+            sql_status=$?
+        else
+            out=$(_knit_sqlite3 "${mode_args[@]}" "${sql}" 2>&1)
+            sql_status=$?
+        fi
+        if (( sql_status == 0 )); then
             printf '%s\n' "${out}"
             return 0
         fi
@@ -1100,6 +1132,8 @@ knit_with_required "question:string" \
     "The natural-language question to answer."
 knit_with_optional "lang:ai_query_lang" "auto" \
     "Query language: auto (detect), sql, or cypher."
+knit_with_optional "extra:string" "" \
+    "Comma-separated extra sources to query alongside this experiment's database. Each is a directory (its .knit/knit.db is used), a database file, or a bundle (.tar.gz, extracted to a temporary directory). The current database is always included."
 knit_with_optional "format:query_format" "box" \
     "Output mode: box, column, csv, json, line, list, markdown, table, html, ascii, tabs."
 knit_with_flag "no-header" \
@@ -1124,9 +1158,10 @@ knit_with_flag "verbose" \
 # API key stays in a local and is never logged or recorded.
 # ------------------------------------------------------------------------------
 _knit_ai_query() {
-    local question lang format no_header separator max_iterations model query_only verbose
+    local question lang extra format no_header separator max_iterations model query_only verbose
     question="$(knit_get_parameter "question" "$@")"
     lang="$(knit_get_parameter "lang" "$@")"
+    extra="$(knit_get_parameter "extra" "$@")" || extra=""
     format="$(knit_get_parameter "format" "$@")"
     no_header="$(knit_get_parameter "no-header" "$@")" || no_header="false"
     separator="$(knit_get_parameter "separator" "$@")"
@@ -1138,11 +1173,28 @@ _knit_ai_query() {
     local api_key base_url resolved_model
     _knit_ai_resolve_config api_key base_url resolved_model "${model}"
 
-    local system_prompt
-    system_prompt="$(_knit_ai_query_system_prompt "${lang}")"
+    # Extra sources widen the query to a cross-platform lens; the prompt then
+    # tells the model about the platforms view and the cross-platform union.
+    local has_extra="false"
+    [[ -n "${extra}" ]] && has_extra="true"
 
+    local system_prompt
+    system_prompt="$(_knit_ai_query_system_prompt "${lang}" "${has_extra}")"
+
+    # Resolve the query lens once (the current database plus any --extra sources)
+    # and pass its array name to the loop, which runs generated SQL over it. The
+    # loop may run many rounds, so the lens is loop-invariant; its temporary dirs
+    # are removed here after the loop returns.
+    # shellcheck disable=SC2034 # lens_dbs/lens_tmps are filled and read by nameref
+    local -a lens_dbs=() lens_tmps=()
+    _knit_query_resolve_extra lens_dbs lens_tmps "${extra}"
+
+    local status=0
     _knit_ai_query_loop "${base_url}" "${api_key}" "${resolved_model}" \
         "${question}" "${system_prompt}" "${max_iterations}" "${verbose}" \
-        "${query_only}" "${format}" "${no_header}" "${separator}" "${lang}"
+        "${query_only}" "${format}" "${no_header}" "${separator}" "${lang}" \
+        lens_dbs || status=$?
+    _knit_query_cleanup_tmps lens_tmps
+    return "${status}"
 }
 knit_done

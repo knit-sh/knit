@@ -356,6 +356,61 @@ _sql_resp() {
     [[ "$output" == *"alice"* ]]
 }
 
+# ---------- --extra (cross-platform lens, SQL path) ----------
+
+# Label the current database as platform "alpha" and fabricate a second
+# single-platform database "beta" beside it (a distinct row in its own t table),
+# so a lens over both spans two platforms. Only the copy is touched.
+_seed_two_platforms_ai() {
+    _knit_sqlite3_write \
+        "INSERT INTO metadata VALUES('__platform__','alpha'),('__arch__','x86_64');"
+    BETA_DB="${BATS_TEST_TMPDIR}/beta.db"
+    "${_KNIT_SQLITE_EXE}" "${BETA_DB}" "
+        CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT);
+        INSERT INTO metadata VALUES('__platform__','beta'),('__arch__','aarch64');
+        CREATE TABLE t(name TEXT, n INT);
+        INSERT INTO t VALUES('carol', 3);"
+}
+
+@test "ai query --extra queries the platforms view spanning both databases" {
+    _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
+    export KNIT_T_KEY="sk-secret"
+    _seed_two_platforms_ai
+    _stub_curl_seq "$(_sql_resp 'SELECT id FROM platforms ORDER BY id')"
+
+    run knit ai query --question "which platforms" --extra "${BETA_DB}" --format csv
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alpha"* ]]
+    [[ "$output" == *"beta"* ]]
+}
+
+@test "ai query --extra unions a command table across both databases" {
+    _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
+    export KNIT_T_KEY="sk-secret"
+    _seed_two_platforms_ai
+    _stub_curl_seq "$(_sql_resp 'SELECT name FROM t ORDER BY name')"
+
+    # The lens unions t across alpha (alice, bob) and beta (carol).
+    run knit ai query --question "all names" --extra "${BETA_DB}" --format csv
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"alice"* ]]
+    [[ "$output" == *"bob"* ]]
+    [[ "$output" == *"carol"* ]]
+}
+
+@test "ai query without --extra does not reach an extra database" {
+    _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
+    export KNIT_T_KEY="sk-secret"
+    _seed_two_platforms_ai
+    _stub_curl_seq "$(_sql_resp 'SELECT count(*) FROM t')"
+
+    # A single-database lens sees only the current database's two rows.
+    run knit ai query --question "how many" --extra "" --format csv
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"2"* ]]
+    [[ "$output" != *"3"* ]]
+}
+
 # ---------- --lang ----------
 
 @test "ai query forwards --lang to the query loop" {
@@ -426,4 +481,19 @@ _sql_resp() {
     [[ "$output" == *"used_by"* ]]          # the edge model present
     [[ "$output" != *"SQL rules"* ]]        # no SQL half
     [[ "$output" != *"Database schema:"* ]] # no schema block
+}
+
+@test "query system prompt adds the cross-platform note only with --extra" {
+    _KNIT_DB_REGISTERED_TABLES=([jobs]="submit")
+
+    # has_extra=true: the SQL half describes the lens and the platforms view.
+    run _knit_ai_query_system_prompt sql true
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Cross-platform querying"* ]]
+    [[ "$output" == *'"platforms" view'* ]]
+
+    # Default (no --extra): no cross-platform note.
+    run _knit_ai_query_system_prompt sql
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"Cross-platform querying"* ]]
 }
