@@ -509,54 +509,6 @@ _seed_two_platforms() {
     [[ "$output" != *"differing fingerprints"* ]]
 }
 
-# ---------- _knit_query_build_catalog ----------
-
-@test "build catalog mirrors the union schema with id TEXT and platforms" {
-    knit_test_require_sqlite
-    _seed_two_platforms alpha beta
-
-    local -a dbs=() tmps=()
-    _knit_query_resolve_extra dbs tmps "${BATS_TEST_TMPDIR}/x.db"
-    local cat
-    _knit_query_build_catalog cat "${dbs[@]}"
-
-    run "${_KNIT_SQLITE_EXE}" "${cat}" \
-        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
-    [[ "$output" == *"__provenance__"* ]]
-    [[ "$output" == *"jobs"* ]]
-    [[ "$output" == *"platforms"* ]]
-    # metadata is not a catalog table.
-    [[ "$output" != *"metadata"* ]]
-
-    # jobs is a node table: its id column is declared TEXT.
-    run "${_KNIT_SQLITE_EXE}" "${cat}" \
-        "SELECT type FROM pragma_table_info('jobs') WHERE name='id';"
-    [ "$output" = "TEXT" ]
-    rm -f "${cat}"
-}
-
-@test "build catalog reconciles a drifted column into the union" {
-    knit_test_require_sqlite
-    _knit_sqlite3_write "CREATE TABLE metadata(key TEXT,value TEXT);
-        INSERT INTO metadata VALUES('__platform__','alpha');
-        CREATE TABLE jobs(id TEXT, state TEXT);"
-    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" \
-        "CREATE TABLE metadata(key TEXT,value TEXT);
-         INSERT INTO metadata VALUES('__platform__','beta');
-         CREATE TABLE jobs(id TEXT, state TEXT, note TEXT);"
-
-    local -a dbs=() tmps=()
-    _knit_query_resolve_extra dbs tmps "${BATS_TEST_TMPDIR}/x.db"
-    local cat
-    _knit_query_build_catalog cat "${dbs[@]}"
-
-    # The column only the extra database has is present in the catalog jobs table.
-    run "${_KNIT_SQLITE_EXE}" "${cat}" \
-        "SELECT name FROM pragma_table_info('jobs') ORDER BY name;"
-    [[ "$output" == *"note"* ]]
-    rm -f "${cat}"
-}
-
 # ---------- _knit_query_build_schema ----------
 
 @test "build schema emits the flat union with id first, platforms, and edge table" {
@@ -759,20 +711,6 @@ setup:libs=setup:libs" ]
     local spec="unset"
     _knit_query_build_names spec
     [ -z "${spec}" ]
-}
-
-# ---------- _knit_query_graph_output_flags ----------
-
-@test "graph output flags map format to -<mode> and default header off" {
-    local -a flags
-    _knit_query_graph_output_flags flags "list" "false" ""
-    [ "${flags[*]}" = "-list -noheader" ]
-}
-
-@test "graph output flags emit -header and -separator when requested" {
-    local -a flags
-    _knit_query_graph_output_flags flags "json" "true" ","
-    [ "${flags[*]}" = "-json -header -separator ," ]
 }
 
 # ---------- knit query graph ----------

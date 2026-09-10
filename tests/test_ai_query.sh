@@ -207,92 +207,105 @@ _sql_resp() {
     [[ "$output" == *"sqlite error"* ]]
 }
 
-# ---------- _knit_ai_query_loop: Cypher branch ----------
+# ---------- _knit_ai_query_loop: Cypher branch (no lens) ----------
+#
+# With no lens (a direct 12-arg call), the Cypher path builds the flat schema from
+# the current database, transpiles with knit-cypher-to-sql, and runs the returned
+# SQL on the read path via _knit_sqlite3. The transpiler is stubbed to record its
+# argv and emit SQL; the real _knit_sqlite3 runs that SQL against a seeded DB.
 
-@test "query loop routes Cypher to knit-graph with the name map and output flags" {
-    _stub_curl_seq "$(_sql_resp 'MATCH (n) RETURN n')"
-    # Capture the exact argv knit-graph is called with.
-    _knit_knit_graph() { printf 'KG:%s\n' "$*"; }
+@test "query loop routes Cypher through the transpiler and runs the returned SQL" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j1'),('j2');"
+    local argfile="${BATS_TEST_TMPDIR}/cts-args"
+    _knit_cypher_to_sql() {
+        printf '%s\n' "$*" > "${argfile}"
+        printf 'SELECT id FROM jobs ORDER BY id\n'
+    }
+    _stub_curl_seq "$(_sql_resp 'MATCH (j:jobs) RETURN j.id')"
 
+    # no_header=true so the two rows are the only output lines.
     run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "graph?" "sys" 3 \
-        false false csv false "" auto
+        false false list true "" auto
     [ "$status" -eq 0 ]
-    [[ "$output" == *"--names "* ]]        # live name<->table map passed
-    [[ "$output" == *"-csv"* ]]            # format mapped to knit-graph flag
-    [[ "$output" == *"-header"* ]]         # headers on by default
-    [[ "$output" == *"MATCH (n) RETURN n"* ]]
+    # The result of running the transpiled SQL over the read path.
+    [ "${lines[0]}" = "j1" ]
+    [ "${lines[1]}" = "j2" ]
+    # The transpiler received the live name<->table map and the Cypher.
+    [[ "$(cat "${argfile}")" == *"--names "* ]]
+    [[ "$(cat "${argfile}")" == *"MATCH (j:jobs) RETURN j.id"* ]]
 }
 
-@test "query loop maps --no-header to knit-graph -noheader for Cypher" {
-    _stub_curl_seq "$(_sql_resp 'MATCH (n) RETURN n')"
-    _knit_knit_graph() { printf 'KG:%s\n' "$*"; }
-
-    run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "graph?" "sys" 3 \
-        false false csv true "" auto
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"-noheader"* ]]
-    [[ "$output" != *"-header "* ]]
-}
-
-@test "query loop feeds a knit-graph error back and the second attempt succeeds" {
-    _stub_curl_seq \
-        "$(_sql_resp 'MATCH bad RETURN x')" \
-        "$(_sql_resp 'MATCH (n) RETURN n')"
-    # Fail the first (bad) query; succeed on the corrected one.
-    _knit_knit_graph() {
-        if [[ "$*" == *bad* ]]; then
+@test "query loop feeds a transpile error back and the second attempt succeeds" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j1');"
+    # Fail transpiling the first (bad) query; succeed on the corrected one.
+    _knit_cypher_to_sql() {
+        if [[ "${!#}" == *bad* ]]; then
             printf 'syntax error near "bad"\n' >&2
             return 1
         fi
-        printf 'GRAPH-RESULT\n'
+        printf 'SELECT id FROM jobs ORDER BY id\n'
     }
+    _stub_curl_seq \
+        "$(_sql_resp 'MATCH bad RETURN x')" \
+        "$(_sql_resp 'MATCH (j:jobs) RETURN j.id')"
 
     run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "graph?" "sys" 3 \
-        false false csv false "" auto
+        false false list false "" auto
     [ "$status" -eq 0 ]
-    [[ "$output" == *"GRAPH-RESULT"* ]]
-    # Exactly two provider calls; the second carried knit-graph's error back.
+    [[ "$output" == *"j1"* ]]
+    # Exactly two provider calls; the second carried the transpile error back.
     [ "$(cat "${KNIT_T_SEQ}/n")" = "2" ]
     local body2; body2=$(cat "${KNIT_T_SEQ}/body_2")
+    [[ "$(printf '%s' "${body2}" | jq -r '.messages[-1].content')" == *"Translating that Cypher"* ]]
     [[ "$(printf '%s' "${body2}" | jq -r '.messages[-1].content')" == *"syntax error"* ]]
 }
 
 @test "query loop fatals after Cypher hits the iteration cap" {
+    knit_test_require_sqlite
     _stub_curl_seq \
         "$(_sql_resp 'MATCH bad RETURN x')" \
         "$(_sql_resp 'MATCH worse RETURN y')"
-    _knit_knit_graph() { printf 'boom\n' >&2; return 1; }
+    _knit_cypher_to_sql() { printf 'boom\n' >&2; return 1; }
 
     run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "graph?" "sys" 2 \
-        false false csv false "" auto
+        false false list false "" auto
     [ "$status" -ne 0 ]
     [[ "$output" == *"could not produce a working query"* ]]
     [ "$(cat "${KNIT_T_SEQ}/n")" = "2" ]
 }
 
-@test "query loop --query-only prints a Cypher query and its language without running knit-graph" {
+@test "query loop --query-only prints a Cypher query and its language without transpiling" {
     _stub_curl_seq "$(_sql_resp 'MATCH (n) RETURN n')"
-    # Any call to the backend is a failure for this test.
-    _knit_knit_graph() { printf 'SHOULD-NOT-RUN\n'; return 0; }
+    # Any call to the transpiler is a failure for this test.
+    _knit_cypher_to_sql() { printf 'SHOULD-NOT-RUN\n'; return 0; }
 
     run --separate-stderr _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" \
-        "graph?" "sys" 3 false true csv false "" auto
+        "graph?" "sys" 3 false true list false "" auto
     [ "$status" -eq 0 ]
     [ "$output" = "MATCH (n) RETURN n" ]
     [[ "$stderr" == *"language: cypher"* ]]
     [ "$(cat "${KNIT_T_SEQ}/n")" = "1" ]
 }
 
-@test "query loop honors a pinned --lang cypher and routes to knit-graph" {
-    # The reply looks like SQL, but the pinned language forces the Cypher backend.
+@test "query loop honors a pinned --lang cypher and routes to the transpiler" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j1');"
+    # The reply looks like SQL, but the pinned language forces the Cypher path,
+    # so the statement is sent to the transpiler (not run as SQL directly).
+    local argfile="${BATS_TEST_TMPDIR}/cts-args"
+    _knit_cypher_to_sql() {
+        printf '%s\n' "$*" > "${argfile}"
+        printf 'SELECT id FROM jobs\n'
+    }
     _stub_curl_seq "$(_sql_resp 'SELECT 1')"
-    _knit_knit_graph() { printf 'KG:%s\n' "$*"; }
 
     run _knit_ai_query_loop "http://h/v1" "sk" "gpt-x" "graph?" "sys" 3 \
-        false false csv false "" cypher
+        false false list false "" cypher
     [ "$status" -eq 0 ]
-    [[ "$output" == *"KG:"* ]]
-    [[ "$output" == *"SELECT 1"* ]]
+    [[ "$output" == *"j1"* ]]
+    [[ "$(cat "${argfile}")" == *"SELECT 1"* ]]
 }
 
 # ---------- ai query (end to end via the dispatcher, stubbed curl) ----------
@@ -413,17 +426,16 @@ _seed_two_platforms_ai() {
 
 # ---------- --extra (cross-platform lens, Cypher path) ----------
 
-# Point _KNIT_KNITGRAPH_EXE at the in-tree build, or skip when it is absent (it
-# is not built in every unit-test environment; the live path is covered by
-# integration).
-_require_knit_graph() {
-    local kg="${BATS_TEST_DIRNAME}/../knit-graph/build/src/knit-graph"
-    [[ -x "${kg}" ]] || skip "knit-graph binary not built"
-    _KNIT_KNITGRAPH_EXE="${kg}"
+# Point _KNIT_CYPHER_TO_SQL_EXE at the in-tree build, or skip when it is absent
+# (the live path is also covered by integration).
+_require_cypher_to_sql() {
+    local cts="${BATS_TEST_DIRNAME}/../knit-cypher-to-sql/build/src/knit-cypher-to-sql"
+    [[ -x "${cts}" ]] || skip "knit-cypher-to-sql binary not built"
+    _KNIT_CYPHER_TO_SQL_EXE="${cts}"
 }
 
 @test "ai query --lang cypher --extra transpiles and runs over the lens" {
-    _require_knit_graph
+    _require_cypher_to_sql
     _knit_ai_store_config KNIT_T_KEY "" "" "http://host/v1" "gpt-x" "true"
     export KNIT_T_KEY="sk-secret"
     _seed_two_platforms_ai
@@ -442,7 +454,7 @@ _require_knit_graph() {
     export KNIT_T_KEY="sk-secret"
     _seed_two_platforms_ai
     # Stub the transpiler: fail on the "bad" Cypher, transpile the good one to SQL.
-    _knit_knit_graph() {
+    _knit_cypher_to_sql() {
         local cy="${!#}"
         if [[ "${cy}" == *bad* ]]; then
             printf 'cypher parse error near "bad"\n' >&2
@@ -472,7 +484,7 @@ _require_knit_graph() {
     _seed_two_platforms_ai
     # Stub the transpiler: the first Cypher transpiles to SQL that fails over the
     # lens (no such view); the second transpiles to valid SQL.
-    _knit_knit_graph() {
+    _knit_cypher_to_sql() {
         local cy="${!#}"
         if [[ "${cy}" == *first* ]]; then
             printf 'SELECT id FROM no_such_view\n'

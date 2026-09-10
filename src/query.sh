@@ -7,11 +7,11 @@
 #
 # Read the OUTPUT-OPTS shared by `knit query graph` and `knit query sql` out of a
 # command invocation into three caller-named variables. Factored here so both
-# query engines parse `--format`/`--header`/`--separator` identically; each then
-# translates the values into its own backend's flags (knit-graph's `-<mode>` for
-# graph, sqlite3 dot-commands for sql). The format defaults to `list` and the
-# header defaults OFF (query output is most often piped elsewhere, where a header
-# is noise); the separator defaults to empty (the backend's own default).
+# query commands parse `--format`/`--header`/`--separator` identically; both then
+# translate the values into sqlite3 dot-commands (the lens runs every query
+# through sqlite3). The format defaults to `list` and the header defaults OFF
+# (query output is most often piped elsewhere, where a header is noise); the
+# separator defaults to empty (the output mode's own default).
 #
 # @param[out] __knit_ret1 Name of the variable to hold the format value.
 # @param[out] __knit_ret2 Name of the variable to hold the header flag ("true"/"false").
@@ -57,7 +57,7 @@ _knit_query_table_alias() {
 # ------------------------------------------------------------------------------
 # @fn _knit_query_annotate_catalog()
 #
-# Filter a knit-graph `--catalog` listing read from standard input, annotating it
+# Filter the raw `query catalog` listing read from standard input, annotating it
 # with two things read from the live schema: each `table <name>` line whose table
 # has a distinct command-name alias gains " (command: <name>)" so users discover
 # both spellings of a label, and each `  column <name>` line gains " (<TYPE>)"
@@ -275,12 +275,12 @@ knit_done
 # ------------------------------------------------------------------------------
 # @fn _knit_query_build_names()
 #
-# Build the name<->table map knit-graph needs (its `--names` SPEC) from the live
-# registration state, returned through a caller-named variable. Every registered
-# table contributes one `table=command` entry (the command being the demangled
-# name knit stores in the provenance `*_name` columns); knit-graph resolves a
-# node label through this map to the table it JOINs and the `*_name` value its
-# edges carry (see the design's name<->table section). The map is rebuilt on
+# Build the name<->table map the transpiler needs (its `--names` SPEC) from the
+# live registration state, returned through a caller-named variable. Every
+# registered table contributes one `table=command` entry (the command being the
+# demangled name knit stores in the provenance `*_name` columns); the transpiler
+# resolves a node label through this map to the table it JOINs and the `*_name`
+# value its edges carry (see the design's name<->table section). The map is rebuilt on
 # every invocation and never persisted, so it can never go stale. Entries are
 # sorted for a stable, traceable SPEC. Empty when no table is registered.
 #
@@ -298,37 +298,6 @@ _knit_query_build_names() {
         return 0
     fi
     __knit_ret="$(printf '%s\n' "${entries[@]}" | LC_ALL=C sort)"
-}
-
-# ------------------------------------------------------------------------------
-# @fn _knit_query_graph_output_flags()
-#
-# Translate the shared OUTPUT-OPTS (format/header/separator) into the knit-graph
-# output flags, filled into a caller-named array. The format value is a
-# query_format enum value that maps 1:1 onto knit-graph's `-<mode>` flag, so no
-# lookup table is needed. Header is emitted explicitly (`-header`/`-noheader`)
-# because knit-graph defaults it on while knit query defaults it off; a non-empty
-# separator adds `-separator <sep>`.
-#
-# @param[out] __knit_ret Name of the array variable to fill with the knit-graph flags.
-# @param[in] format The query_format enum value (e.g. "list", "json").
-# @param[in] header "true" to emit a header row, anything else to suppress it.
-# @param[in] separator Optional column separator.
-# ------------------------------------------------------------------------------
-_knit_query_graph_output_flags() {
-    local -n __knit_ret=$1
-    local format="$2"
-    local header="$3"
-    local separator="$4"
-
-    __knit_ret=("-${format}")
-    if [[ "${header}" == "true" ]]; then
-        __knit_ret+=(-header)
-    else
-        __knit_ret+=(-noheader)
-    fi
-    [[ -n "${separator}" ]] && __knit_ret+=(-separator "${separator}")
-    return 0
 }
 
 # ------------------------------------------------------------------------------
@@ -619,8 +588,8 @@ _knit_query_build_lens_preamble() {
 
     # Synthesize the __provenance__ view: the real edges of every database, plus a
     # synthesized "executed" edge from each database's platform to every node-table
-    # row on it. A node's target_name is the command name knit-graph resolves the
-    # node's label to, so the platform-to-node hop matches a
+    # row on it. A node's target_name is the command name the transpiler resolves
+    # the node's label to, so the platform-to-node hop matches a
     # (p:platform)-[:executed]->(n) query. The platform is the edge source, as the
     # used_by convention keeps the relationship a single flat hop.
     local -a prov_arms=()
@@ -658,93 +627,13 @@ _knit_query_build_lens_preamble() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_query_build_catalog()
-#
-# Create a throwaway catalog database whose empty tables mirror the lens's union
-# schema, and return its path. knit-graph --explain reads only the catalog schema
-# (its tables and columns, an `id TEXT` column marking a node table), so an empty
-# union-schema database is enough for it to transpile a Cypher query against the
-# lens. This is always synthesized rather than reusing a lens database, because no
-# lens database holds the synthesized `platforms` table, and because it reconciles
-# a drifted schema into the union all in one place. The caller removes the file.
-#
-# The catalog declares: every command table with `id TEXT` first and its union
-# columns after (a column already named id is not repeated); the `platforms` table
-# (id plus the fingerprint columns) when any lens database has metadata; and the
-# `__provenance__` edge table. Column storage types other than the id marker do not
-# affect transpilation, so non-id columns are declared TEXT.
-#
-# @param[out] __knit_ret Name of the variable to hold the catalog database path.
-# @param[in] ... The lens database paths.
-# ------------------------------------------------------------------------------
-_knit_query_build_catalog() {
-    # shellcheck disable=SC2178 # nameref to the caller's scalar (catalog path)
-    local -n __knit_ret=$1
-    shift
-    local -a dbs=("$@")
-
-    local -a attach_lines=()
-    local intro_out
-    _knit_query_lens_schema attach_lines intro_out "${dbs[@]}"
-
-    # Union columns per command table (first seen); note whether any database has
-    # metadata (so the platforms table is created only when the lens has it).
-    local -a table_order=()
-    local -A table_seen=() col_seen=() col_order=()
-    local meta_seen="" s t c
-    while IFS='|' read -r s t c; do
-        [[ -z "${t}" ]] && continue
-        [[ "${t}" == "metadata" ]] && { meta_seen=1; continue; }
-        [[ "${t}" == "__provenance__" ]] && continue
-        if [[ -z "${table_seen["${t}"]:-}" ]]; then
-            table_seen["${t}"]=1
-            table_order+=("${t}")
-        fi
-        if [[ -z "${col_seen["${t}|${c}"]:-}" ]]; then
-            col_seen["${t}|${c}"]=1
-            col_order["${t}"]+="${c}"$'\n'
-        fi
-    done <<< "${intro_out}"
-
-    local -a ddl=() ucols cols
-    local qt qc col cols_joined
-    for t in "${table_order[@]}"; do
-        _knit_sql_quote_identifier qt "${t}"
-        mapfile -t ucols <<< "${col_order["${t}"]}"
-        cols=('"id" TEXT')
-        for col in "${ucols[@]}"; do
-            [[ -z "${col}" || "${col}" == "id" ]] && continue
-            _knit_sql_quote_identifier qc "${col}"
-            cols+=("${qc} TEXT")
-        done
-        printf -v cols_joined '%s, ' "${cols[@]}"
-        ddl+=("CREATE TABLE ${qt} (${cols_joined%, });")
-    done
-    [[ -n "${meta_seen}" ]] && ddl+=('CREATE TABLE "platforms" ("id" TEXT, "profile" TEXT, "scheduler" TEXT, "launcher" TEXT, "arch" TEXT, "knit_version" TEXT);')
-    ddl+=('CREATE TABLE "__provenance__" (source_id TEXT, source_name TEXT, target_id TEXT, target_name TEXT, edge_type TEXT, start_time REAL, end_time REAL, alias TEXT);')
-
-    # __knit_catalog_db is __-prefixed on purpose: the caller passes its own output
-    # variable (named "catalog_db") as $1, so a plain local of that name here would
-    # be aliased by the __knit_ret nameref (the shadow-collision gotcha).
-    local __knit_catalog_db ddl_sql
-    __knit_catalog_db="$(mktemp "${TMPDIR:-/tmp}/knit.catalog.XXXXXX")"
-    printf -v ddl_sql '%s\n' "${ddl[@]}"
-    _knit_run_isolated "${_KNIT_SQLITE_EXE}" "${__knit_catalog_db}" "${ddl_sql}" \
-        || knit_fatal "knit query --extra: could not build the lens catalog database."
-    # shellcheck disable=SC2178 # nameref to the caller's scalar (catalog path)
-    __knit_ret="${__knit_catalog_db}"
-}
-
-# ------------------------------------------------------------------------------
 # @fn _knit_query_build_schema()
 #
 # Emit the flat text schema of the lens's union, for the pure transpiler to read
 # on stdin. One line per table, a tab separating the table name from a
 # comma-separated column list; the transpiler treats a table with an `id` column
-# as a node table and `__provenance__` as the edge table. This is the text form
-# of the same union _knit_query_build_catalog materialized as a throwaway
-# database, but nothing is written to disk and no SQLite dev files are needed to
-# read it back.
+# as a node table and `__provenance__` as the edge table. Nothing is written to
+# disk: the transpiler reads this text on stdin and never opens a database.
 #
 # Every command table lists `id` first and its union columns after (a column
 # already named id is not repeated); the `platforms` table (id plus the
@@ -976,9 +865,9 @@ _knit_query_graph() {
     # Every query runs over a lens, even with no --extra: a lens over the single
     # current database still synthesizes the platform node and its executed edges,
     # so (p:platform) works without --extra. --extra just widens the lens to more
-    # databases. knit-graph is used only to transpile the Cypher against a
-    # synthesized catalog; knit runs the resulting SQL over the lens (or prints it
-    # for --explain).
+    # databases. The transpiler turns the Cypher into SQL against the lens's flat
+    # schema; knit runs the resulting SQL over the lens (or prints it for
+    # --explain).
     local -a lens_dbs=() lens_tmps=()
     _knit_query_resolve_extra lens_dbs lens_tmps "${extra_spec}"
 
