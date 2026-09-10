@@ -702,51 +702,6 @@ EOF
     [ "${output}" = "jobs.state" ]
 }
 
-# ---------- knit query catalog ----------
-
-@test "query catalog forwards --catalog and the database, and annotates" {
-    _KNIT_DB_REGISTERED_TABLES=([jobs]="submit")
-    local argfile="${BATS_TEST_TMPDIR}/kg-args"
-    # Stub the knit-graph resolver: record its argv and emit a fake catalog.
-    _knit_knit_graph() {
-        printf '%s\n' "$*" > "${argfile}"
-        printf 'table jobs\n  column id\n'
-    }
-    run knit query catalog
-    [ "$status" -eq 0 ]
-    [ "$(cat "${argfile}")" = "--catalog ${_KNIT_DATABASE}" ]
-    [[ "${lines[0]}" == "table jobs (command: submit)" ]]
-    [[ "${lines[1]}" == "  column id" ]]
-}
-
-@test "query catalog forwards the --ref TABLE reference" {
-    local argfile="${BATS_TEST_TMPDIR}/kg-args"
-    _knit_knit_graph() {
-        printf '%s\n' "$*" > "${argfile}"
-        printf 'table montecarlo\n  column id\n'
-    }
-    run knit query catalog --ref montecarlo
-    [ "$status" -eq 0 ]
-    [ "$(cat "${argfile}")" = "--catalog ${_KNIT_DATABASE} montecarlo" ]
-}
-
-@test "query catalog forwards a --ref TABLE.COLUMN reference" {
-    local argfile="${BATS_TEST_TMPDIR}/kg-args"
-    _knit_knit_graph() {
-        printf '%s\n' "$*" > "${argfile}"
-        printf 'montecarlo.pi\n'
-    }
-    run knit query catalog --ref montecarlo.pi
-    [ "$status" -eq 0 ]
-    [ "$(cat "${argfile}")" = "--catalog ${_KNIT_DATABASE} montecarlo.pi" ]
-}
-
-@test "query catalog propagates knit-graph's non-zero exit" {
-    _knit_knit_graph() { return 3; }
-    run knit query catalog --ref nosuchtable
-    [ "$status" -eq 3 ]
-}
-
 # ---------- _knit_query_build_names ----------
 
 @test "build names emits a sorted table=command SPEC" {
@@ -931,4 +886,77 @@ _seed_one_platform() {
         --exec "SELECT name, n FROM t ORDER BY n;"
     [ "$status" -eq 0 ]
     [ "$output" = "$(printf 'name,n\nbob,1\nalice,2')" ]
+}
+
+# ---------- query catalog (reimplemented in bash, no engine) ----------
+
+# Seed a small provenance-shaped database: two node tables (one aliased), the
+# edge table, and a non-graph key/value table the catalog must skip.
+_seed_catalog_db() {
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT, procs INTEGER, state TEXT);"
+    _knit_sqlite3_write "CREATE TABLE \"setup:libs\"(id TEXT);"
+    _knit_sqlite3_write "CREATE TABLE metadata(key TEXT, value TEXT);"
+    _knit_sqlite3_write "CREATE TABLE __provenance__(source_id TEXT, source_name TEXT, target_id TEXT, target_name TEXT, edge_type TEXT, start_time REAL, end_time REAL, alias TEXT);"
+    _KNIT_DB_REGISTERED_TABLES=([jobs]="submit")
+}
+
+@test "query catalog lists graph tables sorted, skips non-graph, annotates" {
+    knit_test_require_sqlite
+    _seed_catalog_db
+    run knit query catalog
+    [ "$status" -eq 0 ]
+    # The aliased node table, the edge table, and the colon-named setup table.
+    [[ "${output}" == *"table jobs (command: submit)"* ]]
+    [[ "${output}" == *"  column procs (INTEGER)"* ]]
+    [[ "${output}" == *"table __provenance__"* ]]
+    [[ "${output}" == *"table setup:libs"* ]]
+    # The key/value table has no id column, so it is not a graph table.
+    [[ "${output}" != *"table metadata"* ]]
+    # Tables are listed sorted by name: __provenance__ < jobs < setup:libs.
+    local prov jobs setup
+    prov=$(printf '%s\n' "${lines[@]}" | grep -n '^table __provenance__' | cut -d: -f1)
+    jobs=$(printf '%s\n' "${lines[@]}" | grep -n '^table jobs' | cut -d: -f1)
+    setup=$(printf '%s\n' "${lines[@]}" | grep -n '^table setup:libs' | cut -d: -f1)
+    [ "${prov}" -lt "${jobs}" ]
+    [ "${jobs}" -lt "${setup}" ]
+}
+
+@test "query catalog --ref narrows to a single table" {
+    knit_test_require_sqlite
+    _seed_catalog_db
+    run knit query catalog --ref jobs
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"table jobs (command: submit)"* ]]
+    [[ "${output}" == *"  column state (TEXT)"* ]]
+    # Only the requested table -- not the edge table.
+    [[ "${output}" != *"__provenance__"* ]]
+}
+
+@test "query catalog --ref TABLE.COLUMN validates an existing column" {
+    knit_test_require_sqlite
+    _seed_catalog_db
+    run knit query catalog --ref jobs.procs
+    [ "$status" -eq 0 ]
+    [ "${output}" = "jobs.procs" ]
+}
+
+@test "query catalog --ref exits non-zero on an unknown column" {
+    knit_test_require_sqlite
+    _seed_catalog_db
+    run knit query catalog --ref jobs.nope
+    [ "$status" -ne 0 ]
+}
+
+@test "query catalog --ref exits non-zero on an unknown table" {
+    knit_test_require_sqlite
+    _seed_catalog_db
+    run knit query catalog --ref nope
+    [ "$status" -ne 0 ]
+}
+
+@test "query catalog --ref treats a non-graph table as unknown" {
+    knit_test_require_sqlite
+    _seed_catalog_db
+    run knit query catalog --ref metadata
+    [ "$status" -ne 0 ]
 }

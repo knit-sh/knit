@@ -104,6 +104,142 @@ knit_without_provenance
 knit_done
 
 # ------------------------------------------------------------------------------
+# @fn _knit_query_catalog_columns()
+#
+# Print the column names of a table, one per line, in schema (cid) order, read
+# from the live schema via sqlite's `pragma_table_info`. An absent table yields
+# no output. Errors are silenced so a missing table is simply empty.
+#
+# @param[in] table The table name to introspect.
+# ------------------------------------------------------------------------------
+_knit_query_catalog_columns() {
+    _knit_sqlite3 "SELECT name FROM pragma_table_info('${1}') ORDER BY cid;" 2>/dev/null
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_query_catalog_is_graph_table()
+#
+# Return success when the named table exists and participates in the graph: it is
+# the edge table `__provenance__`, or it has an `id` column (the uuid7 key that
+# ties node rows to edges). This mirrors the node/edge classification the
+# transpiler applies, so the catalog lists exactly the queryable entities.
+#
+# @param[in] table The table name to test.
+# ------------------------------------------------------------------------------
+_knit_query_catalog_is_graph_table() {
+    local table="$1"
+    local -a cols=()
+    mapfile -t cols < <(_knit_query_catalog_columns "${table}")
+    (( ${#cols[@]} == 0 )) && return 1
+    [[ "${table}" == "__provenance__" ]] && return 0
+    local col
+    for col in "${cols[@]}"; do
+        [[ "${col}" == "id" ]] && return 0
+    done
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_query_catalog_has_column()
+#
+# Return success when the table has a column of the given name.
+#
+# @param[in] table The table name.
+# @param[in] want The column name to look for.
+# ------------------------------------------------------------------------------
+_knit_query_catalog_has_column() {
+    local table="$1" want="$2" col
+    while IFS= read -r col; do
+        [[ "${col}" == "${want}" ]] && return 0
+    done < <(_knit_query_catalog_columns "${table}")
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_query_catalog_print_table()
+#
+# Print one table's listing in the raw catalog format the annotator consumes: a
+# `table <name>` line followed by one `  column <name>` line per column.
+#
+# @param[in] table The table name to print.
+# ------------------------------------------------------------------------------
+_knit_query_catalog_print_table() {
+    local table="$1" col
+    printf 'table %s\n' "${table}"
+    while IFS= read -r col; do
+        [[ -z "${col}" ]] && continue
+        printf '  column %s\n' "${col}"
+    done < <(_knit_query_catalog_columns "${table}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_query_catalog_produce()
+#
+# Produce the raw (un-annotated) catalog listing on standard output. With no
+# reference, list every graph table and its columns, sorted by name. With a
+# TABLE reference, list that one table. With a TABLE.COLUMN reference (split at
+# the last dot), print the reference when the column exists. An unknown table or
+# column is reported to stderr and returns non-zero, so the command exits with a
+# failure status just as the engine's `--catalog` mode did.
+#
+# @param[in] ref Empty to list all; else TABLE or TABLE.COLUMN.
+# @return Non-zero on an unknown table/column reference.
+# ------------------------------------------------------------------------------
+_knit_query_catalog_produce() {
+    local ref="$1"
+
+    if [[ -z "${ref}" ]]; then
+        local table
+        while IFS= read -r table; do
+            _knit_query_catalog_print_table "${table}"
+        done < <(_knit_query_catalog_graph_tables)
+        return 0
+    fi
+
+    local tname="${ref}" column=""
+    if [[ "${ref}" == *.* ]]; then
+        tname="${ref%.*}"
+        column="${ref##*.}"
+    fi
+
+    if ! _knit_query_catalog_is_graph_table "${tname}"; then
+        knit_error "knit query catalog: unknown table: %s" "${tname}"
+        return 1
+    fi
+    if [[ -n "${column}" ]]; then
+        if _knit_query_catalog_has_column "${tname}" "${column}"; then
+            printf '%s.%s\n' "${tname}" "${column}"
+        else
+            knit_error "knit query catalog: unknown column: %s.%s" \
+                "${tname}" "${column}"
+            return 1
+        fi
+    else
+        _knit_query_catalog_print_table "${tname}"
+    fi
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_query_catalog_graph_tables()
+#
+# Print the names of every graph table in the database, sorted by name. A table
+# is enumerated from sqlite_master (user tables only) and kept when
+# _knit_query_catalog_is_graph_table accepts it.
+# ------------------------------------------------------------------------------
+_knit_query_catalog_graph_tables() {
+    local table
+    while IFS= read -r table; do
+        [[ -z "${table}" ]] && continue
+        if _knit_query_catalog_is_graph_table "${table}"; then
+            printf '%s\n' "${table}"
+        fi
+    done < <(_knit_sqlite3 \
+        "SELECT name FROM sqlite_master WHERE type='table' \
+         AND name NOT LIKE 'sqlite_%' ORDER BY name;")
+}
+
+# ------------------------------------------------------------------------------
 # Registration of 'query catalog'.
 # ------------------------------------------------------------------------------
 knit_register "query:catalog" _knit_query_catalog \
@@ -115,25 +251,23 @@ knit_with_optional "ref:string" "" \
 # ------------------------------------------------------------------------------
 # @fn _knit_query_catalog()
 #
-# Body of 'query catalog': forward to knit-graph's `--catalog` mode on the
-# experiment database and annotate the listing with command-name aliases. With no
-# --ref it lists every table and its columns; with a TABLE or TABLE.COLUMN
-# reference in --ref it shows that table or validates the column, propagating
-# knit-graph's non-zero exit on an unknown reference. Runs on the read-only
-# knit-graph binary; the query itself is not recorded.
+# Body of 'query catalog': list the experiment database's tables and columns
+# itself (from sqlite_master + PRAGMA table_info via _knit_sqlite3), annotated
+# with command-name aliases and column types. With no --ref it lists every graph
+# table and its columns; with a TABLE or TABLE.COLUMN reference in --ref it shows
+# that table or validates the column, returning non-zero on an unknown reference.
+# No external engine is used; the query itself is not recorded.
 #
 # @param[in] ... The command invocation arguments (an optional --ref TABLE[.COLUMN]).
-# @return The exit status of knit-graph.
+# @return Non-zero on an unknown table/column reference.
 # ------------------------------------------------------------------------------
 _knit_query_catalog() {
     local ref
     ref="$(knit_get_parameter "ref" "$@")"
 
-    local -a cat_args=(--catalog "${_KNIT_DATABASE}")
-    [[ -n "${ref}" ]] && cat_args+=("${ref}")
-
-    local output
-    output="$(_knit_knit_graph "${cat_args[@]}")" || return "$?"
+    local output status=0
+    output="$(_knit_query_catalog_produce "${ref}")" || status=$?
+    (( status != 0 )) && return "${status}"
     _knit_query_annotate_catalog <<< "${output}"
 }
 knit_done
