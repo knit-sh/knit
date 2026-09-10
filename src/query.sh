@@ -736,6 +736,76 @@ _knit_query_build_catalog() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_query_build_schema()
+#
+# Emit the flat text schema of the lens's union, for the pure transpiler to read
+# on stdin. One line per table, a tab separating the table name from a
+# comma-separated column list; the transpiler treats a table with an `id` column
+# as a node table and `__provenance__` as the edge table. This is the text form
+# of the same union _knit_query_build_catalog materialized as a throwaway
+# database, but nothing is written to disk and no SQLite dev files are needed to
+# read it back.
+#
+# Every command table lists `id` first and its union columns after (a column
+# already named id is not repeated); the `platforms` table (id plus the
+# fingerprint columns) is emitted when any lens database has metadata; and the
+# `__provenance__` edge table is always emitted. Column types are not part of the
+# flat form -- the transpiler needs only names and the id marker.
+#
+# @param[out] __knit_ret Name of the variable to hold the flat schema text.
+# @param[in] ... The lens database paths.
+# ------------------------------------------------------------------------------
+_knit_query_build_schema() {
+    # shellcheck disable=SC2178 # nameref to the caller's scalar (schema text)
+    local -n __knit_ret=$1
+    shift
+    local -a dbs=("$@")
+
+    local -a attach_lines=()
+    local intro_out
+    _knit_query_lens_schema attach_lines intro_out "${dbs[@]}"
+
+    # Union columns per command table (first seen); note whether any database has
+    # metadata (so the platforms line is emitted only when the lens has it).
+    local -a table_order=()
+    local -A table_seen=() col_seen=() col_order=()
+    local meta_seen="" s t c
+    while IFS='|' read -r s t c; do
+        [[ -z "${t}" ]] && continue
+        [[ "${t}" == "metadata" ]] && { meta_seen=1; continue; }
+        [[ "${t}" == "__provenance__" ]] && continue
+        if [[ -z "${table_seen["${t}"]:-}" ]]; then
+            table_seen["${t}"]=1
+            table_order+=("${t}")
+        fi
+        if [[ -z "${col_seen["${t}|${c}"]:-}" ]]; then
+            col_seen["${t}|${c}"]=1
+            col_order["${t}"]+="${c}"$'\n'
+        fi
+    done <<< "${intro_out}"
+
+    local -a lines=() ucols cols
+    local col cols_joined
+    for t in "${table_order[@]}"; do
+        mapfile -t ucols <<< "${col_order["${t}"]}"
+        cols=("id")
+        for col in "${ucols[@]}"; do
+            [[ -z "${col}" || "${col}" == "id" ]] && continue
+            cols+=("${col}")
+        done
+        printf -v cols_joined '%s,' "${cols[@]}"
+        lines+=("${t}"$'\t'"${cols_joined%,}")
+    done
+    [[ -n "${meta_seen}" ]] && lines+=("platforms"$'\t'"id,profile,scheduler,launcher,arch,knit_version")
+    lines+=("__provenance__"$'\t'"source_id,source_name,target_id,target_name,edge_type,start_time,end_time,alias")
+
+    local out=""
+    printf -v out '%s\n' "${lines[@]}"
+    # shellcheck disable=SC2178 # nameref to the caller's scalar (schema text)
+    __knit_ret="${out}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_query_cleanup_tmps()
 #
 # Remove the temporary directories a lens created (bundle extraction). Empty
@@ -827,11 +897,11 @@ ${sql}"
 # Registration of 'query graph'.
 # ------------------------------------------------------------------------------
 knit_register "query:graph" _knit_query_graph \
-    "Run a read-only Cypher query against the provenance database via knit-graph."
+    "Run a read-only Cypher query against the provenance database."
 _knit_is_builtin
 knit_without_provenance
 knit_with_required "exec:string" \
-    "The Cypher statement to run (passed verbatim to knit-graph)."
+    "The Cypher statement to run."
 knit_with_optional "extra:string" "" \
     "Comma-separated extra sources to query alongside this experiment's database. Each is a directory (its .knit/knit.db is used), a database file, or a bundle (.tar.gz, extracted to a temporary directory). The current database is always included."
 knit_with_optional "format:query_format" "list" \
@@ -841,40 +911,39 @@ knit_with_flag "header" \
     "Add a header row (off by default)." \
     --when '.explain != "true" and .ast != "true"'
 knit_with_optional "separator:string" "" \
-    "Column separator (defaults to knit-graph's default)." \
+    "Column separator (defaults to the output mode's default)." \
     --when '.explain != "true" and .ast != "true"'
 knit_with_flag "explain" \
     "Print the generated SQL without running it."
 knit_with_flag "ast" \
     "Print the parsed syntax tree (no database needed)." \
     --when '.explain != "true"'
-knit_with_extra "Extra arguments forwarded verbatim to knit-graph after --."
+knit_with_extra "Extra arguments forwarded verbatim to knit-cypher-to-sql after --."
 # ------------------------------------------------------------------------------
 # @fn _knit_query_graph()
 #
-# Body of 'query graph': run the --exec Cypher statement through knit-graph,
-# augmented with the live name<->table map (so a node label may be written as
-# either its table name or its command name) and the resolved output flags. With
-# --explain knit-graph prints the generated SQL instead of running it; with --ast
-# it prints the parse tree (no database, map, or output flags needed).
-# --explain and --ast are mutually exclusive. Anything after a trailing `--` is
-# forwarded to knit-graph verbatim. Its exit status is propagated.
+# Body of 'query graph': transpile the --exec Cypher statement to SQL with the
+# pure transpiler (knit-cypher-to-sql), augmented with the live name<->table map
+# (so a node label may be written as either its table name or its command name),
+# then run that SQL over the lens and shape the output. With --explain the
+# transpiled SQL is printed instead of run; with --ast the transpiler prints the
+# parse tree (no schema, map, or output flags needed). --explain and --ast are
+# mutually exclusive. Anything after a trailing `--` is forwarded to the
+# transpiler verbatim. Its exit status is propagated.
 #
 # The query always spans a read-only lens over the current database plus any
-# --extra sources (a lens over one database when there is no --extra). knit-graph
-# is used only as a transpiler: it --explains the Cypher against a synthesized
-# catalog (whose schema mirrors the lens, including the platforms node), and knit
-# runs the resulting SQL over the lens itself, so `(p:platform)` works with or
-# without --extra and aggregation/ORDER BY/DISTINCT are correct across every
-# platform. The names map gains a `platforms=platform` entry so `(p:platform)`
-# resolves to the lens's synthesized platforms view. --explain prints that
-# transpiled SQL. (--ast is the one path that does not build a lens: it needs no
-# database at all.) knit-graph's output modes are byte-identical to sqlite's, so
-# routing every query through sqlite does not change the rendered result.
+# --extra sources (a lens over one database when there is no --extra). The
+# transpiler is pure: it reads the lens's flat schema (whose union mirrors the
+# lens, including the platforms node) on stdin and prints SQL; knit runs that SQL
+# over the lens itself, so `(p:platform)` works with or without --extra and
+# aggregation/ORDER BY/DISTINCT are correct across every platform. The names map
+# gains a `platforms=platform` entry so `(p:platform)` resolves to the lens's
+# synthesized platforms view. --explain prints that transpiled SQL. (--ast is the
+# one path that does not build a lens: it needs no schema at all.)
 #
-# @param[in] ... The command invocation arguments, plus optional knit-graph args
+# @param[in] ... The command invocation arguments, plus optional transpiler args
 #        after `--`.
-# @return The exit status of knit-graph (--ast) or sqlite3 (the lens query).
+# @return The exit status of the transpiler (--ast) or sqlite3 (the lens query).
 # ------------------------------------------------------------------------------
 _knit_query_graph() {
     local args=("$@")
@@ -892,9 +961,9 @@ _knit_query_graph() {
     extra_index=$(knit_extra_index "${args[@]}")
     local extra=("${args[@]:extra_index}")
 
-    # --ast needs neither the database nor the name map nor output flags.
+    # --ast needs neither the schema nor the name map nor output flags.
     if [[ "${ast}" == "true" ]]; then
-        _knit_knit_graph --ast "${exec_query}" "${extra[@]}"
+        _knit_cypher_to_sql --ast "${exec_query}" "${extra[@]}"
         return "$?"
     fi
 
@@ -920,16 +989,20 @@ _knit_query_graph() {
         names_spec="platforms=platform"
     fi
 
-    local catalog_db
-    _knit_query_build_catalog catalog_db "${lens_dbs[@]}"
+    # Transpile the Cypher against the lens's flat schema (piped on stdin) with
+    # the pure transpiler; knit runs the returned SQL over the lens. The extra
+    # (post-`--`) args are forwarded as transpiler flags, before the sole Cypher
+    # positional.
+    local schema
+    _knit_query_build_schema schema "${lens_dbs[@]}"
 
-    local -a explain_args=(--explain --names "${names_spec}" \
-        "${catalog_db}" "${exec_query}")
-    explain_args+=("${extra[@]}")
+    local -a transpile_args=(--names "${names_spec}")
+    transpile_args+=("${extra[@]}")
+    transpile_args+=("${exec_query}")
 
     local generated_sql status=0
-    generated_sql="$(_knit_knit_graph "${explain_args[@]}")" || status=$?
-    rm -f -- "${catalog_db}"
+    generated_sql="$(printf '%s' "${schema}" | \
+        _knit_cypher_to_sql "${transpile_args[@]}")" || status=$?
     if (( status != 0 )); then
         _knit_query_cleanup_tmps lens_tmps
         return "${status}"

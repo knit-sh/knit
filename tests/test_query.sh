@@ -557,19 +557,59 @@ _seed_two_platforms() {
     rm -f "${cat}"
 }
 
-# ---------- query graph --extra (end to end, needs the knit-graph binary) ----------
+# ---------- _knit_query_build_schema ----------
 
-# Point _KNIT_KNITGRAPH_EXE at the in-tree build, or skip when it is absent (it is
-# not built in the unit-test environment; the live path is covered by integration).
-_require_knit_graph() {
-    local kg="${BATS_TEST_DIRNAME}/../knit-graph/build/src/knit-graph"
-    [[ -x "${kg}" ]] || skip "knit-graph binary not built"
-    _KNIT_KNITGRAPH_EXE="${kg}"
+@test "build schema emits the flat union with id first, platforms, and edge table" {
+    knit_test_require_sqlite
+    _seed_two_platforms alpha beta
+
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps "${BATS_TEST_TMPDIR}/x.db"
+    local schema
+    _knit_query_build_schema schema "${dbs[@]}"
+
+    # jobs is a node table: its line lists the id column first.
+    grep -qF "$(printf 'jobs\tid,state')" <<< "${schema}"
+    # The synthesized platforms table and the edge table are present.
+    grep -qF "$(printf 'platforms\tid,profile,scheduler,launcher,arch,knit_version')" <<< "${schema}"
+    grep -qF "$(printf '__provenance__\tsource_id,source_name,target_id,target_name,edge_type,start_time,end_time,alias')" <<< "${schema}"
+    # metadata is not a graph table, so it is not emitted.
+    ! grep -qF "$(printf 'metadata\t')" <<< "${schema}"
+}
+
+@test "build schema reconciles a drifted column into the union" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE metadata(key TEXT,value TEXT);
+        INSERT INTO metadata VALUES('__platform__','alpha');
+        CREATE TABLE jobs(id TEXT, state TEXT);"
+    # Only the extra database's jobs has a "note" column.
+    "${_KNIT_SQLITE_EXE}" "${BATS_TEST_TMPDIR}/x.db" \
+        "CREATE TABLE metadata(key TEXT,value TEXT);
+         INSERT INTO metadata VALUES('__platform__','beta');
+         CREATE TABLE jobs(id TEXT, state TEXT, note TEXT);"
+
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps "${BATS_TEST_TMPDIR}/x.db"
+    local schema
+    _knit_query_build_schema schema "${dbs[@]}"
+
+    # The union jobs line carries the column only the extra database has.
+    grep -E "^jobs$(printf '\t')" <<< "${schema}" | grep -q "note"
+}
+
+# ---------- query graph --extra (end to end, needs the transpiler binary) ----------
+
+# Point _KNIT_CYPHER_TO_SQL_EXE at the in-tree build, or skip when it is absent
+# (the live path is also covered by integration).
+_require_cypher_to_sql() {
+    local cts="${BATS_TEST_DIRNAME}/../knit-cypher-to-sql/build/src/knit-cypher-to-sql"
+    [[ -x "${cts}" ]] || skip "knit-cypher-to-sql binary not built"
+    _KNIT_CYPHER_TO_SQL_EXE="${cts}"
 }
 
 @test "query graph --extra spans platforms via a synthesized catalog" {
     knit_test_require_sqlite
-    _require_knit_graph
+    _require_cypher_to_sql
     _seed_two_platforms alpha beta
 
     run _knit_query_graph --extra "${BATS_TEST_TMPDIR}/x.db" --exec \
@@ -581,7 +621,7 @@ _require_knit_graph() {
 
 @test "query graph --extra aggregates correctly across platforms" {
     knit_test_require_sqlite
-    _require_knit_graph
+    _require_cypher_to_sql
     _knit_sqlite3_write "CREATE TABLE metadata(key TEXT,value TEXT);
         INSERT INTO metadata VALUES('__platform__','alpha');
         CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('a1'),('a2'),('a3');"
@@ -599,7 +639,7 @@ _require_knit_graph() {
 
 @test "query graph --extra transpiles against the drifted union schema" {
     knit_test_require_sqlite
-    _require_knit_graph
+    _require_cypher_to_sql
     _knit_sqlite3_write "CREATE TABLE metadata(key TEXT,value TEXT);
         INSERT INTO metadata VALUES('__platform__','alpha');
         CREATE TABLE jobs(id TEXT, state TEXT); INSERT INTO jobs VALUES('j1','done');"
@@ -619,7 +659,7 @@ _require_knit_graph() {
 
 @test "query graph --explain --extra prints the transpiled SQL without running it" {
     knit_test_require_sqlite
-    _require_knit_graph
+    _require_cypher_to_sql
     _seed_two_platforms alpha beta
 
     run _knit_query_graph --extra "${BATS_TEST_TMPDIR}/x.db" --explain true --exec \
@@ -633,7 +673,7 @@ _require_knit_graph() {
 
 @test "query graph without --extra queries the single-database lens" {
     knit_test_require_sqlite
-    _require_knit_graph
+    _require_cypher_to_sql
     _seed_two_platforms alpha beta
 
     # Without --extra the lens spans only the current database, so a plain node
@@ -750,7 +790,7 @@ _seed_one_platform() {
 
 @test "query graph resolves (p:platform) without --extra" {
     knit_test_require_sqlite
-    _require_knit_graph
+    _require_cypher_to_sql
     _seed_one_platform solo
 
     run _knit_query_graph --exec \
@@ -762,7 +802,7 @@ _seed_one_platform() {
 
 @test "query graph resolves the command-name map over the single-database lens" {
     knit_test_require_sqlite
-    _require_knit_graph
+    _require_cypher_to_sql
     _KNIT_DB_REGISTERED_TABLES=([jobs]="submit")
     _seed_one_platform solo
 
@@ -775,7 +815,7 @@ _seed_one_platform() {
 
 @test "query graph honours --format/--header without --extra" {
     knit_test_require_sqlite
-    _require_knit_graph
+    _require_cypher_to_sql
     _seed_one_platform solo
 
     # Called as the body (not via the dispatcher), so the flag arrives in its
@@ -791,7 +831,7 @@ _seed_one_platform() {
 
 @test "query graph --explain prints the transpiled SQL without --extra" {
     knit_test_require_sqlite
-    _require_knit_graph
+    _require_cypher_to_sql
     _seed_one_platform solo
 
     run _knit_query_graph --explain true \
@@ -803,33 +843,39 @@ _seed_one_platform() {
     [[ "$output" != *"solo"* ]]
 }
 
-@test "query graph --ast omits database, names and output flags" {
-    local argfile="${BATS_TEST_TMPDIR}/kg-args"
-    _knit_knit_graph() { printf '%s\n' "$*" > "${argfile}"; }
+@test "query graph --ast omits schema, names and output flags" {
+    local argfile="${BATS_TEST_TMPDIR}/cts-args"
+    _knit_cypher_to_sql() { printf '%s\n' "$*" > "${argfile}"; }
     run knit query graph --ast --exec "MATCH (n) RETURN n"
     [ "$status" -eq 0 ]
     [ "$(cat "${argfile}")" = "--ast MATCH (n) RETURN n" ]
 }
 
 @test "query graph forwards args after -- verbatim" {
-    local argfile="${BATS_TEST_TMPDIR}/kg-args"
-    _knit_knit_graph() { printf '%s\n' "$*" > "${argfile}"; }
-    run knit query graph --exec "MATCH (n) RETURN n" -- -newline "@"
+    knit_test_require_sqlite
+    local argfile="${BATS_TEST_TMPDIR}/cts-args"
+    # The transpile path: record the transpiler's argv (the returned SQL is empty,
+    # so the lens query is a no-op). Extra (post-`--`) args are forwarded as
+    # transpiler flags, before the sole Cypher positional.
+    _knit_cypher_to_sql() { printf '%s\n' "$*" > "${argfile}"; }
+    run knit query graph --exec "MATCH (n) RETURN n" -- --names-file "/x"
     [ "$status" -eq 0 ]
-    [[ "$(cat "${argfile}")" == *"MATCH (n) RETURN n -newline @" ]]
+    [[ "$(cat "${argfile}")" == *"--names-file /x"* ]]
+    [[ "$(cat "${argfile}")" == *"MATCH (n) RETURN n"* ]]
 }
 
 @test "query graph rejects --explain together with --ast" {
     # Exclusivity is enforced declaratively by the --when constraint on --ast
     # (see the registration), which rejects --ast whenever --explain is set.
-    _knit_knit_graph() { return 0; }
+    _knit_cypher_to_sql() { return 0; }
     run knit query graph --explain --ast --exec "MATCH (n) RETURN n"
     [ "$status" -ne 0 ]
     [[ "${output}" == *"--ast must not be provided"* ]]
 }
 
-@test "query graph propagates knit-graph's non-zero exit" {
-    _knit_knit_graph() { return 4; }
+@test "query graph propagates the transpiler's non-zero exit" {
+    knit_test_require_sqlite
+    _knit_cypher_to_sql() { return 4; }
     run knit query graph --exec "MATCH (n) RETURN n"
     [ "$status" -eq 4 ]
 }
