@@ -13,6 +13,7 @@ KNIT_SOURCE = src/global.sh   \
               src/sqlite.sh   \
               src/jq.sh       \
               src/graph.sh    \
+              src/cypher.sh   \
               src/prov.sh     \
               src/db.sh       \
               src/spack.sh    \

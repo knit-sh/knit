@@ -260,6 +260,78 @@ _setup_knitgraph_decision() {
     [ "$output" = "kg:--explain foo" ]
 }
 
+# ---------- knit-cypher-to-sql: provisioning + provenance ----------
+
+# Marker written by the stubbed build (records the ref/url it was built with).
+__cts_build_marker=""
+# File capturing the (stubbed) "knit metadata store" provenance calls.
+__cts_meta=""
+
+# Stub the network+compiler build and capture the metadata calls so the
+# provisioning logic (ref/url resolution, provenance recording) can be
+# exercised without downloading or compiling anything.
+_setup_cypher_to_sql_decision() {
+    mkdir "${_KNIT_PREFIX}"
+    _KNIT_CYPHER_TO_SQL_EXE="${_KNIT_PREFIX}/knit-cypher-to-sql/bin/knit-cypher-to-sql"
+    __cts_build_marker="${__TEST_TMPDIR}/cts-built"
+    __cts_meta="${__TEST_TMPDIR}/cts-meta"
+    : > "${__cts_meta}"
+    eval '_knit_build_cypher_to_sql() { printf "%s\n" "$*" > "'"${__cts_build_marker}"'"; }'
+    eval 'knit() { printf "%s\n" "$*" >> "'"${__cts_meta}"'"; }'
+}
+
+@test "knit-cypher-to-sql url is derived from the ref" {
+    run _knit_cypher_to_sql_url "main"
+    [ "$status" -eq 0 ]
+    [ "$output" = "https://github.com/knit-sh/knit-cypher-to-sql/archive/main.tar.gz" ]
+}
+
+@test "bootstrap knit-cypher-to-sql builds the pinned default ref and records provenance" {
+    _setup_cypher_to_sql_decision
+
+    _knit_bootstrap_cypher_to_sql
+
+    # Built with the pinned ref and its derived url.
+    grep -q "${_KNIT_CYPHER_TO_SQL_REF}" "${__cts_build_marker}"
+    grep -q "archive/${_KNIT_CYPHER_TO_SQL_REF}.tar.gz" "${__cts_build_marker}"
+    # Provenance recorded (ref + url).
+    grep -q "metadata store --key __knit_cypher_to_sql_ref__ --value ${_KNIT_CYPHER_TO_SQL_REF}" "${__cts_meta}"
+    grep -q "metadata store --key __knit_cypher_to_sql_url__ --value https://github.com/knit-sh/knit-cypher-to-sql/archive/${_KNIT_CYPHER_TO_SQL_REF}.tar.gz" "${__cts_meta}"
+}
+
+@test "bootstrap knit-cypher-to-sql honours an explicit ref" {
+    _setup_cypher_to_sql_decision
+
+    _knit_bootstrap_cypher_to_sql "v1.0.0"
+
+    grep -q "v1.0.0" "${__cts_build_marker}"
+    grep -q "metadata store --key __knit_cypher_to_sql_ref__ --value v1.0.0" "${__cts_meta}"
+    grep -q "archive/v1.0.0.tar.gz" "${__cts_meta}"
+}
+
+@test "bootstrap knit-cypher-to-sql honours an explicit url override" {
+    _setup_cypher_to_sql_decision
+
+    _knit_bootstrap_cypher_to_sql "somebranch" "https://example.com/cts.tgz"
+
+    grep -q "https://example.com/cts.tgz" "${__cts_build_marker}"
+    grep -q "metadata store --key __knit_cypher_to_sql_ref__ --value somebranch" "${__cts_meta}"
+    grep -q "metadata store --key __knit_cypher_to_sql_url__ --value https://example.com/cts.tgz" "${__cts_meta}"
+}
+
+@test "knit-cypher-to-sql resolver execs the installed binary and passes stdin" {
+    _KNIT_CYPHER_TO_SQL_EXE="${__TEST_TMPDIR}/fake-cts"
+    # The fake binary echoes its argv, then the schema it read from stdin.
+    printf '#!/bin/sh\nprintf "cts:%%s:" "$*"\ncat\n' > "${_KNIT_CYPHER_TO_SQL_EXE}"
+    chmod +x "${_KNIT_CYPHER_TO_SQL_EXE}"
+    printf 'schema-on-stdin' > "${__TEST_TMPDIR}/schema"
+
+    run _knit_cypher_to_sql --names foo=bar "MATCH (a) RETURN a" \
+        < "${__TEST_TMPDIR}/schema"
+    [ "$status" -eq 0 ]
+    [ "$output" = "cts:--names foo=bar MATCH (a) RETURN a:schema-on-stdin" ]
+}
+
 # ---------- bootstrap wiring: sqlite + knit-graph ----------
 
 @test "bootstrap provisions sqlite, jq, and knit-graph" {
@@ -269,6 +341,7 @@ _setup_knitgraph_decision() {
     eval '_knit_bootstrap_sqlite() { printf "sqlite:%s\n" "$*" >> "'"${calls}"'"; }'
     eval '_knit_bootstrap_jq() { printf "jq:%s\n" "$*" >> "'"${calls}"'"; }'
     eval '_knit_bootstrap_knitgraph() { printf "knitgraph:%s\n" "$*" >> "'"${calls}"'"; }'
+    eval '_knit_bootstrap_cypher_to_sql() { printf "cypher:%s\n" "$*" >> "'"${calls}"'"; }'
     eval '_knit_bootstrap_need_spack() { return 1; }'
     eval '_knit_detect_job_manager() { printf "local"; }'
     eval '_knit_detect_launcher() { printf "openmpi"; }'
@@ -278,11 +351,12 @@ _setup_knitgraph_decision() {
     run _knit_bootstrap
     [ "$status" -eq 0 ]
 
-    # sqlite, jq, and knit-graph are all provisioned. The from-source-vs-system
-    # sqlite decision is left to _knit_bootstrap_sqlite.
+    # sqlite, jq, knit-graph, and knit-cypher-to-sql are all provisioned. The
+    # from-source-vs-system sqlite decision is left to _knit_bootstrap_sqlite.
     grep -q "^sqlite:" "${calls}"
     grep -q "^jq:" "${calls}"
     grep -q "^knitgraph:" "${calls}"
+    grep -q "^cypher:" "${calls}"
 }
 
 # ---------- bootstrap --launcher none (explicit "no launcher", §8.1) ----------
@@ -296,6 +370,7 @@ _bootstrap_launcher_stubs() {
     eval '_knit_bootstrap_sqlite() { :; }'
     eval '_knit_bootstrap_jq() { :; }'
     eval '_knit_bootstrap_knitgraph() { :; }'
+    eval '_knit_bootstrap_cypher_to_sql() { :; }'
     eval '_knit_bootstrap_need_spack() { return 1; }'
     eval '_knit_detect_job_manager() { printf "local"; }'
     eval '_knit_detect_node_ncpus() { printf "1"; }'
@@ -1136,4 +1211,62 @@ _setup_knitgraph_update() {
     run _knit_bootstrap_update_knitgraph "" ""
     [ "$status" -eq 1 ]
     [ ! -s "${__kg_build_marker}" ]
+}
+
+# ---------- update mode: knit-cypher-to-sql re-provision ----------
+
+# Prepare an already-bootstrapped experiment for the knit-cypher-to-sql update
+# handler: a real metadata table seeded with the stored ref/url and a stub
+# recording the rebuild's arguments.
+_setup_cypher_to_sql_update() {
+    knit_test_require_sqlite
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="${__TEST_TMPDIR}/cts.db"
+    _KNIT_IS_BOOTSTRAPPED="1"
+    _knit_create_metadata_table
+    knit metadata store --key __knit_cypher_to_sql_ref__ --value main
+    knit metadata store --key __knit_cypher_to_sql_url__ \
+        --value "https://github.com/knit-sh/knit-cypher-to-sql/archive/main.tar.gz"
+    __cts_build_marker="${__TEST_TMPDIR}/cts-rebuilt"; : > "${__cts_build_marker}"
+    eval '_knit_build_cypher_to_sql() { printf "%s\n" "$*" > "'"${__cts_build_marker}"'"; }'
+}
+
+@test "update mode re-provisions knit-cypher-to-sql when the ref changes" {
+    _setup_cypher_to_sql_update
+
+    run _knit_bootstrap_update_cypher_to_sql "v1.0.0" "" --knit-cypher-to-sql-ref v1.0.0
+    [ "$status" -eq 0 ]
+    # Rebuilt at the new ref with the URL re-derived from it.
+    grep -q "v1.0.0" "${__cts_build_marker}"
+    grep -q "archive/v1.0.0.tar.gz" "${__cts_build_marker}"
+    # Stored provenance updated.
+    local r; _knit_metadata_get r "__knit_cypher_to_sql_ref__"; [ "$r" = "v1.0.0" ]
+}
+
+@test "update mode re-provisions knit-cypher-to-sql when the url changes" {
+    _setup_cypher_to_sql_update
+
+    run _knit_bootstrap_update_cypher_to_sql "" "https://example.com/cts.tgz" \
+        --knit-cypher-to-sql-url https://example.com/cts.tgz
+    [ "$status" -eq 0 ]
+    # Rebuilt with the stored ref but the new URL.
+    grep -q "main" "${__cts_build_marker}"
+    grep -q "https://example.com/cts.tgz" "${__cts_build_marker}"
+    local u; _knit_metadata_get u "__knit_cypher_to_sql_url__"; [ "$u" = "https://example.com/cts.tgz" ]
+}
+
+@test "a typed knit-cypher-to-sql ref equal to the stored one is a no-op" {
+    _setup_cypher_to_sql_update
+
+    run _knit_bootstrap_update_cypher_to_sql "main" "" --knit-cypher-to-sql-ref main
+    [ "$status" -eq 1 ]
+    [ ! -s "${__cts_build_marker}" ]
+}
+
+@test "update mode leaves knit-cypher-to-sql unchanged when no option is typed" {
+    _setup_cypher_to_sql_update
+
+    run _knit_bootstrap_update_cypher_to_sql "" ""
+    [ "$status" -eq 1 ]
+    [ ! -s "${__cts_build_marker}" ]
 }
