@@ -8,7 +8,7 @@
 Every experiment must be **bootstrapped once** before any other command runs.
 ``bootstrap`` creates the ``.knit/`` directory next to your script --- a small
 SQLite database that records runs, plus the tools Knit relies on (it installs
-``sqlite3``, ``jq``, and ``knit-graph`` locally, symlinking the system copies of
+``sqlite3``, ``jq``, and ``knit-cypher-to-sql`` locally, symlinking the system copies of
 ``sqlite3``/``jq`` when they are already available):
 
 .. code-block:: console

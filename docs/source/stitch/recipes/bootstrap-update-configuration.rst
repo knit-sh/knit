@@ -24,5 +24,5 @@ of its kind --- no user setup, no job, or no resource yet; otherwise Knit stops
 rather than strand existing rows. Changing the machine ``--profile`` is not
 supported yet. Re-provisioning a bundled tool (see
 :ref:`stitch-bootstrap-bundled-tools` and
-:ref:`stitch-bootstrap-pin-knit-graph`) also happens
+:ref:`stitch-bootstrap-pin-cypher-to-sql`) also happens
 here: a typed tool option that differs from the stored value rebuilds that tool.

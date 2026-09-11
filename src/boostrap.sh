@@ -300,8 +300,8 @@ _knit_bootstrap_update_profile() {
 # tooling options: --ignore-system-sqlite/--ignore-system-jq (rebuild a
 # system-symlinked tool from source), --knit-graph-version/--knit-graph-url
 # (re-provision knit-graph on a changed version or URL), and
-# --knit-cypher-to-sql-ref/--knit-cypher-to-sql-url (re-provision
-# knit-cypher-to-sql on a changed ref or URL). When no handled option was typed,
+# --knit-cypher-to-sql-version/--knit-cypher-to-sql-url (re-provision
+# knit-cypher-to-sql on a changed version or URL). When no handled option was typed,
 # it reports that there is nothing to update and succeeds.
 #
 # @param[in] raw_args Name of an array holding the raw, pre-expansion argument tokens
@@ -323,7 +323,7 @@ _knit_bootstrap_update() {
     local setup_path_opt job_path_opt resource_path_opt
     local spack_ref spack_packages_ref profile
     local knitgraph_version knitgraph_url
-    local cypher_to_sql_ref cypher_to_sql_url
+    local cypher_to_sql_version cypher_to_sql_url
     local ai_api_key_env ai_base_url_env ai_model_env ai_base_url ai_model
     project="$(knit_get_parameter "project" "$@")"
     platform="$(knit_get_parameter "platform" "$@")"
@@ -341,7 +341,7 @@ _knit_bootstrap_update() {
     profile="$(knit_get_parameter "profile" "$@")"
     knitgraph_version="$(knit_get_parameter "knit-graph-version" "$@")"
     knitgraph_url="$(knit_get_parameter "knit-graph-url" "$@")"
-    cypher_to_sql_ref="$(knit_get_parameter "knit-cypher-to-sql-ref" "$@")"
+    cypher_to_sql_version="$(knit_get_parameter "knit-cypher-to-sql-version" "$@")"
     cypher_to_sql_url="$(knit_get_parameter "knit-cypher-to-sql-url" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
     ai_base_url_env="$(knit_get_parameter "ai-base-url-env" "$@")"
@@ -422,7 +422,7 @@ _knit_bootstrap_update() {
     _knit_bootstrap_update_sqlite "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_jq "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_knitgraph "${knitgraph_version}" "${knitgraph_url}" "${__knit_raw[@]}" && updated="true"
-    _knit_bootstrap_update_cypher_to_sql "${cypher_to_sql_ref}" "${cypher_to_sql_url}" "${__knit_raw[@]}" && updated="true"
+    _knit_bootstrap_update_cypher_to_sql "${cypher_to_sql_version}" "${cypher_to_sql_url}" "${__knit_raw[@]}" && updated="true"
 
     if [[ "${updated}" == "false" ]]; then
         knit_info "Knit is already bootstrapped; no updatable option was given, nothing to update."
@@ -478,10 +478,10 @@ knit_with_optional "knit-graph-version:string" "" \
     "knit-graph release version to provision. Empty uses the pinned default."
 knit_with_optional "knit-graph-url:string" "" \
     "URL of the knit-graph release tarball. Empty derives it from the version."
-knit_with_optional "knit-cypher-to-sql-ref:string" "" \
-    "knit-cypher-to-sql source ref (tag, branch, or commit) to build. Empty uses the pinned default."
+knit_with_optional "knit-cypher-to-sql-version:string" "" \
+    "knit-cypher-to-sql release version to provision. Empty uses the pinned default."
 knit_with_optional "knit-cypher-to-sql-url:string" "" \
-    "URL of the knit-cypher-to-sql source tarball. Empty derives it from the ref."
+    "URL of the knit-cypher-to-sql release tarball. Empty derives it from the version."
 # The --ai-* options configure the AI provider (env-var names and non-secret
 # defaults). The base-url default below must stay in sync with
 # _KNIT_AI_DEFAULT_BASE_URL in src/ai.sh (loaded after this file, so it cannot be
@@ -529,7 +529,7 @@ _knit_bootstrap() {
     local ignore_system_jq
     local knitgraph_version
     local knitgraph_url
-    local cypher_to_sql_ref
+    local cypher_to_sql_version
     local cypher_to_sql_url
     local ai_api_key_env
     local ai_base_url_env
@@ -554,7 +554,7 @@ _knit_bootstrap() {
     ignore_system_jq="$(knit_get_parameter "ignore-system-jq" "$@")"
     knitgraph_version="$(knit_get_parameter "knit-graph-version" "$@")"
     knitgraph_url="$(knit_get_parameter "knit-graph-url" "$@")"
-    cypher_to_sql_ref="$(knit_get_parameter "knit-cypher-to-sql-ref" "$@")"
+    cypher_to_sql_version="$(knit_get_parameter "knit-cypher-to-sql-version" "$@")"
     cypher_to_sql_url="$(knit_get_parameter "knit-cypher-to-sql-url" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
     ai_base_url_env="$(knit_get_parameter "ai-base-url-env" "$@")"
@@ -600,7 +600,7 @@ _knit_bootstrap() {
     # It is a pure transpiler that links no SQLite, so it is independent of the
     # sqlite provisioning above.
     knit_info "Bootstrapping knit-cypher-to-sql..."
-    _knit_bootstrap_cypher_to_sql "${cypher_to_sql_ref}" "${cypher_to_sql_url}"
+    _knit_bootstrap_cypher_to_sql "${cypher_to_sql_version}" "${cypher_to_sql_url}"
 
     # Provision Spack after sqlite/jq: resolving the latest release needs jq, and
     # recording provenance metadata needs the (sqlite-backed) metadata table.

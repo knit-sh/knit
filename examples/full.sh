@@ -692,7 +692,7 @@
 # `ai query` is narrower and easy to audit: it turns a question into a SINGLE
 # read-only query, runs it against ./.knit/knit.db, and prints the result in the
 # output mode you pick. It chooses the language that fits -- SQL for aggregation
-# within a table, Cypher (via knit-graph) for relationships across commands --
+# within a table, Cypher (via knit-cypher-to-sql) for relationships across commands --
 # and if the query errors, knit feeds the error back so the model can correct it
 # (up to --max-iterations):
 #
@@ -739,10 +739,10 @@
 #   ./full.sh query sql --format column --header --exec \
 #       "SELECT id, samples, pi FROM estimate ORDER BY samples"
 #
-# `knit query graph` runs a Cypher query over the provenance graph, powered by
-# knit-graph (bootstrap built it under ./.knit). A node's label may be written as
+# `knit query graph` runs a Cypher query over the provenance graph, transpiled by
+# knit-cypher-to-sql (bootstrap built it under ./.knit). A node's label may be written as
 # either the table name or the owning command name — knit passes the live map to
-# knit-graph — and each edge carries its type ("call"/"used_by") and any knit_as
+# knit-cypher-to-sql — and each edge carries its type ("call"/"used_by") and any knit_as
 # alias. Cross the submit->job call edge (the `submit` command owns the `jobs`
 # table) to read the job name:
 #
@@ -765,7 +765,7 @@
 #
 # Both `sql` and `graph` share --format (list/json/csv/box/markdown/...),
 # --header and --separator; `graph` also takes --explain / --ast to inspect the
-# SQL knit-graph generates for a query. `knit query` only ever reads, so it is
+# SQL knit-cypher-to-sql generates for a query. `knit query` only ever reads, so it is
 # safe to run at any time after bootstrap.
 #
 # Querying ACROSS platforms. When the same experiment has run on more than one

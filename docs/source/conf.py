@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "_ex
 # `export` get), so calls like `knit_register` or `knit run` stand out in code
 # blocks. The regex is anchored so it matches exactly `knit` or
 # `knit_<identifier>` and never a lookalike such as `knitting` (a variable) or
-# `knit-graph` (a separate binary).
+# `knit-cypher-to-sql` (a separate binary).
 #
 # The `@` declaration shorthand (`@command`, `@job`, `@with_required`, ...) is a
 # second face of the same API; it is reclassified to the decorator token so it

@@ -3,13 +3,9 @@
 ## @file cypher.sh
 
 # ------------------------------------------------------------------------------
-# Source ref (tag, branch, or commit) of knit-cypher-to-sql to build. This is a
-# transitional, source-based provisioning: knit-cypher-to-sql has no published
-# release of the pure transpiler yet, so it is built from a pinned ref of its
-# repository. Once a release is cut, provisioning switches to the release
-# tarball (as knit-graph is consumed today).
+# Version of knit-cypher-to-sql to provision.
 # ------------------------------------------------------------------------------
-_KNIT_CYPHER_TO_SQL_REF="main"
+_KNIT_CYPHER_TO_SQL_VERSION="0.1.0"
 
 # ------------------------------------------------------------------------------
 # Path to the knit-cypher-to-sql executable.
@@ -39,34 +35,36 @@ _knit_cypher_to_sql_framed_run() {
 # ------------------------------------------------------------------------------
 # @fn _knit_cypher_to_sql_url()
 #
-# Print the download URL for a knit-cypher-to-sql source tarball given a ref.
-# GitHub serves any tag, branch, or commit at archive/<ref>.tar.gz.
+# Print the download URL for a knit-cypher-to-sql release tarball given its
+# version. The release tag is the version prefixed with "v" and the asset is
+# named after the version, e.g. version 0.1.0 ->
+# .../download/v0.1.0/knit-cypher-to-sql-0.1.0.tar.gz.
 #
-# @param[in] ref knit-cypher-to-sql source ref (tag, branch, or commit).
+# @param[in] version knit-cypher-to-sql release version (without the leading "v").
 # ------------------------------------------------------------------------------
 _knit_cypher_to_sql_url() {
-    local ref="$1"
-    printf 'https://github.com/knit-sh/knit-cypher-to-sql/archive/%s.tar.gz' \
-        "${ref}"
+    local version="$1"
+    printf 'https://github.com/knit-sh/knit-cypher-to-sql/releases/download/v%s/knit-cypher-to-sql-%s.tar.gz' \
+        "${version}" "${version}"
 }
 
 # ------------------------------------------------------------------------------
 # @fn _knit_build_cypher_to_sql()
 #
-# Download a knit-cypher-to-sql source tarball, build it, and install it under
+# Download the knit-cypher-to-sql release tarball, build it, and install it under
 # .knit/knit-cypher-to-sql. The transpiler links nothing from SQLite, so the
-# build needs no SQLite development files (no --with-sqlite3). A source tarball
-# ships no generated parser/scanner or configure script, so the build first runs
-# autoreconf (autoconf/automake/bison/flex) before configure/make/make install.
+# build needs no SQLite development files (no --with-sqlite3). The release tarball
+# ships the pre-generated parser/scanner and configure script, so only a C
+# compiler is needed (no autotools/bison/flex).
 #
-# @param[in] ref knit-cypher-to-sql source ref to build.
-# @param[in] url URL of the knit-cypher-to-sql source tarball.
+# @param[in] version knit-cypher-to-sql release version to build.
+# @param[in] url URL of the knit-cypher-to-sql release tarball.
 # ------------------------------------------------------------------------------
 _knit_build_cypher_to_sql() {
-    local ref="$1"
+    local version="$1"
     local url="$2"
-    local srcdir="${_KNIT_PREFIX}/knit-cypher-to-sql-src"
-    local tarball="${_KNIT_PREFIX}/knit-cypher-to-sql-src.tar.gz"
+    local srcname="knit-cypher-to-sql-${version}"
+    local tarball="${srcname}.tar.gz"
 
     knit_pushd "${_KNIT_PREFIX}"
 
@@ -84,23 +82,14 @@ _knit_build_cypher_to_sql() {
     fi
 
     knit_trace "Extracting knit-cypher-to-sql source..."
-    # --strip-components=1 drops the single "knit-cypher-to-sql-<ref>/" top-level
-    # directory GitHub archives carry, so files land directly under srcdir.
-    rm -rf "${srcdir}"
-    mkdir "${srcdir}"
     if ! _knit_cypher_to_sql_framed_run "knit-cypher-to-sql: extract" \
-            tar -xzf "${tarball}" -C "${srcdir}" --strip-components=1 ; then
+            tar -xzf "${tarball}" ; then
         knit_fatal "Could not extract knit-cypher-to-sql sources. See ${_KNIT_TRACE_FILE} for more information."
     fi
 
     knit_trace "Building knit-cypher-to-sql..."
-    knit_pushd "${srcdir}"
-    if ! _knit_cypher_to_sql_framed_run "knit-cypher-to-sql: autoreconf" \
-            autoreconf -i ; then
-        knit_fatal "Could not autoreconf knit-cypher-to-sql. See ${_KNIT_TRACE_FILE} for more information."
-    fi
-    mkdir build
-    knit_pushd build
+    mkdir "${srcname}/build"
+    knit_pushd "${srcname}/build"
     if ! _knit_cypher_to_sql_framed_run "knit-cypher-to-sql: configure" \
             ../configure --prefix="${_KNIT_PREFIX}/knit-cypher-to-sql" ; then
         knit_fatal "Could not configure knit-cypher-to-sql. See ${_KNIT_TRACE_FILE} for more information."
@@ -113,11 +102,10 @@ _knit_build_cypher_to_sql() {
             make install ; then
         knit_fatal "Could not install knit-cypher-to-sql. See ${_KNIT_TRACE_FILE} for more information."
     fi
-    knit_popd # from build
-    knit_popd # from srcdir
+    knit_popd # from "${srcname}/build"
 
     knit_trace "Deleting knit-cypher-to-sql sources and archive..."
-    rm -rf "${srcdir}" "${tarball}" 2>"${_KNIT_TRACE_FILE}"
+    rm -rf "${srcname}" "${tarball}" 2>"${_KNIT_TRACE_FILE}"
 
     knit_popd # from "${_KNIT_PREFIX}"
 }
@@ -125,44 +113,44 @@ _knit_build_cypher_to_sql() {
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_cypher_to_sql()
 #
-# Provision knit-cypher-to-sql at _KNIT_CYPHER_TO_SQL_EXE. Resolves the ref (the
-# pinned default when empty) and the download URL (derived from the ref when
-# empty), builds and installs the transpiler, and records provenance metadata
-# (the ref and URL provisioned). The transpiler needs no SQLite, so this is
-# independent of the sqlite provisioning.
+# Provision knit-cypher-to-sql at _KNIT_CYPHER_TO_SQL_EXE. Resolves the version
+# (the pinned default when empty) and the download URL (derived from the version
+# when empty), builds and installs the transpiler, and records provenance
+# metadata (the version and URL provisioned). The transpiler needs no SQLite, so
+# this is independent of the sqlite provisioning.
 #
-# @param[in] ref knit-cypher-to-sql ref to provision; empty uses the pinned default.
-# @param[in] url Override URL for the source tarball; empty derives it from the ref.
+# @param[in] version knit-cypher-to-sql version to provision; empty uses the pinned default.
+# @param[in] url Override URL for the release tarball; empty derives it from the version.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_cypher_to_sql() {
-    local ref="${1:-}"
+    local version="${1:-}"
     local url="${2:-}"
-    if [[ -z "${ref}" ]]; then
-        ref="${_KNIT_CYPHER_TO_SQL_REF}"
+    if [[ -z "${version}" ]]; then
+        version="${_KNIT_CYPHER_TO_SQL_VERSION}"
     fi
     if [[ -z "${url}" ]]; then
-        url="$(_knit_cypher_to_sql_url "${ref}")"
+        url="$(_knit_cypher_to_sql_url "${version}")"
     fi
 
-    _knit_build_cypher_to_sql "${ref}" "${url}"
+    _knit_build_cypher_to_sql "${version}" "${url}"
 
     knit_trace "Storing knit-cypher-to-sql provenance metadata..."
-    knit metadata store --key "__knit_cypher_to_sql_ref__" --value "${ref}"
-    knit metadata store --key "__knit_cypher_to_sql_url__" --value "${url}"
+    knit metadata store --key "__knit_cypher_to_sql_version__" --value "${version}"
+    knit metadata store --key "__knit_cypher_to_sql_url__"     --value "${url}"
 }
 
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_update_cypher_to_sql()
 #
-# Update-mode handler for --knit-cypher-to-sql-ref/--knit-cypher-to-sql-url. When
-# a typed option differs from the stored value, remove the install, rebuild it at
-# the effective ref/URL, and update the stored provenance
-# (__knit_cypher_to_sql_ref__/__knit_cypher_to_sql_url__). A typed ref with no
-# explicit URL re-derives the URL from that ref, so a ref change also moves the
-# download. A typed option equal to the stored value, or an untyped option, is a
-# no-op.
+# Update-mode handler for --knit-cypher-to-sql-version/--knit-cypher-to-sql-url.
+# When a typed option differs from the stored value, remove the install, rebuild
+# it at the effective version/URL, and update the stored provenance
+# (__knit_cypher_to_sql_version__/__knit_cypher_to_sql_url__). A typed version
+# with no explicit URL re-derives the URL from that version, so a version bump
+# also moves the download. A typed option equal to the stored value, or an
+# untyped option, is a no-op.
 #
-# @param[in] ref Value typed for --knit-cypher-to-sql-ref.
+# @param[in] version Value typed for --knit-cypher-to-sql-version.
 # @param[in] url Value typed for --knit-cypher-to-sql-url.
 # @param[in] ... Raw argument tokens of this invocation (see
 #                _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option from a
@@ -170,23 +158,23 @@ _knit_bootstrap_cypher_to_sql() {
 # @return 0 when knit-cypher-to-sql was re-provisioned, 1 when nothing changed.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_update_cypher_to_sql() {
-    local ref="$1"
+    local version="$1"
     local url="$2"
     shift 2
 
-    local ref_typed="false" url_typed="false"
-    _knit_arg_was_provided "knit-cypher-to-sql-ref" "$@" && ref_typed="true"
+    local version_typed="false" url_typed="false"
+    _knit_arg_was_provided "knit-cypher-to-sql-version" "$@" && version_typed="true"
     _knit_arg_was_provided "knit-cypher-to-sql-url" "$@" && url_typed="true"
-    [[ "${ref_typed}" == "false" && "${url_typed}" == "false" ]] && return 1
+    [[ "${version_typed}" == "false" && "${url_typed}" == "false" ]] && return 1
 
-    local stored_ref stored_url
-    _knit_metadata_get stored_ref "__knit_cypher_to_sql_ref__"
+    local stored_version stored_url
+    _knit_metadata_get stored_version "__knit_cypher_to_sql_version__"
     _knit_metadata_get stored_url "__knit_cypher_to_sql_url__"
 
-    local eff_ref="${stored_ref}" eff_url="${stored_url}"
+    local eff_version="${stored_version}" eff_url="${stored_url}"
     local differs="false"
-    if [[ "${ref_typed}" == "true" && "${ref}" != "${stored_ref}" ]]; then
-        eff_ref="${ref}"
+    if [[ "${version_typed}" == "true" && "${version}" != "${stored_version}" ]]; then
+        eff_version="${version}"
         differs="true"
     fi
     if [[ "${url_typed}" == "true" ]]; then
@@ -195,17 +183,17 @@ _knit_bootstrap_update_cypher_to_sql() {
             differs="true"
         fi
     elif [[ "${differs}" == "true" ]]; then
-        # Ref changed and no explicit URL: re-derive it from the new ref.
-        eff_url="$(_knit_cypher_to_sql_url "${eff_ref}")"
+        # Version changed and no explicit URL: re-derive it from the new version.
+        eff_url="$(_knit_cypher_to_sql_url "${eff_version}")"
     fi
 
     [[ "${differs}" == "false" ]] && return 1
 
     knit_info "Re-provisioning knit-cypher-to-sql..."
     rm -rf "${_KNIT_PREFIX}/knit-cypher-to-sql"
-    _knit_build_cypher_to_sql "${eff_ref}" "${eff_url}"
-    knit metadata store --key "__knit_cypher_to_sql_ref__" --value "${eff_ref}" --force
-    knit metadata store --key "__knit_cypher_to_sql_url__" --value "${eff_url}" --force
+    _knit_build_cypher_to_sql "${eff_version}" "${eff_url}"
+    knit metadata store --key "__knit_cypher_to_sql_version__" --value "${eff_version}" --force
+    knit metadata store --key "__knit_cypher_to_sql_url__"     --value "${eff_url}" --force
     return 0
 }
 

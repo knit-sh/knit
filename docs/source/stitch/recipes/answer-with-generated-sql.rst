@@ -25,7 +25,7 @@ edges:
 
 **SQL or Cypher --- the model chooses.** By default (``--lang auto``) the model
 picks the language that fits the question: SQL for filtering, aggregation, and
-sorting within a table; Cypher (run by the bundled knit-graph engine) for
+sorting within a table; Cypher (transpiled to SQL by the bundled knit-cypher-to-sql) for
 relationships across commands --- which command *called* which, or which setup a
 job *used*:
 

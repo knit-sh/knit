@@ -615,7 +615,7 @@ experiment but never submit a job or write to the database.
 **Auditable answers, with** ``ai query``, is narrower: it turns the question
 into exactly *one* read-only query, runs it against the experiment, and prints
 the result in the output mode you choose. It picks the language that fits: SQL
-for aggregation and sorting within a table, Cypher (via knit-graph) for
+for aggregation and sorting within a table, Cypher (via knit-cypher-to-sql) for
 relationships across commands. If the query errors, Knit feeds the error back so
 the model can correct it (up to ``--max-iterations``):
 

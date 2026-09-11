@@ -437,7 +437,7 @@ _render_job() {
 #   - `knit query catalog` — the schema, with each table annotated by the command
 #     that owns it (e.g. jobs ← submit, runs ← run);
 #   - `knit query sql`     — knit's read-only SQL path over the julia app rows;
-#   - `knit query graph`   — Cypher over the provenance, resolved by knit-graph.
+#   - `knit query graph`   — Cypher over the provenance, transpiled by knit-cypher-to-sql.
 #
 # Graph labels are the table names (jobs/render/runs/julia) and the setup's own
 # name (setup:juliaenv, backtick-quoted for the colon); edges are `call` (a

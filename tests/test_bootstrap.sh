@@ -280,42 +280,42 @@ _setup_cypher_to_sql_decision() {
     eval 'knit() { printf "%s\n" "$*" >> "'"${__cts_meta}"'"; }'
 }
 
-@test "knit-cypher-to-sql url is derived from the ref" {
-    run _knit_cypher_to_sql_url "main"
+@test "knit-cypher-to-sql url is derived from the version" {
+    run _knit_cypher_to_sql_url "0.1.0"
     [ "$status" -eq 0 ]
-    [ "$output" = "https://github.com/knit-sh/knit-cypher-to-sql/archive/main.tar.gz" ]
+    [ "$output" = "https://github.com/knit-sh/knit-cypher-to-sql/releases/download/v0.1.0/knit-cypher-to-sql-0.1.0.tar.gz" ]
 }
 
-@test "bootstrap knit-cypher-to-sql builds the pinned default ref and records provenance" {
+@test "bootstrap knit-cypher-to-sql builds the pinned default version and records provenance" {
     _setup_cypher_to_sql_decision
 
     _knit_bootstrap_cypher_to_sql
 
-    # Built with the pinned ref and its derived url.
-    grep -q "${_KNIT_CYPHER_TO_SQL_REF}" "${__cts_build_marker}"
-    grep -q "archive/${_KNIT_CYPHER_TO_SQL_REF}.tar.gz" "${__cts_build_marker}"
-    # Provenance recorded (ref + url).
-    grep -q "metadata store --key __knit_cypher_to_sql_ref__ --value ${_KNIT_CYPHER_TO_SQL_REF}" "${__cts_meta}"
-    grep -q "metadata store --key __knit_cypher_to_sql_url__ --value https://github.com/knit-sh/knit-cypher-to-sql/archive/${_KNIT_CYPHER_TO_SQL_REF}.tar.gz" "${__cts_meta}"
+    # Built with the pinned version and its derived url.
+    grep -q "${_KNIT_CYPHER_TO_SQL_VERSION}" "${__cts_build_marker}"
+    grep -q "knit-cypher-to-sql-${_KNIT_CYPHER_TO_SQL_VERSION}.tar.gz" "${__cts_build_marker}"
+    # Provenance recorded (version + url).
+    grep -q "metadata store --key __knit_cypher_to_sql_version__ --value ${_KNIT_CYPHER_TO_SQL_VERSION}" "${__cts_meta}"
+    grep -q "metadata store --key __knit_cypher_to_sql_url__ --value https://github.com/knit-sh/knit-cypher-to-sql/releases/download/v${_KNIT_CYPHER_TO_SQL_VERSION}/knit-cypher-to-sql-${_KNIT_CYPHER_TO_SQL_VERSION}.tar.gz" "${__cts_meta}"
 }
 
-@test "bootstrap knit-cypher-to-sql honours an explicit ref" {
+@test "bootstrap knit-cypher-to-sql honours an explicit version" {
     _setup_cypher_to_sql_decision
 
-    _knit_bootstrap_cypher_to_sql "v1.0.0"
+    _knit_bootstrap_cypher_to_sql "9.9.9"
 
-    grep -q "v1.0.0" "${__cts_build_marker}"
-    grep -q "metadata store --key __knit_cypher_to_sql_ref__ --value v1.0.0" "${__cts_meta}"
-    grep -q "archive/v1.0.0.tar.gz" "${__cts_meta}"
+    grep -q "9.9.9" "${__cts_build_marker}"
+    grep -q "metadata store --key __knit_cypher_to_sql_version__ --value 9.9.9" "${__cts_meta}"
+    grep -q "download/v9.9.9/knit-cypher-to-sql-9.9.9.tar.gz" "${__cts_meta}"
 }
 
 @test "bootstrap knit-cypher-to-sql honours an explicit url override" {
     _setup_cypher_to_sql_decision
 
-    _knit_bootstrap_cypher_to_sql "somebranch" "https://example.com/cts.tgz"
+    _knit_bootstrap_cypher_to_sql "1.2.3" "https://example.com/cts.tgz"
 
     grep -q "https://example.com/cts.tgz" "${__cts_build_marker}"
-    grep -q "metadata store --key __knit_cypher_to_sql_ref__ --value somebranch" "${__cts_meta}"
+    grep -q "metadata store --key __knit_cypher_to_sql_version__ --value 1.2.3" "${__cts_meta}"
     grep -q "metadata store --key __knit_cypher_to_sql_url__ --value https://example.com/cts.tgz" "${__cts_meta}"
 }
 
@@ -1224,23 +1224,23 @@ _setup_cypher_to_sql_update() {
     _KNIT_DATABASE="${__TEST_TMPDIR}/cts.db"
     _KNIT_IS_BOOTSTRAPPED="1"
     _knit_create_metadata_table
-    knit metadata store --key __knit_cypher_to_sql_ref__ --value main
+    knit metadata store --key __knit_cypher_to_sql_version__ --value 0.1.0
     knit metadata store --key __knit_cypher_to_sql_url__ \
-        --value "https://github.com/knit-sh/knit-cypher-to-sql/archive/main.tar.gz"
+        --value "https://github.com/knit-sh/knit-cypher-to-sql/releases/download/v0.1.0/knit-cypher-to-sql-0.1.0.tar.gz"
     __cts_build_marker="${__TEST_TMPDIR}/cts-rebuilt"; : > "${__cts_build_marker}"
     eval '_knit_build_cypher_to_sql() { printf "%s\n" "$*" > "'"${__cts_build_marker}"'"; }'
 }
 
-@test "update mode re-provisions knit-cypher-to-sql when the ref changes" {
+@test "update mode re-provisions knit-cypher-to-sql when the version changes" {
     _setup_cypher_to_sql_update
 
-    run _knit_bootstrap_update_cypher_to_sql "v1.0.0" "" --knit-cypher-to-sql-ref v1.0.0
+    run _knit_bootstrap_update_cypher_to_sql "0.2.0" "" --knit-cypher-to-sql-version 0.2.0
     [ "$status" -eq 0 ]
-    # Rebuilt at the new ref with the URL re-derived from it.
-    grep -q "v1.0.0" "${__cts_build_marker}"
-    grep -q "archive/v1.0.0.tar.gz" "${__cts_build_marker}"
+    # Rebuilt at the new version with the URL re-derived from it.
+    grep -q "0.2.0" "${__cts_build_marker}"
+    grep -q "knit-cypher-to-sql-0.2.0.tar.gz" "${__cts_build_marker}"
     # Stored provenance updated.
-    local r; _knit_metadata_get r "__knit_cypher_to_sql_ref__"; [ "$r" = "v1.0.0" ]
+    local v; _knit_metadata_get v "__knit_cypher_to_sql_version__"; [ "$v" = "0.2.0" ]
 }
 
 @test "update mode re-provisions knit-cypher-to-sql when the url changes" {
@@ -1249,16 +1249,16 @@ _setup_cypher_to_sql_update() {
     run _knit_bootstrap_update_cypher_to_sql "" "https://example.com/cts.tgz" \
         --knit-cypher-to-sql-url https://example.com/cts.tgz
     [ "$status" -eq 0 ]
-    # Rebuilt with the stored ref but the new URL.
-    grep -q "main" "${__cts_build_marker}"
+    # Rebuilt with the stored version but the new URL.
+    grep -q "0.1.0" "${__cts_build_marker}"
     grep -q "https://example.com/cts.tgz" "${__cts_build_marker}"
     local u; _knit_metadata_get u "__knit_cypher_to_sql_url__"; [ "$u" = "https://example.com/cts.tgz" ]
 }
 
-@test "a typed knit-cypher-to-sql ref equal to the stored one is a no-op" {
+@test "a typed knit-cypher-to-sql version equal to the stored one is a no-op" {
     _setup_cypher_to_sql_update
 
-    run _knit_bootstrap_update_cypher_to_sql "main" "" --knit-cypher-to-sql-ref main
+    run _knit_bootstrap_update_cypher_to_sql "0.1.0" "" --knit-cypher-to-sql-version 0.1.0
     [ "$status" -eq 1 ]
     [ ! -s "${__cts_build_marker}" ]
 }
