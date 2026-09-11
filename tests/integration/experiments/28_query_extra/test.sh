@@ -2,9 +2,9 @@
 # Integration test 28_query_extra.
 #
 # End-to-end exercise of the cross-platform query lens (`knit query --extra`)
-# against a real, bootstrapped knit-graph and a live scheduler:
+# against a real, bootstrapped knit-cypher-to-sql and a live scheduler:
 #
-#   - bootstrap on this platform (named "alpha") builds knit-graph, then a job is
+#   - bootstrap on this platform (named "alpha") builds knit-cypher-to-sql, then a job is
 #     submitted and runs to completion, recording a jobs row;
 #   - a SECOND single-platform database is fabricated beside the first by copying
 #     the database and relabelling it as platform "beta" on a different
@@ -46,8 +46,8 @@ cd "${WORKDIR}"
 SQLITE="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 export __ASSERT_SQLITE3="${SQLITE}"
 
-check_exec ".knit/knit-graph/bin/knit-graph" \
-    "bootstrap built the knit-graph binary"
+check_exec ".knit/knit-cypher-to-sql/bin/knit-cypher-to-sql" \
+    "bootstrap built the knit-cypher-to-sql binary"
 
 alpha_uuid=$(./experiment.sh submit --wait -- work)
 check_sqlite ".knit/knit.db" \

@@ -24,7 +24,7 @@
 # drives both the happy path and those two refusals.
 #
 # Plain recorded commands (no scheduler) are used, so the behavior is identical on
-# every backend; only bootstrap and the private sqlite/knit-graph are needed.
+# every backend; only bootstrap and the private sqlite/knit-cypher-to-sql are needed.
 
 source knit.sh
 

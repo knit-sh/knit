@@ -2,7 +2,7 @@
 # Integration test 18_resources.
 #
 # End-to-end exercise of the resources subsystem against a real bootstrap:
-#   - bootstrap builds the private sqlite (and knit-graph);
+#   - bootstrap builds the private sqlite (and knit-cypher-to-sql);
 #   - a git resource is cloned from a local repository at a tag and recorded with
 #     its resolved commit SHA;
 #   - a url resource is downloaded and unpacked from a local archive;

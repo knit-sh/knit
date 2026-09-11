@@ -79,12 +79,11 @@ __fake_sqlite=""
 __sqlite_build_marker=""
 
 # Prepare the prefix and install decision-logic stubs for the sqlite tests.
-# _knit_detect_sqlite_dev defaults to "available" (0); tests that need the
-# dev-files-absent path override it.
+# Knit uses only the sqlite3 CLI, so a system sqlite3 is symlinked whenever its
+# CLI is on PATH -- no development files are required.
 _setup_sqlite_decision() {
     mkdir "${_KNIT_PREFIX}"
     _KNIT_SQLITE_EXE="${_KNIT_PREFIX}/sqlite/bin/sqlite3"
-    _KNIT_SQLITE_PREFIX="__unset__"
     __fake_sqlite="${__TEST_TMPDIR}/system-sqlite3"
     printf '#!/bin/sh\n' > "${__fake_sqlite}"
     chmod +x "${__fake_sqlite}"
@@ -94,10 +93,9 @@ _setup_sqlite_decision() {
     eval '_knit_create_metadata_table() { :; }'
     eval '_knit_prov_create_table() { :; }'
     eval '_knit_artifacts_create_table() { :; }'
-    eval '_knit_detect_sqlite_dev() { return 0; }'
 }
 
-@test "bootstrap sqlite symlinks the system binary when present with usable dev files" {
+@test "bootstrap sqlite symlinks the system binary when present (no dev files needed)" {
     _setup_sqlite_decision
     _knit_command_path() { printf '%s' "${__fake_sqlite}"; }
 
@@ -106,21 +104,6 @@ _setup_sqlite_decision() {
     [ -L "${_KNIT_SQLITE_EXE}" ]
     [ "$(readlink "${_KNIT_SQLITE_EXE}")" = "${__fake_sqlite}" ]
     [ ! -e "${__sqlite_build_marker}" ]
-    # System sqlite: knit-graph builds against the default paths (no prefix).
-    [ "${_KNIT_SQLITE_PREFIX}" = "" ]
-}
-
-@test "bootstrap sqlite builds from source when system dev files are unusable" {
-    _setup_sqlite_decision
-    _knit_command_path() { printf '%s' "${__fake_sqlite}"; }
-    _knit_detect_sqlite_dev() { return 1; }
-
-    _knit_bootstrap_sqlite
-
-    [ ! -L "${_KNIT_SQLITE_EXE}" ]
-    [ -e "${__sqlite_build_marker}" ]
-    # From-source: knit-graph builds against this prefix.
-    [ "${_KNIT_SQLITE_PREFIX}" = "${_KNIT_PREFIX}/sqlite" ]
 }
 
 @test "bootstrap sqlite builds from source when ignore flag is set" {
@@ -131,7 +114,6 @@ _setup_sqlite_decision() {
 
     [ ! -L "${_KNIT_SQLITE_EXE}" ]
     [ -e "${__sqlite_build_marker}" ]
-    [ "${_KNIT_SQLITE_PREFIX}" = "${_KNIT_PREFIX}/sqlite" ]
 }
 
 @test "bootstrap sqlite builds from source when no system binary present" {
@@ -142,7 +124,6 @@ _setup_sqlite_decision() {
 
     [ ! -L "${_KNIT_SQLITE_EXE}" ]
     [ -e "${__sqlite_build_marker}" ]
-    [ "${_KNIT_SQLITE_PREFIX}" = "${_KNIT_PREFIX}/sqlite" ]
 }
 
 # ---------- jq: symlink vs download decision ----------
@@ -189,75 +170,6 @@ _setup_jq_decision() {
 
     [ ! -L "${_KNIT_JQ_EXE}" ]
     [ -e "${__jq_download_marker}" ]
-}
-
-# ---------- knit-graph: provisioning + provenance ----------
-
-# Marker written by the stubbed build (records the version/url it was built with).
-__kg_build_marker=""
-# File capturing the (stubbed) "knit metadata store" provenance calls.
-__kg_meta=""
-
-# Stub the network+compiler build and capture the metadata calls so the
-# provisioning logic (version/url resolution, provenance recording) can be
-# exercised without downloading or compiling anything.
-_setup_knitgraph_decision() {
-    mkdir "${_KNIT_PREFIX}"
-    _KNIT_KNITGRAPH_EXE="${_KNIT_PREFIX}/knit-graph/bin/knit-graph"
-    __kg_build_marker="${__TEST_TMPDIR}/kg-built"
-    __kg_meta="${__TEST_TMPDIR}/kg-meta"
-    : > "${__kg_meta}"
-    eval '_knit_build_knitgraph() { printf "%s\n" "$*" > "'"${__kg_build_marker}"'"; }'
-    eval 'knit() { printf "%s\n" "$*" >> "'"${__kg_meta}"'"; }'
-}
-
-@test "knit-graph url is derived from the version" {
-    run _knit_knitgraph_url "0.2.0"
-    [ "$status" -eq 0 ]
-    [ "$output" = "https://github.com/knit-sh/knit-graph/releases/download/v0.2.0/knit-graph-0.2.0.tar.gz" ]
-}
-
-@test "bootstrap knit-graph builds the pinned default and records provenance" {
-    _setup_knitgraph_decision
-
-    _knit_bootstrap_knitgraph
-
-    # Built with the pinned version and its derived url.
-    grep -q "${_KNIT_KNITGRAPH_VERSION}" "${__kg_build_marker}"
-    grep -q "knit-graph-${_KNIT_KNITGRAPH_VERSION}.tar.gz" "${__kg_build_marker}"
-    # Provenance recorded (version + url).
-    grep -q "metadata store --key __knit_graph_version__ --value ${_KNIT_KNITGRAPH_VERSION}" "${__kg_meta}"
-    grep -q "metadata store --key __knit_graph_url__ --value https://github.com/knit-sh/knit-graph/releases/download/v${_KNIT_KNITGRAPH_VERSION}/knit-graph-${_KNIT_KNITGRAPH_VERSION}.tar.gz" "${__kg_meta}"
-}
-
-@test "bootstrap knit-graph honours an explicit version" {
-    _setup_knitgraph_decision
-
-    _knit_bootstrap_knitgraph "9.9.9"
-
-    grep -q "9.9.9" "${__kg_build_marker}"
-    grep -q "metadata store --key __knit_graph_version__ --value 9.9.9" "${__kg_meta}"
-    grep -q "download/v9.9.9/knit-graph-9.9.9.tar.gz" "${__kg_meta}"
-}
-
-@test "bootstrap knit-graph honours an explicit url override" {
-    _setup_knitgraph_decision
-
-    _knit_bootstrap_knitgraph "1.2.3" "https://example.com/kg.tgz"
-
-    grep -q "https://example.com/kg.tgz" "${__kg_build_marker}"
-    grep -q "metadata store --key __knit_graph_version__ --value 1.2.3" "${__kg_meta}"
-    grep -q "metadata store --key __knit_graph_url__ --value https://example.com/kg.tgz" "${__kg_meta}"
-}
-
-@test "knit-graph resolver execs the installed binary" {
-    _KNIT_KNITGRAPH_EXE="${__TEST_TMPDIR}/fake-kg"
-    printf '#!/bin/sh\nprintf "kg:%%s" "$*"\n' > "${_KNIT_KNITGRAPH_EXE}"
-    chmod +x "${_KNIT_KNITGRAPH_EXE}"
-
-    run _knit_knit_graph --explain foo
-    [ "$status" -eq 0 ]
-    [ "$output" = "kg:--explain foo" ]
 }
 
 # ---------- knit-cypher-to-sql: provisioning + provenance ----------
@@ -332,15 +244,14 @@ _setup_cypher_to_sql_decision() {
     [ "$output" = "cts:--names foo=bar MATCH (a) RETURN a:schema-on-stdin" ]
 }
 
-# ---------- bootstrap wiring: sqlite + knit-graph ----------
+# ---------- bootstrap wiring: sqlite + jq + knit-cypher-to-sql ----------
 
-@test "bootstrap provisions sqlite, jq, and knit-graph" {
+@test "bootstrap provisions sqlite, jq, and knit-cypher-to-sql" {
     local calls="${__TEST_TMPDIR}/calls"
     : > "${calls}"
     # Stub the heavy provisioning steps and detection so the wiring can run.
     eval '_knit_bootstrap_sqlite() { printf "sqlite:%s\n" "$*" >> "'"${calls}"'"; }'
     eval '_knit_bootstrap_jq() { printf "jq:%s\n" "$*" >> "'"${calls}"'"; }'
-    eval '_knit_bootstrap_knitgraph() { printf "knitgraph:%s\n" "$*" >> "'"${calls}"'"; }'
     eval '_knit_bootstrap_cypher_to_sql() { printf "cypher:%s\n" "$*" >> "'"${calls}"'"; }'
     eval '_knit_bootstrap_need_spack() { return 1; }'
     eval '_knit_detect_job_manager() { printf "local"; }'
@@ -351,11 +262,10 @@ _setup_cypher_to_sql_decision() {
     run _knit_bootstrap
     [ "$status" -eq 0 ]
 
-    # sqlite, jq, knit-graph, and knit-cypher-to-sql are all provisioned. The
+    # sqlite, jq, and knit-cypher-to-sql are all provisioned. The
     # from-source-vs-system sqlite decision is left to _knit_bootstrap_sqlite.
     grep -q "^sqlite:" "${calls}"
     grep -q "^jq:" "${calls}"
-    grep -q "^knitgraph:" "${calls}"
     grep -q "^cypher:" "${calls}"
 }
 
@@ -369,7 +279,6 @@ _bootstrap_launcher_stubs() {
     : > "${calls}"; : > "${meta}"
     eval '_knit_bootstrap_sqlite() { :; }'
     eval '_knit_bootstrap_jq() { :; }'
-    eval '_knit_bootstrap_knitgraph() { :; }'
     eval '_knit_bootstrap_cypher_to_sql() { :; }'
     eval '_knit_bootstrap_need_spack() { return 1; }'
     eval '_knit_detect_job_manager() { printf "local"; }'
@@ -1152,65 +1061,6 @@ _setup_jq_update() {
     [ "$status" -eq 1 ]
     [ ! -e "${__jq_download_marker}" ]
     [ -L "${_KNIT_JQ_EXE}" ]                       # symlink untouched
-}
-
-# ---------- update mode: knit-graph re-provision ----------
-
-# Prepare an already-bootstrapped experiment for the knit-graph update handler: a
-# real metadata table seeded with the stored version/url and a stub recording the
-# rebuild's arguments. Metadata writes hit the real database so they can be read
-# back.
-_setup_knitgraph_update() {
-    knit_test_require_sqlite
-    _KNIT_SQLITE_EXE="sqlite3"
-    _KNIT_DATABASE="${__TEST_TMPDIR}/kg.db"
-    _KNIT_IS_BOOTSTRAPPED="1"
-    _knit_create_metadata_table
-    knit metadata store --key __knit_graph_version__ --value 0.2.1
-    knit metadata store --key __knit_graph_url__ \
-        --value "https://github.com/knit-sh/knit-graph/releases/download/v0.2.1/knit-graph-0.2.1.tar.gz"
-    __kg_build_marker="${__TEST_TMPDIR}/kg-rebuilt"; : > "${__kg_build_marker}"
-    eval '_knit_build_knitgraph() { printf "%s\n" "$*" > "'"${__kg_build_marker}"'"; }'
-}
-
-@test "update mode re-provisions knit-graph when the version changes" {
-    _setup_knitgraph_update
-
-    run _knit_bootstrap_update_knitgraph "0.3.0" "" --knit-graph-version 0.3.0
-    [ "$status" -eq 0 ]
-    # Rebuilt at the new version with the URL re-derived from it.
-    grep -q "0.3.0" "${__kg_build_marker}"
-    grep -q "knit-graph-0.3.0.tar.gz" "${__kg_build_marker}"
-    # Stored provenance updated.
-    local v; _knit_metadata_get v "__knit_graph_version__"; [ "$v" = "0.3.0" ]
-}
-
-@test "update mode re-provisions knit-graph when the url changes" {
-    _setup_knitgraph_update
-
-    run _knit_bootstrap_update_knitgraph "" "https://example.com/kg.tgz" \
-        --knit-graph-url https://example.com/kg.tgz
-    [ "$status" -eq 0 ]
-    # Rebuilt with the stored version but the new URL.
-    grep -q "0.2.1" "${__kg_build_marker}"
-    grep -q "https://example.com/kg.tgz" "${__kg_build_marker}"
-    local u; _knit_metadata_get u "__knit_graph_url__"; [ "$u" = "https://example.com/kg.tgz" ]
-}
-
-@test "a typed knit-graph version equal to the stored one is a no-op" {
-    _setup_knitgraph_update
-
-    run _knit_bootstrap_update_knitgraph "0.2.1" "" --knit-graph-version 0.2.1
-    [ "$status" -eq 1 ]
-    [ ! -s "${__kg_build_marker}" ]
-}
-
-@test "update mode leaves knit-graph unchanged when no option is typed" {
-    _setup_knitgraph_update
-
-    run _knit_bootstrap_update_knitgraph "" ""
-    [ "$status" -eq 1 ]
-    [ ! -s "${__kg_build_marker}" ]
 }
 
 # ---------- update mode: knit-cypher-to-sql re-provision ----------

@@ -122,7 +122,7 @@ JSON
 ./demo.sh preflight
 
 # --------------------------------------------------------------------------
-# 2. bootstrap — provisions sqlite/jq, builds knit-graph (for `analyze`), and
+# 2. bootstrap — provisions sqlite/jq, builds knit-cypher-to-sql (for `analyze`), and
 #    auto-provisions Spack (the juliaenv setup declares Spack specs).
 # --------------------------------------------------------------------------
 ./demo.sh bootstrap --project "integration-test-17" --profile "${WORKDIR}/profile.json"

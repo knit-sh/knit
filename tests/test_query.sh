@@ -334,7 +334,7 @@ _seed_two_platforms() {
     knit_test_require_sqlite
     _seed_two_platforms alpha beta
     # A registered table whose command name differs from the table name: the
-    # executed edge must carry the command name, matching knit-graph resolution.
+    # executed edge must carry the command name, matching the transpiler's resolution.
     _KNIT_DB_REGISTERED_TABLES=([jobs]="submit")
 
     run _lens_query \

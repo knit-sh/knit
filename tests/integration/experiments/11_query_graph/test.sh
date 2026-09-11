@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Integration test 11_query_graph.
 #
-# End-to-end exercise of `knit query` against a real, bootstrapped knit-graph:
-#   - bootstrap builds knit-graph from its pinned release against the private,
-#     from-source sqlite (real install with headers + libsqlite3);
+# End-to-end exercise of `knit query` against a real, bootstrapped knit-cypher-to-sql:
+#   - bootstrap builds knit-cypher-to-sql from its pinned release (only a C
+#     compiler needed; it links no SQLite);
 #   - a setup is built and a job submitted with --setup (records a "used_by"
 #     edge); the job body launches "step" twice under `knit_as` aliases
 #     (records two "call" edges carrying an alias);
@@ -33,14 +33,14 @@ cp /shared/knit/knit.sh "${WORKDIR}/knit.sh"
 cd "${WORKDIR}"
 
 # --------------------------------------------------------------------------
-# Bootstrap. This builds knit-graph from its pinned release against the
-# private from-source sqlite install (headers + libsqlite3).
+# Bootstrap. This builds knit-cypher-to-sql from its pinned release (only a C
+# compiler needed; it links no SQLite).
 # --------------------------------------------------------------------------
 ./experiment.sh bootstrap --project "integration-test-11"
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
-check_exec ".knit/knit-graph/bin/knit-graph" \
-    "bootstrap built the knit-graph binary"
+check_exec ".knit/knit-cypher-to-sql/bin/knit-cypher-to-sql" \
+    "bootstrap built the knit-cypher-to-sql binary"
 
 # --------------------------------------------------------------------------
 # Build the setup, then submit a job that consumes it. --wait blocks until the
@@ -104,7 +104,7 @@ check_eq "$(graph_scalar 'MATCH (s:`setup:env`)-[:used_by]->(j:submit) RETURN j.
     "analyze" \
     "the used_by target projects jobs columns (name and id agree on the jobs table)"
 
-# 3. knit_as alias, inline relationship-property spelling (knit-graph lowers the
+# 3. knit_as alias, inline relationship-property spelling (knit-cypher-to-sql lowers the
 #    inline {alias:'...'} map to the same predicate as the WHERE form).
 check_eq "$(graph_scalar "MATCH (a:analyze)-[{alias:'fast'}]->(st:step) RETURN st.label")" \
     "quick" \
@@ -124,7 +124,7 @@ check_eq "${sql_out}" "analyze" \
     "knit query sql reads the submission row from the jobs table"
 
 # --------------------------------------------------------------------------
-# knit query catalog: knit-graph introspects the real DB schema and knit
+# knit query catalog: knit introspects the real DB schema itself and
 # annotates the jobs table with its owning command.
 # --------------------------------------------------------------------------
 ./experiment.sh query catalog > "${WORKDIR}/catalog.out" 2>/dev/null \

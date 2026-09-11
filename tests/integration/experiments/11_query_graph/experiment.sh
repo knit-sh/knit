@@ -13,8 +13,8 @@
 #     <-> table-name map (the "submit" command owns the "jobs" table), which the
 #     query resolves through knit query graph's live --names spec.
 #
-# The companion test.sh bootstraps (building knit-graph against the private
-# sqlite), submits the job, then runs real Cypher queries against the recorded
+# The companion test.sh bootstraps (building knit-cypher-to-sql from its pinned
+# release), submits the job, then runs real Cypher queries against the recorded
 # provenance.
 
 source knit.sh

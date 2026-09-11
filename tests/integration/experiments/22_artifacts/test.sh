@@ -56,14 +56,14 @@ expected_checksum() {
 }
 
 # --------------------------------------------------------------------------
-# Bootstrap. This also builds knit-graph, used below for the Cypher reverse
+# Bootstrap. This also builds knit-cypher-to-sql, used below for the Cypher reverse
 # lookup.
 # --------------------------------------------------------------------------
 ./experiment.sh bootstrap --project "integration-test-22"
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
-check_exec ".knit/knit-graph/bin/knit-graph" \
-    "bootstrap built the knit-graph binary"
+check_exec ".knit/knit-cypher-to-sql/bin/knit-cypher-to-sql" \
+    "bootstrap built the knit-cypher-to-sql binary"
 
 # ==========================================================================
 # Job "bundle" — a value result plus two artifacts.

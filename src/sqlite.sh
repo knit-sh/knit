@@ -35,18 +35,6 @@ declare -g _KNIT_DATABASE
 _KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
 
 # ------------------------------------------------------------------------------
-# @var _KNIT_SQLITE_PREFIX
-#
-# Installation prefix of the SQLite that knit-graph is built against, set by
-# _knit_bootstrap_sqlite: the from-source install prefix (_KNIT_PREFIX/sqlite)
-# when SQLite is built from source, or empty when the system SQLite is used (its
-# development files are on the compiler's default search paths, so knit-graph
-# needs no --with-sqlite3). Read by _knit_build_knitgraph.
-# ------------------------------------------------------------------------------
-declare -g _KNIT_SQLITE_PREFIX
-_KNIT_SQLITE_PREFIX=""
-
-# ------------------------------------------------------------------------------
 # Busy timeout (milliseconds) applied to every sqlite3 invocation. If another
 # writer holds the database lock, sqlite retries for up to this long before
 # giving up with "database is locked". A second line of defence behind the
@@ -77,16 +65,13 @@ _knit_sqlite_framed_run() {
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_sqlite()
 #
-# Make an sqlite3 program available at _KNIT_SQLITE_EXE. The system sqlite3 is
-# symlinked into the .knit directory only when both its CLI is on PATH and its
-# development files (header + library) are usable -- knit-graph links against
-# those, and a symlinked CLI alone does not guarantee they exist. Otherwise
-# sqlite3 is downloaded and built from source, which lays down both the CLI and
-# the development files. Sets _KNIT_SQLITE_PREFIX to the install prefix knit-graph
-# must build against (empty for the system, where the dev files are on the default
-# search paths). The metadata and provenance tables are created in either case.
+# Make an sqlite3 program available at _KNIT_SQLITE_EXE. Knit uses only the
+# sqlite3 CLI (it links no SQLite library), so the system sqlite3 is symlinked
+# into the .knit directory whenever its CLI is on PATH -- no development files
+# are needed. Otherwise sqlite3 is downloaded and built from source. The metadata
+# and provenance tables are created in either case.
 #
-# @param[in] ignore_system When "true", always build from source even if a usable
+# @param[in] ignore_system When "true", always build from source even if a
 #        system sqlite3 is present.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_sqlite() {
@@ -96,15 +81,13 @@ _knit_bootstrap_sqlite() {
         system_sqlite="$(_knit_command_path sqlite3)"
     fi
 
-    if [[ -n "${system_sqlite}" ]] && _knit_detect_sqlite_dev; then
+    if [[ -n "${system_sqlite}" ]]; then
         knit_info "Using system sqlite at ${system_sqlite} (symlinked)."
         mkdir -p "$(dirname "${_KNIT_SQLITE_EXE}")"
         ln -s "${system_sqlite}" "${_KNIT_SQLITE_EXE}"
-        _KNIT_SQLITE_PREFIX=""
     else
         knit_info "Building sqlite from source.."
         _knit_build_sqlite
-        _KNIT_SQLITE_PREFIX="${_KNIT_PREFIX}/sqlite"
     fi
 
     knit_info "Creating database and tables..."
@@ -118,10 +101,8 @@ _knit_bootstrap_sqlite() {
 #
 # Update-mode handler for --ignore-system-sqlite. The flag matters only when the
 # current sqlite install is a symlink to a system binary: it replaces the symlink
-# with a from-source build (which also lays down the development files knit-graph
-# links against) and records the from-source prefix in _KNIT_SQLITE_PREFIX. An
-# install that is already built from source is what the flag asks for, so it is a
-# no-op; an untyped flag leaves the install as is.
+# with a from-source build. An install that is already built from source is what
+# the flag asks for, so it is a no-op; an untyped flag leaves the install as is.
 #
 # @param[in] ... Raw argument tokens of this invocation (see
 #            _KNIT_INVOCATION_RAW_ARGS), used to tell a typed flag from a
@@ -134,7 +115,6 @@ _knit_bootstrap_update_sqlite() {
     knit_info "Rebuilding sqlite from source..."
     rm -rf "${_KNIT_PREFIX}/sqlite"
     _knit_build_sqlite
-    _KNIT_SQLITE_PREFIX="${_KNIT_PREFIX}/sqlite"
     return 0
 }
 
@@ -249,10 +229,10 @@ _knit_sql_quote_identifier() {
 # Spack environment, an environment module, or a manually exported
 # LD_LIBRARY_PATH -- cannot make a Knit-provisioned binary load a shared library
 # (most importantly libsqlite3) other than the one it was built against. Knit's
-# sqlite3 and knit-graph are self-contained: a from-source build carries an rpath
-# to Knit's private libsqlite3 and a system build uses the default search paths,
-# so neither needs anything from the caller's environment. `env` replaces itself
-# with the target binary, so this adds no extra process.
+# sqlite3 is self-contained: a from-source build carries an rpath to Knit's
+# private libsqlite3 and a system build uses the default search paths, so it
+# needs nothing from the caller's environment. `env` replaces itself with the
+# target binary, so this adds no extra process.
 #
 # @param[in] ... Command and arguments to execute.
 # ------------------------------------------------------------------------------

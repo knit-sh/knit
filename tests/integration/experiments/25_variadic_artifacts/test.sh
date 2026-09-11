@@ -39,13 +39,13 @@ cp /shared/knit/knit.sh "${WORKDIR}/knit.sh"
 cd "${WORKDIR}"
 
 # --------------------------------------------------------------------------
-# Bootstrap. This also builds knit-graph, used below for the Cypher walk.
+# Bootstrap. This also builds knit-cypher-to-sql, used below for the Cypher walk.
 # --------------------------------------------------------------------------
 ./experiment.sh bootstrap --project "integration-test-25"
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
-check_exec ".knit/knit-graph/bin/knit-graph" \
-    "bootstrap built the knit-graph binary"
+check_exec ".knit/knit-cypher-to-sql/bin/knit-cypher-to-sql" \
+    "bootstrap built the knit-cypher-to-sql binary"
 
 # ==========================================================================
 # Producer — fan out three shards under one collection name.

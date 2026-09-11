@@ -75,13 +75,13 @@ mkdir -p "${WORKDIR}/srcpkg"
 printf 'from-resource\n' > "${WORKDIR}/srcpkg/marker.txt"
 
 # --------------------------------------------------------------------------
-# 1. bootstrap — provisions the private sqlite (and builds knit-graph, used for
+# 1. bootstrap — provisions the private sqlite (and builds knit-cypher-to-sql, used for
 #    the Cypher reverse lookup below).
 # --------------------------------------------------------------------------
 ./experiment.sh bootstrap --project "integration-test-23"
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
-check_exec ".knit/knit-graph/bin/knit-graph" \
-    "bootstrap built the knit-graph binary"
+check_exec ".knit/knit-cypher-to-sql/bin/knit-cypher-to-sql" \
+    "bootstrap built the knit-cypher-to-sql binary"
 
 # --------------------------------------------------------------------------
 # 2. fetch the resource, build the setup, submit the job (the whole lineage).

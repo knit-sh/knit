@@ -25,7 +25,7 @@
 #     input refuses the same empty expansion and is fatal.
 #
 # Plain recorded commands (no scheduler) are used, so the behavior is identical on
-# every backend; only bootstrap and the private sqlite/knit-graph are needed.
+# every backend; only bootstrap and the private sqlite/knit-cypher-to-sql are needed.
 
 source knit.sh
 

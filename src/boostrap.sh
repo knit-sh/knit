@@ -298,8 +298,7 @@ _knit_bootstrap_update_profile() {
 # Spack when absent, or re-provision on a changed ref only while no environment
 # is built) and --profile (a changed profile is out of scope and fatals), and the
 # tooling options: --ignore-system-sqlite/--ignore-system-jq (rebuild a
-# system-symlinked tool from source), --knit-graph-version/--knit-graph-url
-# (re-provision knit-graph on a changed version or URL), and
+# system-symlinked tool from source) and
 # --knit-cypher-to-sql-version/--knit-cypher-to-sql-url (re-provision
 # knit-cypher-to-sql on a changed version or URL). When no handled option was typed,
 # it reports that there is nothing to update and succeeds.
@@ -322,7 +321,6 @@ _knit_bootstrap_update() {
     local default_nodefile scheduler launcher
     local setup_path_opt job_path_opt resource_path_opt
     local spack_ref spack_packages_ref profile
-    local knitgraph_version knitgraph_url
     local cypher_to_sql_version cypher_to_sql_url
     local ai_api_key_env ai_base_url_env ai_model_env ai_base_url ai_model
     project="$(knit_get_parameter "project" "$@")"
@@ -339,8 +337,6 @@ _knit_bootstrap_update() {
     spack_ref="$(knit_get_parameter "spack" "$@")"
     spack_packages_ref="$(knit_get_parameter "spack-packages" "$@")"
     profile="$(knit_get_parameter "profile" "$@")"
-    knitgraph_version="$(knit_get_parameter "knit-graph-version" "$@")"
-    knitgraph_url="$(knit_get_parameter "knit-graph-url" "$@")"
     cypher_to_sql_version="$(knit_get_parameter "knit-cypher-to-sql-version" "$@")"
     cypher_to_sql_url="$(knit_get_parameter "knit-cypher-to-sql-url" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
@@ -417,11 +413,9 @@ _knit_bootstrap_update() {
 
     # Tooling: rebuild sqlite / re-download jq when a typed --ignore-system-*
     # flag turns a system symlink into a private install, and re-provision
-    # knit-graph when a typed version/URL differs. sqlite runs before knit-graph
-    # since knit-graph links against it.
+    # knit-cypher-to-sql when a typed version/URL differs.
     _knit_bootstrap_update_sqlite "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_jq "${__knit_raw[@]}" && updated="true"
-    _knit_bootstrap_update_knitgraph "${knitgraph_version}" "${knitgraph_url}" "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_cypher_to_sql "${cypher_to_sql_version}" "${cypher_to_sql_url}" "${__knit_raw[@]}" && updated="true"
 
     if [[ "${updated}" == "false" ]]; then
@@ -474,10 +468,6 @@ knit_with_flag "ignore-system-sqlite" \
     "Build sqlite from source even if a system sqlite3 is available."
 knit_with_flag "ignore-system-jq" \
     "Download jq even if a system jq is available."
-knit_with_optional "knit-graph-version:string" "" \
-    "knit-graph release version to provision. Empty uses the pinned default."
-knit_with_optional "knit-graph-url:string" "" \
-    "URL of the knit-graph release tarball. Empty derives it from the version."
 knit_with_optional "knit-cypher-to-sql-version:string" "" \
     "knit-cypher-to-sql release version to provision. Empty uses the pinned default."
 knit_with_optional "knit-cypher-to-sql-url:string" "" \
@@ -527,8 +517,6 @@ _knit_bootstrap() {
     local default_nodefile
     local ignore_system_sqlite
     local ignore_system_jq
-    local knitgraph_version
-    local knitgraph_url
     local cypher_to_sql_version
     local cypher_to_sql_url
     local ai_api_key_env
@@ -552,8 +540,6 @@ _knit_bootstrap() {
     default_nodefile="$(knit_get_parameter "default-nodefile" "$@")"
     ignore_system_sqlite="$(knit_get_parameter "ignore-system-sqlite" "$@")"
     ignore_system_jq="$(knit_get_parameter "ignore-system-jq" "$@")"
-    knitgraph_version="$(knit_get_parameter "knit-graph-version" "$@")"
-    knitgraph_url="$(knit_get_parameter "knit-graph-url" "$@")"
     cypher_to_sql_version="$(knit_get_parameter "knit-cypher-to-sql-version" "$@")"
     cypher_to_sql_url="$(knit_get_parameter "knit-cypher-to-sql-url" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
@@ -583,21 +569,17 @@ _knit_bootstrap() {
     mkdir "${_KNIT_PREFIX}" > "${_KNIT_TRACE_FILE}" 2>&1
     trap _knit_bootstrap_on_exit EXIT
 
-    # knit-graph (always provisioned below) links against Knit's sqlite
-    # development files. _knit_bootstrap_sqlite uses the system sqlite only when
-    # those dev files are usable and otherwise builds from source, recording the
-    # prefix knit-graph must build against in _KNIT_SQLITE_PREFIX.
+    # Knit uses the sqlite3 CLI only (no library linkage), so _knit_bootstrap_sqlite
+    # symlinks the system sqlite3 when one is on PATH and otherwise builds it from
+    # source.
     knit_info "Bootstrapping sqlite..."
     _knit_bootstrap_sqlite "${ignore_system_sqlite}"
 
     knit_info "Bootstrapping jq..."
     _knit_bootstrap_jq "${ignore_system_jq}"
 
-    knit_info "Bootstrapping knit-graph..."
-    _knit_bootstrap_knitgraph "${knitgraph_version}" "${knitgraph_url}"
-
-    # knit-cypher-to-sql is provisioned alongside knit-graph during the migration.
-    # It is a pure transpiler that links no SQLite, so it is independent of the
+    # knit-cypher-to-sql is the Cypher-to-SQL transpiler behind `knit query`. It
+    # is a pure transpiler that links no SQLite, so it is independent of the
     # sqlite provisioning above.
     knit_info "Bootstrapping knit-cypher-to-sql..."
     _knit_bootstrap_cypher_to_sql "${cypher_to_sql_version}" "${cypher_to_sql_url}"
