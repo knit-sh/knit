@@ -71,7 +71,6 @@ _knit_artifacts_ensure_table() {
     _KNIT_ARTIFACTS_TABLE_ENSURED="1"
 }
 
-# ------------------------------------------------------------------------------
 # Register the artifacts table as a graph node in the query names map. Unlike a
 # per-command table (jobs, runs), it has no owning command: it is written by
 # whichever invocation produces an artifact, and its schema is fixed here (see
@@ -80,8 +79,10 @@ _knit_artifacts_ensure_table() {
 # "artifacts" as a Cypher node label (the target_name of a "produced" edge); it
 # also makes the name fatal to reuse (knit_with_table / knit_as both guard on a
 # present key), exactly as an owning command would, without a phantom command or
-# an unwanted knit_with_table schema callback.
-# ------------------------------------------------------------------------------
+# an unwanted knit_with_table schema callback. This is a bare element assignment
+# into an already-declared array, so it carries a plain comment rather than a
+# Doxygen block (a framed block here would make the preprocessor emit the
+# subscripted assignment as a documented variable, which Sphinx cannot parse).
 _KNIT_DB_REGISTERED_TABLES["${_KNIT_ARTIFACTS_TABLE}"]="${_KNIT_ARTIFACTS_TABLE}"
 
 # ------------------------------------------------------------------------------
