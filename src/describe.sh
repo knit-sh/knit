@@ -24,6 +24,18 @@ declare -gA _KNIT_DESCRIBE_FILTERS
 declare -gA _KNIT_DESCRIBE_ONLY
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_DESCRIBE_EMITTED
+#
+# Scratch flag the flat formatter uses to place inter-block blank lines: 0 until
+# the first command block is printed, 1 afterwards, so a separator precedes every
+# block except the first. Reset at the start of _knit_describe_default. It exists
+# because a command kept only as a path container prints nothing, so the separator
+# cannot be tied to the tree walk.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_DESCRIBE_EMITTED
+_KNIT_DESCRIBE_EMITTED=0
+
+# ------------------------------------------------------------------------------
 # @var _KNIT_DESCRIBE_JSON_NL
 #
 # Inter-entry newline the JSON builders insert inside objects and arrays. Its
@@ -295,6 +307,36 @@ _knit_describe_should_emit() {
     for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "${sel_ancestor}" && return 0
     done
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_is_selected()
+#
+# Decide whether a command's own block should be rendered, as opposed to the
+# command being kept only as a path container for a selected descendant. Returns
+# success when:
+#   - no "--only" selection is active (every command is rendered), or
+#   - the command is itself selected by "--only", or
+#   - an ancestor is selected and "--recursive" is set.
+# A command that is emitted only to preserve the path down to a selected
+# descendant returns failure. The flat and Markdown formatters use this to skip a
+# container's block (the child's full name already conveys the hierarchy) while
+# still recursing into it; the tree formats (JSON/YAML) ignore it and emit every
+# command _knit_describe_should_emit keeps, because a child cannot nest without
+# its parent. Call only for a command already known to be emitted.
+#
+# @param[in] cmd          Mangled command name.
+# @param[in] sel_ancestor "true" if an ancestor of the command is in the "--only"
+#                     selection, "false" otherwise.
+# ------------------------------------------------------------------------------
+_knit_describe_is_selected() {
+    local cmd="$1"
+    local sel_ancestor="$2"
+    (( ${#_KNIT_DESCRIBE_ONLY[@]} == 0 )) && return 0
+    _knit_set_find _KNIT_DESCRIBE_ONLY "${cmd}" && return 0
+    [[ "${sel_ancestor}" == "true" ]] && _knit_describe_filter_on recursive \
+        && return 0
     return 1
 }
 
@@ -1486,59 +1528,70 @@ _knit_describe_default_command() {
     local cmd="$1"
     local use_color="$2"
     local sel_ancestor="$3"
-    local display kind tag
-    # The registered spelling (with any hyphens), rendered space-separated like
-    # the invocation form; the display path joins segments with ":", never a
-    # space, so replacing ":" with " " is safe.
-    display=$(_knit_command_display "${cmd}")
-    display="${display//:/ }"
-    _knit_describe_command_kind kind "${cmd}"
-    if _knit_command_is_builtin "${cmd}"; then tag="builtin"; else tag="user"; fi
-    local desc_var="_KNIT_CMD_${cmd}_description"
 
-    # Command titles stay at column 0 (the format is flat; depth is conveyed by
-    # the full name), but each command's sections are indented beneath it.
-    local sec="  "
+    # Render this command's own block only when it is selected in its own right. A
+    # command kept solely as a path container for a selected descendant prints
+    # nothing here --- the descendant's full space-separated name already conveys
+    # the hierarchy --- but the walk still recurses into it below.
+    if _knit_describe_is_selected "${cmd}" "${sel_ancestor}"; then
+        # A blank line separates blocks; it precedes every block but the first.
+        (( _KNIT_DESCRIBE_EMITTED )) && printf '\n'
+        _KNIT_DESCRIBE_EMITTED=1
 
-    _knit_describe_default_heading "${display}" "${use_color}"
-    printf '%s[%s, %s]  %s\n' "${sec}" "${kind}" "${tag}" "${!desc_var}"
+        local display kind tag
+        # The registered spelling (with any hyphens), rendered space-separated
+        # like the invocation form; the display path joins segments with ":",
+        # never a space, so replacing ":" with " " is safe.
+        display=$(_knit_command_display "${cmd}")
+        display="${display//:/ }"
+        _knit_describe_command_kind kind "${cmd}"
+        if _knit_command_is_builtin "${cmd}"; then tag="builtin"; else tag="user"; fi
+        local desc_var="_KNIT_CMD_${cmd}_description"
 
-    if ! _knit_describe_filter_on no_input_params; then
-        printf '\n'
-        _knit_describe_default_options "${cmd}" "${use_color}" "${sec}"
-    fi
+        # Command titles stay at column 0 (the format is flat; depth is conveyed
+        # by the full name), but each command's sections are indented beneath it.
+        local sec="  "
 
-    if ! _knit_describe_filter_on no_output_params; then
-        local -a __outs __arts=()
-        _knit_set_array __outs "_KNIT_CMD_${cmd}_outputs"
-        _knit_set_exists "_KNIT_CMD_${cmd}_artifacts" \
-            && _knit_set_array __arts "_KNIT_CMD_${cmd}_artifacts"
-        if (( ${#__outs[@]} )); then
+        _knit_describe_default_heading "${display}" "${use_color}"
+        printf '%s[%s, %s]  %s\n' "${sec}" "${kind}" "${tag}" "${!desc_var}"
+
+        if ! _knit_describe_filter_on no_input_params; then
             printf '\n'
-            _knit_describe_default_outputs "${cmd}" "${use_color}" "${sec}"
+            _knit_describe_default_options "${cmd}" "${use_color}" "${sec}"
         fi
-        if (( ${#__arts[@]} )); then
+
+        if ! _knit_describe_filter_on no_output_params; then
+            local -a __outs __arts=()
+            _knit_set_array __outs "_KNIT_CMD_${cmd}_outputs"
+            _knit_set_exists "_KNIT_CMD_${cmd}_artifacts" \
+                && _knit_set_array __arts "_KNIT_CMD_${cmd}_artifacts"
+            if (( ${#__outs[@]} )); then
+                printf '\n'
+                _knit_describe_default_outputs "${cmd}" "${use_color}" "${sec}"
+            fi
+            if (( ${#__arts[@]} )); then
+                printf '\n'
+                _knit_describe_default_artifacts "${cmd}" "${use_color}" "${sec}"
+            fi
+        fi
+
+        local extra_var="_KNIT_CMD_${cmd}_extra"
+        if [[ -n "${!extra_var}" ]]; then
             printf '\n'
-            _knit_describe_default_artifacts "${cmd}" "${use_color}" "${sec}"
+            _knit_describe_default_heading "Extra" "${use_color}" "${sec}"
+            printf '%s  %s\n' "${sec}" "${!extra_var}"
         fi
-    fi
 
-    local extra_var="_KNIT_CMD_${cmd}_extra"
-    if [[ -n "${!extra_var}" ]]; then
-        printf '\n'
-        _knit_describe_default_heading "Extra" "${use_color}" "${sec}"
-        printf '%s  %s\n' "${sec}" "${!extra_var}"
-    fi
-
-    local impl
-    impl=$(_knit_describe_implementation "${cmd}")
-    if [[ -n "${impl}" ]]; then
-        printf '\n'
-        _knit_describe_default_heading "Implementation" "${use_color}" "${sec}"
-        local iline
-        while IFS= read -r iline || [[ -n "${iline}" ]]; do
-            printf '%s  %s\n' "${sec}" "${iline}"
-        done <<< "${impl}"
+        local impl
+        impl=$(_knit_describe_implementation "${cmd}")
+        if [[ -n "${impl}" ]]; then
+            printf '\n'
+            _knit_describe_default_heading "Implementation" "${use_color}" "${sec}"
+            local iline
+            while IFS= read -r iline || [[ -n "${iline}" ]]; do
+                printf '%s  %s\n' "${sec}" "${iline}"
+            done <<< "${impl}"
+        fi
     fi
 
     local child_sel_ancestor="${sel_ancestor}"
@@ -1548,7 +1601,6 @@ _knit_describe_default_command() {
     local c
     for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "${child_sel_ancestor}" || continue
-        printf '\n'
         _knit_describe_default_command "${c}" "${use_color}" "${child_sel_ancestor}"
     done
 }
@@ -1573,11 +1625,10 @@ _knit_describe_default() {
 
     local -a __children
     _knit_describe_children __children ""
-    local first=1 c
+    _KNIT_DESCRIBE_EMITTED=0
+    local c
     for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "false" || continue
-        (( first )) || printf '\n'
-        first=0
         _knit_describe_default_command "${c}" "${use_color}" "false"
     done
 }
@@ -1849,47 +1900,58 @@ _knit_describe_md_artifacts() {
 _knit_describe_md_command() {
     local cmd="$1"
     local sel_ancestor="$2"
-    local display kind tag
-    # The registered spelling (with any hyphens), rendered space-separated like
-    # the invocation form; the display path joins segments with ":", never a
-    # space, so replacing ":" with " " is safe.
-    display=$(_knit_command_display "${cmd}")
-    display="${display//:/ }"
-    _knit_describe_command_kind kind "${cmd}"
-    if _knit_command_is_builtin "${cmd}"; then tag="builtin"; else tag="user"; fi
-    local desc_var="_KNIT_CMD_${cmd}_description"
 
-    printf '### %s\n\n' "${display}"
-    printf '*%s, %s* — %s\n' "${kind}" "${tag}" "${!desc_var}"
-
-    local extra_var="_KNIT_CMD_${cmd}_extra"
-    if [[ -n "${!extra_var}" ]]; then
-        printf '\n*Extra: %s*\n' "${!extra_var}"
-    fi
-
-    if ! _knit_describe_filter_on no_input_params; then
+    # Render this command's own section only when it is selected in its own right.
+    # A command kept solely as a path container for a selected descendant prints
+    # nothing here --- the descendant's full name already conveys the hierarchy ---
+    # but the walk still recurses into it below.
+    if _knit_describe_is_selected "${cmd}" "${sel_ancestor}"; then
+        # A blank line precedes every section (also separating the first section
+        # from the "## Commands" header above it).
         printf '\n'
-        _knit_describe_md_params "${cmd}"
-    fi
-    if ! _knit_describe_filter_on no_output_params; then
-        printf '\n'
-        _knit_describe_md_outputs "${cmd}"
-        # The Artifacts sub-section is emitted only for a command that declares an
-        # artifact, so an ordinary command is not padded with an empty section.
-        local -a __arts=()
-        _knit_set_exists "_KNIT_CMD_${cmd}_artifacts" \
-            && _knit_set_array __arts "_KNIT_CMD_${cmd}_artifacts"
-        if (( ${#__arts[@]} )); then
-            printf '\n'
-            _knit_describe_md_artifacts "${cmd}"
+
+        local display kind tag
+        # The registered spelling (with any hyphens), rendered space-separated
+        # like the invocation form; the display path joins segments with ":",
+        # never a space, so replacing ":" with " " is safe.
+        display=$(_knit_command_display "${cmd}")
+        display="${display//:/ }"
+        _knit_describe_command_kind kind "${cmd}"
+        if _knit_command_is_builtin "${cmd}"; then tag="builtin"; else tag="user"; fi
+        local desc_var="_KNIT_CMD_${cmd}_description"
+
+        printf '### %s\n\n' "${display}"
+        printf '*%s, %s* — %s\n' "${kind}" "${tag}" "${!desc_var}"
+
+        local extra_var="_KNIT_CMD_${cmd}_extra"
+        if [[ -n "${!extra_var}" ]]; then
+            printf '\n*Extra: %s*\n' "${!extra_var}"
         fi
-    fi
 
-    local impl
-    impl=$(_knit_describe_implementation "${cmd}")
-    if [[ -n "${impl}" ]]; then
-        # shellcheck disable=SC2016 # backticks are literal Markdown fence delimiters
-        printf '\n#### Implementation\n\n```bash\n%s\n```\n' "${impl}"
+        if ! _knit_describe_filter_on no_input_params; then
+            printf '\n'
+            _knit_describe_md_params "${cmd}"
+        fi
+        if ! _knit_describe_filter_on no_output_params; then
+            printf '\n'
+            _knit_describe_md_outputs "${cmd}"
+            # The Artifacts sub-section is emitted only for a command that declares
+            # an artifact, so an ordinary command is not padded with an empty one.
+            local -a __arts=()
+            _knit_set_exists "_KNIT_CMD_${cmd}_artifacts" \
+                && _knit_set_array __arts "_KNIT_CMD_${cmd}_artifacts"
+            if (( ${#__arts[@]} )); then
+                printf '\n'
+                _knit_describe_md_artifacts "${cmd}"
+            fi
+        fi
+
+        local impl
+        impl=$(_knit_describe_implementation "${cmd}")
+        if [[ -n "${impl}" ]]; then
+            # shellcheck disable=SC2016 # backticks are literal Markdown fence delimiters
+            printf '\n#### Implementation\n\n```bash\n%s\n```\n' "${impl}"
+        fi
     fi
 
     local child_sel_ancestor="${sel_ancestor}"
@@ -1899,7 +1961,6 @@ _knit_describe_md_command() {
     local c
     for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "${child_sel_ancestor}" || continue
-        printf '\n'
         _knit_describe_md_command "${c}" "${child_sel_ancestor}"
     done
 }
@@ -1927,7 +1988,6 @@ _knit_describe_markdown() {
     local c
     for c in "${__children[@]}"; do
         _knit_describe_should_emit "${c}" "false" || continue
-        printf '\n'
         _knit_describe_md_command "${c}" "false"
     done
 }
