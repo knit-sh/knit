@@ -30,7 +30,9 @@ time.
 
 Running ``./exp.sh --help`` already works and shows a handful of built-in
 commands, along with your experiment's description as set above. The commands you
-register below will appear in that same listing.
+register below join that same listing once you have bootstrapped the experiment
+(the next section) --- before that, only the built-ins that work without a
+database are shown.
 
 Your first command
 ------------------

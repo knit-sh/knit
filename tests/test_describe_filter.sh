@@ -101,3 +101,27 @@ _json() {
     [ "$(_json "[c['name'] for c in d['commands']]")" = "['metadata']" ]
     [ "$(_json "[s['name'] for s in [c for c in d['commands'] if c['name']=='metadata'][0]['subcommands']]")" = "['store']" ]
 }
+
+@test "--only skips the parent container's own block in the default format" {
+    run knit describe --no-color --only "metadata:store"
+    [ "$status" -eq 0 ]
+    # The selected leaf renders as a full block, titled by its full name; the
+    # parent, kept only to preserve the path, prints no block of its own.
+    [ "${lines[0]}" = "metadata store" ]
+    ! grep -qx "metadata" <<< "${output}"
+}
+
+@test "--only skips the parent container's own section in the markdown format" {
+    run knit describe --format markdown --only "metadata:store"
+    [ "$status" -eq 0 ]
+    grep -qx "### metadata store" <<< "${output}"
+    ! grep -qx "### metadata" <<< "${output}"
+}
+
+@test "--only on a parent still renders that parent's own block" {
+    # A container is skipped only when it is not selected in its own right; a
+    # parent named directly in --only renders normally.
+    run knit describe --no-color --only "metadata"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "metadata" ]
+}

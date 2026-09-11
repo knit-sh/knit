@@ -177,8 +177,15 @@ turns ``julia`` into.
 
 .. note::
 
-   As a side note, you now should have a PNG file in your current working
-   directory with a pretty picture of a Julia set.
+   The run above prints the count but writes no image, because ``output``
+   defaults to the empty string (``empty = no file``). Pass ``--output`` to get a
+   PNG of the Julia set:
+
+   .. code-block:: console
+
+      $ ./exp.sh julia --setup myenv --output fractal.png
+
+   which leaves a ``fractal.png`` in the current directory.
 
 .. _tutorial-step3:
 
@@ -252,6 +259,8 @@ its state (``submitted`` --- ``running`` --- ``completed``), and ``job status
 .. code-block:: console
 
    $ ./exp.sh job list
+   id                                    job    state
+   ------------------------------------  -----  ---------
    018f2a1b-9c3d-7e4f-8a1b-2c3d4e5f6a7b  julia  completed
 
 The same ``submit`` command works unchanged on a laptop and on a supercomputer
@@ -477,15 +486,15 @@ table --- notice the ``inside`` column we declared, alongside the parameters:
 .. code-block:: console
 
    $ ./exp.sh query catalog --ref render
-   table render
+   table render (command: run:render)
      column id (TEXT)
-     column width (INTEGER)
-     column height (INTEGER)
-     column c_re (REAL)
-     column c_im (REAL)
-     column max_iter (INTEGER)
-     column colormap (TEXT)
      column output (TEXT)
+     column c_im (REAL)
+     column c_re (REAL)
+     column colormap (TEXT)
+     column height (INTEGER)
+     column max_iter (INTEGER)
+     column width (INTEGER)
      column inside (INTEGER)
 
 (Declared parameter names with hyphens become columns with underscores, so
@@ -501,6 +510,7 @@ exactly what was recorded:
        --exec "SELECT c_re, c_im, inside FROM render ORDER BY inside"
    c_re    c_im    inside
    ------  ------  ------
+   -0.8    0.156   181
    -0.1    0.651   890
    -1.25   0.0     34164
    0.285   0.535   67424
@@ -523,13 +533,13 @@ jobs:
 It calls ``knit query sql`` from inside the body, exactly as you would from the
 shell. ``@without_provenance`` marks the command as read-only bookkeeping: it
 reads results but is not itself part of the experiment's provenance, so running it
-records no row and leaves no ``call`` edge in the graph. Running it collapses the
-three renders into one number:
+records no row and leaves no ``call`` edge in the graph. Running it collapses
+every render into one number:
 
 .. code-block:: console
 
    $ ./exp.sh aggregate
-   Summed inside=444737 over 7 render(s).
+   Summed inside=444918 over 8 render(s).
 
 **The provenance graph, with** ``query graph``. ``query sql`` reads columns from
 one table; ``query graph`` follows the *relationships* Knit records between rows
@@ -545,15 +555,19 @@ SQL query would join without knowing the provenance --- and read the metric back
    $ ./exp.sh query graph --format column --header \
        --exec "MATCH (job:julia)-[:call]->(:run)-[:call]->(img:render)
                RETURN job.id, img.c_re, img.inside"
-   job.id                                img.c_re  img.inside
-   ------------------------------------  --------  ----------
-   018f2a1b-9c3d-7e4f-8a1b-2c3d4e5f6a7b  -0.123    69456
-   018f3b2c-0d4e-7f5a-9b2c-3d4e5f6a7b8c  -1.0      74800
-   018f4c3d-1e5f-7a6b-0c3d-4e5f6a7b8c9d  -0.391    78043
-   018f5d4e-2f6a-7b7c-1d4e-5f6a7b8c9dae  0.285     67424
-   018f6e5f-3a7b-7c8d-2e5f-6a7b8c9daebf  -0.7      119960
-   018f7f6a-4b8c-7d9e-3f6a-7b8c9daebfc0  -1.25     34164
-   018f8a7b-5c9d-7eaf-4a7b-8c9daebfc0d1  -0.1      890
+   id                                    c_re    inside
+   ------------------------------------  ------  ------
+   018f1a0b-8b2c-7d3e-9f0a-1b2c3d4e5f60  -0.8    181
+   018f2a1b-9c3d-7e4f-8a1b-2c3d4e5f6a7b  -0.123  69456
+   018f3b2c-0d4e-7f5a-9b2c-3d4e5f6a7b8c  -1.0    74800
+   018f4c3d-1e5f-7a6b-0c3d-4e5f6a7b8c9d  -0.391  78043
+   018f5d4e-2f6a-7b7c-1d4e-5f6a7b8c9dae  0.285   67424
+   018f6e5f-3a7b-7c8d-2e5f-6a7b8c9daebf  -0.7    119960
+   018f7f6a-4b8c-7d9e-3f6a-7b8c9daebfc0  -1.25   34164
+   018f8a7b-5c9d-7eaf-4a7b-8c9daebfc0d1  -0.1    890
+
+Each output column is headed by the bare property name (the part after the dot),
+so ``RETURN job.id, img.c_re`` prints columns ``id`` and ``c_re``.
 
 The path mirrors how the run actually happened: ``submit`` called the ``julia``
 job, the job's body called ``knit run``, and the run launched the ``render`` app.
@@ -572,11 +586,11 @@ then the ``call`` edges down to each job's run --- one row per run:
 
    $ ./exp.sh query graph --format column --header \
        --exec 'MATCH (s:`setup:juliaenv`)-[:used_by]->(:submit)-[:call]->(:julia)-[:call]->(r:run) RETURN s.id, r.app, r.procs, r.hostnames'
-   s.id                                  r.app   r.procs  r.hostnames
-   ------------------------------------  ------  -------  -------------
-   018f27aa-4b1c-7d3e-8f0a-1b2c3d4e5f60  render  1        node07
-   018f27aa-4b1c-7d3e-8f0a-1b2c3d4e5f60  render  2        node07,node08
-   018f27aa-4b1c-7d3e-8f0a-1b2c3d4e5f60  render  1        node07
+   id                                    app     procs  hostnames
+   ------------------------------------  ------  -----  -------------
+   018f27aa-4b1c-7d3e-8f0a-1b2c3d4e5f60  render  1      node07
+   018f27aa-4b1c-7d3e-8f0a-1b2c3d4e5f60  render  2      node07,node08
+   018f27aa-4b1c-7d3e-8f0a-1b2c3d4e5f60  render  1      node07
 
 Because a ``setup:`` label contains a colon, it is quoted with backticks, and the
 whole ``--exec`` is single-quoted so the shell leaves those backticks alone. Every
@@ -647,6 +661,7 @@ the model can correct it (up to ``--max-iterations``):
    0.285   0.535   67424
    -1.25   0.0     34164
    -0.1    0.651   890
+   -0.8    0.156   181
 
 A relationship question is better answered in Cypher; ``--lang`` pins the
 language when you want to be sure, and ``--verbose`` reports which one was used:
@@ -687,8 +702,8 @@ database or building anything. Narrow it to one command with ``--only``:
 .. code-block:: console
 
    $ ./exp.sh describe --only submit:julia
-   julia
-   -----
+   submit julia
+   ------------
      [job, user]  Render a Julia-set fractal as a submitted job.
 
      Options
@@ -736,8 +751,11 @@ handed to the scheduler:
 
    $ ./exp.sh job show script --id 018f2a1b-9c3d-7e4f-8a1b-2c3d4e5f6a7b
    #!/bin/bash
+   export KNIT_JOB_PREFIX=.../jobs/018f2a1b-9c3d-7e4f-8a1b-2c3d4e5f6a7b
+   export KNIT_SETUP_PREFIX=.../setups/mympienv
    source .../setups/mympienv/.activate.sh
-   exec ./exp.sh submit --setup mympienv -- julia ...
+   cd ...
+   exec .../exp.sh submit julia
 
 On a laptop that script just activates the setup and runs the job in the
 background; on a cluster the very same command shows the ``#SBATCH`` / ``#PBS``
