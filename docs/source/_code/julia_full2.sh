@@ -75,7 +75,7 @@ _juliaenv_setup() {
 @with_setup "juliaenv"
 @with_parameter_set "julia-params"
 @with_optional "output:filename" "fractal.png" "PNG file name, written in the job directory."
-julia() {
+_julia() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")
     height=$(knit_get_parameter "height" "$@")
@@ -143,7 +143,7 @@ _render_app() {
 @command "aggregate" "Fan-in: tabulate every render into a result CSV."
 @with_table
 @with_output_artifact "table:insidecsv" "Per-render inside metric, one row per image (CSV)." --result
-aggregate() {
+_aggregate() {
     local out
     out="$(knit_artifact_dir)"
     mkdir -p "${out}"
@@ -169,7 +169,7 @@ aggregate() {
 @with_input_artifact "table:insidecsv" "Artifacts-relative path of the table to read." --verify-checksum
 @with_table
 @with_output "peak:real" "0" "Largest inside metric across the rendered images." --result
-report() {
+_report() {
     local csv
     csv="$(knit_input_artifact_path "$(knit_get_parameter "table" "$@")")"
 

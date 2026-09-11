@@ -74,7 +74,7 @@ _juliaenv_setup() {
 @with_setup "juliaenv"
 @with_parameter_set "julia-params"
 @with_optional "output:string" "fractal.png" "PNG file name, written in the job directory."
-julia() {
+_julia() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")
     height=$(knit_get_parameter "height" "$@")
@@ -129,7 +129,7 @@ _render_app() {
 @command "aggregate" \
     "Fan-in: total the inside metric across every recorded render."
 @without_provenance
-aggregate() {
+_aggregate() {
     local count total
     count=$(knit query sql --exec "SELECT count(*) FROM render;")
     total=$(knit query sql --exec "SELECT sum(inside) FROM render;")

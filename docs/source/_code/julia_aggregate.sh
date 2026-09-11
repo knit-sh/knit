@@ -52,7 +52,7 @@ _juliaenv_setup() {
 @with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
 @with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
 @with_optional "output:string"    "fractal.png" "PNG file name, written in the job directory."
-julia() {
+_julia() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")
     height=$(knit_get_parameter "height" "$@")
@@ -110,7 +110,7 @@ _render_app() {
 @command "aggregate" \
     "Fan-in: total the inside metric across every recorded render."
 @without_provenance
-aggregate() {
+_aggregate() {
     # Read back what the renders recorded. Each `knit run -- render` wrote one row
     # in the `render` table (rank 0 only), so one SELECT sees every image the
     # experiment has produced, across every job submission.

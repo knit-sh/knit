@@ -50,7 +50,7 @@ _juliaenv_setup() {
 @with_optional "c-im:real"        "0.156"  "Imaginary part of the Julia constant c."
 @with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
 @with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
-julia() {
+_julia() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")
     height=$(knit_get_parameter "height" "$@")

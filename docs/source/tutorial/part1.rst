@@ -5,7 +5,7 @@ This first part builds the experiment from beginning to end, where each step
 introduces exactly one new concept. We build around a real program,
 `julia-fractal <https://github.com/knit-sh/julia-fractal-example>`_, a small C++
 renderer for `Julia-set <https://en.wikipedia.org/wiki/Julia_set>`_ fractals. We
-start with a plain command that tries to run it and, step by step, turn it into a
+start with a plain command that runs it in a serial way and, step by step, turn it into a
 Spack-backed, MPI-parallel, fully recorded experiment. By the end you will have
 used setups, jobs, apps, and the query and provenance surfaces together on a
 single realistic workload.
@@ -16,7 +16,7 @@ single realistic workload.
    actual supercomputer. Your laptop does not need MPI. However it needs to
    be able to run `Spack <https://spack.io/>`_ (i.e. have python), compile C programs
    (i.e., gcc, make), untar archives (tar) and download from the internet (curl).
-   must be available. The code for each step of this tutorial is shown in full and was
+   The code for each step of this tutorial is shown in full and was
    validated end to end during development; the console output is illustrative.
 
 The program
@@ -55,6 +55,16 @@ optional with a sensible default, so it can be run bare:
 The body reads each parameter with ``knit_get_parameter`` and calls
 ``julia-fractal`` with the arguments in the order the program expects.
 
+.. note::
+
+   The function is named ``_julia``, not ``julia``. Knit binds a command to the
+   function defined just below its declaration, so the two names are independent
+   --- the function name does not have to match the command name. A leading
+   underscore is good practice: it keeps the command (``julia``) and its Bash
+   function (``_julia``) distinct and marks the function as an internal helper of
+   the experiment. This tutorial follows that convention throughout
+   (``_aggregate``, ``_render_app``, ``_juliaenv_setup``, ...).
+
 Bootstrap the experiment once, then run the command:
 
 .. code-block:: console
@@ -79,8 +89,8 @@ the command itself failed, because nothing has built or installed
 
 .. note::
 
-   You will find the ``./exp.sh bootstrap`` has created multiple folders in the
-   current directory: **.knit** contains Knit-maintained databases and toolsl;
+   You will find that ``./exp.sh bootstrap`` may have created multiple folders in the
+   current directory: **.knit** contains Knit-maintained databases and tools;
    **setups** contains environment instances (it should currently only contain
    a **default** subfolder), and **jobs** will eventually contain a subfolder
    for each job we will submit.
@@ -90,15 +100,14 @@ the command itself failed, because nothing has built or installed
 Step 2 --- A setup that builds the program
 ------------------------------------------
 
-We could build ``julia-fractal`` by hand, but then the experiment would only
-run where we happened to build it. A **setup** is Knit's answer: a recorded,
-reproducible step that builds an environment once, to be reused by later
+We could build the ``julia-fractal`` executable by hand, but this would mean documenting
+extra steps for anyone who wants to reproduce our experiment. A **setup** is Knit's
+answer: a recorded, reproducible step that builds an environment once, to be reused by later
 commands. Ours builds ``julia-fractal`` from source and installs it.
 
 A setup is registered with ``@setup``. This one declares the
 software it needs with ``@with_spack_specs`` --- ``cmake`` and ``libpng``
 (no MPI yet; that comes later) --- and its body clones the source, builds it, and
-
 installs it. This setup must come before our earlier definition of the ``julia``
 command:
 
@@ -113,11 +122,11 @@ Two things make this reproducible. ``@with_spack_specs`` declares a
 the body finds them regardless of what the host has installed.
 And ``KNIT_SETUP_PREFIX`` is a private directory
 Knit creates for a setup instance; everything the body installs there stays with
-the setup. The body does not snapshot its shell: it *declares* the environment it
+the setup. The body declares the environment it
 wants dependent commands to inherit. ``knit_setup_env_prepend PATH
 "${KNIT_SETUP_PREFIX}/bin"`` records a composable line, so each command that
 depends on the setup adds the installed binary to its own ``PATH`` instead of
-overwriting it.
+overwriting it. This is similar to how environment-modules or lmod work.
 
 .. note::
 
@@ -133,10 +142,14 @@ We can now instanciate our setup:
 ``setup`` is a *dispatcher*: the options before ``--`` configure the setup
 instance (``--name myenv`` names this build), and the arguments after ``--``
 select the setup type (``juliaenv``) and pass its own parameters. To build a
-different revision, append ``--ref``: ``setup --name myenv -- juliaenv --ref
-main``.
+different revision, append ``--ref``, e.g:
 
-Once built, you should see a new folder named **myenv** in the **Setups** directory. This is where the environment was installed.
+.. code-block:: console
+
+   $ ./exp.sh setup --name myenv -- juliaenv --ref main
+
+Once built, you should see a new folder named **myenv** in the **setups** directory.
+This is where the environment was installed.
 
 Now tell the ``julia`` command to depend on the setup. One line, between its
 ``@command`` and ``@done``, does it:
@@ -162,7 +175,10 @@ that is the metric we will record and aggregate later. So far we have run
 background (and, on a cluster, on other nodes) --- which is what the next step
 turns ``julia`` into.
 
-As a side note, you now should have a PNG file in your current working directory with a pretty picture of a Julia set.
+.. note::
+
+   As a side note, you now should have a PNG file in your current working
+   directory with a pretty picture of a Julia set.
 
 .. _tutorial-step3:
 
@@ -190,7 +206,7 @@ remove the ``output`` parameter of the command, alway outputing *fractal.png*):
 Two things are worth calling out. ``KNIT_JOB_PREFIX`` is a private working
 directory Knit creates for *each* submission, so every run keeps its own output
 alongside the standard output and error Knit captures for the job. Knit runs the
-job body with its current directory *already* set to that job directory, so a
+job's body with its current directory *already* set to that job directory, so a
 bare relative ``fractal.png`` would land in the same place --- we could have
 written just that. We still build an absolute path from ``KNIT_JOB_PREFIX`` on
 purpose: it says explicitly where the output belongs, and it keeps working even
@@ -381,7 +397,7 @@ binary's ``inside=`` line. Every rank runs that line, but Knit records outputs
 written no matter how many ranks ran. That recorded ``inside`` is what Step 6
 queries and aggregates.
 
-Third, the app has **no setup of its own**. ``@with_setup`` is a job concept;
+Third, the app has **no setup of its own**.
 an app inherits the environment of the job that launched it, so ``julia-fractal``
 is already on ``PATH`` from the job's ``juliaenv`` setup. The job also hands the
 app the output path it built from ``KNIT_JOB_PREFIX``. Knit runs each rank in the
@@ -545,8 +561,7 @@ Because that history is recorded as a graph, you can ask questions that span the
 whole chain --- for example, following the ``used_by`` edge back to the setup a
 render's job consumed --- rather than only what lives in a single table.
 
-The provenance model, ``knit query`` in full, and analysis commands are covered
-in :doc:`the Stitch Guide <../stitch/index>`. Knit's experimental model fans out from
+Knit's experimental model fans out from
 a single bootstrap to multiple setups, each used by multiple jobs, each potentially
 running one or more apps, before a fan-in command aggregates the result to, for
 instance, produce figures. That entire lineage is a single path in Cypher:
@@ -590,7 +605,7 @@ it reads that variable at call time:
    $ export OPENAI_API_KEY=sk-...
    $ ./exp.sh bootstrap --ai-api-key-env OPENAI_API_KEY --ai-model o4-mini
 
-That records only non-secret configuration (env-var names and defaults) in the
+This records only non-secret configuration (env-var names and defaults) in the
 metadata table. ``--ai-base-url`` defaults to ``https://api.openai.com/v1`` but
 can point at any OpenAI-compatible endpoint. Re-running ``bootstrap`` updates only
 the ``--ai-*`` option you type (``bootstrap --ai-model gpt-4o-mini``), so one
@@ -615,7 +630,7 @@ experiment but never submit a job or write to the database.
 **Auditable answers, with** ``ai query``, is narrower: it turns the question
 into exactly *one* read-only query, runs it against the experiment, and prints
 the result in the output mode you choose. It picks the language that fits: SQL
-for aggregation and sorting within a table, Cypher (via knit-cypher-to-sql) for
+for aggregation and sorting within a table, Cypher  for
 relationships across commands. If the query errors, Knit feeds the error back so
 the model can correct it (up to ``--max-iterations``):
 
@@ -652,8 +667,7 @@ handy for pasting into ``query sql`` or ``query graph`` yourself:
    SELECT c_re, c_im, inside FROM render ORDER BY inside DESC;
 
 Both commands need a configured provider and a reachable key; without one they
-stop with a clear message pointing you back to ``bootstrap --ai-*``. Provider
-setup, scope, and limits are covered in :doc:`the Stitch Guide <../stitch/index>`.
+stop with a clear message pointing you back to ``bootstrap --ai-*``.
 
 Step 8 --- Inspect and manage what you have built
 -------------------------------------------------
@@ -694,8 +708,7 @@ interface --- the same structure the AI tools in Step 7 read), ``--format
 markdown`` produces a table you can drop into documentation, and
 ``--exclude-builtins`` hides Knit's own commands so you see only yours. The
 per-command ``--help`` shows the same options focused on a single command
-(``./exp.sh julia --help``), and the top-level ``./exp.sh --help`` lists the
-entire tree.
+(``./exp.sh julia --help``).
 
 
 **Revisit your jobs.** ``job list`` shows every job you have submitted with its

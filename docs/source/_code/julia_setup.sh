@@ -57,7 +57,7 @@ _juliaenv_setup() {
 @with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
 @with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
 @with_optional "output:string"    ""       "PNG file to write (empty = no file)."
-julia() {
+_julia() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")
     height=$(knit_get_parameter "height" "$@")

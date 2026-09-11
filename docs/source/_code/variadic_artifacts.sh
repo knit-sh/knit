@@ -23,7 +23,7 @@ knit_set_program_description "Variadic artifacts (fan-out and glob merge) demo."
 @with_optional "n:integer" "3" "How many shards to write."
 @with_output_artifact "shards:csvfile*" "The CSV shards (zero or more)."
 @with_table
-shard() {
+_shard() {
     local n out i
     n="$(knit_get_parameter "n" "$@")"
     out="$(knit_artifact_dir)"
@@ -47,7 +47,7 @@ shard() {
 @with_input_artifact "shards:csvfile+" "Artifacts-relative glob of the shards to merge (one or more)."
 @with_output "rows:integer" "0" "Total data rows across the merged shards." --result
 @with_table
-merge() {
+_merge() {
     local -a paths=()
     knit_input_artifact_paths paths "$(knit_get_parameter "shards" "$@")"
     local total=0 p
