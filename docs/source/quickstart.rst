@@ -11,31 +11,22 @@ An experiment is a script
 A Knit experiment is an ordinary Bash script (we will call it ``exp.sh``
 hereafter). It sources ``knit.sh`` (kept next to the script), describes itself,
 registers one or more commands, and ends with the single line ``knit "$@"`` that
-hands the command line to Knit:
+hands the command line to Knit. The overall shape is:
 
-.. knit-code:: _code/quickstart.sh
-   :language: bash
-   :start-after: # START run
-   :end-before: # END run
+.. code-block:: bash
+
+   source knit.sh
+
+   knit_set_program_description "A tiny quickstart experiment."
+
+   # ... register your commands here ...
+
+   knit "$@"
 
 ``knit_set_program_description`` sets the blurb shown at the top of ``--help``.
 Everything between the ``source`` line and the final ``knit "$@"`` registers the
-commands your experiment offers.
-
-.. note::
-
-   ``@command``, ``@done``, and the ``@with_*`` decorators you meet below are
-   Knit's **shorthand** for its
-   declaration API. Every ``knit_x`` declaration function has an ``@x`` twin
-   (``knit_register`` is written ``@command`` and ``knit_register_<x>`` is written
-   ``@<x>``). The shorthand is enabled by default and is what this documentation
-   uses; the canonical ``knit_*`` functions remain available and unchanged.
-
-   Each code example on this site has two tabs: **Shorthand** shows the ``@``
-   form, and **Long form** shows the equivalent ``knit_*`` calls. Select a tab
-   and the site keeps your choice for every other example, on this page and the
-   next. An example with no shorthand shows one block, because both tabs are the
-   same.
+commands your experiment offers. We fill that middle in below, one command at a
+time.
 
 Running ``./exp.sh --help`` already works and shows a handful of built-in
 commands, along with your experiment's description as set above. The commands you
@@ -55,6 +46,16 @@ never repeat the function's name. Here is a command that just prints a greeting:
    :start-after: # START hello
    :end-before: # END hello
 
+.. note::
+
+   The function is named ``_hello``, not ``hello``. Because Knit binds a command
+   to the function defined just below its declaration, the two names are
+   independent --- the function name does not have to match the command name.
+   Giving the function a leading underscore is good practice: it keeps the
+   command (``hello``) and its Bash function (``_hello``) visibly distinct and
+   marks the function as an internal helper of the experiment. The rest of this
+   page follows that convention (``_say``, ``_greet``, ``_scale``, ``_add``).
+
 Before running any command, bootstrap the experiment once. This creates a
 ``.knit/`` directory holding a small SQLite database (and, if they are not
 already on your system, installs the tools Knit relies on):
@@ -70,10 +71,26 @@ Now run the command:
    $ ./exp.sh hello
    Hello World
 
-Command names accept hyphens and underscores interchangeably (just like
-parameter names), so a command registered as ``db-show`` can also be invoked as
-``db_show``. The spelling you register with is the one shown in ``--help`` and
-``describe``.
+.. note::
+
+   Command names (like many other names in Knit) accept hyphens and underscores
+   interchangeably, so a command registered as ``db-show`` can also be invoked as
+   ``db_show``.
+
+.. note::
+
+   ``@command``, ``@done``, and the ``@with_*`` decorators you meet below are
+   Knit's **shorthand** for its
+   declaration API. Every ``knit_x`` declaration function has an ``@x`` twin
+   (``knit_register`` is written ``@command`` and ``knit_register_<x>`` is written
+   ``@<x>``). The shorthand is enabled by default and is what this documentation
+   uses; the canonical ``knit_*`` functions remain available and unchanged.
+
+   Each code example on this site has two tabs: **Shorthand** shows the ``@``
+   form, and **Long form** shows the equivalent ``knit_*`` calls. Select a tab
+   and the site keeps your choice for every other example, on this page and the
+   next. An example with no shorthand shows one block, because both tabs are the
+   same.
 
 Taking a parameter
 ------------------
@@ -99,7 +116,8 @@ out for you.
 
 Parameter names accept hyphens and underscores interchangeably, (so ``my-param``
 and ``my_param`` represent the same parameter) and the type
-vocabulary includes ``integer``, ``real``, ``string``, ``boolean`` and ``uuid``.
+vocabulary includes ``integer``, ``real``, ``string``, ``boolean`` and ``uuid``,
+among others.
 
 Optional parameters and flags
 -----------------------------
@@ -147,8 +165,8 @@ is used if the command exits before setting it), and ``knit_output <name>
    $ ./exp.sh scale --value 10 --factor 5
    result=50
 
-Recording runs in a table
--------------------------
+Recording calls in a table
+--------------------------
 
 Declaring an output gives a run a result, but as written above, this result is not
 stored anywhere. Adding ``@with_table`` tells Knit to **record** every invocation
@@ -168,18 +186,26 @@ Each time ``add`` runs, Knit writes one row into an ``add`` table:
    $ ./exp.sh add --x 2 --y 3
    total=5
 
-Read the recorded rows straight back out with SQL, or list every table and its
-columns with the catalog:
+Read the recorded rows straight back out with SQL:
 
 .. code-block:: console
 
    $ ./exp.sh query sql --format column --header \
        --exec 'SELECT x, y, total FROM "add"'
-   $ ./exp.sh query catalog
 
 .. note::
 
    Recording is the first step of Knit's full model
-   (*bootstrap → setup → submit → run → analyze*). The **Basic Usage** guide
-   picks up here and shows how to build environments, submit jobs, launch
-   parallel apps, and aggregate their recorded results.
+   (*bootstrap → setup → submit → run → aggregate*). The :doc:`Tutorial
+   <tutorial/index>` picks up here and shows how to build environments, submit
+   jobs, launch parallel apps, and aggregate their recorded results.
+
+The complete experiment
+-----------------------
+
+Here is the whole experiment in one file. Save it as ``exp.sh`` next to a copy of
+``knit.sh``, make it executable (``chmod +x exp.sh``), ``bootstrap`` once, and
+every command from this page is available:
+
+.. knit-code:: _code/quickstart_full.sh
+   :language: bash

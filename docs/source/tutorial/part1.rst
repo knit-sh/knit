@@ -39,7 +39,7 @@ and prints some results.
 
 .. _tutorial-step1:
 
-Step 1 --- a command that calls the program
+Step 1 --- A command that calls the program
 -------------------------------------------
 
 The simplest thing we can do is wrap the program in a Knit command. As in the
@@ -87,7 +87,7 @@ the command itself failed, because nothing has built or installed
 
 .. _tutorial-step2:
 
-Step 2 --- a setup that builds the program
+Step 2 --- A setup that builds the program
 ------------------------------------------
 
 We could build ``julia-fractal`` by hand, but then the experiment would only
@@ -166,7 +166,7 @@ As a side note, you now should have a PNG file in your current working directory
 
 .. _tutorial-step3:
 
-Step 3 --- submit it as a job
+Step 3 --- Submit it as a job
 -----------------------------
 
 A **job** is a command you submit rather than run yourself: Knit hands it to the
@@ -322,7 +322,7 @@ with ``knit run``.
 
 .. _tutorial-step5:
 
-Step 5 --- launch it in parallel with ``knit run``
+Step 5 --- Launch it in parallel with ``knit run``
 --------------------------------------------------
 
 Until now the job body ran ``julia-fractal`` itself, as a single process. To run
@@ -429,7 +429,7 @@ Nothing in the experiment script changes between the two; only the node count (a
 the machine) differs. The next step turns to the records these runs left behind
 --- querying and aggregating the ``inside`` metric across many renders.
 
-Step 6 --- query and aggregate the results
+Step 6 --- Query and aggregate the results
 ------------------------------------------
 
 Every ``render`` recorded one row, from rank 0, in a table named after the app.
@@ -572,7 +572,7 @@ e.g. ``r.procs_per_node`` or ``r.native_cmd``), or extending the path one more h
 to the app that recorded the science metric ---
 ``-[:call]->(img:render) RETURN r.hostnames, img.inside``.
 
-Step 7 --- ask your experiment in natural language
+Step 7 --- Ask your experiment in natural language
 --------------------------------------------------
 
 ``query sql`` and ``query graph`` are precise, but they ask you to know the
@@ -655,7 +655,7 @@ Both commands need a configured provider and a reachable key; without one they
 stop with a clear message pointing you back to ``bootstrap --ai-*``. Provider
 setup, scope, and limits are covered in :doc:`the Stitch Guide <../stitch/index>`.
 
-Step 8 --- inspect and manage what you have built
+Step 8 --- Inspect and manage what you have built
 -------------------------------------------------
 
 The experiment is complete: it builds its software, submits jobs, runs them in
@@ -769,7 +769,7 @@ With these in hand you can inspect, retrieve, and manage everything the experime
 records. The one thing left is to run it where it is meant to run --- a real
 cluster --- which is the final step.
 
-Step 9 --- move to a real HPC machine
+Step 9 --- Move to a real HPC machine
 -------------------------------------
 
 Everything so far ran on a laptop. Moving to a supercomputer changes **nothing in
@@ -913,8 +913,8 @@ parallel placement, querying, or the AI tools --- you can also continue to
 
 .. _tutorial-full:
 
-The complete experiment
------------------------
+The complete experiment (Part I)
+--------------------------------
 
 Here is the whole thing in one file. Save it as ``exp.sh`` next to a copy of
 ``knit.sh``, make it executable (``chmod +x exp.sh``), and you have the finished

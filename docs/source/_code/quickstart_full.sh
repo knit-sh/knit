@@ -1,25 +1,21 @@
 #!/bin/bash
 
-# The Quickstart experiment. It grows one command at a time --- from a bare
-# "hello" through parameters, flags, and finally a recorded output backed by a
-# table --- so each documentation subsection can show exactly one new idea.
-# Kept to the local backend so it runs anywhere with just bash and sqlite3.
+# The complete Quickstart experiment: the final state of the script built up one
+# command at a time over the Quickstart page (hello, say, greet, scale, and the
+# recorded add). Kept to the local backend so it runs anywhere with just bash and
+# sqlite3. Functions are given a leading underscore so their names need not match
+# the command names.
 
-# START run
 source knit.sh
 
 knit_set_program_description "A tiny quickstart experiment."
-# END run
 
-# START hello
 @command "hello" "Print a greeting."
 _hello() {
     echo "Hello World"
 }
 @done
-# END hello
 
-# START say
 @command "say" "Repeat a message."
 @with_required "message:string" "The message to repeat."
 _say() {
@@ -28,9 +24,7 @@ _say() {
     echo "User said '${message}'"
 }
 @done
-# END say
 
-# START greet
 @command "greet" "Greet someone by name."
 @with_required "name:string" "Who to greet."
 @with_optional "title:string" "" "An optional title (Mr, Mrs, Prof., ...)."
@@ -51,9 +45,7 @@ _greet() {
     echo "${greeting}"
 }
 @done
-# END greet
 
-# START scale
 @command "scale" "Multiply an integer by a factor."
 @with_required "value:integer" "The value to scale."
 @with_optional "factor:integer" "2" "The multiplier (defaults to 2)."
@@ -66,9 +58,7 @@ _scale() {
     printf 'result=%s\n' "$((value * factor))"
 }
 @done
-# END scale
 
-# START add
 @command "add" "Add two integers and record the run."
 @with_required "x:integer" "First value."
 @with_required "y:integer" "Second value."
@@ -82,6 +72,5 @@ _add() {
     printf 'total=%s\n' "$((x + y))"
 }
 @done
-# END add
 
 knit "$@"

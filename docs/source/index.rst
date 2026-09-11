@@ -19,7 +19,7 @@ repeated, and moved from a laptop to a supercomputer without changing the code.
 Objectives
 ----------
 
-**Simplicity.** Write experiments as plain Bash: source knit.sh, register a
+**Simplicity.** Write experiments as plain Bash: ``source knit.sh``, register a
 function as a command, declare its typed parameters, and Knit gives you a complete CLI ---
 ``--help``, validation, and logging --- for free.
 
@@ -54,12 +54,15 @@ what an earlier one produced.
 
 * **Bootstrap**: downloads and installs what the Knit framework itself needs (e.g. sqlite3).
 * **Setup**: builds a reproducible software environment (e.g., manual build, Spack environment, modules).
-* **Submit**: queues a batch job on the scheduler or execute it locally, recording its state and hosts.
+* **Submit**: queues a batch job on the scheduler or executes it locally, recording its state and hosts.
 * **Run**: launches a parallel (MPI) application across a job's nodes.
 * **Aggregate**: reads output from many jobs to produce publishable results.
 
 The model is a *fan-out* from **bootstrap** to **run** (one bootstrap, multiple setups,
 each used by multiple jobs, each running multiple applications) and a *fan-in* to **aggregate**.
+
+Extra, optional steps include fetching **resources** needed by the experiments (e.g., datasets),
+tracing their provenance, and packaging and uploading **artifacts** for reproducers.
 
 Getting started
 ---------------
