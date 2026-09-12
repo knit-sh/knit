@@ -661,7 +661,9 @@ the prompt for a script or a non-interactive shell.
 A live job is never erased out from under you: a job still ``prepared``,
 ``submitted``, or ``running`` is refused, with a pointer to ``job cancel``. Cancel
 it, or let it finish, then remove it. Only a ``completed`` or ``killed`` job --- a
-job that is truly done --- can be erased.
+job that is truly done --- can be erased. This refusal applies to ``--dry-run``
+too: when a live entity would block the removal, ``--dry-run`` stops with the same
+``job cancel`` pointer rather than printing a preview.
 
 **Remove a setup and rebuild.** Part I treated a setup as write-once: with no way
 to delete one, the advice was to give each rebuild a fresh name and let the old
