@@ -442,3 +442,36 @@ teardown() {
     run knit_with_required "data:file" "An input dataset."
     [ "$status" -ne 0 ]
 }
+
+# ---------- _knit_format_option_alternatives ----------
+
+@test "_knit_format_option_alternatives prints one spelling when identical" {
+    local result
+    _knit_format_option_alternatives result "src"
+    [ "$result" = "--src" ]
+}
+
+@test "_knit_format_option_alternatives prints both spellings when they differ" {
+    local result
+    _knit_format_option_alternatives result "src_dir"
+    [ "$result" = "--src_dir or --src-dir" ]
+}
+
+@test "missing single-token required option names it once" {
+    knit_register "req_single_cmd" knit_empty "Test."
+    knit_with_required "src:string" "A source."
+    knit_done
+    run _knit_check_command_arguments "req_single_cmd"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"requires a --src option."* ]]
+    [[ "$output" != *"--src or --src"* ]]
+}
+
+@test "missing multi-token required option names both spellings" {
+    knit_register "req_multi_cmd" knit_empty "Test."
+    knit_with_required "src_dir:string" "A source directory."
+    knit_done
+    run _knit_check_command_arguments "req_multi_cmd"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"requires a --src_dir or --src-dir option."* ]]
+}

@@ -114,6 +114,22 @@ teardown() {
 
     run _knit_invoke_command "constrained_cmd2" "--x" "50"
     [ "$status" -eq 1 ]
+    [[ "$output" == *"requires --y when the constraint is satisfied"* ]]
+    [[ "$output" != *"--y or --y"* ]]
+}
+
+@test "constraint message names both spellings for a multi-token param" {
+    if ! command -v jq &>/dev/null; then skip "jq not available"; fi
+    _KNIT_JQ_EXE="jq"
+
+    knit_register "constrained_cmd_multi" knit_empty "A command."
+    knit_with_required "x:integer" "X value."
+    knit_with_required "y_max:integer" "Y max." --when ".x > 42"
+    knit_done
+
+    run _knit_invoke_command "constrained_cmd_multi" "--x" "50"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"requires --y_max or --y-max when the constraint is satisfied"* ]]
 }
 
 @test "constraint passes: required param absent when condition is false" {

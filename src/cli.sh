@@ -1682,15 +1682,37 @@ knit_with_flag() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_format_option_alternatives()
+#
+# Format the display spelling(s) of an option for a message. Options accept both
+# hyphen and underscore spellings; this returns "--foo or --foo-bar" when the
+# two spellings differ, and just "--foo" when they are identical (so a message
+# about an option with no underscores does not read "--foo or --foo").
+#
+# @param[out] __knit_ret Name of the variable to hold the result.
+# @param[in] option Parameter name (as declared).
+# ------------------------------------------------------------------------------
+_knit_format_option_alternatives() {
+    local -n __knit_ret=$1
+    local option="$2"
+    local alt_format
+    _knit_str_underscores_to_hyphens alt_format "${option}"
+    if [[ "${option}" == "${alt_format}" ]]; then
+        __knit_ret="--${option}"
+    else
+        __knit_ret="--${option} or --${alt_format}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_pset_filter_build()
 #
-# Parse a comma-separated --exclude / --only list into a filter set. Each named
-# parameter must exist in the source parameter set (across its required,
-# optional, and flag parameters), else the call is fatal --- this guards against
-# a typo silently importing the whole set. Names are normalized (hyphens and
-# underscores are interchangeable).
+# Build the set of normalized parameter names named by a filter list, failing if
+# any name is not in the source parameter set. Prevents a typo from silently
+# importing the whole set. Names are normalized (hyphens and underscores are
+# interchangeable).
 #
-# @param[out] out Associative array to populate with the normalized names.
+# @param[out] __knit_ret Associative array to populate with the normalized names.
 # @param[in] pset_ns Namespace prefix of the source set (e.g. "_KNIT_PSET_foo").
 # @param[in] set_name Original set name, for error messages.
 # @param[in] mode Filter mode ("exclude" or "only"), for error messages.
@@ -2207,9 +2229,9 @@ _knit_check_command_arguments() {
         if knit_get_parameter "${option}" "${args[@]}" > /dev/null; then
             continue
         fi
-        local alt_format
-        _knit_str_underscores_to_hyphens alt_format "${option}"
-        knit_fatal "Command \"${demangled_cmd}\" requires a --${option} or --${alt_format} option."
+        local option_display
+        _knit_format_option_alternatives option_display "${option}"
+        knit_fatal "Command \"${demangled_cmd}\" requires a ${option_display} option."
     done < <(_knit_set_iter "${required_args_varname}")
     # Check that all the arguments provided are expected options or flags
     local optional_args_varname="_KNIT_CMD_${cmd}_optional"
@@ -2840,9 +2862,9 @@ _knit_check_constraints() {
             fi
             if [[ "${cond_result}" == "true" ]]; then
                 if [[ "${set_name}" == "required" && "${user_provided}" == "false" ]]; then
-                    local alt_format
-                    _knit_str_underscores_to_hyphens alt_format "${param}"
-                    knit_fatal "Command \"${demangled_cmd}\" requires --${param} or --${alt_format} when the constraint is satisfied."
+                    local param_display
+                    _knit_format_option_alternatives param_display "${param}"
+                    knit_fatal "Command \"${demangled_cmd}\" requires ${param_display} when the constraint is satisfied."
                 fi
             else
                 if [[ "${user_provided}" == "true" ]]; then
