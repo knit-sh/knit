@@ -772,15 +772,29 @@ _knit_query_exec_over_lens() {
 
     _knit_query_warn_fingerprint_mismatch "${preamble}"
 
-    # sqlite3's csv mode terminates rows with CRLF (RFC 4180); every other output
-    # mode uses a bare LF. A stray trailing CR breaks a consumer that reads a
-    # query result back as a typed value (e.g. a report feeding a "real"/"integer"
-    # knit_output), so normalize CRLF row terminators to LF. Non-csv output has no
-    # CR, so the substitution is a no-op there. The CR is written as a literal
-    # byte (ANSI-C quoting) so the pattern is portable across seds. PIPESTATUS
-    # preserves sqlite3's own exit status across the pipe.
-    _knit_sqlite3 "${out_flags[@]}" "${preamble}
-${sql}" | sed $'s/\r$//'
+    _knit_query_run_normalized "${out_flags[@]}" "${preamble}
+${sql}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_query_run_normalized()
+#
+# Run a read query through _knit_sqlite3 with the given output flags and normalize
+# the result's line endings. sqlite3's csv mode terminates rows with CRLF (RFC
+# 4180) while every other output mode uses a bare LF; a stray trailing CR breaks a
+# consumer that reads a value back as a typed result (e.g. a report feeding a
+# "real"/"integer" knit_output), so the CRLF row terminators are rewritten to LF.
+# Non-csv output has no CR, so the substitution is a no-op there. The CR is
+# matched as a literal byte (ANSI-C quoting) so the pattern is portable across
+# seds, and PIPESTATUS preserves sqlite3's own exit status across the filter.
+# Shared by `query sql`/`query graph` (through _knit_query_exec_over_lens) and by
+# `ai query`'s standalone (no-lens) path.
+#
+# @param[in] ... _knit_sqlite3 arguments (output flags followed by the SQL).
+# @return The exit status of sqlite3.
+# ------------------------------------------------------------------------------
+_knit_query_run_normalized() {
+    _knit_sqlite3 "$@" | sed $'s/\r$//'
     return "${PIPESTATUS[0]}"
 }
 

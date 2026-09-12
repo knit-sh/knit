@@ -319,6 +319,8 @@ _sql_resp() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"bob"* ]]
     [[ "$output" == *"alice"* ]]
+    # The standalone (no --extra) csv path emits LF, not sqlite3's CRLF.
+    printf '%s' "${output}" | ( ! grep -q $'\r' )
 }
 
 @test "ai query --query-only prints the query and language via the dispatcher" {

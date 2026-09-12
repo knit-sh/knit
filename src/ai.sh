@@ -1091,7 +1091,7 @@ _knit_ai_query_loop() {
                     "${generated_sql}" "${mode_args[@]}" 2>&1)
                 sql_status=$?
             else
-                out=$(_knit_sqlite3 "${mode_args[@]}" "${generated_sql}" 2>&1)
+                out=$(_knit_query_run_normalized "${mode_args[@]}" "${generated_sql}" 2>&1)
                 sql_status=$?
             fi
             if (( sql_status == 0 )); then
@@ -1128,7 +1128,7 @@ _knit_ai_query_loop() {
             out=$(_knit_query_exec_over_lens "${lens_array}" "${sql}" "${mode_args[@]}" 2>&1)
             sql_status=$?
         else
-            out=$(_knit_sqlite3 "${mode_args[@]}" "${sql}" 2>&1)
+            out=$(_knit_query_run_normalized "${mode_args[@]}" "${sql}" 2>&1)
             sql_status=$?
         fi
         if (( sql_status == 0 )); then

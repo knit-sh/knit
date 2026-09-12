@@ -180,6 +180,23 @@ _lens_query() {
 ${sql}"
 }
 
+# ---------- _knit_query_run_normalized ----------
+
+@test "run normalized strips csv CRLF row terminators to LF" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE m(n INTEGER); INSERT INTO m VALUES(42);"
+    run _knit_query_run_normalized -cmd ".mode csv" "SELECT n FROM m;"
+    [ "$status" -eq 0 ]
+    [ "${output}" = "42" ]
+    printf '%s' "${output}" | ( ! grep -q $'\r' )
+}
+
+@test "run normalized propagates sqlite3's exit status" {
+    knit_test_require_sqlite
+    run _knit_query_run_normalized -cmd ".mode csv" "SELECT FROM;"
+    [ "$status" -ne 0 ]
+}
+
 # ---------- _knit_query_exec_over_lens: CRLF normalization ----------
 
 @test "exec over lens emits LF (not CRLF) row terminators in csv mode" {
