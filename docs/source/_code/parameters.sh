@@ -11,7 +11,7 @@ source knit.sh
 # A required parameter must be supplied; the body reads it with knit_get_parameter.
 @command "greet" "Greet someone."
 @with_required "name:string" "Who to greet."
-greet() {
+_greet() {
     local name
     name=$(knit_get_parameter "name" "$@")
     echo "Hello ${name}"
@@ -25,7 +25,7 @@ greet() {
 @command "shout" "Greet someone, optionally louder."
 @with_optional "name:string" "World" "Who to greet."
 @with_flag "excited" "Add an exclamation mark."
-shout() {
+_shout() {
     local name excited greeting
     name=$(knit_get_parameter "name" "$@")
     excited=$(knit_get_parameter "excited" "$@")
@@ -42,7 +42,7 @@ shout() {
 # is filled in, so a job picks up a value exported by its setup.
 @command "roll" "Print the random seed in use."
 @with_optional "seed:integer" "ENV[SEED]" "Random seed."
-roll() {
+_roll() {
     echo "seed=$(knit_get_parameter "seed" "$@")"
 }
 @done
@@ -58,7 +58,7 @@ roll() {
 # ...then import it into any command with @with_parameter_set.
 @command "area" "Compute a grid area."
 @with_parameter_set "grid"
-area() {
+_area() {
     local width height
     width=$(knit_get_parameter "width" "$@")
     height=$(knit_get_parameter "height" "$@")
@@ -72,7 +72,7 @@ area() {
 # left out.
 @command "width-only" "Report just the grid width."
 @with_parameter_set "grid" --only "width"
-width_only() {
+_width_only() {
     echo "$(knit_get_parameter "width" "$@")"
 }
 @done
@@ -84,7 +84,7 @@ width_only() {
 @command "flat-area" "Compute a grid area with an optional height."
 @with_parameter_set "grid" --exclude "height"
 @with_optional "height:integer" "1" "Grid height (defaults to 1)."
-flat_area() {
+_flat_area() {
     local width height
     width=$(knit_get_parameter "width" "$@")
     height=$(knit_get_parameter "height" "$@")
@@ -98,7 +98,7 @@ flat_area() {
 # starting at knit_extra_index.
 @command "forward" "Echo the arguments given after --."
 @with_extra "The arguments to echo."
-forward() {
+_forward() {
     local args=("$@") extra_index extra
     extra_index=$(knit_extra_index "${args[@]}")
     extra=("${args[@]:extra_index}")
@@ -118,7 +118,7 @@ _render() {
 }
 @command "render" "Render at a given size."
 @with_optional "size:integer" "8" "Image size."
-render() {
+_render_cmd() {
     _render --size "$(knit_get_parameter "size" "$@")"
 }
 @done

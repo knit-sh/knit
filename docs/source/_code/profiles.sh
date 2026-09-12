@@ -10,7 +10,7 @@ source knit.sh
 
 # START field
 @command "sizing" "Report placement derived from the machine profile."
-sizing() {
+_sizing() {
     local scheduler cores
     scheduler="$(knit_get_profile_field '.scheduler.type')"
     cores="$(knit_get_profile_field '.hardware.cores_per_node')"
@@ -22,7 +22,7 @@ sizing() {
 
 # START platform
 @command "where" "Report the platform this experiment runs on."
-where() {
+_where() {
     printf 'platform=%s\n' "$(knit_platform_name)"
 }
 @done

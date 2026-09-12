@@ -10,8 +10,8 @@ knit_set_program_description "Demonstrate logging and framed output."
 
 # START levels
 @command "work" "Do some work, narrating at several log levels."
-do_work() {
-    knit_trace   "entering do_work"             # shown only at --log-level trace
+_do_work() {
+    knit_trace   "entering _do_work"            # shown only at --log-level trace
     knit_debug   "computing the result"         # trace or debug
     knit_info    "starting the computation"     # info and below (the default)
     knit_warning "input looks unusually large"  # warning and below
@@ -27,9 +27,9 @@ do_work() {
 # Raise the threshold from inside a body so only warnings and above surface.
 # The same effect is available before launch with KNIT_LOG_LEVEL=warning.
 @command "quiet" "Run the work quietly (warnings and errors only)."
-go_quiet() {
+_go_quiet() {
     knit_log_set_level warning
-    do_work
+    _do_work
 }
 @done
 # END setlevel
@@ -39,10 +39,10 @@ go_quiet() {
 # fixed, scrolling box with a title. On a non-TTY (a log file, CI) the input is
 # forwarded unchanged, so framing never corrupts captured output.
 @command "build" "Build something, framing the output."
-do_build() {
-    build_steps | knit_framed 10 60 --title "Building" --cleanup
+_do_build() {
+    _build_steps | knit_framed 10 60 --title "Building" --cleanup
 }
-build_steps() {
+_build_steps() {
     echo "step 1/3"
     echo "step 2/3"
     echo "step 3/3"

@@ -48,7 +48,7 @@ _toolenv_setup() {
 @with_output "data_path:string" "" "TOOL_DATA_PATH appended by the setup."
 @with_output "legacy:string"    "" "TOOL_LEGACY (unset by the setup; empty here)."
 @with_output "path:string"      "" "The job's PATH after activation."
-probe() {
+_probe() {
     # The setup's environment is already composed onto this job's own shell: its
     # variables are set and its PATH entry is prepended to the job's own PATH.
     knit_output "greeting"   "${TOOL_GREETING:-<unset>}"

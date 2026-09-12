@@ -15,7 +15,7 @@ knit_set_program_description "A results and artifacts demo."
 @with_output   "square:integer" "0" "The squared value (the result)." --result
 @with_output   "note:string"    ""  "An intermediate note (not a result)."
 @with_table
-measure() {
+_measure() {
     local x
     x="$(knit_get_parameter "x" "$@")"
     knit_output "square" "$(( x * x ))"        # the headline value result
@@ -30,7 +30,7 @@ measure() {
 @with_output   "rows:integer" "0" "How many rows were written." --result
 @with_output_artifact "table:file" "The data table (CSV)." --result
 @with_table
-tabulate() {
+_tabulate() {
     # knit_artifact_dir is the artifacts/ root: write into it, then declare.
     local out
     out="$(knit_artifact_dir)"
@@ -48,7 +48,7 @@ tabulate() {
 @with_output_artifact "figure:file"  "A small file, copied in for durability."
 @with_output_artifact "dataset:file" "A large file, referenced in place." --result
 @with_table
-collect() {
+_collect() {
     # --copy-from: snapshot a file into artifacts/ (missing parents are created).
     printf 'a small figure\n' > figure.svg
     knit_artifact "figure" "figure.svg" --copy-from figure.svg

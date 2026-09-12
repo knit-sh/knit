@@ -18,7 +18,7 @@ knit_set_program_description "Artifact kinds and consumption demo."
 @command "tabulate" "Write a data table as a csvfile artifact."
 @with_output_artifact "table:csvfile" "The data table (CSV)." --result
 @with_table
-tabulate() {
+_tabulate() {
     # knit_artifact_dir is the artifacts/ root: write into it, then bind.
     local out
     out="$(knit_artifact_dir)"
@@ -39,7 +39,7 @@ tabulate() {
 @with_input_artifact "table:csvfile" "Artifacts-relative path of the CSV to read." --verify-checksum
 @with_output "rows:integer" "0" "Number of data rows in the consumed table." --result
 @with_table
-summarize() {
+_summarize() {
     # Resolve the recorded artifacts-relative path to the on-disk file.
     local csv rows
     csv="$(knit_input_artifact_path "$(knit_get_parameter table "$@")")"
@@ -56,7 +56,7 @@ summarize() {
 @command "note" "Write a plain-text note as a bare file artifact."
 @with_output_artifact "memo:file" "A plain-text note (the bare file kind)."
 @with_table
-note() {
+_note() {
     local out
     out="$(knit_artifact_dir)"
     mkdir -p "${out}"

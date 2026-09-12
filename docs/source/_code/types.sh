@@ -13,7 +13,7 @@ source knit.sh
 @command "resize" "Resize an image to a width and scale factor."
 @with_required "width:integer" "Target width in pixels."
 @with_optional "factor:real" "1.0" "Scale factor applied to the width."
-resize() {
+_resize() {
     echo "width=$(knit_get_parameter "width" "$@") factor=$(knit_get_parameter "factor" "$@")"
 }
 @done
@@ -25,7 +25,7 @@ resize() {
 # variable, or a trailing argument.
 @command "budget" "Report whether a budget looks like a number."
 @with_required "amount:string" "The amount to inspect."
-budget() {
+_budget() {
     local amount
     amount=$(knit_get_parameter "amount" "$@")
     if knit_type_check "real" "${amount}"; then
@@ -43,7 +43,7 @@ budget() {
 @enum "format" "png" "jpeg" "webp"
 @command "convert" "Convert an image to another format."
 @with_required "to:format" "Target format (one of: $(knit_enum_values "format" ", "))."
-convert() {
+_convert() {
     echo "converting to $(knit_get_parameter "to" "$@")"
 }
 @done
@@ -59,7 +59,7 @@ convert() {
 @with_required "input:file" "The data file to summarize."
 @with_output "summary:file" "" "The written summary (path + sha256 recorded)."
 @with_output "workdir:directory" "" "Scratch tree, recorded by path only." --no-checksum
-report() {
+_report() {
     local input
     input=$(knit_get_parameter "input" "$@")
     mkdir -p work

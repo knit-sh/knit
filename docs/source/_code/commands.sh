@@ -15,7 +15,7 @@ knit_set_program_description "Demonstrate command registration and nesting."
 
 # START register
 @command "hello" "Print a greeting."
-hello() {
+_hello() {
     echo "Hello World"
 }
 @done
@@ -38,13 +38,13 @@ hello() {
 # Subcommands: colons in the name nest them under the parent, so they are invoked
 # as "say hello" and "say goodbye".
 @command "say:hello" "Say hello."
-say_hello() {
+_say_hello() {
     echo "Hello"
 }
 @done
 
 @command "say:goodbye" "Say goodbye."
-say_goodbye() {
+_say_goodbye() {
     echo "Goodbye"
 }
 @done
@@ -56,7 +56,7 @@ say_goodbye() {
 # and allows the trailing arguments; the body reads them with knit_extra_index.
 @command "tool" "Run a named tool with trailing arguments."
 @with_dispatch "tool" "The tool name and its arguments (after --)."
-run_tool() {
+_run_tool() {
     local args=("$@") extra_index extra
     extra_index=$(knit_extra_index "${args[@]}")
     extra=("${args[@]:extra_index}")
@@ -69,7 +69,7 @@ run_tool() {
 # Hide a command from --help. It stays fully invokable.
 @command "internal" "Internal helper."
 @hidden
-internal_cmd() {
+_internal_cmd() {
     echo "internal"
 }
 @done
@@ -82,7 +82,7 @@ _danger_allowed() {
 }
 @command "danger" "Perform a dangerous operation."
 @usable_if _danger_allowed "Set ALLOW_DANGER=1 to enable this command."
-danger_cmd() {
+_danger_cmd() {
     echo "danger performed"
 }
 @done
@@ -96,7 +96,7 @@ _is_featured() {
 }
 @command "featured" "A command highlighted in --help."
 @highlight_if _is_featured
-featured_cmd() {
+_featured_cmd() {
     echo "featured"
 }
 @done

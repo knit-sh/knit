@@ -19,7 +19,7 @@ knit_set_program_description "A tiny experiment for querying with ai query."
 @with_optional "seed:integer" "1" "Random seed."
 @with_output "pi:real" "0" "The estimate produced by this run."
 @with_table
-montecarlo() {
+_montecarlo() {
     local samples seed estimate
     samples="$(knit_get_parameter "samples" "$@")"
     seed="$(knit_get_parameter "seed" "$@")"
