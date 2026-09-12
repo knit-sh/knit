@@ -170,8 +170,8 @@ message that names the accepted values:
 
 .. code-block:: console
 
-   $ ./exp.sh julia --colormap purple
-   [knit:fatal] Parameter --colormap of "julia" expects one of: grayscale, fire, ocean (got "purple").
+   $ ./exp.sh submit --setup mympienv -- julia --colormap purple
+   [knit:fatal] Parameter --colormap of "submit:julia" expects one of: grayscale, fire, ocean (got "purple").
 
 The choices are also advertised, so a user does not have to guess them.
 ``describe`` inlines them next to the default, and ``--help`` shows them through
@@ -394,7 +394,7 @@ artifacts-relative path:
 .. code-block:: console
 
    $ ./exp.sh report --table inside.csv
-   peak inside metric: 512345
+   peak inside metric: 119960
 
 Consuming the artifact records a ``used_by`` edge **from the artifact's row to
 ``report``**, the mirror of the ``produced`` edge ``aggregate`` left. The two
@@ -703,7 +703,7 @@ and still works:
 .. code-block:: console
 
    $ ./exp.sh bundle
-   [knit:info] Wrote bundle to julia-bundle.tar.gz
+   [knit:info] Wrote bundle to ./exp-bundle.tar.gz
 
 Every path inside the archive is relative to ``exp.sh`` at the root, so the tree
 relocates cleanly. A symlink that points *outside* the tree --- on HPC the
