@@ -542,6 +542,54 @@ _use_artifacts_root() {
     [[ "${output}" == *"write-once"* ]]
 }
 
+@test "knit_artifact fatals cleanly when the path was recorded by an earlier invocation" {
+    _use_artifacts_root
+    # First producer records the artifacts row for table.csv.
+    knit_register "prod_a" fn_prod_a "Test."
+    knit_with_table
+    knit_with_output_artifact "table:file" "A table."
+    fn_prod_a() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}"
+        printf 'a\n' > "${out}/table.csv"
+        knit_artifact "table" "table.csv"
+    }
+    knit_done
+    _knit_invoke_command "prod_a"
+    [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM artifacts WHERE path='table.csv';")" -eq 1 ]
+
+    # A second producer binding the same path is refused with a clean write-once
+    # fatal that names the path and the way forward -- not sqlite3's raw UNIQUE
+    # constraint error at record time.
+    knit_register "prod_b" fn_prod_b "Test."
+    knit_with_table
+    knit_with_output_artifact "table:file" "The same path again."
+    fn_prod_b() { knit_artifact "table" "table.csv"; }
+    knit_done
+    run _knit_invoke_command "prod_b"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"write-once"* ]]
+    [[ "${output}" == *"table.csv"* ]]
+    [[ "${output}" == *"knit remove artifact"* ]]
+    [[ "${output}" != *"UNIQUE constraint failed"* ]]
+    # No second row was inserted.
+    [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM artifacts WHERE path='table.csv';")" -eq 1 ]
+}
+
+@test "_knit_artifacts_path_recorded detects a recorded path and misses an absent one" {
+    _knit_artifacts_ensure_table
+    _knit_sqlite3_write "INSERT INTO artifacts (id,path,name,type,kind,checksum,result) \
+        VALUES ('a1','out/x.csv','x','file','file','sha256:0',0);"
+    _knit_artifacts_path_recorded "out/x.csv"
+    ! _knit_artifacts_path_recorded "out/other.csv"
+}
+
+@test "_knit_artifacts_path_recorded reports not-recorded when unbootstrapped" {
+    _KNIT_IS_BOOTSTRAPPED=""
+    _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/nonexistent"
+    ! _knit_artifacts_path_recorded "anything"
+}
+
 @test "knit_artifact is fatal for an undeclared artifact name" {
     _use_artifacts_root
     knit_register "bind_undecl" fn_bind_undecl "Test."

@@ -71,6 +71,32 @@ _knit_artifacts_ensure_table() {
     _KNIT_ARTIFACTS_TABLE_ENSURED="1"
 }
 
+# ------------------------------------------------------------------------------
+# @fn _knit_artifacts_path_recorded()
+#
+# Return 0 when the given artifacts-relative path already has a row in the
+# artifacts table (recorded by an earlier invocation, possibly in a previous
+# run), 1 otherwise. knit_artifact consults this to turn the write-once "path"
+# UNIQUE constraint into a clear fatal before the INSERT is built, rather than
+# leaking sqlite3's raw "UNIQUE constraint failed: artifacts.path" at record
+# time. It is a read, so no lock is taken. It reports "not recorded" (returns 1)
+# when the experiment is not bootstrapped or the artifacts table does not yet
+# exist, since no row can be recorded then.
+#
+# @param[in] path Artifacts-relative path to look up.
+# ------------------------------------------------------------------------------
+_knit_artifacts_path_recorded() {
+    local path="$1"
+    _knit_is_bootstrapped || return 1
+    local ident esc_path found
+    _knit_db_sql_ident ident "${_KNIT_ARTIFACTS_TABLE}"
+    _knit_sql_escape esc_path "${path}"
+    found="$(_knit_sqlite3 \
+        "SELECT 1 FROM ${ident} WHERE path = '${esc_path}' LIMIT 1;" 2>/dev/null)" \
+        || return 1
+    [[ -n "${found}" ]]
+}
+
 # Register the artifacts table as a graph node in the query names map. Unlike a
 # per-command table (jobs, runs), it has no owning command: it is written by
 # whichever invocation produces an artifact, and its schema is fixed here (see
@@ -812,6 +838,13 @@ knit_artifact() {
     local -n names_ref="_KNIT_CMD_${cmd}_artifact_name"
     if [[ -v names_ref["${rel}"] ]]; then
         knit_fatal "Artifact path \"${rel}\" is already recorded for \"${demangled_cmd}\"; artifacts are write-once."
+    fi
+    # Write-once across invocations: the same path may already have a row from an
+    # earlier invocation (e.g. re-running a producer). Catch it here with a clear
+    # message instead of leaking sqlite3's raw UNIQUE-constraint error when the
+    # producing row's transaction runs at record time.
+    if _knit_artifacts_path_recorded "${rel}"; then
+        knit_fatal "Artifact path \"${rel}\" is already recorded in the artifacts table; artifacts are write-once (a path is recorded once and never overwritten). Bind a different path, or remove the earlier artifact first with \"knit remove artifact --path ${rel} --from-root\", then re-record it."
     fi
     # Bind-once for a scalar name. The write-once guard above keys on the PATH, so
     # a scalar name bound to two different paths would otherwise pass silently. A
