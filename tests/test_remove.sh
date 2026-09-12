@@ -872,6 +872,32 @@ _fs_fixture() {
     [[ "${lefttext}" == *"output of submit:render"* ]]
 }
 
+@test "_knit_remove_build_report labels a root-invocation edge as <root>" {
+    _stub_roots
+    # A root invocation has no source node (both source_name and source_id are
+    # empty); seed such a call edge into the erase set (target J1).
+    _knit_sqlite3 "INSERT INTO __provenance__ VALUES
+        ('','','J1','submit:render','call',1,2,NULL);"
+    local -a erase=()
+    _knit_remove_closure_downward erase S1
+    local -A id_table=() id_kind=() art_path=() art_type=()
+    _knit_remove_map_ids id_table id_kind art_path art_type "${erase[@]}"
+    local -A plain_out=()
+    _knit_remove_plain_outputs plain_out id_table "${erase[@]}"
+    local -a rows=() edges=() removed=() left=()
+    _knit_remove_build_report rows edges removed left \
+        id_table id_kind art_path plain_out none "${erase[@]}"
+
+    # The root edge reads "<root> --call--> submit:render J1", and no edge line
+    # starts with the arrow (i.e. a blank left side).
+    local edgetext; edgetext="$(printf '%s\n' "${edges[@]}")"
+    [[ "${edgetext}" == *"<root> --call--> submit:render J1"* ]]
+    local e
+    for e in "${edges[@]}"; do
+        [[ "${e}" != --* ]]
+    done
+}
+
 @test "_knit_remove_build_report --keep-artifacts moves the artifact into left-on-disk" {
     _stub_roots
     local -a erase=()

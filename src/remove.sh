@@ -1010,6 +1010,10 @@ _knit_remove_build_report() {
         while IFS='|' read -r sname sid etype tname tid; do
             lhs="${sname}"
             [[ -n "${sid}" ]] && lhs="${sname} ${sid}"
+            # A root invocation has no source node (both name and id empty);
+            # label it "<root>" so the edge reads "<root> --call--> ..." rather
+            # than starting with blank whitespace.
+            [[ -z "${sname}" && -z "${sid}" ]] && lhs="<root>"
             rhs="${tname}"
             [[ -n "${tid}" ]] && rhs="${tname} ${tid}"
             printf -v eline '%s --%s--> %s' "${lhs}" "${etype}" "${rhs}"
