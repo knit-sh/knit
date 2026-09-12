@@ -221,7 +221,9 @@ _populate_tree() {
     printf 'setup\n'   > "${BUNDLE_ROOT}/setups/mclib/.setup.type"
     printf 'sid\n'     > "${BUNDLE_ROOT}/setups/mclib/.setup.id"
     printf 'spack:\n'  > "${BUNDLE_ROOT}/setups/mclib/spack.yaml"
-    printf 'lock\n'    > "${BUNDLE_ROOT}/setups/mclib/spack.lock"
+    # The concretized lock lives inside the built environment (spack-env/), the
+    # one file carved out of the otherwise-pruned tree.
+    printf 'lock\n'    > "${BUNDLE_ROOT}/setups/mclib/spack-env/spack.lock"
     printf 'binary\n'  > "${BUNDLE_ROOT}/setups/mclib/spack-env/deep/lib.so"
 
     mkdir -p "${BUNDLE_ROOT}/jobs/job1"
@@ -253,7 +255,9 @@ _populate_tree() {
     run _collect_has "setups/mclib/.setup.type"  "${out[@]}"; [ "${status}" -eq 0 ]
     run _collect_has "setups/mclib/.setup.id"    "${out[@]}"; [ "${status}" -eq 0 ]
     run _collect_has "setups/mclib/spack.yaml"   "${out[@]}"; [ "${status}" -eq 0 ]
-    run _collect_has "setups/mclib/spack.lock"   "${out[@]}"; [ "${status}" -eq 0 ]
+    run _collect_has "setups/mclib/spack-env/spack.lock" "${out[@]}"; [ "${status}" -eq 0 ]
+    # The lock lives only under spack-env; there is no top-level spack.lock.
+    run _collect_has "setups/mclib/spack.lock"   "${out[@]}"; [ "${status}" -ne 0 ]
     run _collect_has "jobs/job1/.stdout"         "${out[@]}"; [ "${status}" -eq 0 ]
     run _collect_has "jobs/job1/.stderr"         "${out[@]}"; [ "${status}" -eq 0 ]
     run _collect_has "jobs/job1/.job.sh"         "${out[@]}"; [ "${status}" -eq 0 ]
@@ -261,7 +265,7 @@ _populate_tree() {
     run _collect_has "artifacts"                 "${out[@]}"; [ "${status}" -eq 0 ]
 }
 
-@test "collect prunes a setup's built spack-env tree" {
+@test "collect prunes a setup's built spack-env tree except the lock" {
     _populate_tree
     local -A opts=()
     local -a out=()
@@ -270,6 +274,9 @@ _populate_tree() {
     [ "${status}" -ne 0 ]
     run _collect_has "setups/mclib/spack-env/deep/lib.so" "${out[@]}"
     [ "${status}" -ne 0 ]
+    # The concretized lock is the single carve-out from the pruned tree.
+    run _collect_has "setups/mclib/spack-env/spack.lock" "${out[@]}"
+    [ "${status}" -eq 0 ]
 }
 
 @test "collect never packs the provisioned tools under .knit" {
@@ -444,6 +451,9 @@ _populate_tree() {
     done <<< "${output}"
     [[ "${output}" == *"experiment.sh"* ]]
     [[ "${output}" == *"setups/mclib/.activate.sh"* ]]
+    [[ "${output}" == *"setups/mclib/spack-env/spack.lock"* ]]
+    # The rest of the built spack-env tree is not listed.
+    [[ "${output}" != *"spack-env/deep"* ]]
     [[ "${output}" == *"artifacts"* ]]
 }
 

@@ -365,7 +365,8 @@ _knit_bundle_collect() {
     done
 
     # Setup manifests: the small identifying files under each setup instance —
-    # enough to rebuild the environment — but never the built spack-env tree.
+    # enough to rebuild the environment — plus the concretized Spack lock, but
+    # never the rest of the built spack-env tree.
     local setup_root setup_rel
     _knit_setup_root setup_root
     if [[ -d "${setup_root}" ]]; then
@@ -374,11 +375,19 @@ _knit_bundle_collect() {
         for d in "${setup_root}"/*/; do
             [[ -d "${d}" ]] || continue
             name="${d%/}"; name="${name##*/}"
-            for f in .activate.sh .setup.type .setup.id spack.yaml spack.lock; do
+            for f in .activate.sh .setup.type .setup.id spack.yaml; do
                 abs="${d}${f}"
                 [[ -e "${abs}" || -L "${abs}" ]] \
                     && __knit_ret+=("${setup_rel}/${name}/${f}")
             done
+            # The concretized lock lives under the built environment, at
+            # spack-env/spack.lock (knit writes it there). Include just that one
+            # file so the environment can be re-concretized identically, without
+            # pulling in the rest of the spack-env tree (view symlinks and store
+            # links), which bootstrap re-provisions.
+            abs="${d}spack-env/spack.lock"
+            [[ -e "${abs}" || -L "${abs}" ]] \
+                && __knit_ret+=("${setup_rel}/${name}/spack-env/spack.lock")
         done
     fi
 
