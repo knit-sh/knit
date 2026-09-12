@@ -110,7 +110,7 @@ check_eq "$(present "setups/buildenv")" "yes" "the setup directory survives"
 check_eq "$(present "resources/mysrc")" "yes" "the resource directory survives"
 check_eq "$(sql "SELECT count(*) FROM __provenance__ WHERE source_name='setup:env' AND edge_type='used_by'")" \
     "0" "the setup-->job used_by edge is detached"
-check_eq "$(sql "SELECT count(*) FROM __provenance__ WHERE source_name='resource:srcpkg' AND edge_type='used_by'")" \
+check_eq "$(sql "SELECT count(*) FROM __provenance__ WHERE source_name='fetch:srcpkg' AND edge_type='used_by'")" \
     "1" "the resource-->setup used_by edge is untouched"
 check_eq "$(sql "SELECT count(*) FROM __provenance__ WHERE source_id='${job_id}' OR target_id='${job_id}'")" \
     "0" "no dangling edge references the erased job"

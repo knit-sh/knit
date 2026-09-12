@@ -65,7 +65,7 @@ _seed_remove_db() {
             ('J1','submit','R1','submit:render','call',1,2,NULL),
             ('J2','submit','R2','submit:render','call',1,2,NULL),
             ('S1','setup:juliaenv','J1','submit:render','used_by',NULL,NULL,NULL),
-            ('D1','resource:data','J1','submit:render','used_by',NULL,NULL,NULL),
+            ('D1','fetch:data','J1','submit:render','used_by',NULL,NULL,NULL),
             ('R1','submit:render','U1','run','call',3,4,NULL),
             ('U1','run','A1','julia','call',5,6,NULL),
             ('R1','submit:render','P1','artifacts','produced',NULL,NULL,NULL);

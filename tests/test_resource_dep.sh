@@ -221,11 +221,12 @@ _fake_instance() {
     _train() { :; }
     knit_done
     _knit_invoke_command "train" --dataset cats
-    # The edge's source is the instance (id from .resource.id, name resource:<type>),
-    # its target is the consumer's recorded row, and it has no duration.
+    # The edge's source is the instance (id from .resource.id, name fetch:<type> --
+    # the owning command, matching its own call/executed edges), its target is the
+    # consumer's recorded row, and it has no duration.
     [ "$(_knit_sqlite3 \
         "SELECT source_id,source_name,target_name,edge_type,start_time,end_time FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" \
-        = "res-uuid-1|resource:images|train|used_by||" ]
+        = "res-uuid-1|fetch:images|train|used_by||" ]
     [ "$(_knit_sqlite3 "SELECT target_id FROM ${_KNIT_PROV_TABLE} WHERE edge_type='used_by';")" \
         = "$(_knit_sqlite3 'SELECT id FROM train;')" ]
 }
@@ -252,7 +253,7 @@ _fake_instance() {
     _knit_resource_record_used_by_edge "cats" "${cmd}" "target-uuid-9"
     [ "$(_knit_sqlite3 \
         "SELECT source_id,source_name,target_id,target_name,edge_type,start_time,end_time FROM ${_KNIT_PROV_TABLE};")" \
-        = "res-uuid-9|resource:images|target-uuid-9|train|used_by||" ]
+        = "res-uuid-9|fetch:images|target-uuid-9|train|used_by||" ]
 }
 
 @test "_knit_resource_record_used_by_edge records nothing for a without-provenance target" {

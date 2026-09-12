@@ -898,8 +898,11 @@ _knit_resource_dep_before_cb() {
 #
 # Record a "used_by" provenance edge from a fetched resource instance to a
 # consuming invocation. The edge's source is the instance (its row id read from
-# the .<name>.resource.id sidecar, its node name "resource:<type>" from the
-# .<name>.resource.type sidecar); its target is the consumer. Delegates the gated
+# the .<name>.resource.id sidecar, its node name "fetch:<type>" -- the owning
+# command that recorded the row, so the source_name matches the instance's own
+# "call"/"executed" edges and the query transpiler's label resolution -- with the
+# type read from the .<name>.resource.type sidecar); its target is the consumer.
+# Delegates the gated
 # write to _knit_record_used_by_edge, so it records nothing when recording is
 # disabled, on a suppressed rank, before bootstrap, when the target does not
 # participate in the graph, or when the sidecar has no id (e.g. an instance
@@ -921,7 +924,7 @@ _knit_resource_record_used_by_edge() {
     IFS= read -r resource_id < "${id_file}" || resource_id=""
     local resource_type=""
     IFS= read -r resource_type < "${root}/.${name}.resource.type" 2>/dev/null || resource_type=""
-    _knit_record_used_by_edge "${resource_id}" "resource:${resource_type}" \
+    _knit_record_used_by_edge "${resource_id}" "fetch:${resource_type}" \
         "${target_cmd}" "${target_id}"
 }
 

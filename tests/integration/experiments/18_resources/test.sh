@@ -140,12 +140,15 @@ check_grep "3 record(s)" <(printf '%s\n' "${out}") \
 check_sqlite ".knit/knit.db" "SELECT records FROM combine;" "3" \
     "consumer recorded the dataset record count"
 
+# The used_by edge names its source by the owning command (fetch:<type>), the
+# same name the resource row's own call/executed edges carry, so a graph query
+# joining the resource node resolves consistently.
 check_sqlite ".knit/knit.db" \
-    "SELECT edge_type FROM __provenance__ WHERE source_name='resource:srctree' AND target_name='combine';" \
+    "SELECT edge_type FROM __provenance__ WHERE source_name='fetch:srctree' AND target_name='combine';" \
     "used_by" \
     "used_by edge recorded from the git resource to the consumer"
 check_sqlite ".knit/knit.db" \
-    "SELECT edge_type FROM __provenance__ WHERE source_name='resource:dataset' AND target_name='combine';" \
+    "SELECT edge_type FROM __provenance__ WHERE source_name='fetch:dataset' AND target_name='combine';" \
     "used_by" \
     "used_by edge recorded from the url resource to the consumer"
 
@@ -153,8 +156,17 @@ check_sqlite ".knit/knit.db" \
 # .resource.id sidecar), so the edge joins back to the resource row.
 src_id=$(cat "${WORKDIR}/resources/.srccode.resource.id")
 check_sqlite ".knit/knit.db" \
-    "SELECT source_id FROM __provenance__ WHERE source_name='resource:srctree' AND target_name='combine';" \
+    "SELECT source_id FROM __provenance__ WHERE source_name='fetch:srctree' AND target_name='combine';" \
     "${src_id}" \
     "used_by edge source id matches the git resource's recorded row id"
+
+# The edge resolves through a real Cypher traversal: the resource node label (its
+# table name) maps to the fetch command whose name the edge now carries, so
+# joining the resource node to the consumer returns the resource row's id.
+graph_id=$(./experiment.sh query graph \
+    --exec 'MATCH (r:`resource:srctree`)-[:used_by]->(c:combine) RETURN r.id' \
+    2>/dev/null | tr -d '\r')
+check_eq "${graph_id}" "${src_id}" \
+    "graph traversal resolves the resource -> consumer used_by edge"
 
 assert_summary
