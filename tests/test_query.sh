@@ -180,6 +180,67 @@ _lens_query() {
 ${sql}"
 }
 
+# ---------- _knit_query_exec_over_lens: CRLF normalization ----------
+
+@test "exec over lens emits LF (not CRLF) row terminators in csv mode" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT, state TEXT);
+        INSERT INTO jobs VALUES('j1','done');"
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps ""
+    local -a mode_args=()
+    _knit_ai_query_mode_args mode_args "csv" "false" ""
+
+    run _knit_query_exec_over_lens dbs "SELECT id, state FROM jobs;" "${mode_args[@]}"
+    [ "$status" -eq 0 ]
+    # No carriage return survives anywhere in the csv output.
+    printf '%s' "${output}" | ( ! grep -q $'\r' )
+    [ "${lines[0]}" = "id,state" ]
+    [ "${lines[1]}" = "j1,done" ]
+}
+
+@test "a csv result value carries no trailing CR (feeds a typed knit_output)" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE m(n INTEGER); INSERT INTO m VALUES(42);"
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps ""
+    local -a mode_args=()
+    # No header, so the sole line is the bare value the caller would read back.
+    _knit_ai_query_mode_args mode_args "csv" "true" ""
+
+    run _knit_query_exec_over_lens dbs "SELECT n FROM m;" "${mode_args[@]}"
+    [ "$status" -eq 0 ]
+    # Exact match with no trailing \r: a "real"/"integer" type would accept it.
+    [ "${output}" = "42" ]
+}
+
+@test "exec over lens leaves non-csv output (already LF) unchanged" {
+    knit_test_require_sqlite
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT); INSERT INTO jobs VALUES('j1');"
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps ""
+    local -a mode_args=()
+    _knit_ai_query_mode_args mode_args "list" "true" ""
+
+    run _knit_query_exec_over_lens dbs "SELECT id FROM jobs;" "${mode_args[@]}"
+    [ "$status" -eq 0 ]
+    printf '%s' "${output}" | ( ! grep -q $'\r' )
+    [ "${output}" = "j1" ]
+}
+
+@test "exec over lens propagates sqlite3's exit status across the CR filter" {
+    knit_test_require_sqlite
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps ""
+    local -a mode_args=()
+    _knit_ai_query_mode_args mode_args "csv" "false" ""
+
+    # A syntactically invalid statement makes sqlite3 exit non-zero; the pipe
+    # through the CR filter must not mask that (PIPESTATUS[0]).
+    run _knit_query_exec_over_lens dbs "SELECT FROM;" "${mode_args[@]}"
+    [ "$status" -ne 0 ]
+}
+
 @test "lens unions a table with the same schema across two databases" {
     knit_test_require_sqlite
     _knit_sqlite3_write "CREATE TABLE jobs(id TEXT, state TEXT); INSERT INTO jobs VALUES('j1','done');"
