@@ -156,13 +156,18 @@ _knit_setup() {
 
     _knit_check_command_arguments "${subcmd}" "${setup_args[@]}"
 
-    # Resolve the instance directory under the experiment's setup root. Idempotent
-    # by name: remove any existing instance of the same name so the setup rebuilds
-    # at its stable location rather than erroring or leaving a stale mix.
+    # Resolve the instance directory under the experiment's setup root. A setup
+    # name identifies one instance: refuse when an instance of that name already
+    # exists rather than overwriting it (an overwrite would leave a second
+    # "setup:<type>" row for the same name). The failed-build path below removes
+    # the directory, so a retry after a failed build still finds no instance and
+    # succeeds. To rebuild, remove the instance first.
     local setup_root
     _knit_setup_root setup_root
     local path="${setup_root}/${name}"
-    rm -rf "${path}"
+    if [[ -e "${path}" ]]; then
+        knit_fatal "Setup \"${name}\" already exists at \"${path}\".\nRemove it first with \"knit remove setup --name ${name}\", then rebuild."
+    fi
 
     # Create directory and enter it
     mkdir -p "${path}"

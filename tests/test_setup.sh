@@ -263,17 +263,34 @@ teardown() {
     [ "$(cat "${_KNIT_TEST_SETUP_ROOT}/default/.setup.type")" = "default" ]
 }
 
-@test "_knit_setup rebuilds idempotently when the named instance exists" {
+@test "_knit_setup refuses to overwrite an existing named instance" {
     local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
     _test_setup_fn() { :; }
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
     knit_done
     _knit_setup --name myenv -- mysetup
-    # A stale file left inside the instance must be gone after a rebuild.
-    touch "${newdir}/STALE"
+    touch "${newdir}/KEEP"
+    run _knit_setup --name myenv -- mysetup
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"already exists"* ]]
+    [[ "$output" == *"knit remove setup --name myenv"* ]]
+    # The existing instance is left untouched, not overwritten.
+    [ -f "${newdir}/KEEP" ]
+}
+
+@test "_knit_setup rebuilds the same name after a failed build" {
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
+    _test_setup_fn() { return 1; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_done
+    # A failed build removes the instance directory, so the name is free again.
+    run _knit_setup --name myenv -- mysetup
+    [ "$status" -ne 0 ]
+    [ ! -d "${newdir}" ]
+    # A later successful build of the same name is not blocked by the refusal.
+    _test_setup_fn() { :; }
     _knit_setup --name myenv -- mysetup
     [ -d "${newdir}" ]
-    [ ! -f "${newdir}/STALE" ]
 }
 
 @test "_knit_setup fails if setup name is not registered" {
