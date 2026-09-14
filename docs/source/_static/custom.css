@@ -34,3 +34,9 @@ section#knit > h1 {
 section#knit > p:first-of-type {
     margin-top: 2.5rem;
 }
+
+/* Space below the experimental-model diagram (the arrow image) before the
+   stage list that explains it. */
+img.model-diagram {
+    margin-bottom: 2.5rem;
+}

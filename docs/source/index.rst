@@ -39,12 +39,12 @@ The experimental model
 ----------------------
 
 .. image:: _static/knit-arrow-light.svg
-   :class: only-light
+   :class: only-light model-diagram
    :alt: Knit
    :width: 100%
 
 .. image:: _static/knit-arrow-dark.svg
-   :class: only-dark
+   :class: only-dark model-diagram
    :alt: Knit
    :width: 100%
 
