@@ -3,9 +3,19 @@ name: Documentation Check
 on:
   push:
     branches: [main]
+    paths:
+    - "src/**"
+    - Makefile
+    - maint/doccheck.sh
+    - .github/workflows/doccheck.yml
   pull_request:
     branches:
     - main
+    paths:
+    - "src/**"
+    - Makefile
+    - maint/doccheck.sh
+    - .github/workflows/doccheck.yml
 
 permissions:
   pull-requests: write

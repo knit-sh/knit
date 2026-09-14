@@ -3,6 +3,17 @@ name: Documentation
 on:
   push:
     branches: [main]
+    paths:
+    - "src/**"
+    - Makefile
+    - "docs/**"
+    - "web/**"
+    - Doxyfile
+    - ".doxygen/**"
+    - maint/gen-doc-api.py
+    - maint/gen-stitch-guide.py
+    - maint/build-landing.py
+    - .github/workflows/docs.yml
   workflow_dispatch:
 
 # Only the checkout needs the built-in token; the cross-repository publish

@@ -3,9 +3,23 @@ name: Tests
 on:
   push:
     branches: [main]
+    paths:
+    - "src/**"
+    - Makefile
+    - "tests/test_*.sh"
+    - tests/setup_teardown.sh
+    - maint/list-test-files.sh
+    - .github/workflows/tests.yml
   pull_request:
     branches:
     - main
+    paths:
+    - "src/**"
+    - Makefile
+    - "tests/test_*.sh"
+    - tests/setup_teardown.sh
+    - maint/list-test-files.sh
+    - .github/workflows/tests.yml
 
 # Cancel an in-flight run when a newer commit is pushed to the same ref, so a
 # PR's ~50-job unit fan-out doesn't pile up behind superseded commits.

@@ -3,9 +3,17 @@ name: ShellCheck
 on:
   push:
     branches: [main]
+    paths:
+    - "src/**"
+    - Makefile
+    - .github/workflows/shellcheck.yml
   pull_request:
     branches:
     - main
+    paths:
+    - "src/**"
+    - Makefile
+    - .github/workflows/shellcheck.yml
 
 permissions:
   pull-requests: write

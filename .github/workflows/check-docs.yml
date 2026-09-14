@@ -3,9 +3,21 @@ name: Docs Examples
 on:
   push:
     branches: [main]
+    paths:
+    - "src/**"
+    - Makefile
+    - "docs/source/_code/**"
+    - maint/check-docs.sh
+    - .github/workflows/check-docs.yml
   pull_request:
     branches:
     - main
+    paths:
+    - "src/**"
+    - Makefile
+    - "docs/source/_code/**"
+    - maint/check-docs.sh
+    - .github/workflows/check-docs.yml
 
 jobs:
   check-docs:

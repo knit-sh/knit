@@ -3,9 +3,19 @@ name: ai
 on:
   push:
     branches: [main]
+    paths:
+    - "src/**"
+    - Makefile
+    - "tests/ai/**"
+    - .github/workflows/ai.yml
   pull_request:
     branches:
     - main
+    paths:
+    - "src/**"
+    - Makefile
+    - "tests/ai/**"
+    - .github/workflows/ai.yml
 
 # Cancel an in-flight run when a newer commit is pushed to the same ref.
 concurrency:

@@ -3,9 +3,19 @@ name: Integration
 on:
   push:
     branches: [main]
+    paths:
+    - "src/**"
+    - Makefile
+    - "tests/integration/**"
+    - .github/workflows/integration.yml
   pull_request:
     branches:
     - main
+    paths:
+    - "src/**"
+    - Makefile
+    - "tests/integration/**"
+    - .github/workflows/integration.yml
   schedule:
     # Weekly rebuild+republish to pick up rockylinux:9 base-image updates/CVEs
     # (off-peak minute per repo conventions).

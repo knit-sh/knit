@@ -3,9 +3,23 @@ name: Code Coverage
 on:
   push:
     branches: [main]
+    paths:
+    - "src/**"
+    - Makefile
+    - "tests/test_*.sh"
+    - tests/setup_teardown.sh
+    - maint/shard-test-files.sh
+    - .github/workflows/codecov.yml
   pull_request:
     branches:
     - main
+    paths:
+    - "src/**"
+    - Makefile
+    - "tests/test_*.sh"
+    - tests/setup_teardown.sh
+    - maint/shard-test-files.sh
+    - .github/workflows/codecov.yml
 
 # Cancel an in-flight run when a newer commit is pushed to the same ref, so a
 # PR's coverage fan-out doesn't pile up behind superseded commits.
