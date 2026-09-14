@@ -163,10 +163,15 @@
     b end
 }
 
-/^ *export \+[_a-zA-Z]/{
+# Only a top-level (column 0) export is a documentable global. An indented
+# export is a statement inside a function body; matching it here would emit a
+# bogus, undocumented file-scope variable (showing just its assignment) on the
+# API pages. Document such a runtime-set global with a '# @var NAME' block plus
+# a top-level 'declare -g NAME' instead.
+/^export \+[_a-zA-Z]/{
     s/=/ = /
     s/\([^;]\) *$/\1;/
-    s/^ *export \+/ExportedString /
+    s/^export \+/ExportedString /
     p
     b end
 }

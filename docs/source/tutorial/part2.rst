@@ -13,16 +13,14 @@ makes it cleaner, safer, or more reproducible. Each section shows the change
 against the Part I code, and the finished Part II experiment is collected in
 one file at the end.
 
-.. note::
+.. important::
 
-   **Start Part II from a fresh folder.** Part II keeps the ``mympienv`` setup
-   name for continuity, but setup names are unique within an experiment: a
-   ``setup --name mympienv`` would now be *refused* against the database you
-   built in Part I (Step 7 covers that behavior). So begin Part II from a clean
-   slate --- copy your experiment script and ``knit.sh`` into a new folder and
+   **Start Part II from a fresh folder.** We recommend that you begin Part II
+   from a clean slate --- copy your experiment script (or the one shown at
+   the end of Part I) and ``knit.sh`` into a new folder and
    run ``./exp.sh bootstrap`` there. Part II then runs against a fresh
-   ``.knit/knit.db``, the ``mympienv`` name is free, and every example on this
-   page (``fetch``, ``setup --name mympienv``, the submits) runs cleanly with no
+   ``.knit/knit.db``, the various setup names are free again, and every example on
+   this page (``fetch``, ``setup --name mympienv``, the submits) runs cleanly with no
    remove-first step.
 
 .. _tutorial-resources:

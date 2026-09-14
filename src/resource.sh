@@ -3,6 +3,33 @@
 ## @file resource.sh
 
 # ------------------------------------------------------------------------------
+# @var KNIT_RESOURCE_PREFIX
+#
+# Public environment variable exported into a resource download body: the
+# absolute path the body must create and populate with the fetched resource. Set
+# by the framework before it runs the resource type's download body.
+# ------------------------------------------------------------------------------
+declare -g KNIT_RESOURCE_PREFIX
+
+# ------------------------------------------------------------------------------
+# @var KNIT_RESOURCE_EXPECTED_CHECKSUM
+#
+# Public environment variable exported into a resource download body: the
+# expected checksum of the resource when the caller requested one (empty when
+# none was given). A download body may verify the fetched content against it.
+# ------------------------------------------------------------------------------
+declare -g KNIT_RESOURCE_EXPECTED_CHECKSUM
+
+# ------------------------------------------------------------------------------
+# @var KNIT_IGNORE_CHECKSUM
+#
+# Public environment variable exported into a resource download body: "true" when
+# checksum verification is disabled for this fetch, "false" otherwise. A download
+# body reads it to decide whether to skip its own integrity check.
+# ------------------------------------------------------------------------------
+declare -g KNIT_IGNORE_CHECKSUM
+
+# ------------------------------------------------------------------------------
 # @fn _knit_resource_root()
 #
 # Store the resolved resource root — the directory under which resource instances

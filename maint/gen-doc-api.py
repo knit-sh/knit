@@ -41,8 +41,24 @@ def collect():
             name = member.findtext("name")
             if not name or kind not in ("function", "variable"):
                 continue
+            # Skip an undocumented variable: it would render as a bare
+            # declaration (just its assignment, no text). These are runtime
+            # `export`s the sed filter surfaced without a matching '# @var'
+            # doc block, or foreign env vars (e.g. Spack's) that Knit only
+            # sets, not part of the Knit API.
+            if kind == "variable" and not _has_description(member):
+                continue
             bucket[kind].add(name)
     return by_file
+
+
+def _has_description(member):
+    """True when a memberdef carries a brief or detailed description."""
+    for tag in ("briefdescription", "detaileddescription"):
+        node = member.find(tag)
+        if node is not None and "".join(node.itertext()).strip():
+            return True
+    return False
 
 
 def is_private(name):

@@ -84,6 +84,15 @@ templates_path = ["_templates"]
 # them so Sphinx does not also build each as a standalone (orphan) document.
 exclude_patterns = ["stitch/recipes/**"]
 
+# -- smartquotes --------------------------------------------------------------
+#
+# Keep the educated quotes and ellipsis transforms but disable the dash
+# transform: Knit's docs are full of CLI options like "--name" and "--", which
+# smartquotes would otherwise turn into an en dash ("-name"). The default action
+# is "qDe" (quotes, Dashes, ellipses); dropping the "D" keeps "--" literal. A
+# genuine em dash is written as the Unicode character directly and is unaffected.
+smartquotes_action = "qe"
+
 # -- sphinx-copybutton --------------------------------------------------------
 #
 # Console blocks (`code-block:: console`) use a "$ " prompt with command output

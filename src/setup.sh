@@ -3,6 +3,18 @@
 ## @file setup.sh
 
 # ------------------------------------------------------------------------------
+# @var KNIT_SETUP_PREFIX
+#
+# Public environment variable exported into a setup body and every command that
+# depends on the setup: the absolute path of the setup's own directory, where it
+# should install its artifacts. A setup body reads it to build install paths
+# (e.g. cmake --install "${KNIT_SETUP_PREFIX}"), and a dependent job or app sees
+# it in its environment after the setup's activation runs. Set by the framework;
+# unset when no setup is in effect.
+# ------------------------------------------------------------------------------
+declare -g KNIT_SETUP_PREFIX
+
+# ------------------------------------------------------------------------------
 # @var _KNIT_SETUPS
 #
 # Associative array mapping registered setup names to 1. Used to validate that

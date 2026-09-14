@@ -3,6 +3,35 @@
 ## @file app.sh
 
 # ------------------------------------------------------------------------------
+# @var KNIT_MPI_RANK
+#
+# Public environment variable exported into an app body: the rank of this process
+# in MPI_COMM_WORLD (0-based). Normalized by the framework from whichever launcher
+# is in use (OpenMPI, MPICH/PMI, Slurm, PALS, or Flux), so an app body reads the
+# same variable everywhere. It is 0 for a single-process run.
+# ------------------------------------------------------------------------------
+declare -g KNIT_MPI_RANK
+
+# ------------------------------------------------------------------------------
+# @var KNIT_MPI_SIZE
+#
+# Public environment variable exported into an app body: the number of processes
+# in MPI_COMM_WORLD. Normalized by the framework from the active launcher, so an
+# app body reads the same variable everywhere. It is 1 for a single-process run.
+# ------------------------------------------------------------------------------
+declare -g KNIT_MPI_SIZE
+
+# ------------------------------------------------------------------------------
+# @var KNIT_MPI_LOCAL_RANK
+#
+# Public environment variable exported into an app body: the node-local rank of
+# this process (0-based within its node). Normalized by the framework from the
+# active launcher, so an app body reads the same variable everywhere. It is 0 for
+# a single-process run.
+# ------------------------------------------------------------------------------
+declare -g KNIT_MPI_LOCAL_RANK
+
+# ------------------------------------------------------------------------------
 # @var _KNIT_APPS
 #
 # Associative array mapping registered app names to 1. Used to validate that an
