@@ -8,19 +8,27 @@ on:
     - main
 
 # Cancel an in-flight run when a newer commit is pushed to the same ref, so a
-# PR's ~50-job coverage fan-out doesn't pile up behind superseded commits.
+# PR's coverage fan-out doesn't pile up behind superseded commits.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# One place to tune the coverage fan-out. Coverage runs in a FIXED number of
+# shards rather than one job per test file, so the number of uploaded artifacts
+# (and therefore the burst of artifact-finalize calls to GitHub's backend) stays
+# bounded as the test suite grows. Keep this comfortably below the test-file
+# count; trailing shards are simply empty if it exceeds it.
+env:
+  COVERAGE_SHARDS: "16"
+
 jobs:
-  # Build kcov once into the shared cache and emit the test-file matrix. Building
-  # kcov here (rather than in every matrix leg) means the ~50 coverage jobs all
+  # Build kcov once into the shared cache and emit the shard index list. Building
+  # kcov here (rather than in every matrix leg) means the coverage shards all
   # restore a warm cache instead of racing to build kcov on a cold cache.
   prep:
     runs-on: ubuntu-latest
     outputs:
-      files: ${{ steps.list.outputs.files }}
+      shards: ${{ steps.list.outputs.shards }}
     steps:
       - uses: actions/checkout@v7
 
@@ -43,21 +51,24 @@ jobs:
           make -C kcov-43/build install
           rm -rf kcov-43 v43.tar.gz
 
-      - name: List test files
+      - name: Emit shard index list
         id: list
-        run: echo "files=$(maint/list-test-files.sh)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "shards=$(jq -nc --argjson n "${COVERAGE_SHARDS}" '[range($n)]')" \
+            >> "$GITHUB_OUTPUT"
 
-  # One coverage job per test file: a single file per runner is inherently
-  # memory-bounded (no shard balancing / -P cap needed), and a failure shows up
-  # as a red job named after the file. Each job uploads its kcov output as an
-  # artifact for the merge job to combine.
+  # One job per shard: run this shard's test files under kcov (one file at a time,
+  # so peak memory stays a single file's run), merge them into one kcov output
+  # directory, and upload a single artifact. The artifact count equals
+  # COVERAGE_SHARDS, not the test-file count. A failure shows up as a red shard;
+  # per-file pass/fail triage still lives in the Tests workflow.
   coverage:
     needs: prep
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        file: ${{ fromJSON(needs.prep.outputs.files) }}
+        shard: ${{ fromJSON(needs.prep.outputs.shards) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -80,25 +91,38 @@ jobs:
       - name: Build knit.sh for coverage
         run: make coverage
 
-      - name: Run one test file with coverage
+      - name: Run this shard's test files with coverage
         run: |
-          # kcov creates the leaf output dir but not its parent, so make it.
           mkdir -p coverage
-          kcov --include-path=src "coverage/${{ matrix.file }}" bats "tests/${{ matrix.file }}"
+          files=$(maint/shard-test-files.sh "${{ matrix.shard }}" "${COVERAGE_SHARDS}")
+          if [[ -z "${files}" ]]; then
+            echo "shard ${{ matrix.shard }} has no files; nothing to do"
+            exit 0
+          fi
+          # kcov creates the leaf output dir but not its parent, so make it above.
+          for f in ${files}; do
+            kcov --include-path=src "coverage/${f}" bats "tests/${f}"
+          done
+          # Merge this shard's per-file kcov dirs into one output dir; the merge
+          # job then merges the per-shard dirs into the final report.
+          kcov --merge "coverage/shard-${{ matrix.shard }}" coverage/test_*
 
-      - name: Upload coverage artifact
+      - name: Upload shard coverage artifact
         uses: actions/upload-artifact@v6
         with:
-          # Artifact name == the test file; the merge job downloads each into
-          # coverage/<file>/ and merges coverage/test_* (see below).
-          name: ${{ matrix.file }}
-          path: coverage/${{ matrix.file }}
+          # One artifact per shard. The merge job downloads each into
+          # coverage/shard-<n>/ and merges coverage/shard-* (see below).
+          name: shard-${{ matrix.shard }}
+          path: coverage/shard-${{ matrix.shard }}
+          # Empty shards (COVERAGE_SHARDS > file count) produce no directory;
+          # don't fail the job over a missing upload in that case.
+          if-no-files-found: ignore
           retention-days: 1
 
-  # Merge every file's kcov output into one report and make a single Codecov
+  # Merge every shard's kcov output into one report and make a single Codecov
   # upload (repo-root codecov.yml therefore uses after_n_builds: 1, decoupled
-  # from the file count). Also acts as the stable aggregate check for branch
-  # protection: it fails if any coverage job failed.
+  # from the shard count). Also acts as the stable aggregate check for branch
+  # protection: it fails if any coverage shard failed.
   merge:
     needs: coverage
     if: ${{ always() }}
@@ -123,12 +147,13 @@ jobs:
       - name: Download coverage artifacts
         uses: actions/download-artifact@v7
         with:
-          # Each artifact (named after its test file) lands in coverage/<file>/,
-          # which is a kcov output directory; merge them all.
+          # Each shard artifact lands in coverage/shard-<n>/, a kcov output
+          # directory; merge them all.
+          pattern: shard-*
           path: coverage
 
       - name: Merge coverage
-        run: kcov --merge coverage/merged coverage/test_*
+        run: kcov --merge coverage/merged coverage/shard-*
 
       - name: Fix coverage paths
         run: |
@@ -148,7 +173,7 @@ jobs:
           name: knit
           fail_ci_if_error: true
 
-      - name: Verify all coverage jobs passed
+      - name: Verify all coverage shards passed
         run: |
           [[ "${{ needs.coverage.result }}" == "success" ]] \
-            || { echo "one or more coverage jobs failed"; exit 1; }
+            || { echo "one or more coverage shards failed"; exit 1; }
