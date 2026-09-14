@@ -1,0 +1,44 @@
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Only the checkout needs the built-in token; the cross-repository publish
+# authenticates with the SSH deploy key instead (GITHUB_TOKEN cannot write to
+# another repository).
+permissions:
+  contents: read
+
+# One publish at a time.
+concurrency:
+  group: site-publish
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Install Doxygen
+        run: sudo apt-get update && sudo apt-get install -y doxygen
+
+      - name: Build website
+        run: make web
+
+      - name: Publish to knit-sh.github.io
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.SITE_DEPLOY_KEY }}
+          external_repository: knit-sh/knit-sh.github.io
+          publish_branch: gh-pages
+          publish_dir: ./web/build/site
+          # web/build/site already contains CNAME (knit.sh); peaceiris keeps a
+          # CNAME that is present in publish_dir, so the custom domain persists.
+          full_commit_message: "Deploy from knit-sh/knit@${{ github.sha }}"
