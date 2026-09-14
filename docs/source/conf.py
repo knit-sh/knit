@@ -84,15 +84,6 @@ templates_path = ["_templates"]
 # them so Sphinx does not also build each as a standalone (orphan) document.
 exclude_patterns = ["stitch/recipes/**"]
 
-# -- smartquotes --------------------------------------------------------------
-#
-# Keep the educated quotes and ellipsis transforms but disable the dash
-# transform: Knit's docs are full of CLI options like "--name" and "--", which
-# smartquotes would otherwise turn into an en dash ("-name"). The default action
-# is "qDe" (quotes, Dashes, ellipses); dropping the "D" keeps "--" literal. A
-# genuine em dash is written as the Unicode character directly and is unaffected.
-smartquotes_action = "qe"
-
 # -- sphinx-copybutton --------------------------------------------------------
 #
 # Console blocks (`code-block:: console`) use a "$ " prompt with command output
@@ -165,9 +156,34 @@ def _mark_home_page(app, pagename, templatename, context, doctree):
     context["is_home"] = pagename == app.config.root_doc
 
 
+# -- API reference: disable smartquotes ---------------------------------------
+#
+# The Public/Private API pages are generated from Doxygen comments and are dense
+# with CLI option names ("--name", "--dry-run", ...). Sphinx's smartquotes
+# transform would rewrite every "--" into an en dash. Backticking each option in
+# the comments does not fully help: Doxygen does not markdown-process a @param
+# name, and it will not open a code span next to a quote, so those still leak.
+# Disabling smartquotes for just these two auto-generated reference pages keeps
+# every option literal, while the hand-written pages keep their curly quotes and
+# em dashes. Genuine en/em dashes on these pages come from the Doxygen XML
+# (normalized at build time), not from smartquotes, so nothing is lost.
+from sphinx.transforms import SphinxTransform  # noqa: E402
+
+
+class _DisableSmartQuotesOnAPI(SphinxTransform):
+    # Run before SphinxSmartQuotes (priority 750).
+    default_priority = 500
+    _DOCS = {"api/public", "api/private"}
+
+    def apply(self, **kwargs):
+        if self.env.docname in self._DOCS:
+            self.document.settings.smart_quotes = False
+
+
 def setup(app):
     # Override the built-in `bash` and `console` lexers with the Knit-aware
     # variants so `knit` / `knit_*` are highlighted as shell builtins everywhere.
     app.add_lexer("bash", KnitBashLexer)
     app.add_lexer("console", KnitBashSessionLexer)
+    app.add_transform(_DisableSmartQuotesOnAPI)
     app.connect("html-page-context", _mark_home_page)

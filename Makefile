@@ -145,13 +145,15 @@ docs: docs-env
 	@echo "Generating Doxygen XML..."
 	doxygen Doxyfile
 	@echo "Normalizing en/em dashes in Doxygen XML..."
-	# Doxygen turns a literal "--"/"---" in a doc comment into <ndash/>/<mdash/>
-	# elements. Breathe renders both as the literal placeholder text "&#8212;"
-	# (a flag it only strips in the block-quote-attribution path), which leaks
-	# onto the API pages and also mangles CLI options like "--name". Restore the
-	# double dash for options and a real em dash for "---" before Sphinx reads
-	# the XML. Genuine em dashes typed in the source stay UTF-8 and are untouched.
-	sed -i -e 's|<ndash/>|--|g' -e 's|<mdash/>|\&#8212;|g' docs/doxygen/xml/*.xml
+	# Doxygen turns a literal "--"/"---" in doc-comment prose into <ndash/> /
+	# <mdash/> elements. Breathe has a bug: it renders both as the literal
+	# placeholder text "&#8212;" (a flag it only strips in the block-quote
+	# attribution path), which then leaks onto the API pages. Rewrite the tags
+	# before Sphinx reads the XML: "--" is overwhelmingly a CLI option prefix in
+	# these comments, so restore a literal double dash for <ndash/> (smartquotes
+	# is disabled on the API pages, so it stays literal), and a real em dash for
+	# <mdash/>. A genuine em dash typed as a Unicode character is left untouched.
+	sed -i -e 's|<ndash/>|--|g' -e 's|<mdash/>|\xe2\x80\x94|g' docs/doxygen/xml/*.xml
 	@echo "Generating Public/Private API pages..."
 	python3 maint/gen-doc-api.py
 	@echo "Generating Stitch Guide pages..."
