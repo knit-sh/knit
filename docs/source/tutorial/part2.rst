@@ -46,6 +46,7 @@ One download decorator says where it comes from:
 
 .. knit-code:: ../_code/julia_resource.sh
    :language: bash
+   :emphasize-lines: 7-9
    :start-after: # START resource
    :end-before: # END resource
 
@@ -67,6 +68,7 @@ Now the setup declares the resource it needs instead of cloning it:
 
 .. knit-code:: ../_code/julia_resource.sh
    :language: bash
+   :emphasize-lines: 7,14
    :start-after: # START setup
    :end-before: # END setup
 
@@ -112,6 +114,7 @@ declare parameters, close it --- but with no body:
 
 .. knit-code:: ../_code/julia_params.sh
    :language: bash
+   :emphasize-lines: 5,12
    :start-after: # START pset
    :end-before: # END pset
 
@@ -122,6 +125,7 @@ which the app does not share:
 
 .. knit-code:: ../_code/julia_params.sh
    :language: bash
+   :emphasize-lines: 6
    :start-after: # START job
    :end-before: # END job
 
@@ -131,6 +135,7 @@ The app imports the same set. Its ``output`` parameter differs from the job's
 
 .. knit-code:: ../_code/julia_params.sh
    :language: bash
+   :emphasize-lines: 5
    :start-after: # START app
    :end-before: # END app
 
@@ -161,6 +166,7 @@ declared once:
 
 .. knit-code:: ../_code/julia_enum.sh
    :language: bash
+   :emphasize-lines: 4
    :start-after: # START enum
    :end-before: # END enum
 
@@ -172,6 +178,7 @@ drift from the type:
 
 .. knit-code:: ../_code/julia_enum.sh
    :language: bash
+   :emphasize-lines: 10
    :start-after: # START pset
    :end-before: # END pset
 
@@ -230,6 +237,7 @@ right category. Bind the produced PNG with ``knit_output``:
 
 .. knit-code:: ../_code/julia_file.sh
    :language: bash
+   :emphasize-lines: 8,10,30-31
    :start-after: # START app
    :end-before: # END app
 
@@ -292,54 +300,46 @@ counts, prints a one-line summary, and leaves no trace that it ran or what it
 found. The numbers scroll past and are gone.
 
 This section turns ``aggregate`` into the command that produces the experiment's
-headline result. Two changes do it: drop ``@without_provenance`` so the command
-records its own row and provenance, and declare the table it builds as an
-**artifact**:
+headline result, recorded as an **artifact** --- a durable, relocatable output
+Knit tracks in a table of its own (how that differs from the file output of Step
+4 comes later in this section). An artifact has a physical *type* --- ``file`` or
+``directory`` --- and, optionally, a semantic **kind**: a label backed by one
+physical type that says what the file *means*. Declare the kind once at the top
+level. Here ``insidecsv`` marks a file as *the inside-metric table*, so a
+consumer can later require that kind rather than merely "a file":
 
 .. knit-code:: ../_code/julia_artifact.sh
    :language: bash
-   :start-after: # START aggregate
-   :end-before: # END aggregate
-
-Two Knit surfaces are new here.
-
-**A graph query builds the table.** Part I read the ``render`` table with
-``knit query sql``. Here ``knit query graph`` runs a **Cypher** query against the
-same provenance database, with ``--format csv`` so the result is a data table
-ready to write to a file. The pattern ``(r:run)-[:call]->(img:render)`` walks the
-provenance graph: a node label is a command or table name, ``-[:call]->`` is the
-edge Knit records when one command launches another, so the query visits every
-``render`` reached through the ``run`` that launched it. ``RETURN ... AS`` names
-the projected columns, and ``--header`` writes them as the CSV header row. (The
-``run`` row and the ``render`` row have distinct ids; the graph edge, not a shared
-key, is what ties them together, which is exactly what a graph query is for.)
-
-.. note::
-
-   Run this experiment on a second machine and you get a second, independent
-   ``.knit/knit.db``. ``knit query`` can read both at once without merging them:
-   ``--extra <dir|db|bundle>,...`` opens other platforms' databases alongside
-   this one at read time. Inside that union every database is a ``platform``
-   node --- ``(p:platform)-[:executed]->(r:run)`` --- so one query returns every
-   platform's results tagged by ``p.id`` and filtered by machine attributes such
-   as ``p.arch``. See the *Query across platforms* stitch for the full recipe.
-
-**An artifact records the result, with a kind.** An artifact has a physical
-*type* --- ``file`` or ``directory`` --- and, optionally, a semantic **kind**: a
-label backed by one physical type that says what the file *means*. Declared once
-at the top level, ``insidecsv`` marks a file as *the inside-metric table*:
-
-.. knit-code:: ../_code/julia_artifact.sh
-   :language: bash
+   :emphasize-lines: 4
    :start-after: # START kind
    :end-before: # END kind
 
-``@with_output_artifact "table:insidecsv" ... --result`` then declares that the
-command produces an artifact of that kind and that it is the **result** --- what
-the experiment was for. Inside the body, ``knit_artifact_dir`` gives the artifacts
-root, and ``knit_artifact "table" "inside.csv"`` binds the file that was written
-there. The kind is recorded in the artifacts row and ``describe`` shows it (not
-the bare physical type) in the command's own section, flagged as a result:
+With the kind declared, two changes turn ``aggregate`` into its producer: drop
+``@without_provenance`` so the command records its own row and provenance, and
+declare the table it writes as an output artifact of that kind:
+
+.. knit-code:: ../_code/julia_artifact.sh
+   :language: bash
+   :emphasize-lines: 7-8,28
+   :start-after: # START aggregate
+   :end-before: # END aggregate
+
+.. note::
+
+   How the CSV is built is incidental to the artifact --- any command that writes
+   a file into the artifacts root will do. This body happens to build it with
+   ``knit query graph`` (a Cypher query, ``--format csv``) instead of Part I's
+   ``knit query sql``, just as an example of a query that yields the table: the
+   pattern ``(r:run)-[:call]->(img:render)`` walks from each run to the render it
+   launched. See the *Query the provenance graph* stitch for what Cypher can do.
+
+**An artifact records the result.** ``@with_output_artifact "table:insidecsv"
+... --result`` declares that the command produces an artifact of the
+``insidecsv`` kind and that it is the **result** --- what the experiment was for.
+Inside the body, ``knit_artifact_dir`` gives the artifacts root, and
+``knit_artifact "table" "inside.csv"`` binds the file that was written there. The
+kind is recorded in the artifacts row and ``describe`` shows it (not the bare
+physical type) in the command's own section, flagged as a result:
 
 .. code-block:: console
 
@@ -368,8 +368,7 @@ each artifacts-relative path is **write-once**: binding ``inside.csv`` twice is 
 fatal error, so a re-run either uses a fresh name or removes the old entry first
 --- :ref:`Step 7 <tutorial-remove>` erases recorded entities and their artifacts.
 
-The before/after on this one command captures the whole idea. In Part I,
-``aggregate`` recorded nothing --- no row, no result, no file. In Part II the same
+In Part I, ``aggregate`` recorded nothing --- no row, no result, no file. In Part II the same
 command records a row, marks a result, writes a relocatable table, and leaves a
 ``produced`` edge from that row to the table's node. That edge is queryable like
 any other. To find which command produced a given artifact, walk the
@@ -381,12 +380,13 @@ any other. To find which command produced a given artifact, walk the
        "MATCH (t)-[e:produced]->(a:artifacts)
           WHERE a.name = 'table' RETURN e.source_name, a.path, a.checksum"
 
-**Consume the artifact.** A result is only half a lineage until something reads
-it. Part II adds a ``report`` command that consumes the table ``aggregate``
+**Consuming an artifact.** An artifact may not be the final product of an experiment. For instance, a CSV file could be an artifact, and another command could consume it to produce a figure, or print out a report on the standard output.
+To showcase this, we will now add a ``report`` command that consumes the CSV table ``aggregate``
 produced and names the render with the largest inside metric:
 
 .. knit-code:: ../_code/julia_artifact.sh
    :language: bash
+   :emphasize-lines: 9,15
    :start-after: # START consume
    :end-before: # END consume
 
@@ -406,8 +406,8 @@ artifacts-relative path:
    $ ./exp.sh report --table inside.csv
    peak inside metric: 119960
 
-Consuming the artifact records a ``used_by`` edge **from the artifact's row to
-``report``**, the mirror of the ``produced`` edge ``aggregate`` left. The two
+Consuming the artifact records a ``used_by`` edge **from the artifact's row to**
+``report``, the mirror of the ``produced`` edge ``aggregate`` left. The two
 edges meet at the same artifact node, so one query walks the whole chain
 ``aggregate --produced--> table --used_by--> report``:
 
@@ -423,46 +423,16 @@ relocatable table --- and a lineage that runs both ways from it: back to the
 command that built it and every render that went into it, and forward to every
 command that read it.
 
-.. _tutorial-variadic-artifacts:
+.. note::
 
-Fan out and gather: variadic artifacts and glob inputs
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-So far each artifact is a single file. A run often scatters a whole *set*
-instead --- one shard per seed, one frame per step --- whose count you do not
-know up front. Add a quantifier to the kind and the name becomes a
-**collection**: ``*`` means *zero or more* and ``+`` means *one or more*. The
-body then binds that one name once per member, and each binding is its own
-``artifacts`` row with its own ``produced`` edge:
-
-.. knit-code:: ../_code/variadic_artifacts.sh
-   :language: bash
-   :start-after: # START fanout
-   :end-before: # END fanout
-
-The quantifier is the only change from a scalar declaration. ``*`` accepts an
-empty fan-out; ``+`` requires at least one binding and is fatal after the body if
-none was made. The write-once rule still holds, so each member needs a distinct
-artifacts-relative path (here ``shard-${i}.csv``).
-
-A consumer gathers the whole set through a matching quantifier on an **input**
-artifact. Its argument is a comma-separated list of artifacts-relative paths, and
-any element with a glob metacharacter (``*``, ``?``, ``[``) is expanded against
-the artifacts root --- so one ``--shards 'shard-*.csv'`` discovers the whole
-fan-out. ``knit_input_artifact_paths`` fills a bash array with the resolved
-on-disk paths, in order, de-duplicated:
-
-.. knit-code:: ../_code/variadic_artifacts.sh
-   :language: bash
-   :start-after: # START glob
-   :end-before: # END glob
-
-Run the two in sequence --- ``shard --n 3`` then ``merge --shards
-'shard-*.csv'`` --- and the glob resolves to whatever the fan-out produced. Knit
-validates every resolved member before the body runs and records one ``used_by``
-edge per member, so the lineage ``shard --produced--> member --used_by--> merge``
-holds for every file in the set. Quote the glob so your shell does not expand it
-before Knit does.
+   A command sometimes produces or consumes an *unknown number* of artifacts ---
+   one shard per seed, one frame per step. An artifact kind takes a **quantifier**
+   for this: ``*`` (zero or more) or ``+`` (one or more) turns the name into a
+   collection the body binds once per member, and a matching quantifier on an
+   input artifact gathers the whole set through a single glob argument with
+   ``knit_input_artifact_paths``. See the *Fan out a variadic output*, *Consume
+   many artifacts with a glob*, and *Discover and merge a fan-out* stitches for
+   the full recipes.
 
 .. _tutorial-prepare:
 
@@ -591,7 +561,7 @@ is the durable description, and the release policy is yours.
 Step 7 --- Remove: erase recorded entities and their dependents
 ----------------------------------------------------------------
 
-Sooner or later you want to take something back out of the experiment: a resource
+Sooner or later you may want to take something back out of the experiment: a resource
 you fetched, a setup you built, a job or a plain command you ran, an artifact one
 of them produced. ``knit remove`` erases any of these. The catch is that a
 recorded entity is never isolated --- Part I built a provenance graph tying it all
@@ -603,7 +573,7 @@ pointing at things that no longer exist.
 ``knit remove`` is provenance-aware, so it never does that. It erases the entity
 you name **and everything recorded downstream of it** --- the rows it called, the
 runs and app invocations under them, and the artifacts they produced --- in one
-transaction. What the entity *used* (a job's setup, a setup's resource) is left
+transaction. What the entity *used* (a setup, a resource) is left
 alone: those edges point *into* it, not out of it, so removing a job never takes
 its setup with it.
 
@@ -709,8 +679,8 @@ Now package it to send to a collaborator or deposit in a repository such as
 Zenodo. Like Steps 6 and 7, this adds no code --- it is a console workflow over
 the same script.
 
-``knit bundle`` packs the whole experiment into one archive that unpacks anywhere
-and still works:
+``bundle`` packs the whole experiment into one archive that unpacks anywhere,
+carrying a complete record of what was done:
 
 .. code-block:: console
 
@@ -718,8 +688,7 @@ and still works:
    [knit:info] Wrote bundle to ./exp-bundle.tar.gz
 
 Every path inside the archive is relative to ``exp.sh`` at the root, so the tree
-relocates cleanly. A symlink that points *outside* the tree --- on HPC the
-rendered images often live on a parallel filesystem and are linked back in --- is
+relocates cleanly. A symlink that points *outside* the tree --- on an HPC machine some data often live on a faster parallel filesystem and are linked back in --- is
 **dereferenced**, so its content travels rather than a link that would dangle on
 the reproducer's machine.
 
@@ -737,15 +706,27 @@ derivable:
   regenerable), and the fetched ``julia_code`` git resource (re-fetchable from the
   commit Knit recorded).
 
-So a reproducer unpacks the archive, runs ``./exp.sh bootstrap``, re-fetches the
-source, and rebuilds the environment from the embedded ``spack.lock`` --- a
-faithful reconstruction from a small archive, not a multi-gigabyte copy of a
-machine. Tune the line with the include/exclude flags: ``--no-knit`` /
-``--no-db`` / ``--no-artifacts`` and friends drop a default group, while
+So the archive is a compact, durable **trace** of the experiment: the exact code
+(``exp.sh`` and ``knit.sh``), the provenance database of what ran, the pinned
+setup manifests (``spack.yaml`` / ``spack.lock``), and the recorded source commit
+--- everything a reader needs to see how each result was produced and to
+reconstruct the environment, rather than a multi-gigabyte copy of the machine.
+Tune the line with the include/exclude flags: ``--no-knit`` / ``--no-db`` /
+``--no-artifacts`` and friends drop a default group, while
 ``--include-job-content`` and ``--include-resources <name>`` pull bulky content
 in. Files Knit does not track --- a config, a plotting script --- ride along when
 the script declares them with ``knit_bundle_requires`` (see the *Bundle & export*
 stitches).
+
+.. note::
+
+   The bundle *records* what a run needs to be reproduced, but Knit does not yet
+   *replay* it for you: there is no single command that rebuilds the Spack
+   environment from the bundled ``spack.lock`` and re-runs the recorded steps. For
+   now, treat the bundle as a trace --- read its provenance, ``bootstrap`` a fresh
+   experiment, re-fetch the recorded commit, and rebuild the environment from the
+   pinned manifests by hand. Turnkey reproduction from a bundle is planned for a
+   future release.
 
 Preview the exact contents before writing anything with ``--dry-run``, and write
 a zip (what Zenodo and WorkflowHub expect) with ``--zip``:
@@ -771,6 +752,55 @@ To inspect or regenerate that manifest on its own --- no archive, no copied file
 ``knit.db`` and record nothing, so they are safe to run at any time after
 bootstrap.
 
+.. _tutorial-across-platforms:
+
+Step 9 --- Querying across machines
+-----------------------------------
+
+Every step so far ran against one experiment on one machine. Part II is meant to
+run in multiple places, though: render on your laptop while you develop, then move
+the *same* script to a supercomputer and bootstrap it there (``bootstrap
+--profile <machine> --allocation <alloc>``, as Part I's move-to-HPC step covers)
+and render at scale. Each machine keeps its own, independent ``.knit/knit.db``
+--- the laptop's runs never mix into the cluster's, and neither database knows
+the other exists.
+
+``knit query --extra`` reads them **together** without merging them. It assembles
+a throwaway, read-only union of the current database and the others you name --- a
+*lens* --- runs one query against the whole set, then discards the union. Nothing
+is copied, and each source database stays single-platform. ``--extra`` takes a
+comma-separated list, and each entry is a **directory** (its ``.knit/knit.db`` is
+used), a **database file**, or a **bundle** (a ``.tar.gz`` from :ref:`Step 8
+<tutorial-bundle>`, so a collaborator's results join the lens directly):
+
+.. code-block:: console
+
+   $ ./exp.sh query graph --extra ../run-on-cluster --format column --header --exec \
+       "MATCH (p:platform)-[:executed]->(r:run)-[:call]->(img:render)
+          RETURN p.id AS platform, p.arch AS arch, img.c_re AS c_re, img.inside AS inside"
+
+Inside the lens every database contributes a ``platform`` node whose properties
+are that machine's fingerprint (``arch``, ``scheduler``, ``launcher``,
+``profile``, ``knit_version``), joined to every row that ran on it by an
+``executed`` edge. So one flat hop tags each render with the machine that
+produced it, and the query above lists the laptop's renders and the cluster's
+side by side. The platform node is synthesized from each database's own metadata
+at query time, so it needs nothing recorded up front and works even against a
+single database --- with no ``--extra`` the lens is just the current one.
+
+Because the whole comparison happens in one lens, ``count``, ``max``, ``ORDER
+BY`` and ``DISTINCT`` are correct across every platform at once --- which a shell
+loop that ran the query once per database and concatenated the output could not
+guarantee. Filter by a machine attribute the same way, for instance ``WHERE
+p.arch = 'aarch64'`` to keep only the cluster's rows. The *Query across
+platforms* stitch carries the full recipe, including the aggregate SQL form.
+
+.. important::
+
+   Until Knit reaches version 1.0 and a stable database schema,
+   we recommend that you rely on the same version of Knit across
+   machines if you intent to run cross-platform queries.
+
 The complete experiment (Part II)
 ---------------------------------
 
@@ -778,13 +808,33 @@ Here is the whole refined experiment in one file. It is the Part I script with
 every Part II change from Steps 1--5 folded in: the git resource feeding the
 setup, the shared parameter set, the ``colormap`` enum, the app's checksummed
 file output, the fan-in that produces a result artifact of kind ``insidecsv``,
-and the ``report`` consumer that reads it back. Steps 6 and 7 add no code ---
-``prepare`` and ``remove`` are console workflows over this same script.
+and the ``report`` consumer that reads it back. Steps 6 through 9 add no code ---
+``prepare``, ``remove``, ``bundle`` and the cross-platform query are console
+workflows over this same script.
 Save it as ``exp.sh`` next to a copy of ``knit.sh`` and make it executable
 (``chmod +x exp.sh``):
 
 .. knit-code:: ../_code/julia_full2.sh
    :language: bash
+
+The Step 6 sweep is data, not code. Save it beside the script as ``sweep.json``
+so the run below can prepare the whole batch in one call:
+
+.. code-block:: json
+
+   {
+     "group": "julia-sweep",
+     "defaults": { "setup": "mympienv" },
+     "jobs": [
+       { "job": "julia", "args": { "c-re": -0.123, "c-im": 0.745  } },
+       { "job": "julia", "args": { "c-re": -1.0,   "c-im": 0.0    } },
+       { "job": "julia", "args": { "c-re": -0.391, "c-im": -0.587 } },
+       { "job": "julia", "args": { "c-re": 0.285,  "c-im": 0.535  } },
+       { "job": "julia", "args": { "c-re": -0.7,   "c-im": 0.0    } },
+       { "job": "julia", "args": { "c-re": -1.25,  "c-im": 0.0    } },
+       { "job": "julia", "args": { "c-re": -0.1,   "c-im": 0.651  } }
+     ]
+   }
 
 To run it from scratch:
 
@@ -793,15 +843,19 @@ To run it from scratch:
    $ ./exp.sh bootstrap # on a laptop; add --profile <machine> --allocation <alloc> on a cluster
    $ ./exp.sh fetch --name julia_src -- julia_code
    $ ./exp.sh setup --name mympienv -- juliaenv --src julia_src
-   $ ./exp.sh submit --setup mympienv --wait -- julia --c-re -0.8 --c-im 0.156
+   $ ./exp.sh prepare from --file sweep.json
+   $ while ./exp.sh submit next --group julia-sweep --wait; do :; done
    $ ./exp.sh aggregate
    $ ./exp.sh report --table inside.csv
 
 ``fetch`` acquires the source once and records its commit; ``setup`` builds
-against that named instance; ``submit`` renders one image; ``aggregate`` writes
-``inside.csv`` as a result artifact and records its own row; ``report`` consumes
-that artifact by kind and records a ``used_by`` edge back to it. From here the
-Part II workflows apply to this same script: :ref:`prepare <tutorial-prepare>` a
-whole sweep and release it, then :ref:`remove <tutorial-remove>` what you no
-longer need. Compare this file with :ref:`Part I's version <tutorial-full>` to
-see, in one diff, what the refinements bought.
+against that named instance; ``prepare from`` builds the whole sweep from the
+plan, and the loop over ``submit next`` releases the prepared jobs one at a time
+until the ``julia-sweep`` group is drained; ``aggregate`` writes ``inside.csv``
+as a result artifact and records its own row; ``report`` consumes that artifact
+by kind and records a ``used_by`` edge back to it. From here the rest of the Part
+II workflows apply to this same script: :ref:`remove <tutorial-remove>` what you
+no longer need, :ref:`bundle <tutorial-bundle>` it to ship, or query
+:ref:`across machines <tutorial-across-platforms>`. Compare this file with
+:ref:`Part I's version <tutorial-full>` to see, in one diff, what the refinements
+bought.
