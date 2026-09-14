@@ -67,9 +67,9 @@ knit_set_program_description "A tiny quickstart experiment."</code></pre>
         </p>
         <figure class="card card--code">
           <figcaption class="card__head">exp.sh</figcaption>
-          <pre class="card__body"><code class="snippet" data-snippet="quickstart.sh:say">knit_register "say" say "Repeat a message."
+          <pre class="card__body"><code class="snippet" data-snippet="quickstart.sh:say">knit_register "say" _say "Repeat a message."
 knit_with_required "message:string" "The message to repeat."
-say() {
+_say() {
     local message
     message="$(knit_get_parameter "message" "$@")"
     echo "User said '${message}'"
@@ -96,12 +96,12 @@ User said 'good morning'</pre>
         </p>
         <figure class="card card--code">
           <figcaption class="card__head">exp.sh</figcaption>
-          <pre class="card__body"><code class="snippet" data-snippet="quickstart.sh:add">knit_register "add" add "Add two integers and record the run."
+          <pre class="card__body"><code class="snippet" data-snippet="quickstart.sh:add">knit_register "add" _add "Add two integers and record the run."
 knit_with_required "x:integer" "First value."
 knit_with_required "y:integer" "Second value."
 knit_with_output "total:integer" "0" "x + y."
 knit_with_table
-add() {
+_add() {
     local x y
     x="$(knit_get_parameter "x" "$@")"
     y="$(knit_get_parameter "y" "$@")"
