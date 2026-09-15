@@ -1,0 +1,58 @@
+{
+    "name": "anl/aurora/daos",
+    "description": "ALCF Aurora with DAOS — Intel Xeon Max, 208 cores + 6× Intel GPU Max per node; adds the DAOS module and the daos_user_fs filesystem",
+    "scheduler": {
+        "type": "pbs",
+        "command": "qsub",
+        "default_queue": "prod",
+        "default_args": ["-l filesystems=home:flare:daos_user_fs"],
+        "queues": {
+            "debug":         { "min_nodes": 1,   "max_nodes": 2,     "min_walltime": "00:05:00", "max_walltime": "01:00:00", "default_walltime": "01:00:00" },
+            "debug-scaling": { "min_nodes": 2,   "max_nodes": 256,   "min_walltime": "00:05:00", "max_walltime": "01:00:00", "default_walltime": "01:00:00" },
+            "prod":          { "min_nodes": 256, "max_nodes": 10624, "min_walltime": "00:05:00", "max_walltime": "24:00:00", "default_walltime": "01:00:00" }
+        }
+    },
+    "launcher": {
+        "type": "pals",
+        "command": "mpiexec"
+    },
+    "hardware": {
+        "cores_per_node": 208,
+        "gpus_per_node": 6
+    },
+    "module_use": [
+        "/soft/modulefiles"
+    ],
+    "modules": [
+        "oneapi/release/2025.3.1",
+        "mpich/opt/5.0.0.aurora_test.3c70a61",
+        "cray-pals/1.8.0",
+        "cray-libpals/1.8.0",
+        "daos"
+    ],
+    "spack": {
+        "packages": {
+            "mpich": {
+                "externals": [
+                    {
+                        "spec": "mpich@5.0.0",
+                        "prefix": "/opt/aurora/26.26.0/spack/unified/1.1.1/install/linux-x86_64/mpich-5.0.0.aurora_test.3c70a61-hlkigtk/"
+                    }
+                ],
+                "buildable": false
+            },
+            "libfabric": {
+                "externals": [
+                    {
+                        "spec": "libfabric@1.22.0",
+                        "prefix": "/opt/cray/libfabric/1.22.0/"
+                    }
+                ],
+                "buildable": false
+            },
+            "mpi": {
+                "require": ["mpich"]
+            }
+        }
+    }
+}
