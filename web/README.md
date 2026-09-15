@@ -17,6 +17,9 @@ web/
   knit-arrow-dark.svg   symlink -> ../docs/source/_static/knit-arrow-dark.svg
   knit-logo-simple.svg  symlink -> ../docs/source/_static/knit-logo-simple.svg
                         (favicon)
+  og-image.png          1200x630 social preview (og:image); the light logo
+                        centered on a white canvas, rendered from
+                        ../docs/source/_static/knit-logo-light.svg
   CNAME                 "knit.sh" (keeps the custom domain across deploys)
   README.md             this file
 ```
