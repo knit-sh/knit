@@ -473,6 +473,41 @@ _INDEX_BODY='[
     grep -Fqx 'export FOO=a\ b' "${f}"
 }
 
+@test "render emits module use lines after purge and before load" {
+    local init="${_KNIT_TEST_TMPDIR}/init.sh"
+    touch "${init}"
+    local json
+    json="$(jq -nc --arg i "${init}" \
+        '{module_init:$i, module_purge:true,
+          module_use:["/soft/modulefiles","/extra/modulefiles"],
+          modules:["daos"]}')"
+    _knit_render_platform_files "${json}"
+
+    local f="${_KNIT_PREFIX}/platform.sh"
+    grep -Fqx "module use /soft/modulefiles" "${f}"
+    grep -Fqx "module use /extra/modulefiles" "${f}"
+    # Order: purge, then each module use, then a single module load.
+    local purge_ln use_ln load_ln
+    purge_ln="$(grep -n '^module purge$' "${f}" | head -1 | cut -d: -f1)"
+    use_ln="$(grep -n '^module use ' "${f}" | head -1 | cut -d: -f1)"
+    load_ln="$(grep -n '^module load ' "${f}" | head -1 | cut -d: -f1)"
+    [ "${purge_ln}" -lt "${use_ln}" ]
+    [ "${use_ln}" -lt "${load_ln}" ]
+    # Listed order is preserved across the two module use lines.
+    [ "$(grep -c '^module use ' "${f}")" -eq 2 ]
+    [ "$(grep -n '^module use /soft/modulefiles$' "${f}" | cut -d: -f1)" \
+        -lt "$(grep -n '^module use /extra/modulefiles$' "${f}" | cut -d: -f1)" ]
+}
+
+@test "render emits no module use lines when module_use is absent" {
+    local init="${_KNIT_TEST_TMPDIR}/init.sh"
+    touch "${init}"
+    local json
+    json="$(jq -nc --arg i "${init}" '{module_init:$i, modules:["cmake"]}')"
+    _knit_render_platform_files "${json}"
+    ! grep -q '^module use ' "${_KNIT_PREFIX}/platform.sh"
+}
+
 @test "render omits module purge when module_purge is absent/false" {
     local init="${_KNIT_TEST_TMPDIR}/init.sh"
     touch "${init}"

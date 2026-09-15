@@ -517,10 +517,11 @@ _knit_resolve_module_init() {
 # @fn _knit_render_platform_sh()
 #
 # Render the platform shell fragment (§5.3) to a file: an optional module-init
-# source line, an optional `module purge`, a single `module load` of the
-# profile's modules, and one `export KEY=VALUE` per environment entry. The file
-# is left absent (not created) when the profile has neither `modules` nor
-# `environment`. Fatal when `modules` is present but no module init resolves.
+# source line, an optional `module purge`, one `module use <path>` per
+# `module_use` entry, a single `module load` of the profile's modules, and one
+# `export KEY=VALUE` per environment entry. The file is left absent (not
+# created) when the profile has neither `modules` nor `environment`. Fatal when
+# `modules` is present but no module init resolves.
 #
 # @param[in] json    The resolved profile JSON content.
 # @param[in] outfile Path of the platform.sh file to write.
@@ -541,7 +542,7 @@ _knit_render_platform_sh() {
     local -a lines=("# knit platform environment (generated at bootstrap)")
 
     if [[ -n "${modules}" ]]; then
-        local init purge
+        local init purge use_path
         # Resolve the init before opening the file so a failure fatals cleanly
         # without leaving a partial platform.sh behind.
         if ! _knit_resolve_module_init init "${json}"; then
@@ -550,6 +551,13 @@ _knit_render_platform_sh() {
         [[ -n "${init}" ]] && lines+=("source ${init}")
         purge="$(printf '%s' "${json}" | _knit_jq -r '.module_purge // false')"
         [[ "${purge}" == "true" ]] && lines+=("module purge")
+        # `module use` prepends extra module trees (e.g. a site path like
+        # /soft/modulefiles) to MODULEPATH so the following `module load` can
+        # resolve modules that live outside the default search path. Emitted in
+        # listed order, after purge and before load.
+        while IFS= read -r use_path; do
+            [[ -n "${use_path}" ]] && lines+=("module use ${use_path}")
+        done < <(printf '%s' "${json}" | _knit_jq -r '(.module_use // [])[]')
         lines+=("module load ${modules}")
     fi
 

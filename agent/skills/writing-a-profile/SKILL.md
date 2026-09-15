@@ -72,7 +72,10 @@ Author a JSON file modeled on the template from Step 1. The schema Knit reads:
 - `launcher` — `type` (`openmpi` | `mpich` | `pals` | `flux` | `slurm` | `pbs` |
   `none`), `command`, optional `default_args`.
 - `hardware` — `cores_per_node`, `gpus_per_node`.
-- `modules` — the list of modules to load.
+- `modules` — the list of modules to load. Optional companions: `module_purge`
+  (bool, emit `module purge` first) and `module_use` (a list of paths, each
+  emitted as `module use <path>` before the load, to add a site module tree such
+  as `/soft/modulefiles` to `MODULEPATH`).
 - `spack` (optional) — `packages`, where a vendor library is an **external** that
   must not be rebuilt: give it `externals` (each with `spec`, `prefix`,
   `modules`) and `buildable: false`. This is how you tell Knit to adopt

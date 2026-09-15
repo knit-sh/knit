@@ -31,7 +31,10 @@ Reading it top to bottom:
   readable from a script with ``knit_get_profile_field``.
 - ``modules`` --- environment modules to ``module load`` before anything runs, so
   setups and jobs start from the machine's supported programming environment
-  (here ``PrgEnv-gnu``).
+  (here ``PrgEnv-gnu``). Two companion fields adjust the module setup:
+  ``module_purge`` (``true`` emits a ``module purge`` first) and ``module_use``
+  (a list of paths, each turned into ``module use <path>`` before the load, to
+  prepend a site module tree such as ``/soft/modulefiles`` to ``MODULEPATH``).
 - ``spack`` --- Spack configuration merged into every Spack environment knit
   builds. Its keys are Spack config sections (``packages`` here); knit writes them
   back verbatim, so this is just Spack config. Polaris registers the vendor MPI
