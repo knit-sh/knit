@@ -564,6 +564,20 @@ _knit_bootstrap() {
         return $?
     fi
 
+    # A leftover setup root from a previous experiment — e.g. .knit was removed
+    # to re-bootstrap from scratch but "setups/" was not — would otherwise make
+    # the default-setup step at the end of bootstrap fatal only after .knit and
+    # all its tooling (sqlite, jq, Spack) had already been provisioned. Detect it
+    # now, before anything is created, and fail fast with actionable guidance so
+    # no partial .knit is left behind. The setup root is resolved from the typed
+    # --setup-path (metadata is not written yet), defaulting to "setups".
+    local default_setup_root
+    _knit_resolve_experiment_path default_setup_root "${setup_path_opt:-setups}"
+    if [[ -e "${default_setup_root}/default" ]]; then
+        knit_fatal "A leftover setup exists at \"%s\".\nIt is left from an earlier bootstrap. Remove the stale state and try again:\n  rm -rf %s" \
+            "${default_setup_root}/default" "${setup_path_opt:-setups}"
+    fi
+
     knit_info "Creating ${_KNIT_PREFIX} directory"
     _knit_ensure_trace_file
     mkdir "${_KNIT_PREFIX}" > "${_KNIT_TRACE_FILE}" 2>&1
@@ -728,7 +742,14 @@ _knit_bootstrap() {
     # profile. Run in a subshell so its exported KNIT_SETUP_PREFIX does not leak
     # into the rest of bootstrap.
     knit_info "Instantiating the default setup..."
-    ( knit setup --name default -- default )
+    # Run in a subshell so its exported KNIT_SETUP_PREFIX does not leak. A
+    # subshell fatal (exit) does not propagate on its own, so check the status
+    # explicitly and fatal in the parent — otherwise a failed default setup would
+    # be ignored, bootstrap would report success, and the cleanup EXIT trap would
+    # keep a half-written .knit.
+    if ! ( knit setup --name default -- default ); then
+        knit_fatal "Failed to instantiate the default setup."
+    fi
 
     # AI provider config: written only when an API-key env var name is supplied
     # (the one required field of a usable config). Overwrite is on since bootstrap

@@ -426,6 +426,41 @@ _bootstrap_launcher_stubs() {
     grep -q -- "--key __knit_version__ --value ${KNIT_VERSION}" "${meta}"
 }
 
+# ---------- first bootstrap: leftover setup root ----------
+
+@test "bootstrap fails fast and creates no prefix when a leftover default setup exists" {
+    # Simulate "rm -rf .knit" without "rm -rf setups": a stale default setup
+    # instance survives under the setup root. The experiment root is the parent
+    # of _KNIT_PREFIX, so the setup root resolves to <tmpdir>/setups.
+    mkdir -p "${__TEST_TMPDIR}/setups/default"
+
+    run _knit_bootstrap --scheduler local --launcher none --setup-path setups
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"leftover setup"* ]]
+    [[ "$output" == *"rm -rf setups"* ]]
+    # Nothing was created: the check fires before .knit and any provisioning.
+    [ ! -e "${_KNIT_PREFIX}" ]
+}
+
+@test "bootstrap removes .knit when the default setup step fails" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+    # Make the default-setup step fail: the metadata-store writes are still
+    # captured, but "knit setup" returns non-zero (as a real knit_fatal in the
+    # setup body would make the subshell exit non-zero).
+    eval 'knit() {
+        if [ "$1" = metadata ] && [ "$2" = store ]; then printf "%s\n" "$*" >> "'"${meta}"'"; return 0; fi
+        if [ "$1" = setup ]; then return 1; fi
+        return 0
+    }'
+
+    run _knit_bootstrap --scheduler local --launcher none
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"default setup"* ]]
+    # The cleanup EXIT trap must remove the half-written prefix.
+    [ ! -e "${_KNIT_PREFIX}" ]
+}
+
 @test "bootstrap with a none-launcher profile freezes __launcher__=none without detection" {
     local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
     _bootstrap_launcher_stubs "${calls}" "${meta}"
