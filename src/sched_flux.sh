@@ -8,18 +8,17 @@
 # Convert an HH:MM:SS walltime to a Flux Standard Duration (FSD) in whole
 # seconds with a trailing "s", e.g. "01:00:00" -> "3600s". Flux --time-limit
 # reads a bare number as minutes, so the explicit "s" suffix avoids that
-# ambiguity. A value that is not HH:MM:SS is printed verbatim so a site that
-# already writes a valid FSD (e.g. "30m") is passed through unchanged.
+# ambiguity. The conversion uses the shared _knit_walltime_to_seconds parser; a
+# value that is not HH:MM:SS is printed verbatim so a site that already writes a
+# valid FSD (e.g. "30m") is passed through unchanged.
 #
 # @param[in] walltime Walltime string, normally "HH:MM:SS".
 # ------------------------------------------------------------------------------
 _knit_sched_flux_walltime_fsd() {
     local walltime="$1"
-    if [[ "${walltime}" =~ ^([0-9]+):([0-5][0-9]):([0-5][0-9])$ ]]; then
-        local h="${BASH_REMATCH[1]}"
-        local m="${BASH_REMATCH[2]}"
-        local s="${BASH_REMATCH[3]}"
-        printf '%ss\n' "$(( 10#${h} * 3600 + 10#${m} * 60 + 10#${s} ))"
+    local secs
+    if secs="$(_knit_walltime_to_seconds "${walltime}")"; then
+        printf '%ss\n' "${secs}"
     else
         printf '%s\n' "${walltime}"
     fi
