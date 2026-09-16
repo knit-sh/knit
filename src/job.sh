@@ -126,11 +126,12 @@ _knit_submit() {
     local out_uuid out_jobdir out_alias out_jobname
     _knit_prepare_build out_uuid out_jobdir out_alias out_jobname \
         "submitted" "$@"
+    # _knit_submit_dispatch prints the job UUID (the canonical,
+    # scheduler-independent identifier) as soon as the scheduler accepts the job —
+    # before any --wait blocks — and then waits if requested. The
+    # implementation-dependent launcher id lives only in .job.id.
     _knit_submit_dispatch "${out_uuid}" "${out_jobdir}" "${out_jobname}" \
         "${out_alias}"
-    # Return the job UUID (the canonical, scheduler-independent identifier). The
-    # implementation-dependent launcher id lives only in .job.id.
-    printf '%s\n' "${out_uuid}"
 }
 knit_done
 
@@ -418,10 +419,16 @@ _knit_prepare_build() {
 # Release a built submission to the scheduler: the second phase of `submit`, and
 # the whole of `submit prepared` / `submit next`. It reads the resolved backend
 # and options from the job directory's .submit metadata (frozen by
-# _knit_prepare_build), builds the scheduler submission command, records it as
-# the row's native-cmd, advances the row to "submitted", issues the command, and
-# handles a scheduler rejection (removing the never-run job, exactly as a direct
-# submit does). On success it records the backend job id in .job.id.
+# _knit_prepare_build), builds the (non-blocking) scheduler submission command,
+# records it as the row's native-cmd, advances the row to "submitted", issues the
+# command, and handles a scheduler rejection (removing the never-run job, exactly
+# as a direct submit does). On success it records the backend job id in .job.id,
+# prints the job UUID to stdout, and — when the resolved "wait" option is true —
+# blocks until the job reaches a terminal state via _knit_sched_wait.
+#
+# The submission is always issued non-blocking so the UUID can be printed as soon
+# as the scheduler accepts the job, before any wait blocks; a caller who captures
+# stdout still receives exactly the one UUID line.
 #
 # @param[in] uuid          The job UUID (the jobs row id).
 # @param[in] jobdir        The job directory holding .submit and .job.sh.
@@ -463,6 +470,18 @@ _knit_submit_dispatch() {
         opts["wait"]="${wait_override}"
     fi
 
+    # Whether this release should block until the job finishes, captured before
+    # the submission is forced non-blocking just below.
+    local do_wait="${opts[wait]:-false}"
+
+    # Always submit without the backend's blocking form (sbatch --wait / qsub -W
+    # block=true / a local foreground wait). The UUID is printed as soon as the
+    # scheduler accepts the job, and the wait — when requested — is a separate
+    # step afterwards (_knit_sched_wait), so the id is available to inspect the job
+    # (e.g. from another terminal) before this call blocks. The recorded
+    # native-cmd is thus the non-blocking command that was actually issued.
+    opts["wait"]="false"
+
     local script="${jobdir}/.job.sh"
 
     # Build the scheduler submission command (e.g. "sbatch <script>") so it can be
@@ -485,14 +504,15 @@ _knit_submit_dispatch() {
     jobid="$(_knit_sched_submit "${backend}" opts "${script}" "${jobdir}")" \
         || submit_status=$?
     if (( submit_status != 0 )); then
-        # The submission command exited non-zero. If the row is still "submitted"
-        # the scheduler rejected the request (queue/resource limits, bad account,
-        # ...) and the job never ran: it never became a job, so leave no trace of
-        # it — delete the eagerly-recorded row and its provenance edge, remove the
-        # job directory (and any --name alias), and abort. (A blocking --wait job
-        # that was accepted but exited non-zero has already been moved to a
-        # terminal state by the compute side; that state is left untouched,
-        # preserving the existing behaviour for that case.)
+        # The submission command exited non-zero. Because the submission is issued
+        # non-blocking (the wait is a separate step below), a failure here is the
+        # scheduler rejecting the request (queue/resource limits, bad account, ...)
+        # rather than a job that ran and exited non-zero. If the row is still
+        # "submitted" the job never ran, so leave no trace of it — delete the
+        # eagerly-recorded row and its provenance edge, remove the job directory
+        # (and any --name alias), and abort. The row-state guard is kept as a
+        # safety net: if some other path already moved the row to a terminal
+        # state, that state is left untouched.
         local cur_state uuid_esc
         _knit_sql_escape uuid_esc "${uuid}"
         cur_state="$(_knit_sqlite3 \
@@ -508,6 +528,20 @@ _knit_submit_dispatch() {
     # Record the implementation-dependent launcher id in .job.id. The full
     # submission record lives in the "jobs" table (see M10/M11 recording).
     printf '%s\n' "${jobid}" > "${jobdir}/.job.id"
+
+    # Print the job UUID now, before any wait: a --wait release must expose the id
+    # before it blocks, so the running job can be inspected (status, stdout, ...)
+    # from another terminal while this one waits. This is the canonical,
+    # scheduler-independent identifier callers of `submit` receive on stdout.
+    printf '%s\n' "${uuid}"
+
+    # Block until the job reaches a terminal state, when the release asked to
+    # wait. This polls the backend (see _knit_sched_wait), the same primitive
+    # `job wait` uses; the job's terminal state is recorded in the DB by the
+    # compute side, so waiting only has to unblock when the job stops running.
+    if [[ "${do_wait}" == "true" ]]; then
+        _knit_sched_wait "${backend}" "${jobid}"
+    fi
 }
 
 # ------------------------------------------------------------------------------

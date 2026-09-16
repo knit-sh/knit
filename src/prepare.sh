@@ -147,8 +147,9 @@ _knit_prepare_claim_id() {
 # time, so this reconstructs the job name and any --name alias from the jobs row,
 # then hands off to _knit_submit_dispatch, which builds the submit command,
 # advances the row "submitting" -> "submitted", and issues it (cleaning up on a
-# scheduler rejection exactly as a direct submit does). Prints the released job's
-# UUID.
+# scheduler rejection exactly as a direct submit does). _knit_submit_dispatch
+# prints the released job's UUID (before any --wait blocks) and then waits when
+# asked.
 #
 # @param[in] uuid      The claimed job UUID.
 # @param[in] wait_flag "true"/"false": block until the job completes (see
@@ -173,9 +174,10 @@ _knit_prepare_release() {
         alias_link="${job_root}/${alias_name}"
     fi
 
+    # _knit_submit_dispatch prints the released job's UUID (before any --wait
+    # blocks) and waits when wait_flag is "true".
     _knit_submit_dispatch "${uuid}" "${jobdir}" "${job_name}" "${alias_link}" \
         "${wait_flag}"
-    printf '%s\n' "${uuid}"
 }
 
 # ------------------------------------------------------------------------------

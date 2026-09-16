@@ -316,27 +316,48 @@ _stub_dispatch_ok() {
 @test "submit prepared --wait threads the wait flag to the backend" {
     _register_myjob_with_setup
     _stub_dispatch_ok
-    # Record that the backend was asked to block.
-    _knit_wait_local() { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/.waited"; }
+    # Record that the backend was asked to block. The submission is now issued
+    # non-blocking and the wait is a separate step (_knit_sched_wait ->
+    # _knit_sched_local_wait), so stub the backend wait primitive, not the
+    # foreground _knit_wait_local used by the old blocking-submit form.
+    _knit_sched_local_wait() { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/.waited"; }
 
     local uuid
     uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
     _knit_invoke_command submit prepared --id "${uuid}" --wait >/dev/null
 
     # A prepared job freezes wait=false; the release --wait must override it so the
-    # local backend blocks (calls _knit_wait_local).
+    # local backend blocks (calls _knit_sched_local_wait).
     [ -f "${_KNIT_TEST_TMPDIR}/.waited" ]
 }
 
 @test "submit next without --wait does not block" {
     _register_myjob_with_setup
     _stub_dispatch_ok
-    _knit_wait_local() { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/.waited"; }
+    _knit_sched_local_wait() { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/.waited"; }
 
     _knit_invoke_command prepare --setup setup -- myjob >/dev/null
     _knit_invoke_command submit next >/dev/null
 
     [ ! -f "${_KNIT_TEST_TMPDIR}/.waited" ]
+}
+
+@test "submit prepared --wait prints the UUID before it blocks on the wait" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+    # The wait step appends a marker to stdout. If the UUID is printed before the
+    # wait blocks (the whole point of this change), it must appear on stdout ahead
+    # of the marker.
+    _knit_sched_local_wait() { printf 'WAITED\n'; }
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
+
+    run _knit_invoke_command submit prepared --id "${uuid}" --wait
+    [ "$status" -eq 0 ]
+    # First line is the released UUID; the wait marker only follows it.
+    [ "${lines[0]}" = "${uuid}" ]
+    [ "${lines[1]}" = "WAITED" ]
 }
 
 # ---------- job cancel : prepared jobs ----------
