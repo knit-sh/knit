@@ -96,6 +96,116 @@ _knit_sched_profile_field() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sched_pick_queue()
+#
+# Select a queue automatically for the "--queue auto" strategy, choosing the
+# first queue declared in the machine profile that would accept the job as the
+# user specified it. Queues are read from the profile's .scheduler.queues object
+# in declaration order (jq preserves object key order), and the first one that
+# violates none of its declared constraints is returned by nameref.
+#
+# The constraints checked are the node count (min_nodes/max_nodes) and, only when
+# the user gave an explicit walltime, the walltime bounds (min_walltime/
+# max_walltime, compared in seconds). A constraint the profile omits — or a
+# profile walltime that does not parse — is not an obstacle (permissive). The
+# walltime argument is the raw user request, so this must run before walltime is
+# defaulted (the default itself is queue-derived, which is why auto resolves the
+# queue first).
+#
+# Outcomes:
+#   - no queues declared in the profile -> empty selection, return 0 (the caller
+#     then submits with no queue directive, i.e. the scheduler's own default);
+#   - a queue accepts the job                -> that queue's name, return 0;
+#   - queues are declared but none accept it -> knit_fatal with a per-queue
+#     rejection diagnostic (this runs at build time, before any submission).
+#
+# @param[out] __knit_ret Name of the variable to hold the selected queue name.
+# @param[in] nodes    Requested node count.
+# @param[in] walltime Requested walltime (HH:MM:SS), or empty when unspecified.
+# ------------------------------------------------------------------------------
+_knit_sched_pick_queue() {
+    local -n __knit_ret=$1
+    local nodes="$2"
+    local walltime="$3"
+    __knit_ret=""
+
+    local json
+    _knit_metadata_get json "__profile_json__"
+
+    # One jq pass yields the queues as ordered tab-separated rows:
+    #   name, min_nodes, max_nodes, min_walltime, max_walltime
+    # with any absent field left empty.
+    local jq_prog
+    jq_prog='(.scheduler.queues // {}) | to_entries[] | [ .key,'
+    jq_prog+=' (.value.min_nodes // ""), (.value.max_nodes // ""),'
+    jq_prog+=' (.value.min_walltime // ""), (.value.max_walltime // "") ] | @tsv'
+    local rows
+    rows="$(printf '%s' "${json}" | _knit_jq -r "${jq_prog}" 2>/dev/null)"
+
+    # No queues declared: nothing to select from (D9). The caller submits with no
+    # queue directive and lets the scheduler apply its own default.
+    if [[ -z "${rows}" ]]; then
+        return 0
+    fi
+
+    # The requested walltime in seconds, but only when the user asked for one and
+    # it parses; otherwise walltime does not filter.
+    local want_secs=""
+    if [[ -n "${walltime}" ]]; then
+        want_secs="$(_knit_walltime_to_seconds "${walltime}")" || want_secs=""
+    fi
+
+    local -a rejects=()
+    local name min_nodes max_nodes min_wt max_wt lo hi
+    while IFS=$'\t' read -r name min_nodes max_nodes min_wt max_wt; do
+        [[ -z "${name}" ]] && continue
+
+        # Node-count bounds.
+        if [[ "${min_nodes}" =~ ^[0-9]+$ ]] && (( nodes < min_nodes )); then
+            rejects+=("${name}"$'\t'"min_nodes=${min_nodes} (need ${nodes})")
+            continue
+        fi
+        if [[ "${max_nodes}" =~ ^[0-9]+$ ]] && (( nodes > max_nodes )); then
+            rejects+=("${name}"$'\t'"max_nodes=${max_nodes} (need ${nodes})")
+            continue
+        fi
+
+        # Walltime bounds, only when the user specified a parseable walltime. An
+        # unset or unparseable profile bound is skipped (permissive).
+        if [[ -n "${want_secs}" ]]; then
+            if lo="$(_knit_walltime_to_seconds "${min_wt}")" \
+               && (( want_secs < lo )); then
+                rejects+=("${name}"$'\t'"min_walltime=${min_wt} (need ${walltime})")
+                continue
+            fi
+            if hi="$(_knit_walltime_to_seconds "${max_wt}")" \
+               && (( want_secs > hi )); then
+                rejects+=("${name}"$'\t'"max_walltime=${max_wt} (need ${walltime})")
+                continue
+            fi
+        fi
+
+        # First queue that violates nothing wins (first-fit, declaration order).
+        __knit_ret="${name}"
+        return 0
+    done <<< "${rows}"
+
+    # Queues are declared but none accept the job as specified (D8): fail with a
+    # per-queue diagnostic before any scheduler command is issued.
+    local msg="--queue auto found no queue that accepts this job (nodes=${nodes}"
+    [[ -n "${walltime}" ]] && msg+=", walltime=${walltime}"
+    msg+="):"
+    local r qname reason
+    for r in "${rejects[@]}"; do
+        qname="${r%%$'\t'*}"
+        reason="${r#*$'\t'}"
+        msg+=$'\n'"  ${qname}: rejected: ${reason}"
+    done
+    msg+=$'\n'"hint: request fewer nodes / less walltime, or name a queue explicitly with --queue <name>."
+    knit_fatal '%s' "${msg}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_resolve()
 #
 # Resolve the submission options for a job into a caller-provided associative

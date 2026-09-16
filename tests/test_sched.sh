@@ -797,6 +797,90 @@ _seed_default_setup() {
     [ "${r[wait]}" = "true" ]
 }
 
+# ---------- _knit_sched_pick_queue ----------
+
+# Store a hand-written profile JSON (for cases the in-repo profiles do not cover,
+# e.g. no queues, or a queue with unbounded/unparseable constraints).
+_use_profile_json() {
+    _knit_metadata_store --key "__profile__" --value "custom"
+    _knit_metadata_store --key "__profile_json__" --value "$1"
+}
+
+@test "pick_queue picks the first queue that fits by declaration order" {
+    _use_profile polaris
+    local picked
+    # Polaris queues in order: debug(1-2), debug-scaling(1-10), prod(10-496),
+    # preemptable(1-10). One node fits the very first, debug.
+    _knit_sched_pick_queue picked 1 ""
+    [ "${picked}" = "debug" ]
+}
+
+@test "pick_queue skips queues whose max_nodes is too small" {
+    _use_profile polaris
+    local picked
+    _knit_sched_pick_queue picked 5 ""
+    [ "${picked}" = "debug-scaling" ]
+}
+
+@test "pick_queue reaches a later queue for a large node count" {
+    _use_profile polaris
+    local picked
+    _knit_sched_pick_queue picked 100 ""
+    [ "${picked}" = "prod" ]
+}
+
+@test "pick_queue filters on walltime when the user specified one" {
+    _use_profile polaris
+    local picked
+    # One node rules prod out (min_nodes=10); a 2h walltime rules out debug and
+    # debug-scaling (max_walltime 01:00:00), leaving preemptable (max 72:00:00).
+    _knit_sched_pick_queue picked 1 "02:00:00"
+    [ "${picked}" = "preemptable" ]
+}
+
+@test "pick_queue rejects a walltime below a queue's minimum" {
+    _use_profile polaris
+    local picked
+    # 1 minute is below every queue's min_walltime (00:05:00); with one node prod
+    # is also out on min_nodes, so nothing fits.
+    run _knit_sched_pick_queue picked 1 "00:01:00"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"no queue that accepts this job"* ]]
+    [[ "$output" == *"min_walltime=00:05:00"* ]]
+}
+
+@test "pick_queue fatals with a per-queue diagnostic when nothing fits" {
+    _use_profile polaris
+    local picked
+    run _knit_sched_pick_queue picked 1000 ""
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"no queue that accepts this job (nodes=1000)"* ]]
+    [[ "$output" == *"debug: rejected: max_nodes=2 (need 1000)"* ]]
+    [[ "$output" == *"prod: rejected: max_nodes=496 (need 1000)"* ]]
+    [[ "$output" == *"--queue <name>"* ]]
+}
+
+@test "pick_queue returns empty when the profile declares no queues" {
+    _use_profile_json '{"scheduler":{"type":"slurm"}}'
+    local picked="sentinel"
+    _knit_sched_pick_queue picked 4 "01:00:00"
+    [ -z "${picked}" ]
+}
+
+@test "pick_queue is permissive when a queue omits its node bounds" {
+    _use_profile_json '{"scheduler":{"queues":{"unbounded":{"min_walltime":"00:05:00"}}}}'
+    local picked
+    _knit_sched_pick_queue picked 9999 ""
+    [ "${picked}" = "unbounded" ]
+}
+
+@test "pick_queue is permissive when a queue's walltime bound does not parse" {
+    _use_profile_json '{"scheduler":{"queues":{"q":{"max_walltime":"bogus"}}}}'
+    local picked
+    _knit_sched_pick_queue picked 1 "48:00:00"
+    [ "${picked}" = "q" ]
+}
+
 # ---------- _knit_sched_cancel ----------
 
 @test "_knit_sched_cancel dispatches to the backend cancel primitive" {
