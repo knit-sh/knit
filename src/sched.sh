@@ -270,6 +270,30 @@ _knit_sched_resolve() {
     [[ -z "${v}" ]] && v="0"
     resolved["gpus-per-node"]="${v}"
 
+    # Automatic queue selection -------------------------------------------------
+    # Resolve the "auto" strategy (an explicit --queue auto, or a site default of
+    # "auto" arriving through the precedence above) to a concrete queue now,
+    # before walltime is defaulted: the default walltime is derived from the
+    # selected queue, so the queue must be chosen first. Selection uses only what
+    # the user specified — the node count, and the walltime only when it was given
+    # explicitly. The concrete name replaces "auto", so every downstream consumer
+    # (directives, native-cmd, the recorded row) sees the real queue, never "auto".
+    if [[ "${resolved["queue"]}" == "auto" ]]; then
+        local backend
+        _knit_sched_backend backend
+        if [[ "${backend}" == "local" || "${backend}" == "none" ]]; then
+            # These backends ignore the queue entirely (they emit no queue
+            # directive), so there is nothing to select.
+            resolved["queue"]=""
+        else
+            local user_walltime picked
+            user_walltime="$(knit_get_parameter "walltime" "${cli[@]}")" \
+                || user_walltime=""
+            _knit_sched_pick_queue picked "${resolved["nodes"]}" "${user_walltime}"
+            resolved["queue"]="${picked}"
+        fi
+    fi
+
     # Walltime is resolved queue-aware, and we record whether the value was
     # picked by knit rather than requested (walltime-defaulted). Precedence:
     #   1. --walltime CLI argument               (explicit; not defaulted)

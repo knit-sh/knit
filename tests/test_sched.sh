@@ -797,6 +797,68 @@ _seed_default_setup() {
     [ "${r[wait]}" = "true" ]
 }
 
+@test "resolve turns --queue auto into a concrete queue" {
+    _use_profile polaris
+    _knit_metadata_store --key "__scheduler__" --value "pbs"
+    declare -A r
+    _knit_sched_resolve r --queue auto --nodes 1
+    [ "${r[queue]}" = "debug" ]
+}
+
+@test "resolve --queue auto selects a larger queue by node count" {
+    _use_profile polaris
+    _knit_metadata_store --key "__scheduler__" --value "pbs"
+    declare -A r
+    _knit_sched_resolve r --queue auto --nodes 100
+    [ "${r[queue]}" = "prod" ]
+}
+
+@test "resolve --queue auto filters on an explicit walltime and keeps it" {
+    _use_profile polaris
+    _knit_metadata_store --key "__scheduler__" --value "pbs"
+    declare -A r
+    _knit_sched_resolve r --queue auto --nodes 1 --walltime 02:00:00
+    [ "${r[queue]}" = "preemptable" ]
+    [ "${r[walltime]}" = "02:00:00" ]
+    [ "${r["walltime-defaulted"]}" = "false" ]
+}
+
+@test "resolve --queue auto is empty on the local backend" {
+    _use_profile polaris
+    _knit_metadata_store --key "__scheduler__" --value "local"
+    declare -A r
+    _knit_sched_resolve r --queue auto --nodes 1
+    [ -z "${r[queue]}" ]
+}
+
+@test "resolve --queue auto is empty when the profile declares no queues" {
+    _use_profile_json '{"scheduler":{"type":"slurm"}}'
+    _knit_metadata_store --key "__scheduler__" --value "slurm"
+    declare -A r
+    _knit_sched_resolve r --queue auto --nodes 4
+    [ -z "${r[queue]}" ]
+}
+
+@test "resolve leaves an explicit queue name untouched (no auto selection)" {
+    _use_profile polaris
+    _knit_metadata_store --key "__scheduler__" --value "pbs"
+    declare -A r
+    # 100 nodes would never fit debug, but an explicit name is passed through
+    # verbatim: only the literal "auto" triggers selection.
+    _knit_sched_resolve r --queue debug --nodes 100
+    [ "${r[queue]}" = "debug" ]
+}
+
+@test "resolve applies a default_queue of auto from metadata" {
+    _use_profile polaris
+    _knit_metadata_store --key "__scheduler__" --value "pbs"
+    _knit_metadata_store --key "__default_queue__" --value "auto"
+    declare -A r
+    # No --queue: the site default "auto" arrives via metadata and is selected.
+    _knit_sched_resolve r --nodes 5
+    [ "${r[queue]}" = "debug-scaling" ]
+}
+
 # ---------- _knit_sched_pick_queue ----------
 
 # Store a hand-written profile JSON (for cases the in-repo profiles do not cover,

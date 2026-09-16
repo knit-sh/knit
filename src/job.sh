@@ -69,7 +69,7 @@ _knit_declare_submit_options() {
     knit_with_optional "project:string" "" \
         "Project name (default: the __project__ metadata)."
     knit_with_optional "queue:string" "" \
-        "Queue/partition (default: the site default queue)."
+        "Queue/partition (default: the site default queue). \"auto\" selects the first profile queue that accepts the job."
     # Resources. Knit allocates whole nodes exclusively: the per-node core count
     # is taken from the machine profile (or bootstrap detection), not requested
     # per submit, so there is no CPU option here.
