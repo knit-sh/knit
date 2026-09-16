@@ -22,7 +22,9 @@ Reading it top to bottom:
   knit uses to write directives and submit; ``command`` is the submit binary;
   ``default_queue`` and ``default_args`` become the experiment's defaults; and
   ``queues`` records each queue's node/walltime bounds so ``submit`` can validate
-  a request against the queue before it reaches the scheduler.
+  a request against the queue before it reaches the scheduler. Setting
+  ``default_queue`` to ``"auto"`` (or passing ``submit --queue auto``) makes knit
+  choose the first queue in ``queues`` whose bounds accept the job.
 - ``launcher`` --- how MPI ranks are launched. ``type`` (``pals``) picks the
   launcher backend for ``knit run``, and ``command`` is its binary
   (``mpiexec``).

@@ -558,16 +558,17 @@ _setup_update_mode() {
 @test "update mode updates every typed free option" {
     _setup_update_mode
     _KNIT_INVOCATION_RAW_ARGS=(--project demo --platform mymachine --account acct \
-        --default-walltime 01:00:00 --default-cpus-per-node 64)
+        --default-walltime 01:00:00 --default-queue auto --default-cpus-per-node 64)
 
     run _knit_bootstrap --project demo --platform mymachine --account acct \
-        --default-walltime 01:00:00 --default-cpus-per-node 64
+        --default-walltime 01:00:00 --default-queue auto --default-cpus-per-node 64
     [ "$status" -eq 0 ]
 
     grep -q -- '--key __project__ --value demo --force' "${__update_meta}"
     grep -q -- '--key __platform__ --value mymachine --force' "${__update_meta}"
     grep -q -- '--key __account__ --value acct --force' "${__update_meta}"
     grep -q -- '--key __default_walltime__ --value 01:00:00 --force' "${__update_meta}"
+    grep -q -- '--key __default_queue__ --value auto --force' "${__update_meta}"
     grep -q -- '--key __node_ncpus__ --value 64 --force' "${__update_meta}"
 }
 
