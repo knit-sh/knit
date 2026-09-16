@@ -116,6 +116,13 @@ check_sqlite ".knit/knit.db" \
     "completed" \
     "jobs row advanced to completed after the --wait job finished"
 
+# The row records the RESOLVED concrete queue, not the literal "auto" the default
+# supplied (queue selection is written back into the row after recording).
+check_sqlite ".knit/knit.db" \
+    "SELECT queue FROM jobs WHERE id='${uuid}';" \
+    "${REAL_QUEUE}" \
+    "jobs row records the resolved concrete queue (not 'auto')"
+
 # --------------------------------------------------------------------------
 # Automatic selection resolved "auto" to the concrete real queue and wrote it
 # into the batch script's directives — skipping the one-node decoy.

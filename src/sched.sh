@@ -132,13 +132,16 @@ _knit_sched_pick_queue() {
     local json
     _knit_metadata_get json "__profile_json__"
 
-    # One jq pass yields the queues as ordered tab-separated rows:
+    # One jq pass yields the queues as ordered rows, one per line, five fields
     #   name, min_nodes, max_nodes, min_walltime, max_walltime
-    # with any absent field left empty.
+    # joined by an ASCII Unit Separator (0x1f). A non-whitespace delimiter is
+    # required: a tab IFS would collapse the empty fields an omitted bound produces
+    # (tab is IFS-whitespace), shifting every field after the gap.
     local jq_prog
     jq_prog='(.scheduler.queues // {}) | to_entries[] | [ .key,'
     jq_prog+=' (.value.min_nodes // ""), (.value.max_nodes // ""),'
-    jq_prog+=' (.value.min_walltime // ""), (.value.max_walltime // "") ] | @tsv'
+    jq_prog+=' (.value.min_walltime // ""), (.value.max_walltime // "") ]'
+    jq_prog+=' | map(tostring) | join("\u001f")'
     local rows
     rows="$(printf '%s' "${json}" | _knit_jq -r "${jq_prog}" 2>/dev/null)"
 
@@ -157,7 +160,7 @@ _knit_sched_pick_queue() {
 
     local -a rejects=()
     local name min_nodes max_nodes min_wt max_wt lo hi
-    while IFS=$'\t' read -r name min_nodes max_nodes min_wt max_wt; do
+    while IFS=$'\x1f' read -r name min_nodes max_nodes min_wt max_wt; do
         [[ -z "${name}" ]] && continue
 
         # Node-count bounds.
