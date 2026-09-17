@@ -454,8 +454,12 @@ _analyze() {
     printf '== schema (catalog) ==\n'
     knit query catalog
 
+    # The `image` column holds an absolute path. The aligned modes (table/box/
+    # markdown/column) cap each column's width and wrap a long value across lines,
+    # which is ugly and splits the path; `--format line` prints one "field = value"
+    # per line, so the full path stays intact on a single line.
     printf '\n== renders ranked by metric (SQL over the julia app rows) ==\n'
-    knit query sql --header --format table --exec \
+    knit query sql --format line --exec \
         "SELECT colormap, zoom, inside, image FROM julia ORDER BY inside DESC"
 
     printf '\n== placement of each launch (graph: render -call-> runs) ==\n'
@@ -463,7 +467,7 @@ _analyze() {
         "MATCH (rr:render)-[:call]->(r:runs) RETURN r.app, r.procs, r.hostnames"
 
     printf '\n== renders that used the juliaenv setup (graph: the used_by chain) ==\n'
-    knit query graph --header --format table --exec \
+    knit query graph --format line --exec \
         "MATCH (s:\`setup:juliaenv\`)-[:used_by]->(j:jobs)-[:call]->(rr:render)
                 -[:call]->(:runs)-[:call]->(a:julia)
          RETURN a.colormap, a.inside, a.image ORDER BY a.inside DESC"
