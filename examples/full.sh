@@ -215,6 +215,10 @@
 #
 #   ./full.sh bootstrap --default-cpus-per-node 128
 #
+# or make every job pick its queue automatically from the profile's queues:
+#
+#   ./full.sh bootstrap --default-queue auto
+#
 # A bare re-`bootstrap` with no options changes nothing and reports that there is
 # nothing to update. Some changes are constrained. You can relocate a path
 # (--setup-path / --job-path / --resource-path) only while it is empty of its
@@ -233,8 +237,10 @@
 # platform modules plus a `spack` block of Spack config — typically a `packages`
 # section naming vendor packages as non-buildable externals and requiring the
 # `mpi` virtual to resolve to them; the block is passed to Spack verbatim, so it
-# can carry any Spack config section). The limits are informational: knit never
-# enforces a queue's node/walltime bounds — the scheduler does. Profiles are not baked into knit: `bootstrap --profile`
+# can carry any Spack config section). The per-queue limits feed two things: the
+# default walltime for a queue, and `--queue auto` (section 8), which picks the
+# first queue whose bounds accept the job; for an explicitly named queue knit does
+# not enforce the bounds — the scheduler does. Profiles are not baked into knit: `bootstrap --profile`
 # downloads the chosen one (treated strictly as data, never executed), and
 # `profile list` prints the union of what is available, each row showing the
 # profile name, a bracketed source tag, and its one-line description:
@@ -404,7 +410,9 @@
 #   and you poll the state yourself. Other options (see `submit --help`):
 #   --nodes, --walltime, --queue, --account, --gpus-per-node, --job-name, and
 #   --group (a free-form label grouping related runs, recorded in the `jobs`
-#   table). To build a submission now and release it to the scheduler later —
+#   table). Pass --queue auto to let knit pick the first profile queue whose
+#   node/walltime bounds accept the job (make it the default with `bootstrap
+#   --default-queue auto`). To build a submission now and release it to the scheduler later —
 #   one at a time, or a whole batch from a JSON plan — use `prepare` instead of
 #   `submit`; see section 16.
 #

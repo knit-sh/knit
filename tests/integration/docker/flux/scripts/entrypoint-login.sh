@@ -47,12 +47,20 @@ chown hpcuser:hpcuser /run/flux
 # -----------------------------------------------------------------------------
 # 3. Leader broker
 #    Started as hpcuser via runuser (the entrypoint itself runs as root to set
-#    up the dirs above). The initial program `sleep inf` runs only on rank 0
-#    and keeps the instance alive for the lifetime of the container.
+#    up the dirs above). The initial program runs only on rank 0 and keeps the
+#    instance alive for the lifetime of the container.
+#
+#    Named queues (see system.toml) come up stopped, and a stopped queue never
+#    schedules its jobs. The initial program therefore enables (accept jobs) and
+#    starts (schedule jobs) every configured queue before it blocks on `sleep
+#    inf`. Both are best-effort (a queue already enabled/started is a no-op) and
+#    run within the instance, so `flux` connects through the leader's own
+#    FLUX_URI. This is the one-shot equivalent of the `flux queue start` a
+#    systemd-managed Flux system instance runs at boot.
 # -----------------------------------------------------------------------------
 echo "[entrypoint] Starting leader broker..."
 exec runuser -u hpcuser -- \
     flux broker \
         --config-path=/etc/flux/system/conf.d \
         -Srundir=/run/flux \
-        sleep inf
+        bash -c 'flux queue enable --all 2>/dev/null; flux queue start --all 2>/dev/null; exec sleep inf'

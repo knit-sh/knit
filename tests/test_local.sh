@@ -43,6 +43,36 @@ teardown() {
     [ "$output" = "489" ]
 }
 
+@test "_knit_walltime_to_seconds accepts a multi-digit hours field" {
+    run _knit_walltime_to_seconds "100:00:00"
+    [ "$status" -eq 0 ]
+    [ "$output" = "360000" ]
+}
+
+@test "_knit_walltime_to_seconds rejects a non HH:MM:SS value" {
+    run _knit_walltime_to_seconds "30m"
+    [ "$status" -eq 1 ]
+    [ -z "$output" ]
+}
+
+@test "_knit_walltime_to_seconds rejects an out-of-range minutes field" {
+    run _knit_walltime_to_seconds "01:60:00"
+    [ "$status" -eq 1 ]
+    [ -z "$output" ]
+}
+
+@test "_knit_walltime_to_seconds rejects a truncated MM:SS value" {
+    run _knit_walltime_to_seconds "05:00"
+    [ "$status" -eq 1 ]
+    [ -z "$output" ]
+}
+
+@test "_knit_walltime_to_seconds rejects an empty value" {
+    run _knit_walltime_to_seconds ""
+    [ "$status" -eq 1 ]
+    [ -z "$output" ]
+}
+
 # ---------- _knit_submit_local ----------
 
 @test "_knit_submit_local returns a numeric PID" {

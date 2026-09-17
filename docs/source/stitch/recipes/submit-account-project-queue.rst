@@ -28,3 +28,22 @@ Set the metadata defaults once, at bootstrap, so every ``submit`` inherits them:
 After that, a bare ``submit`` uses those values, and the options above are only
 for overriding them on a single run. The resolved values are written into the
 batch script's directives and recorded with the job.
+
+Let knit pick the queue with ``--queue auto``: it walks the machine profile's
+declared queues in order and selects the first whose node and walltime bounds
+accept the job as you specified it.
+
+.. code-block:: console
+
+   $ ./exp.sh submit --queue auto --nodes 4 --walltime 02:00:00 -- julia
+
+Selection uses only what you asked for --- the node count, and the walltime only
+when you gave one --- and resolves to a concrete queue that is recorded with the
+job (never the literal ``auto``). If no declared queue fits, ``submit`` stops with
+a per-queue explanation instead of letting the scheduler reject the request. Make
+it the default for every submission by storing it at bootstrap, or by setting
+``default_queue`` to ``"auto"`` in the machine profile:
+
+.. code-block:: console
+
+   $ ./exp.sh bootstrap --default-queue auto

@@ -109,6 +109,29 @@ _register_myjob_with_setup() {
         "SELECT setup FROM jobs WHERE id='${uuid}';")" = "setup" ]
 }
 
+@test "prepare records resolved queue and walltime, not the raw request" {
+    _register_myjob_with_setup
+
+    # A batch backend (so --queue auto resolves) plus a profile declaring queues.
+    _knit_metadata_store --key "__scheduler__"     --value "slurm"
+    _knit_metadata_store --key "__profile__"       --value "custom"
+    _knit_metadata_store --key "__profile_json__"  --value \
+        '{"scheduler":{"type":"slurm","queues":{"tiny":{"max_nodes":1},"big":{"min_nodes":1,"max_nodes":8}}}}'
+    _knit_metadata_store --key "__default_queue__" --value "auto"
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup --nodes 4 -- myjob)"
+
+    # --queue auto (from the default) resolved to the first fitting queue, skipping
+    # the one-node "tiny": the row records the concrete queue, never "auto".
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT queue FROM jobs WHERE id='${uuid}';")" = "big" ]
+    # No --walltime was given; the row records the resolved (defaulted) value, not
+    # the empty request.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT walltime FROM jobs WHERE id='${uuid}';")" = "01:00:00" ]
+}
+
 @test "prepare records a used_by edge labelled for the submit table owner" {
     _register_myjob_with_setup
 
@@ -316,27 +339,48 @@ _stub_dispatch_ok() {
 @test "submit prepared --wait threads the wait flag to the backend" {
     _register_myjob_with_setup
     _stub_dispatch_ok
-    # Record that the backend was asked to block.
-    _knit_wait_local() { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/.waited"; }
+    # Record that the backend was asked to block. The submission is now issued
+    # non-blocking and the wait is a separate step (_knit_sched_wait ->
+    # _knit_sched_local_wait), so stub the backend wait primitive, not the
+    # foreground _knit_wait_local used by the old blocking-submit form.
+    _knit_sched_local_wait() { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/.waited"; }
 
     local uuid
     uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
     _knit_invoke_command submit prepared --id "${uuid}" --wait >/dev/null
 
     # A prepared job freezes wait=false; the release --wait must override it so the
-    # local backend blocks (calls _knit_wait_local).
+    # local backend blocks (calls _knit_sched_local_wait).
     [ -f "${_KNIT_TEST_TMPDIR}/.waited" ]
 }
 
 @test "submit next without --wait does not block" {
     _register_myjob_with_setup
     _stub_dispatch_ok
-    _knit_wait_local() { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/.waited"; }
+    _knit_sched_local_wait() { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/.waited"; }
 
     _knit_invoke_command prepare --setup setup -- myjob >/dev/null
     _knit_invoke_command submit next >/dev/null
 
     [ ! -f "${_KNIT_TEST_TMPDIR}/.waited" ]
+}
+
+@test "submit prepared --wait prints the UUID before it blocks on the wait" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+    # The wait step appends a marker to stdout. If the UUID is printed before the
+    # wait blocks (the whole point of this change), it must appear on stdout ahead
+    # of the marker.
+    _knit_sched_local_wait() { printf 'WAITED\n'; }
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
+
+    run _knit_invoke_command submit prepared --id "${uuid}" --wait
+    [ "$status" -eq 0 ]
+    # First line is the released UUID; the wait marker only follows it.
+    [ "${lines[0]}" = "${uuid}" ]
+    [ "${lines[1]}" = "WAITED" ]
 }
 
 # ---------- job cancel : prepared jobs ----------

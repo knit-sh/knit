@@ -188,3 +188,59 @@ _mk_opts() {
     [ "${status}" -eq 0 ]
     [ "$(< "${TMP}/argv")" = "98765.pbsserver" ]
 }
+
+# ---------- _knit_sched_pbs_wait (mocked qstat) ----------
+
+# Stub qstat to emit a scripted job_state per call: each argument is one call's
+# state ("" = the job is not visible). ${TMP}/calls holds the number of calls.
+_pbs_wait_stub() {
+    printf '%s\n' "$@" > "${TMP}/seq"
+    rm -f "${TMP}/calls"
+    qstat() {
+        local idx
+        idx=$(( $(cat "${TMP}/calls" 2>/dev/null || echo 0) + 1 ))
+        printf '%s' "${idx}" > "${TMP}/calls"
+        local st
+        st="$(sed -n "${idx}p" "${TMP}/seq")"
+        [[ -n "${st}" ]] && printf 'job_state = %s\n' "${st}"
+        return 0
+    }
+}
+
+@test "pbs wait tolerates registration lag then blocks until terminal" {
+    _KNIT_SCHED_POLL_INTERVAL="0.01"
+    _KNIT_SCHED_PBS_REGISTER_GRACE_POLLS="10"
+    # Not visible on the first poll (qsub raced qstat), then running, then finished.
+    _pbs_wait_stub "" "R" "F"
+    run _knit_sched_pbs_wait "7.pbs-login"
+    [ "${status}" -eq 0 ]
+    # It must NOT have returned at the empty first poll: it polled through to "F".
+    [ "$(cat "${TMP}/calls")" -eq 3 ]
+}
+
+@test "pbs wait returns once a seen job leaves qstat" {
+    _KNIT_SCHED_POLL_INTERVAL="0.01"
+    _KNIT_SCHED_PBS_REGISTER_GRACE_POLLS="10"
+    _pbs_wait_stub "R" "R" ""
+    run _knit_sched_pbs_wait "7.pbs-login"
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${TMP}/calls")" -eq 3 ]
+}
+
+@test "pbs wait returns immediately when the job is already finished" {
+    _KNIT_SCHED_POLL_INTERVAL="0.01"
+    _pbs_wait_stub "F"
+    run _knit_sched_pbs_wait "7.pbs-login"
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${TMP}/calls")" -eq 1 ]
+}
+
+@test "pbs wait gives up after the grace when the job never registers" {
+    _KNIT_SCHED_POLL_INTERVAL="0.01"
+    _KNIT_SCHED_PBS_REGISTER_GRACE_POLLS="3"
+    _pbs_wait_stub "" "" "" "" ""
+    run _knit_sched_pbs_wait "7.pbs-login"
+    [ "${status}" -eq 0 ]
+    # Bounded: exactly the grace number of polls, not an unbounded hang.
+    [ "$(cat "${TMP}/calls")" -eq 3 ]
+}
