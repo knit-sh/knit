@@ -91,6 +91,32 @@ _stub_dispatch() {
     [ "$output" = "launcher ./exp.sh _run -- myapp --n 5" ]
 }
 
+# ---------- runs row: exit status filled in after launch ----------
+
+@test "a successful run records exit status 0 on the runs row" {
+    _stub_dispatch
+    export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
+
+    _knit_invoke_command run --procs 2 -- myapp
+
+    # The eager insert left __exit_status__ NULL; the post-launch update fills it.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT __exit_status__ FROM runs;")" = "0" ]
+}
+
+@test "a failed non-opt-out run records its exit status on the runs row" {
+    _stub_dispatch
+    # The launcher reports failure; myapp did not opt out, so its runs row
+    # survives as the failure trace and records the launcher's exit status.
+    _knit_launch_exec() { return 7; }
+    export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
+
+    run _knit_invoke_command run --procs 2 -- myapp
+    [ "$status" -eq 7 ]
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")" = "1" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT __exit_status__ FROM runs;")" = "7" ]
+}
+
 # ---------- per-app row: rank-0 recording under a fresh distinct id ----------
 
 @test "rank 0 records the per-app row under a fresh distinct id" {

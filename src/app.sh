@@ -291,16 +291,21 @@ _knit_run() {
     # launch keeps it off every rank and out of every measured duration.
     if [[ "${run_status}" -eq 0 ]]; then
         _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${uuid}"
+        # Fill in the runs row's exit status (left NULL by the eager insert).
+        _knit_run_record_exit_status "${uuid}" "${run_status}"
     else
         # A failed run leaves the eagerly-recorded runs row as a trace by default.
         # But when the app opted out of recording a failed invocation
         # (knit_no_record_on_failure), rank 0 skipped its per-app row, so the runs
         # row now joins to nothing (its "run -> run:<app>" call edge and target row
         # were never written). Remove the runs row and any edge referencing it, so
-        # the runs table stays consistent with the app's own opt-out.
+        # the runs table stays consistent with the app's own opt-out. Otherwise the
+        # row survives as the failure trace, so record the launcher's exit status.
         local no_fail_var="_KNIT_CMD_${subcmd}_no_record_on_failure"
         if [[ "${!no_fail_var:-}" == "true" ]]; then
             _knit_run_delete_row "${uuid}"
+        else
+            _knit_run_record_exit_status "${uuid}" "${run_status}"
         fi
     fi
     return "${run_status}"
@@ -337,6 +342,26 @@ _knit_run_delete_row() {
     _knit_sqlite3_write \
         "DELETE FROM ${_KNIT_PROV_TABLE} WHERE target_id='${uuid_esc}' OR source_id='${uuid_esc}';" \
         2>/dev/null || true
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_run_record_exit_status()
+#
+# Fill in the runs row's reserved "__exit_status__" column after the launcher
+# returns. The row is recorded eagerly, before the launch, so a failed launch
+# still leaves a trace; the exit status is left NULL there because the outcome is
+# not yet known. This writes the launcher's exit status once it is. Best-effort
+# and bootstrap-gated (with no database there is nothing to update). Only called
+# when the runs row survives — never after _knit_run_delete_row removed it.
+#
+# @param[in] uuid        The run's UUID (its runs-row id).
+# @param[in] exit_status The launcher's exit status.
+# ------------------------------------------------------------------------------
+_knit_run_record_exit_status() {
+    local uuid="$1"
+    local exit_status="$2"
+    _knit_is_bootstrapped || return 0
+    _knit_db_update_row "${_KNIT_RUNS_TABLE}" "${uuid}" "__exit_status__=${exit_status}"
 }
 
 # ------------------------------------------------------------------------------
