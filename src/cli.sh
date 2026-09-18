@@ -2930,15 +2930,36 @@ _knit_checksum_require_exists() {
     local name="$3"
     local kind="$4"
     local value="$5"
-    case "${kind}" in
-        file)      [[ -f "${value}" ]] && return 0 ;;
-        directory) [[ -d "${value}" ]] && return 0 ;;
-    esac
+    _knit_checksum_target_exists "${kind}" "${value}" && return 0
     if [[ "${direction}" == "input" ]]; then
         knit_fatal "Input ${kind} \"${name}\" of \"${demangled_cmd}\" does not exist: \"${value}\"."
     else
         knit_fatal "Output ${kind} \"${name}\" of \"${demangled_cmd}\" was not produced: \"${value}\"."
     fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_checksum_target_exists()
+#
+# Test whether a checksummed file/directory value refers to an existing target: a
+# "file" must be a regular file (-f), a "directory" must be a directory (-d).
+# Returns success/failure without fataling, so a tolerant caller (an output hook
+# after a FAILED body, which may legitimately have produced only some outputs)
+# can skip a missing target rather than abort. _knit_checksum_require_exists is
+# the fatal wrapper for the strict callers (inputs, and outputs of a success).
+#
+# @param[in] kind  "file" or "directory".
+# @param[in] value The path to test.
+# @return 0 if the target exists and matches the kind, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_checksum_target_exists() {
+    local kind="$1"
+    local value="$2"
+    case "${kind}" in
+        file)      [[ -f "${value}" ]] ;;
+        directory) [[ -d "${value}" ]] ;;
+        *)         return 1 ;;
+    esac
 }
 
 # ------------------------------------------------------------------------------
@@ -3066,24 +3087,32 @@ _knit_checksum_inputs() {
 # ------------------------------------------------------------------------------
 # @fn _knit_checksum_outputs()
 #
-# After a command completes successfully, verify existence of every file/directory
-# "output" and, unless it opted out with --no-checksum, stash its digest for the
-# row write. The output value (the path) is read from the in-memory output store
-# set by knit_output, else the output's declared default; an output left with no
-# value is skipped (no existence check, no checksum). Existence is enforced for
-# every file/directory output; hashing is skipped for a --no-checksum one. A
-# declared output whose path does not exist is fatal. Called after the run
+# Verify existence of every file/directory "output" and, unless it opted out with
+# --no-checksum, stash its digest for the row write. The output value (the path)
+# is read from the in-memory output store set by knit_output, else the output's
+# declared default; an output left with no value is skipped (no existence check,
+# no checksum). Hashing is skipped for a --no-checksum one. Called after the run
 # duration has been captured, so hashing is excluded from the measured run time.
+#
+# When tolerant is "false" (a successful body) existence is enforced: a declared
+# output whose path does not exist is fatal (a broken postcondition). When
+# tolerant is "true" (a FAILED body) a missing output is skipped instead — a
+# failed body may legitimately have produced only some of its outputs — while an
+# output that IS present is still hashed and recorded, so a failure's partial
+# results are captured.
 #
 # In a launched app worker no rank hashes outputs: rank 0 records the output
 # paths with empty checksum columns, and the `run` dispatcher verifies existence
 # and hashes them once after the launcher returns, off every measured duration.
 # So this returns early there, leaving the checksum columns for the dispatcher.
 #
-# @param[in] cmd Mangled command name.
+# @param[in] cmd      Mangled command name.
+# @param[in] tolerant "true" to skip (not fatal on) a missing output; default
+#                     "false" enforces existence.
 # ------------------------------------------------------------------------------
 _knit_checksum_outputs() {
     local cmd="$1"
+    local tolerant="${2:-false}"
     if _knit_checksum_is_app_worker "${cmd}"; then
         return 0
     fi
@@ -3114,6 +3143,12 @@ _knit_checksum_outputs() {
         fi
         # An output left with no value has no path to check or hash.
         [[ -z "${value}" ]] && continue
+        # A failed body may not have produced this output; skip a missing one
+        # rather than abort, but still hash one that is present.
+        if [[ "${tolerant}" == "true" ]] \
+           && ! _knit_checksum_target_exists "${kind}" "${value}"; then
+            continue
+        fi
         _knit_checksum_require_exists "${demangled_cmd}" output "${param}" "${kind}" "${value}"
         [[ "${checksum}" == "yes" ]] || continue
         local hex
@@ -3308,13 +3343,15 @@ _knit_invoke_command() {
     # The body's exit status is recorded into the row's reserved "__exit_status__"
     # column (see _knit_record_invocation / _knit_db_record_invocation).
     _KNIT_INVOCATION_EXIT_STATUS="${func_status}"
-    # On a successful completion, verify existence of and hash every checksummed
-    # file/directory output, setting their companion checksum outputs before the
-    # row is written. A failed body may legitimately leave an output absent, so
-    # output checks run on success only.
-    if [[ "${func_status}" -eq 0 ]]; then
-        _knit_checksum_outputs "${cmd}"
-    fi
+    # Verify existence of and hash every checksummed file/directory output,
+    # setting their companion checksum outputs before the row is written. On a
+    # successful completion existence is enforced (a missing output is fatal); on
+    # a failed one it is tolerant — a failed body may legitimately have produced
+    # only some outputs, so a missing one is skipped while a present one is still
+    # hashed and recorded, capturing the failure's partial results.
+    local checksum_tolerant="false"
+    [[ "${func_status}" -ne 0 ]] && checksum_tolerant="true"
+    _knit_checksum_outputs "${cmd}" "${checksum_tolerant}"
     # Record this invocation as a database row (if the command declared a table)
     # while it is still on the executing stacks, so recording reads this frame's
     # resolved row id from _KNIT_EXECUTING_ROW_ID (see the wrapper path). Then pop.

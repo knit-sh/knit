@@ -186,6 +186,40 @@ _has_col() {
     [ "$(_col result_checksum cs_fail)" = "" ]
 }
 
+@test "a produced output is hashed even when the body fails" {
+    local f="${BATS_TEST_TMPDIR}/partial.txt"
+    knit_register "cs_fail_out" fn_cs_fail_out "Test."
+    knit_with_table
+    knit_with_output "result:file" "" "The output."
+    # A failed body that still produced its output: the partial result is
+    # recorded and hashed, capturing what the failure left behind.
+    fn_cs_fail_out() { printf 'partial\n' > "${f}"; knit_output "result" "${f}"; return 5; }
+    knit_done
+    run _knit_invoke_command "cs_fail_out"
+    [ "$status" -eq 5 ]
+    [ "$(_col result cs_fail_out)" = "${f}" ]
+    local expected
+    _knit_sha256 expected "${f}"
+    [ "$(_col result_checksum cs_fail_out)" = "sha256:${expected}" ]
+    [ "$(_col __exit_status__ cs_fail_out)" = "5" ]
+}
+
+@test "a missing output declared by a failed body does not fatal" {
+    knit_register "cs_fail_miss" fn_cs_fail_miss "Test."
+    knit_with_table
+    knit_with_output "result:file" "" "The output."
+    # The body names an output it never produced, then fails: skipped (not fatal),
+    # so the row is still recorded with the path but no checksum.
+    fn_cs_fail_miss() { knit_output "result" "${BATS_TEST_TMPDIR}/never.txt"; return 4; }
+    knit_done
+    run _knit_invoke_command "cs_fail_miss"
+    [ "$status" -eq 4 ]
+    [[ "$output" != *"was not produced"* ]]
+    [ "$(_col result cs_fail_miss)" = "${BATS_TEST_TMPDIR}/never.txt" ]
+    [ "$(_col result_checksum cs_fail_miss)" = "" ]
+    [ "$(_col __exit_status__ cs_fail_miss)" = "4" ]
+}
+
 # ---------- --no-checksum ----------
 
 @test "--no-checksum records the path with no checksum column" {
