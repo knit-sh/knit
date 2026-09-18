@@ -155,6 +155,59 @@ _stub_dispatch() {
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM __provenance__;")" = "0" ]
 }
 
+# ---------- no_record_on_failure: the runs row follows the app's opt-out ----------
+
+# Register an app that opts out of recording a failed invocation, alongside the
+# default myapp (which does not). The runs row's fate on failure must follow the
+# launched app's choice.
+_register_optout_app() {
+    _optout_app_fn() { :; }
+    knit_register_app "optout" "_optout_app_fn" "An opt-out test app."
+    knit_no_record_on_failure
+    knit_done
+}
+
+@test "a failed run of an opt-out app removes the dangling runs row" {
+    _stub_dispatch
+    # The launcher reports failure; rank 0 would have skipped the per-app row, so
+    # the eagerly-recorded runs row must be removed rather than left dangling.
+    _knit_launch_exec() { return 1; }
+    _register_optout_app
+    export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
+
+    run _knit_invoke_command run --procs 2 -- optout
+    [ "$status" -eq 1 ]
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")" = "0" ]
+    # No provenance edge should reference the removed run either.
+    _knit_prov_ensure_table
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM __provenance__ WHERE target_id='aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa' OR source_id='aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa';")" = "0" ]
+}
+
+@test "a failed run of a normal app keeps the runs row as a trace" {
+    _stub_dispatch
+    _knit_launch_exec() { return 1; }
+    export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
+
+    # myapp did not opt out, so a failed launch still leaves its runs row behind.
+    run _knit_invoke_command run --procs 2 -- myapp
+    [ "$status" -eq 1 ]
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")" = "1" ]
+}
+
+@test "a successful run of an opt-out app keeps the runs row" {
+    _stub_dispatch
+    _register_optout_app
+    export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
+
+    # The opt-out only suppresses a FAILED run; a success records normally.
+    _knit_invoke_command run --procs 2 -- optout
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM runs;")" = "1" ]
+}
+
 @test "the runs row and the per-app row have distinct ids" {
     export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
     # Use the real (random) uuid generator so each minted id genuinely differs:

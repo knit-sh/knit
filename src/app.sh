@@ -291,10 +291,53 @@ _knit_run() {
     # launch keeps it off every rank and out of every measured duration.
     if [[ "${run_status}" -eq 0 ]]; then
         _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${uuid}"
+    else
+        # A failed run leaves the eagerly-recorded runs row as a trace by default.
+        # But when the app opted out of recording a failed invocation
+        # (knit_no_record_on_failure), rank 0 skipped its per-app row, so the runs
+        # row now joins to nothing (its "run -> run:<app>" call edge and target row
+        # were never written). Remove the runs row and any edge referencing it, so
+        # the runs table stays consistent with the app's own opt-out.
+        local no_fail_var="_KNIT_CMD_${subcmd}_no_record_on_failure"
+        if [[ "${!no_fail_var:-}" == "true" ]]; then
+            _knit_run_delete_row "${uuid}"
+        fi
     fi
     return "${run_status}"
 }
 knit_done
+
+# ------------------------------------------------------------------------------
+# @fn _knit_run_delete_row()
+#
+# Remove a runs-table row (and any provenance edge referencing it) that was
+# eagerly recorded before launch but must not survive. The `run` dispatcher
+# records the runs row up front so even a failed launch leaves a trace; when the
+# launched app opted out of recording a failed invocation
+# (knit_no_record_on_failure) and the run then fails, that trace would dangle
+# (the app's per-app row and the "run -> run:<app>" edge were never written), so
+# it is removed here. Best-effort and bootstrap-gated: with no database there is
+# nothing to remove. Mirrors _knit_submit_cleanup_rejected (minus the job
+# directory and alias a run does not have).
+#
+# @param[in] uuid The run's UUID (its runs-row id and the edge's target_id).
+# ------------------------------------------------------------------------------
+_knit_run_delete_row() {
+    local uuid="$1"
+    _knit_is_bootstrapped || return 0
+    local uuid_esc runs_ident id_ident
+    _knit_sql_escape uuid_esc "${uuid}"
+    _knit_db_sql_ident runs_ident "${_KNIT_RUNS_TABLE}"
+    _knit_db_sql_ident id_ident "id"
+    _knit_sqlite3_write \
+        "DELETE FROM ${runs_ident} WHERE ${id_ident}='${uuid_esc}';" \
+        2>/dev/null || true
+    # Remove any provenance edge pointing at (or from) this run. The table is
+    # absent when provenance never recorded an edge, hence the tolerated failure.
+    _knit_sqlite3_write \
+        "DELETE FROM ${_KNIT_PROV_TABLE} WHERE target_id='${uuid_esc}' OR source_id='${uuid_esc}';" \
+        2>/dev/null || true
+}
 
 # ------------------------------------------------------------------------------
 # @fn _knit_run_resolve_placement()
