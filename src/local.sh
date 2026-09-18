@@ -6,12 +6,22 @@
 # @fn _knit_walltime_to_seconds()
 #
 # Convert a wall-clock time string in HH:MM:SS format to an integer number of
-# seconds.
+# seconds, printed to stdout. The hours field may have any number of digits; the
+# minutes and seconds fields are two digits in the range 00-59. Fields are read
+# as decimal (10#) so leading zeros are not taken as octal.
+#
+# This is the single walltime parser shared across the scheduler backends (the
+# local timeout, the Flux FSD conversion, queue selection). A value that is not
+# in HH:MM:SS form is rejected: nothing is printed and the function returns 1, so
+# a caller can fall back (e.g. pass a site-specific duration through verbatim).
 #
 # @param[in] walltime Wall-clock time in HH:MM:SS format.
 # ------------------------------------------------------------------------------
 _knit_walltime_to_seconds() {
     local walltime="$1"
+    if [[ ! "${walltime}" =~ ^[0-9]+:[0-5][0-9]:[0-5][0-9]$ ]]; then
+        return 1
+    fi
     local h m s
     IFS=: read -r h m s <<< "${walltime}"
     printf '%d' "$(( 10#${h} * 3600 + 10#${m} * 60 + 10#${s} ))"

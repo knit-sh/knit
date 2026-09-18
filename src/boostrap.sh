@@ -317,7 +317,7 @@ _knit_bootstrap_update() {
             "${_KNIT_PREFIX}" "${_KNIT_DATABASE}" "${_KNIT_PREFIX}"
     fi
 
-    local project platform account default_walltime cpus_flag
+    local project platform account default_walltime default_queue_flag cpus_flag
     local default_nodefile scheduler launcher
     local setup_path_opt job_path_opt resource_path_opt
     local spack_ref spack_packages_ref profile
@@ -327,6 +327,7 @@ _knit_bootstrap_update() {
     platform="$(knit_get_parameter "platform" "$@")"
     account="$(knit_get_parameter "account" "$@")"
     default_walltime="$(knit_get_parameter "default-walltime" "$@")"
+    default_queue_flag="$(knit_get_parameter "default-queue" "$@")"
     cpus_flag="$(knit_get_parameter "default-cpus-per-node" "$@")"
     default_nodefile="$(knit_get_parameter "default-nodefile" "$@")"
     scheduler="$(knit_get_parameter "scheduler" "$@")"
@@ -356,6 +357,7 @@ _knit_bootstrap_update() {
     _knit_bootstrap_update_meta "platform"              "__platform__"         "${platform}"         "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_meta "account"               "__account__"          "${account}"          "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_meta "default-walltime"      "__default_walltime__" "${default_walltime}" "${__knit_raw[@]}" && updated="true"
+    _knit_bootstrap_update_meta "default-queue"         "__default_queue__"    "${default_queue_flag}" "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_meta "default-cpus-per-node" "__node_ncpus__"       "${cpus_flag}"        "${__knit_raw[@]}" && updated="true"
 
     # --default-nodefile is stored as an absolute path, as at first bootstrap.
@@ -460,6 +462,8 @@ knit_with_optional "account:string" "" \
     "Account/allocation to charge submitted jobs to."
 knit_with_optional "default-walltime:string" "" \
     "Project-wide default job wall-clock limit as HH:MM:SS. Empty (the default) lets each submission fall back to the selected queue's profile default_walltime."
+knit_with_optional "default-queue:string" "" \
+    "Project-wide default queue/partition. \"auto\" selects the first profile queue that accepts each job. Empty (the default) uses the machine profile's default_queue."
 knit_with_optional "default-cpus-per-node:string" "" \
     "Cores per node for whole-node allocation (default: profile hardware, else live detection)."
 knit_with_optional "default-nodefile:string" "" \
@@ -513,6 +517,7 @@ _knit_bootstrap() {
     local launcher
     local account
     local default_walltime
+    local default_queue_flag
     local cpus_flag
     local default_nodefile
     local ignore_system_sqlite
@@ -536,6 +541,7 @@ _knit_bootstrap() {
     launcher="$(knit_get_parameter "launcher" "$@")"
     account="$(knit_get_parameter "account" "$@")"
     default_walltime="$(knit_get_parameter "default-walltime" "$@")"
+    default_queue_flag="$(knit_get_parameter "default-queue" "$@")"
     cpus_flag="$(knit_get_parameter "default-cpus-per-node" "$@")"
     default_nodefile="$(knit_get_parameter "default-nodefile" "$@")"
     ignore_system_sqlite="$(knit_get_parameter "ignore-system-sqlite" "$@")"
@@ -639,6 +645,14 @@ _knit_bootstrap() {
         if [[ "${launcher}" == "auto" && -n "${_KNIT_PROFILE_LAUNCHER_TYPE}" ]]; then
             launcher="${_KNIT_PROFILE_LAUNCHER_TYPE}"
         fi
+    fi
+
+    # An explicit --default-queue overrides the profile's default_queue. The
+    # literal "auto" is stored verbatim (unlike --scheduler/--launcher, whose
+    # "auto" resolves to a concrete value here): submit resolves it per job to the
+    # first queue that fits (see _knit_sched_resolve), so it must stay "auto".
+    if [[ -n "${default_queue_flag}" ]]; then
+        default_queue="${default_queue_flag}"
     fi
 
     if [[ "${scheduler}" == "auto" ]]; then

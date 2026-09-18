@@ -109,6 +109,29 @@ _register_myjob_with_setup() {
         "SELECT setup FROM jobs WHERE id='${uuid}';")" = "setup" ]
 }
 
+@test "prepare records resolved queue and walltime, not the raw request" {
+    _register_myjob_with_setup
+
+    # A batch backend (so --queue auto resolves) plus a profile declaring queues.
+    _knit_metadata_store --key "__scheduler__"     --value "slurm"
+    _knit_metadata_store --key "__profile__"       --value "custom"
+    _knit_metadata_store --key "__profile_json__"  --value \
+        '{"scheduler":{"type":"slurm","queues":{"tiny":{"max_nodes":1},"big":{"min_nodes":1,"max_nodes":8}}}}'
+    _knit_metadata_store --key "__default_queue__" --value "auto"
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup --nodes 4 -- myjob)"
+
+    # --queue auto (from the default) resolved to the first fitting queue, skipping
+    # the one-node "tiny": the row records the concrete queue, never "auto".
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT queue FROM jobs WHERE id='${uuid}';")" = "big" ]
+    # No --walltime was given; the row records the resolved (defaulted) value, not
+    # the empty request.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT walltime FROM jobs WHERE id='${uuid}';")" = "01:00:00" ]
+}
+
 @test "prepare records a used_by edge labelled for the submit table owner" {
     _register_myjob_with_setup
 

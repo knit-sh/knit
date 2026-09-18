@@ -69,7 +69,7 @@ _knit_declare_submit_options() {
     knit_with_optional "project:string" "" \
         "Project name (default: the __project__ metadata)."
     knit_with_optional "queue:string" "" \
-        "Queue/partition (default: the site default queue)."
+        "Queue/partition (default: the site default queue). \"auto\" selects the first profile queue that accepts the job."
     # Resources. Knit allocates whole nodes exclusively: the per-node core count
     # is taken from the machine profile (or bootstrap detection), not requested
     # per submit, so there is no CPU option here.
@@ -406,6 +406,27 @@ _knit_prepare_build() {
     # post-invocation recording is a no-op.
     unset "_KNIT_CMD_${owner}_recorded"
     _knit_record_invocation "${owner}" "$@"
+
+    # Overwrite the recorded submission columns with the RESOLVED values so the row
+    # reflects what was actually submitted, not just what the user typed. Knit
+    # fills these in during resolution: --queue auto becomes the selected queue, an
+    # omitted --walltime becomes the queue/profile default, an omitted --job-name
+    # becomes the experiment script name, and account/project fall back to their
+    # metadata. A value given explicitly resolves to itself, so this is a no-op for
+    # it. (nodes/gpus-per-node have literal defaults, so the recorded value already
+    # equals the resolved one; they are left as recorded.) Only run when a row was
+    # actually recorded above — _knit_record_invocation sets the "recorded" marker
+    # only when it wrote a row (bootstrapped, recording enabled, not a suppressed
+    # rank), so guarding on it avoids updating a row that does not exist.
+    local recorded_marker="_KNIT_CMD_${owner}_recorded"
+    if [[ -n "${!recorded_marker:-}" ]]; then
+        _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" \
+            "queue=${opts["queue"]}" \
+            "walltime=${opts["walltime"]}" \
+            "job-name=${opts["job-name"]}" \
+            "account=${opts["account"]}" \
+            "project=${opts["project"]}"
+    fi
 
     __knit_ret1="${uuid}"
     __knit_ret2="${jobdir}"

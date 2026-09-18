@@ -41,3 +41,28 @@ exclude = "flux-login"
 [[resource.config]]
 hosts = "flux-login,flux-compute[1-2]"
 cores = "0-1"
+
+# ---------------------------------------------------------------------------
+# Named queues.
+#
+# A real Flux site (e.g. LLNL's El Capitan, where Flux is the system scheduler)
+# exposes named queues that every job targets, and knit's automatic queue
+# selection (`--queue auto`) chooses among them. Two queues are declared so that
+# selection has a real choice to make:
+#   - pdebug: a small debug queue
+#   - pbatch: the general batch queue (the site default)
+# Neither declares `requires`, so both schedule over all compute resources — the
+# queues are a policy/labeling construct here, not a resource partition. Named
+# queues come up stopped, so the leader's initial program starts and enables them
+# (see entrypoint-login.sh).
+#
+# A default queue is mandatory once queues exist: Flux rejects a job that names
+# no queue unless a default is configured. Experiments that submit without a
+# queue therefore land in pbatch, exactly as before queues were introduced.
+# ---------------------------------------------------------------------------
+[queues.pdebug]
+
+[queues.pbatch]
+
+[policy.jobspec.defaults.system]
+queue = "pbatch"
