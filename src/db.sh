@@ -380,11 +380,32 @@ _knit_db_setup_table() {
     local migrate_specs=()
     local param type_var type default default_var
 
-    # A wrapper declares no parameters or outputs: its table records only the id
-    # and the whole forwarded command line in a single "args" column.
+    # Reserved "__exit_status__" column: added to every table-backed command
+    # except one that opted out of recording a failed invocation
+    # (knit_no_record_on_failure — such a command records only successful runs, so
+    # the status would always be 0) or one whose status is tracked another way
+    # (_knit_without_exit_status, e.g. the submissions "jobs" table's "state").
+    # The migration default is empty (unknown) so existing rows are not marked as
+    # successful. Recorded right after "id".
+    local include_exit_status=1
+    local no_fail_var="_KNIT_CMD_${cmd}_no_record_on_failure"
+    local no_exit_var="_KNIT_CMD_${cmd}_no_exit_status"
+    if [[ "${!no_fail_var:-}" == "true" || "${!no_exit_var:-}" == "true" ]]; then
+        include_exit_status=0
+    fi
+
+    # A wrapper declares no parameters or outputs: its table records only the id,
+    # the exit status, and the whole forwarded command line in a single "args"
+    # column.
     if _knit_command_is_wrapper "${cmd}"; then
-        check_specs=("id:uuid" "args:string")
-        migrate_specs=("id:uuid=" "args:string=")
+        check_specs=("id:uuid")
+        migrate_specs=("id:uuid=")
+        if [[ "${include_exit_status}" -eq 1 ]]; then
+            check_specs+=("__exit_status__:integer")
+            migrate_specs+=("__exit_status__:integer=")
+        fi
+        check_specs+=("args:string")
+        migrate_specs+=("args:string=")
         local wrapper_check_result=0
         _knit_db_check_table "${table_name}" "${check_specs[@]}" || wrapper_check_result=$?
         case "${wrapper_check_result}" in
@@ -398,6 +419,12 @@ _knit_db_setup_table() {
     # Always-present id column
     check_specs+=("id:uuid")
     migrate_specs+=("id:uuid=")
+
+    # Reserved exit-status column (see the note above), right after "id".
+    if [[ "${include_exit_status}" -eq 1 ]]; then
+        check_specs+=("__exit_status__:integer")
+        migrate_specs+=("__exit_status__:integer=")
+    fi
 
     # Required parameters (no declared default — use type-based fallback)
     while IFS= read -r param; do

@@ -338,6 +338,13 @@ _knit_reserve_name() {
     local kind="$3"
     local display="$4"
     local normalized="$5"
+    # "__exit_status__" is a framework-reserved column (the per-invocation exit
+    # status recorded for every eligible command; see _knit_db_setup_table), so a
+    # user declaration cannot claim it. ("id" is not reserved here: it is a valid
+    # parameter name for table-less commands such as "knit job status --id".)
+    if [[ "${normalized}" == "__exit_status__" ]]; then
+        knit_fatal "${kind} \"${display}\" uses the reserved name \"__exit_status__\" for \"${context_name}\"."
+    fi
     # shellcheck disable=SC2178 # nameref to associative array
     local -n _knit_names_map="${ns}_names"
     if [[ -v _knit_names_map["${normalized}"] ]]; then
@@ -1286,6 +1293,23 @@ knit_without_provenance() {
     fi
     knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as not recording provenance."
     printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_provenance" '%s' 'without'
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_without_exit_status()
+#
+# Mark the command being registered so its table does not get the reserved
+# "__exit_status__" column. Used for a table whose status is tracked another way:
+# the submissions "jobs" table records a job's lifecycle in its "state" column
+# (written asynchronously, compute-side), so a numeric exit status recorded
+# eagerly on the login node would be meaningless there. This is a framework
+# internal, not part of the user-facing decorator surface.
+# ------------------------------------------------------------------------------
+_knit_without_exit_status() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "_knit_without_exit_status should be used after a call to \"knit_register\"."
+    fi
+    printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_no_exit_status" '%s' 'true'
 }
 
 # ------------------------------------------------------------------------------

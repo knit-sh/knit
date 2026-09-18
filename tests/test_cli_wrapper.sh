@@ -172,14 +172,14 @@ teardown() {
 
 # ---------- table recording ----------
 
-@test "a wrapper table has an id and an args column only" {
+@test "a wrapper table has id, exit status, and args columns" {
     wrap_fn() { :; }
     knit_register_wrapper "wrap" "wrap_fn" "A wrapper."
     knit_with_table
     knit_done
     local cols
     cols=$(sqlite3 "${_KNIT_DATABASE}" "SELECT name FROM pragma_table_info('wrap');" | paste -sd, -)
-    [ "${cols}" = "id,args" ]
+    [ "${cols}" = "id,__exit_status__,args" ]
 }
 
 @test "a wrapper records the rendered command line in the args column" {

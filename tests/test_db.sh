@@ -240,7 +240,7 @@ __test_register_cmd() {
     knit_done
     local names
     names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
-    [ "$names" = "id,count," ]
+    [ "$names" = "id,__exit_status__,count," ]
 }
 
 @test "setup table includes optional parameter as column" {
@@ -250,7 +250,7 @@ __test_register_cmd() {
     knit_done
     local names
     names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
-    [ "$names" = "id,label," ]
+    [ "$names" = "id,__exit_status__,label," ]
 }
 
 @test "setup table includes flag as boolean column" {
@@ -261,8 +261,8 @@ __test_register_cmd() {
     local names types
     names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
     types=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f3 | tr '\n' ',')
-    [ "$names" = "id,verbose," ]
-    [ "$types" = "TEXT,TEXT," ]
+    [ "$names" = "id,__exit_status__,verbose," ]
+    [ "$types" = "TEXT,INTEGER,TEXT," ]
 }
 
 @test "setup table includes output as column" {
@@ -272,7 +272,7 @@ __test_register_cmd() {
     knit_done
     local names
     names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
-    [ "$names" = "id,result," ]
+    [ "$names" = "id,__exit_status__,result," ]
 }
 
 @test "setup table is a no-op when called again with same schema" {
@@ -305,7 +305,7 @@ __test_register_cmd() {
 
     local names
     names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
-    [ "$names" = "id,count,result," ]
+    [ "$names" = "id,__exit_status__,count,result," ]
     local preserved
     preserved=$(sqlite3 "${_KNIT_DATABASE}" "SELECT count FROM mycmd;")
     [ "$preserved" -eq 7 ]

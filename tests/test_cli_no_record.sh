@@ -104,6 +104,31 @@ teardown() {
     [ "$n" -eq 1 ]
 }
 
+# ---------- knit_no_record_on_failure: exit-status column ----------
+
+@test "an opted-out command's table has no __exit_status__ column" {
+    knit_register "nrf_noes" knit_empty "A command."
+    knit_with_table
+    knit_no_record_on_failure
+    knit_done
+    _knit_invoke_command "nrf_noes"
+    local names
+    names=$(sqlite3 "${_KNIT_DATABASE}" \
+        "PRAGMA table_info('nrf_noes');" | cut -d'|' -f2 | tr '\n' ',')
+    [[ "$names" != *"__exit_status__"* ]]
+}
+
+@test "a plain command's table has the __exit_status__ column" {
+    knit_register "nrf_hases" knit_empty "A command."
+    knit_with_table
+    knit_done
+    _knit_invoke_command "nrf_hases"
+    local names
+    names=$(sqlite3 "${_KNIT_DATABASE}" \
+        "PRAGMA table_info('nrf_hases');" | cut -d'|' -f2 | tr '\n' ',')
+    [[ "$names" == *",__exit_status__,"* ]]
+}
+
 # ---------- _knit_command_is_job accessor ----------
 
 @test "_knit_command_is_job true for a job, false for a plain command" {

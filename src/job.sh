@@ -93,8 +93,11 @@ _knit_declare_submit_options
 # <job-dir>/.stderr, so there are no output/error options.
 knit_with_flag "wait" "Block until the job completes; return its exit code."
 # Record every submission as a row in the "jobs" table. The row id is the job
-# UUID (set in _knit_submit); these outputs track the job and its state.
+# UUID (set in _knit_submit); these outputs track the job and its state. The jobs
+# table tracks status in its "state" column (written compute-side), so it does
+# not get the reserved "__exit_status__" column.
 knit_with_table "${_KNIT_JOBS_TABLE}"
+_knit_without_exit_status
 knit_with_output "job:string" "" "Name of the submitted job (the token after --)."
 knit_with_output "state:string" "submitted" "Lifecycle state of the submitted job (submitted, running, completed, or killed)."
 knit_with_output "hostnames:string" "" \
