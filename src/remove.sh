@@ -1596,14 +1596,37 @@ _knit_remove_dispatch() {
     _knit_remove_require_one_selector "${selectors[@]}" -- "$@"
     local -a starting=()
     _knit_remove_resolve_selection starting "${kind}" "$@"
+    _knit_remove_erase_selection starting "$@"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_erase_selection()
+#
+# The shared erase flow, given a set of starting ids and the invocation
+# arguments. Used by every selector-based subcommand (through
+# _knit_remove_dispatch) and by "remove --failed". It computes the erase set
+# (downward by default, whole-lineage under --from-root, with the
+# callee/artifact refusal check in the default mode), maps each id to its table
+# and kind, refuses a non-terminal job, builds the itemized report, and --- unless
+# --dry-run, or a declined prompt without --yes --- deletes the rows and edges in
+# one transaction and clears the framework-managed files. Returns non-zero if any
+# attempted filesystem removal could not be cleared.
+#
+# @param[in] ids_name Name of the array holding the starting ids.
+# @param[in] ...      The command invocation arguments (flags read via
+#                     knit_get_parameter).
+# ------------------------------------------------------------------------------
+_knit_remove_erase_selection() {
+    local -n _ids_ref="$1"; shift
+    local -a sel=("${_ids_ref[@]}")
     local from_root
     from_root="$(knit_get_parameter "from-root" "$@")" || from_root="false"
     local -a erase=()
     if [[ "${from_root}" == "true" ]]; then
-        _knit_remove_closure_from_root erase "${starting[@]}"
+        _knit_remove_closure_from_root erase "${sel[@]}"
     else
-        _knit_remove_closure_downward erase "${starting[@]}"
-        _knit_remove_check_refusal starting erase
+        _knit_remove_closure_downward erase "${sel[@]}"
+        _knit_remove_check_refusal sel erase
     fi
     # These maps are written by _knit_remove_map_ids and read back by name (art_type
     # is captured for completeness but not consumed: the filesystem step removes
@@ -1678,12 +1701,78 @@ _knit_remove_dispatch() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_remove_failed_ids()
+#
+# Collect the row ids of every failed invocation across the database: every table
+# that carries the reserved "__exit_status__" column, selecting the rows whose
+# status is a non-zero integer. NULL (outcome not recorded, e.g. an eager row) and
+# the empty migration back-fill (unknown) are excluded, so only a genuine non-zero
+# exit is selected. The ids are returned through the caller-named array; an
+# experiment with no failures yields an empty array. Bootstrap-gated: with no
+# database there is nothing to scan.
+#
+# @param[out] __knit_ret Name of the array to fill with the failed row ids.
+# ------------------------------------------------------------------------------
+_knit_remove_failed_ids() {
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n __knit_ret=$1
+    __knit_ret=()
+    _knit_is_bootstrapped || return 0
+    local -a tables=()
+    mapfile -t tables < <(_knit_sqlite3 \
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+    local t t_esc t_ident rid
+    for t in "${tables[@]}"; do
+        [[ -z "${t}" ]] && continue
+        _knit_sql_escape t_esc "${t}"
+        # Only a table carrying the reserved column can hold a failed row.
+        _knit_sqlite3 "PRAGMA table_info('${t_esc}');" | cut -d'|' -f2 \
+            | grep -qx "__exit_status__" || continue
+        _knit_db_sql_ident t_ident "${t}"
+        while IFS= read -r rid; do
+            [[ -n "${rid}" ]] && __knit_ret+=("${rid}")
+        done < <(_knit_sqlite3 \
+            "SELECT id FROM ${t_ident} WHERE typeof(__exit_status__)='integer' AND __exit_status__ <> 0;")
+    done
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_toplevel()
+#
+# Body of the top-level "remove" command. With --failed it erases every failed
+# invocation (a non-zero recorded exit status) and, under --from-root, the whole
+# lineage that contains them --- so a job is erased because a run inside it failed.
+# Without --failed there is nothing to do (a subcommand such as "remove job"
+# dispatches before this body ever runs): point the user at the subcommands and
+# the flag.
+#
+# @param[in] ... The command invocation arguments.
+# ------------------------------------------------------------------------------
+_knit_remove_toplevel() {
+    local failed
+    failed="$(knit_get_parameter "failed" "$@")" || failed="false"
+    if [[ "${failed}" != "true" ]]; then
+        knit_fatal "remove: name what to erase --- a subcommand (e.g. \"remove job --id ...\") or --failed. See \"remove --help\"."
+    fi
+    local -a starting=()
+    _knit_remove_failed_ids starting
+    if [[ ${#starting[@]} -eq 0 ]]; then
+        knit_info "remove --failed: no failed invocations recorded; nothing to erase."
+        return 0
+    fi
+    _knit_remove_erase_selection starting "$@"
+}
+
+# ------------------------------------------------------------------------------
 # Registration of the remove command group.
 # ------------------------------------------------------------------------------
-knit_register remove knit_empty \
+knit_register remove _knit_remove_toplevel \
     "Erase recorded entities and their provenance from the database."
 _knit_is_builtin
 knit_without_provenance
+knit_with_flag "failed" \
+    "Erase every failed invocation (a non-zero recorded exit status); add --from-root to also erase the jobs that contain them."
+_knit_remove_declare_flags
 knit_done
 
 # ------------------------------------------------------------------------------
