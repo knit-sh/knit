@@ -55,6 +55,15 @@ declare -ga _KNIT_EXECUTING_START_TIME=()
 declare -g _KNIT_INVOCATION_END_TIME=""
 
 # ------------------------------------------------------------------------------
+# Exit status of the current invocation's body, captured after it returns. When
+# non-empty _knit_record_invocation writes it into the row's reserved
+# "__exit_status__" column (for a command whose table has that column); it is read
+# once and cleared, so the eager record path (which never sets it) leaves the
+# column NULL until the outcome is known and updated separately.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_INVOCATION_EXIT_STATUS=""
+
+# ------------------------------------------------------------------------------
 # Raw (pre-expansion) arguments of the current command invocation. Set by
 # _knit_invoke_command from the exact tokens the user typed, before optional
 # defaults and flag values are spliced in, so a command body can tell an option
@@ -3229,6 +3238,8 @@ _knit_invoke_command() {
         # Record while this frame is still on the executing stacks, so recording
         # reads the frame's resolved row id from _KNIT_EXECUTING_ROW_ID (and, in a
         # later milestone, resolves its parent from the frame below). Then pop.
+        # The wrapper's row records the forwarded command's exit status.
+        _KNIT_INVOCATION_EXIT_STATUS="${wrapper_status}"
         _knit_record_invocation "${_knit_wrapper_cmd}" "$@"
         unset '_KNIT_EXECUTING_COMMAND[-1]'
         unset '_KNIT_EXECUTING_ROW_ID[-1]'
@@ -3294,6 +3305,9 @@ _knit_invoke_command() {
     # hashing a (possibly large) output is excluded from the recorded duration;
     # _knit_record_invocation reads it as the call edge's end_time.
     _KNIT_INVOCATION_END_TIME="$(_knit_prov_now)"
+    # The body's exit status is recorded into the row's reserved "__exit_status__"
+    # column (see _knit_record_invocation / _knit_db_record_invocation).
+    _KNIT_INVOCATION_EXIT_STATUS="${func_status}"
     # On a successful completion, verify existence of and hash every checksummed
     # file/directory output, setting their companion checksum outputs before the
     # row is written. A failed body may legitimately leave an output absent, so
@@ -3660,6 +3674,12 @@ _knit_record_invocation() {
     # before any early return, so it can never leak into a later invocation.
     local end_time_override="${_KNIT_INVOCATION_END_TIME}"
     _KNIT_INVOCATION_END_TIME=""
+    # The body's exit status, set on the normal and wrapper record paths and
+    # written into the row's reserved "__exit_status__" column. Read and cleared
+    # first (like end_time) so the eager record path, which never sets it, leaves
+    # the column NULL and no value leaks into a later invocation.
+    local exit_status_override="${_KNIT_INVOCATION_EXIT_STATUS}"
+    _KNIT_INVOCATION_EXIT_STATUS=""
     # Global kill switch: KNIT_DISABLE_RECORDING=true disables all recording (data
     # rows and provenance edges), so a command or chain can be exercised without
     # leaving rows to clean up afterwards. Placed here so it also covers the eager
@@ -3713,7 +3733,8 @@ _knit_record_invocation() {
     # Transparent command: record only the data row (no edge), exactly as before
     # provenance existed.
     if [[ "${prov_enabled}" != "true" ]]; then
-        _knit_db_record_invocation "${cmd}" "${table}" "${id}" "" "" "" "" "" "" "$@"
+        _knit_db_record_invocation "${cmd}" "${table}" "${id}" "" "" "" "" "" "" \
+            "${exit_status_override}" "$@"
         return 0
     fi
 
@@ -3739,7 +3760,7 @@ _knit_record_invocation() {
     if [[ -n "${table}" ]]; then
         _knit_db_record_invocation "${cmd}" "${table}" "${id}" \
             "${source_id}" "${source_name}" "call" "${start_time}" "${end_time}" \
-            "${alias}" "$@"
+            "${alias}" "${exit_status_override}" "$@"
     else
         # No data row: record the edge on its own; its target id joins to nothing.
         local target_name

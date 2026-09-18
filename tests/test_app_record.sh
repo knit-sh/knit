@@ -106,6 +106,8 @@ _stub_dispatch() {
     run sqlite3 "${_KNIT_DATABASE}" "SELECT id, n FROM myapp;"
     [ "$output" = "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb|7" ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM myapp;")" != "${KNIT_RUN_ID}" ]
+    # The per-app row records the app body's exit status (0 for this success).
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT __exit_status__ FROM myapp;")" = "0" ]
 }
 
 @test "non-root ranks record no per-app row" {

@@ -345,6 +345,28 @@ EOF
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_db_command_has_exit_status()
+#
+# Decide whether a command's table carries the reserved "__exit_status__" column.
+# A command has it unless it opted out of recording a failed invocation
+# (knit_no_record_on_failure — it records only successes, so the status would
+# always be 0) or its status is tracked another way (_knit_without_exit_status,
+# e.g. the submissions "jobs" table's "state"). This is the single predicate used
+# by both the schema builder (_knit_db_setup_table) and the row recorder
+# (_knit_db_record_invocation) so the column set and the recorded columns cannot
+# diverge.
+#
+# @param[in] cmd Mangled command name.
+# @return 0 if the table has the column, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_db_command_has_exit_status() {
+    local cmd="$1"
+    local no_fail_var="_KNIT_CMD_${cmd}_no_record_on_failure"
+    local no_exit_var="_KNIT_CMD_${cmd}_no_exit_status"
+    [[ "${!no_fail_var:-}" != "true" && "${!no_exit_var:-}" != "true" ]]
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_db_setup_table()
 #
 # Done callback installed by knit_with_table. Inspects the registered
@@ -352,8 +374,10 @@ EOF
 # matches that schema — creating it if absent or migrating it if the schema has
 # changed.
 #
-# Column order: "id" (uuid) first, then required parameters, optional
-# parameters, flags, and outputs, each group sorted alphabetically.
+# Column order: "id" (uuid) first, the reserved "__exit_status__" column (unless
+# the command opted out, see _knit_db_command_has_exit_status), then required
+# parameters, optional parameters, flags, and outputs, each group sorted
+# alphabetically.
 #
 # For migration defaults:
 # - Optional parameters use their declared default value.
@@ -380,19 +404,11 @@ _knit_db_setup_table() {
     local migrate_specs=()
     local param type_var type default default_var
 
-    # Reserved "__exit_status__" column: added to every table-backed command
-    # except one that opted out of recording a failed invocation
-    # (knit_no_record_on_failure — such a command records only successful runs, so
-    # the status would always be 0) or one whose status is tracked another way
-    # (_knit_without_exit_status, e.g. the submissions "jobs" table's "state").
-    # The migration default is empty (unknown) so existing rows are not marked as
-    # successful. Recorded right after "id".
-    local include_exit_status=1
-    local no_fail_var="_KNIT_CMD_${cmd}_no_record_on_failure"
-    local no_exit_var="_KNIT_CMD_${cmd}_no_exit_status"
-    if [[ "${!no_fail_var:-}" == "true" || "${!no_exit_var:-}" == "true" ]]; then
-        include_exit_status=0
-    fi
+    # Reserved "__exit_status__" column, recorded right after "id" for a command
+    # whose table has it (see _knit_db_command_has_exit_status). The migration
+    # default is empty (unknown) so existing rows are not marked as successful.
+    local include_exit_status=0
+    _knit_db_command_has_exit_status "${cmd}" && include_exit_status=1
 
     # A wrapper declares no parameters or outputs: its table records only the id,
     # the exit status, and the whole forwarded command line in a single "args"
@@ -500,6 +516,10 @@ _knit_db_setup_table() {
 # @param[in] start_time  Edge start_time (epoch seconds, empty -> NULL).
 # @param[in] end_time    Edge end_time (epoch seconds, empty -> NULL).
 # @param[in] alias       Edge call-site alias (empty -> NULL); see prov.sh.
+# @param[in] exit_status Body exit status for the reserved "__exit_status__"
+#                        column; empty leaves it NULL (the outcome is not yet
+#                        known, e.g. the eager record path). Ignored for a
+#                        command whose table has no such column.
 # @param[in] ...         The expanded invocation arguments (params/flags to read).
 # ------------------------------------------------------------------------------
 _knit_db_record_invocation() {
@@ -512,7 +532,8 @@ _knit_db_record_invocation() {
     local start_time="$7"
     local end_time="$8"
     local alias="$9"
-    shift 9
+    local exit_status="${10}"
+    shift 10
     local -a args=("$@")
 
     local -a cols=() vals=()
@@ -521,6 +542,18 @@ _knit_db_record_invocation() {
     cols+=("${col_ident}")
     _knit_sql_escape val_esc "${id}"
     vals+=("'${val_esc}'")
+
+    # Reserved "__exit_status__" column, right after "id", for a command whose
+    # table has it and when a status is known. A known status includes 0
+    # (success), so test for a non-empty value, not truthiness. When the value is
+    # empty (the eager record path, before the outcome is known) the column is
+    # omitted from the INSERT and stays NULL, to be filled in later.
+    if [[ -n "${exit_status}" ]] && _knit_db_command_has_exit_status "${cmd}"; then
+        _knit_db_sql_ident col_ident "__exit_status__"
+        cols+=("${col_ident}")
+        _knit_sql_escape val_esc "${exit_status}"
+        vals+=("'${val_esc}'")
+    fi
 
     if _knit_command_is_wrapper "${cmd}"; then
         # A wrapper records the whole forwarded command line in a single "args"

@@ -129,6 +129,37 @@ teardown() {
     [[ "$names" == *",__exit_status__,"* ]]
 }
 
+# ---------- exit-status value recording ----------
+
+@test "a successful command records exit status 0" {
+    knit_register "es_ok" fn_es_ok "A command."
+    knit_with_table
+    fn_es_ok() { :; }
+    knit_done
+    _knit_invoke_command "es_ok"
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT __exit_status__ FROM es_ok;")" = "0" ]
+}
+
+@test "a failed command records its non-zero exit status" {
+    knit_register "es_fail" fn_es_fail "A command."
+    knit_with_table
+    fn_es_fail() { return 42; }
+    knit_done
+    run _knit_invoke_command "es_fail"
+    [ "$status" -eq 42 ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT __exit_status__ FROM es_fail;")" = "42" ]
+}
+
+@test "a wrapper records its forwarded command's exit status" {
+    fn_es_wrap() { return 3; }
+    knit_register_wrapper "es_wrap" fn_es_wrap "A wrapper."
+    knit_with_table
+    knit_done
+    run _knit_invoke_command "es_wrap" -- anything
+    [ "$status" -eq 3 ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT __exit_status__ FROM es_wrap;")" = "3" ]
+}
+
 # ---------- _knit_command_is_job accessor ----------
 
 @test "_knit_command_is_job true for a job, false for a plain command" {

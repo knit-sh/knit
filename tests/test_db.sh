@@ -493,9 +493,10 @@ __test_register_cmd() {
     _knit_prov_create_table
     declare -gA _KNIT_CMD_noedgecmd_output_value=()
 
-    _knit_db_record_invocation "noedgecmd" "noedge_t" "cid" "" "" "" "" "" ""
+    _knit_db_record_invocation "noedgecmd" "noedge_t" "cid" "" "" "" "" "" "" "0"
 
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM noedge_t;")" -eq 1 ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT __exit_status__ FROM noedge_t;")" = "0" ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM __provenance__;")" -eq 0 ]
 }
 
@@ -509,10 +510,11 @@ __test_register_cmd() {
     declare -gA _KNIT_CMD_edgecmd_output_value=()
 
     _knit_db_record_invocation "edgecmd" "edges_t" "child-1" \
-        "parent-1" "top" "call" "100.5" "101.5" "" "--label" "hi"
+        "parent-1" "top" "call" "100.5" "101.5" "" "0" "--label" "hi"
 
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM edges_t;")" -eq 1 ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM edges_t;")" = "child-1" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT __exit_status__ FROM edges_t;")" = "0" ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM edges_t;")" = "hi" ]
 
     local edge
@@ -531,9 +533,10 @@ __test_register_cmd() {
     declare -gA _KNIT_CMD_aliascmd_output_value=()
 
     _knit_db_record_invocation "aliascmd" "alias_t" "child-2" \
-        "parent-2" "top" "call" "1" "2" "fast"
+        "parent-2" "top" "call" "1" "2" "fast" "7"
 
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT alias FROM __provenance__;")" = "fast" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT __exit_status__ FROM alias_t;")" = "7" ]
 }
 
 @test "record row rolls back the data row when the edge insert fails" {
@@ -545,7 +548,7 @@ __test_register_cmd() {
     # __provenance__ is intentionally NOT created, so the edge insert fails and
     # the whole transaction (row + edge) must roll back.
 
-    run _knit_db_record_invocation "atomcmd" "atoms_t" "child-x" "p" "top" "call" "1" "2" ""
+    run _knit_db_record_invocation "atomcmd" "atoms_t" "child-x" "p" "top" "call" "1" "2" "" "0"
     [ "$status" -ne 0 ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM atoms_t;")" -eq 0 ]
 }
