@@ -19,6 +19,18 @@ single realistic workload.
    The code for each step of this tutorial is shown in full and was
    validated end to end during development; the console output is illustrative.
 
+Get Knit
+--------
+
+Knit is a single Bash file, ``knit.sh``. Download the version you want from the
+releases page:
+
+   https://github.com/knit-sh/knit/releases/
+
+Pick a release and download its ``knit.sh`` asset, then keep that file next to
+the experiment script (both live in the same directory). There is nothing to
+compile or install --- the experiment sources this file directly.
+
 The program
 -----------
 

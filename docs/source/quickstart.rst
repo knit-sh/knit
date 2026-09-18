@@ -5,6 +5,19 @@ This page takes you from zero to a recorded command in a few minutes. You will
 grow a small experiment one command at a time, run each command, and end with a
 run stored in a database --- the foundation everything else in Knit builds on.
 
+Get Knit
+--------
+
+Knit is a single Bash file, ``knit.sh``. Download the version you want from the
+releases page:
+
+   https://github.com/knit-sh/knit/releases/
+
+Pick a release and download its ``knit.sh`` asset, then keep that file next to
+your experiment script (both live in the same directory). There is nothing to
+compile or install --- your experiment sources this file directly, as shown
+next.
+
 An experiment is a script
 -------------------------
 
