@@ -9,12 +9,14 @@
 rows, provenance edges, and on-disk directories that depend on it --- the safe,
 provenance-aware alternative to leaving stale setups and runs to accumulate
 forever. There is one subcommand per kind (``remove setup``, ``remove
-resource``, ``remove job``, ``remove run``, ``remove app``, ``remove command``,
-``remove artifact``), and each takes **exactly one** selector:
+resource``, ``remove job``, ``remove run``, ``remove command``, ``remove
+artifact``), and each takes **exactly one** selector:
 
-- ``--id <id>`` --- one row by its recorded id;
+- ``--id <id>`` --- one row by its recorded id (``remove run --id`` also accepts
+  the id of the app row that run launched);
 - ``--name <name>`` --- a setup / resource / job instance by its instance name;
-- ``--type <type>`` --- every setup / resource / job of a type at once;
+- ``--type <type>`` --- every setup / resource / job of a type, every run of an
+  app, or every invocation of a command, at once;
 - ``--group <group>`` --- every job in a submission group (``remove job`` only);
 - ``--path <path>`` --- an artifact by its artifacts-relative path (``remove
   artifact`` only).

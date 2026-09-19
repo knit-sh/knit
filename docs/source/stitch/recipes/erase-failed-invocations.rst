@@ -47,6 +47,28 @@ erased too (see *Erase a whole lineage with --from-root*). There is no per-code
 selector: ``--failed`` means any non-zero code. To remove by a specific code,
 write the ``SELECT`` yourself and pass the ids to ``remove <kind> --id``.
 
+Scope it to one kind
+^^^^^^^^^^^^^^^^^^^^^
+
+``--failed`` is also a filter on each row-kind subcommand, where it **composes**
+with the selector. On its own it means every failed one of that kind; with a
+selector it narrows to the failed rows the selector chose (an AND):
+
+.. code-block:: console
+
+   $ ./exp.sh remove command --failed                 # every failed plain command
+   $ ./exp.sh remove setup --failed --type buildenv   # failed buildenv setups only
+   $ ./exp.sh remove run --failed --from-root --yes    # failed runs and their jobs
+
+So failures are prunable one kind at a time instead of all at once. A failed
+``setup`` / ``resource`` / ``command`` is a row of that kind with a non-zero
+status; a failed ``job`` or ``run`` is one whose **body** returned non-zero (a job
+that tolerated a failed run inside it did itself succeed, so it is not a failed
+job --- reach the run with ``remove run --failed``). A selector that matches
+nothing is still an error, but a selection that simply contains no failures is a
+quiet "nothing to erase". ``remove artifact`` has no ``--failed``: an artifact is
+produced, not invoked, so it has no exit status.
+
 A command marked ``knit_no_record_on_failure`` is the exception: it records no row
 on failure, so it has no ``__exit_status__`` column and never appears in the
 ``--failed`` set.

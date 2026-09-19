@@ -114,6 +114,55 @@ _stub_roots() {
     _knit_artifact_root() { local -n __r=$1; __r=/ROOT/artifacts; }
 }
 
+# Seed extra tables that carry the reserved "__exit_status__" column plus a mix of
+# failed (non-zero) and succeeded (zero) rows, for the --failed filter tests. New
+# tables (a "failenv" setup type and a "bar" command) so the base graph the other
+# tests read is untouched.
+_seed_failed_fixture() {
+    _knit_sqlite3 "
+        CREATE TABLE \"setup:failenv\"
+            (id TEXT, name TEXT, directory TEXT, __exit_status__ INTEGER);
+        INSERT INTO \"setup:failenv\" VALUES
+            ('SF1','bad','setups/bad',1),
+            ('SF2','ok','setups/ok',0),
+            ('SF3','bad2','setups/bad2',2);
+        CREATE TABLE bar (id TEXT, __exit_status__ INTEGER);
+        INSERT INTO bar VALUES ('C1',0),('C2',5);
+    "
+    _KNIT_DB_REGISTERED_TABLES["setup:failenv"]="setup:failenv"
+    printf -v "_KNIT_CMD_setup__1__failenv_type" '%s' setup
+    _KNIT_DB_REGISTERED_TABLES[bar]="bar"
+    printf -v "_KNIT_CMD_bar_type" '%s' command
+}
+
+# Seed body-table rows carrying "__exit_status__" plus their launcher/submission
+# call edges, for the job/run --failed tests. The exit status of a job/run lives in
+# a per-body table, so a failed job is a failed body row mapped up to its jobs
+# submission, and a failed run is a failed app-body row mapped up to its runs
+# launch row. Includes a tolerated case (body exit 0) for each, which must NOT be
+# selected. New tables/rows so the base graph is untouched.
+_seed_failed_body_fixture() {
+    _knit_sqlite3 "
+        INSERT INTO jobs VALUES
+            ('JF','failjob','solo','completed'),
+            ('JS','failjob','solo','completed');
+        CREATE TABLE failjob (id TEXT, __exit_status__ INTEGER);
+        INSERT INTO failjob VALUES ('BF',1),('BS',0);
+        INSERT INTO runs VALUES ('UF','failapp'),('US','failapp');
+        CREATE TABLE failapp (id TEXT, __exit_status__ INTEGER);
+        INSERT INTO failapp VALUES ('AF',3),('AS',0);
+        INSERT INTO __provenance__ VALUES
+            ('JF','submit','BF','submit:failjob','call',1,2,NULL),
+            ('JS','submit','BS','submit:failjob','call',1,2,NULL),
+            ('UF','run','AF','failapp','call',3,4,NULL),
+            ('US','run','AS','failapp','call',3,4,NULL);
+    "
+    _KNIT_DB_REGISTERED_TABLES[failjob]="submit:failjob"
+    printf -v "_KNIT_CMD_submit__1__failjob_type" '%s' job
+    _KNIT_DB_REGISTERED_TABLES[failapp]="run:failapp"
+    printf -v "_KNIT_CMD_run__1__failapp_type" '%s' app
+}
+
 # Build a real on-disk root tree matching the seeded graph and point the root
 # resolvers at it, so the filesystem phase acts on actual directories and entries.
 # The setup dir claims S1 through its .setup.id marker; the resource dir claims D1
@@ -143,7 +192,7 @@ _fs_fixture() {
     [ "$status" -eq 0 ]
     [[ "${output}" == *'"name": "remove"'* ]]
     local sub
-    for sub in setup resource job run app command artifact; do
+    for sub in setup resource job run command artifact; do
         [[ "${output}" == *"\"name\": \"${sub}\""* ]] || {
             echo "missing subcommand: ${sub}"; false
         }
@@ -154,7 +203,7 @@ _fs_fixture() {
 
 @test "remove <subcommand> --help renders for every subcommand" {
     local sub
-    for sub in setup resource job run app command artifact; do
+    for sub in setup resource job run command artifact; do
         run _knit_invoke_command "remove" "${sub}" "--help"
         [ "$status" -eq 0 ]
         [[ "${output}" == *"Usage:"* ]]
@@ -216,16 +265,18 @@ _fs_fixture() {
 
 # ---------- exactly-one-selector: presence via the body check ----------
 
-@test "no selector is fatal (body check)" {
+@test "no selector and no --failed is fatal (body check)" {
     run _knit_invoke_command "remove" "setup"
     [ "$status" -ne 0 ]
-    [[ "${output}" == *"exactly one selector is required"* ]]
+    [[ "${output}" == *"name a selector"* ]]
+    [[ "${output}" == *"--failed"* ]]
 }
 
-@test "no selector is fatal on remove artifact (body check)" {
+@test "no selector is fatal on remove artifact (no --failed offered)" {
     run _knit_invoke_command "remove" "artifact"
     [ "$status" -ne 0 ]
     [[ "${output}" == *"exactly one selector is required"* ]]
+    [[ "${output}" != *"--failed"* ]]
 }
 
 # ---------- the body wires resolution, closure, and refusal ----------
@@ -264,20 +315,22 @@ _fs_fixture() {
     [[ "${output}" == *"R2"* ]]
 }
 
-@test "remove app --id of a callee whose caller is kept is refused (example 3)" {
-    run _knit_invoke_command "remove" "app" "--id" "A1"
-    [ "$status" -ne 0 ]
-    [[ "${output}" == *"is called by"* ]]
-    [[ "${output}" == *"U1"* ]]
-    [[ "${output}" == *"remove run --id U1"* ]]
-    [[ "${output}" == *"--from-root"* ]]
-}
-
 @test "remove run --id of a run whose enclosing job is kept is refused" {
     run _knit_invoke_command "remove" "run" "--id" "U1"
     [ "$status" -ne 0 ]
     [[ "${output}" == *"is called by"* ]]
     [[ "${output}" == *"--from-root"* ]]
+}
+
+@test "remove run --id accepts an app id (a run is one unit) and is refused with the run hint" {
+    # A1 is the app row of run U1: "remove run" owns it, so the app id is a valid
+    # target (not a wrong-kind error). The run's caller U1 is kept, so the erase is
+    # refused with a hint that names remove run (never the dropped remove app).
+    run _knit_invoke_command "remove" "run" "--id" "A1"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"is called by"* ]]
+    [[ "${output}" == *"remove run --id U1"* ]]
+    [[ "${output}" != *"remove app"* ]]
 }
 
 @test "remove artifact --path on its own is refused (producer kept)" {
@@ -310,11 +363,11 @@ _fs_fixture() {
     [[ "${output}" != *"(mydata)"* ]]
 }
 
-@test "remove app --id --from-root suppresses the callee refusal" {
+@test "remove run --id of an app id --from-root erases the whole lineage" {
     _stub_roots
-    run _knit_invoke_command "remove" "app" "--id" "A1" "--from-root" "--dry-run"
+    run _knit_invoke_command "remove" "run" "--id" "A1" "--from-root" "--dry-run"
     [ "$status" -eq 0 ]
-    # No refusal; the whole lineage is pulled in instead.
+    # No refusal; the whole call/produced lineage is pulled in instead.
     [[ "${output}" != *"is called by"* ]]
     local id
     for id in A1 U1 R1 J1 P1; do
@@ -351,18 +404,31 @@ _fs_fixture() {
     [[ "${output}" == *"no row with id"* ]]
 }
 
-@test "resolve job/run/app/artifact --id each resolves in its framework or own table" {
+@test "resolve job/run/artifact/command --id each resolves in its framework or own table" {
     local -a ids=()
     _knit_remove_resolve_selection ids job --id J1
     [ "${ids[0]}" = "J1" ]
     _knit_remove_resolve_selection ids run --id U1
     [ "${ids[0]}" = "U1" ]
-    _knit_remove_resolve_selection ids app --id A1
-    [ "${ids[0]}" = "A1" ]
     _knit_remove_resolve_selection ids artifact --id P1
     [ "${ids[0]}" = "P1" ]
     _knit_remove_resolve_selection ids command --id F1
     [ "${ids[0]}" = "F1" ]
+}
+
+@test "resolve run --id accepts an app id (a run is one unit)" {
+    local -a ids=()
+    _knit_remove_resolve_selection ids run --id A1
+    [ "${#ids[@]}" -eq 1 ]
+    [ "${ids[0]}" = "A1" ]
+}
+
+@test "resolve --id of an app id under the wrong kind hints at remove run" {
+    run _knit_remove_resolve_selection ids command --id A1
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"is a app, not a command"* ]]
+    [[ "${output}" == *"remove run --id A1"* ]]
+    [[ "${output}" != *"remove app"* ]]
 }
 
 # ---------- resolve --name ----------
@@ -390,44 +456,10 @@ _fs_fixture() {
     _in J2 "${ids[@]}"
 }
 
-@test "resolve run --name matches the launched app column" {
-    local -a ids=()
-    _knit_remove_resolve_selection ids run --name julia
-    [ "${#ids[@]}" -eq 1 ]
-    [ "${ids[0]}" = "U1" ]
-}
-
-@test "resolve app --name selects the app's own table" {
-    local -a ids=()
-    _knit_remove_resolve_selection ids app --name julia
-    [ "${#ids[@]}" -eq 1 ]
-    [ "${ids[0]}" = "A1" ]
-}
-
-@test "resolve command --name selects a plain command table" {
-    local -a ids=()
-    _knit_remove_resolve_selection ids command --name foo
-    [ "${#ids[@]}" -eq 1 ]
-    [ "${ids[0]}" = "F1" ]
-}
-
-@test "resolve command --name covers a wrapper table" {
-    local -a ids=()
-    _knit_remove_resolve_selection ids command --name spack
-    [ "${#ids[@]}" -eq 1 ]
-    [ "${ids[0]}" = "W1" ]
-}
-
 @test "resolve --name with no match is fatal" {
     run _knit_remove_resolve_selection ids setup --name nosuch
     [ "$status" -ne 0 ]
     [[ "${output}" == *"no setup named"* ]]
-}
-
-@test "resolve app --name of an unregistered name is fatal" {
-    run _knit_remove_resolve_selection ids app --name ghostapp
-    [ "$status" -ne 0 ]
-    [[ "${output}" == *"no app named"* ]]
 }
 
 # ---------- resolve --type ----------
@@ -453,6 +485,33 @@ _fs_fixture() {
     [ "${#ids[@]}" -eq 2 ]
     _in J1 "${ids[@]}"
     _in J2 "${ids[@]}"
+}
+
+@test "resolve run --type matches the launched app column" {
+    local -a ids=()
+    _knit_remove_resolve_selection ids run --type julia
+    [ "${#ids[@]}" -eq 1 ]
+    [ "${ids[0]}" = "U1" ]
+}
+
+@test "resolve command --type selects a plain command table" {
+    local -a ids=()
+    _knit_remove_resolve_selection ids command --type foo
+    [ "${#ids[@]}" -eq 1 ]
+    [ "${ids[0]}" = "F1" ]
+}
+
+@test "resolve command --type covers a wrapper table" {
+    local -a ids=()
+    _knit_remove_resolve_selection ids command --type spack
+    [ "${#ids[@]}" -eq 1 ]
+    [ "${ids[0]}" = "W1" ]
+}
+
+@test "resolve command --type of an unregistered name is fatal" {
+    run _knit_remove_resolve_selection ids command --type ghostapp
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"no command of type"* ]]
 }
 
 @test "resolve --type with no match is fatal" {
@@ -1504,4 +1563,185 @@ _fs_fixture() {
     [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "1" ]
     [ -e "${BATS_TEST_TMPDIR}/root/setups/env" ]
     [ -e "${BATS_TEST_TMPDIR}/root/jobs/J1" ]
+}
+
+# ---------- --failed as a composable filter (M4: direct kinds) ----------
+
+@test "_knit_remove_intersect keeps only ids in both sets, first-set order" {
+    local -a a=(X Y Z) b=(Y W Z) out=()
+    _knit_remove_intersect out a b
+    [ "${#out[@]}" -eq 2 ]
+    [ "${out[0]}" = "Y" ]
+    [ "${out[1]}" = "Z" ]
+}
+
+@test "failed_ids_of_kind selects only the non-zero rows of the kind" {
+    _seed_failed_fixture
+    local -a ids=()
+    _knit_remove_failed_ids_of_kind ids setup
+    [ "${#ids[@]}" -eq 2 ]
+    _in SF1 "${ids[@]}"
+    _in SF3 "${ids[@]}"
+    ! _in SF2 "${ids[@]}"
+}
+
+@test "remove setup --failed selects every failed setup (dry-run)" {
+    _seed_failed_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "setup" "--failed" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"SF1"* ]]
+    [[ "${output}" == *"SF3"* ]]
+    [[ "${output}" != *"SF2"* ]]
+}
+
+@test "remove command --failed selects failed command invocations (dry-run)" {
+    _seed_failed_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "command" "--failed" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"C2"* ]]
+    [[ "${output}" != *"C1"* ]]
+}
+
+@test "remove setup --failed --type narrows to failed setups of the type" {
+    _seed_failed_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "setup" "--type" "failenv" "--failed" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"SF1"* ]]
+    [[ "${output}" == *"SF3"* ]]
+    [[ "${output}" != *"SF2"* ]]
+}
+
+@test "remove setup --id of a failed row with --failed erases it (dry-run)" {
+    _seed_failed_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "setup" "--id" "SF1" "--failed" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"SF1"* ]]
+}
+
+@test "remove setup --id of a non-failed row with --failed erases nothing" {
+    _seed_failed_fixture
+    run _knit_invoke_command "remove" "setup" "--id" "SF2" "--failed"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"no failed setup among the selected"* ]]
+}
+
+@test "remove setup --failed --name of a non-failed instance erases nothing" {
+    _seed_failed_fixture
+    run _knit_invoke_command "remove" "setup" "--name" "ok" "--failed"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"no failed setup among the selected"* ]]
+}
+
+@test "remove resource --failed with no failures reports info" {
+    run _knit_invoke_command "remove" "resource" "--failed"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"no failed resource recorded"* ]]
+}
+
+# ---------- --failed for the body-table kinds (M5: job, run) ----------
+
+@test "failed_ids_of_kind job maps failed bodies up to submissions (tolerated excluded)" {
+    _seed_failed_body_fixture
+    local -a ids=()
+    _knit_remove_failed_ids_of_kind ids job
+    [ "${#ids[@]}" -eq 1 ]
+    [ "${ids[0]}" = "JF" ]
+}
+
+@test "failed_ids_of_kind run maps failed app bodies up to launch rows (tolerated excluded)" {
+    _seed_failed_body_fixture
+    local -a ids=()
+    _knit_remove_failed_ids_of_kind ids run
+    [ "${#ids[@]}" -eq 1 ]
+    [ "${ids[0]}" = "UF" ]
+}
+
+@test "remove job --failed erases the failed job (submission + body), not the tolerated one" {
+    _seed_failed_body_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "job" "--failed" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"JF"* ]]
+    [[ "${output}" == *"BF"* ]]
+    [[ "${output}" != *"JS"* ]]
+    [[ "${output}" != *"BS"* ]]
+}
+
+@test "remove run --failed erases the failed run (launch + app body), not the tolerated one" {
+    _seed_failed_body_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "run" "--failed" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"UF"* ]]
+    [[ "${output}" == *"AF"* ]]
+    [[ "${output}" != *"US"* ]]
+    [[ "${output}" != *"AS"* ]]
+}
+
+@test "remove job --failed --group narrows to failed jobs in the group" {
+    _seed_failed_body_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "job" "--failed" "--group" "solo" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"JF"* ]]
+    [[ "${output}" != *"JS"* ]]
+}
+
+@test "remove run --failed --type narrows to failed runs of the app" {
+    _seed_failed_body_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "run" "--failed" "--type" "failapp" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"UF"* ]]
+    [[ "${output}" == *"AF"* ]]
+    [[ "${output}" != *"US"* ]]
+}
+
+@test "remove job --failed with no failed jobs reports info" {
+    run _knit_invoke_command "remove" "job" "--failed"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"no failed job recorded"* ]]
+}
+
+# ---------- --failed: empty-result paths and help (M6) ----------
+
+@test "remove --failed with a selector matching nothing is fatal (selector resolved first)" {
+    # The selector is resolved before the failed filter, so an unknown --type is a
+    # user error (fatal) whether or not --failed is given -- not a quiet "nothing
+    # failed" info.
+    run _knit_invoke_command "remove" "setup" "--type" "nosuch" "--failed"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"no setup of type"* ]]
+}
+
+@test "remove <kind> --help shows --failed for the failed-capable kinds" {
+    local sub
+    for sub in setup resource job run command; do
+        run _knit_invoke_command "remove" "${sub}" "--help"
+        [ "$status" -eq 0 ]
+        [[ "${output}" == *"--failed"* ]] || { echo "missing --failed for ${sub}"; false; }
+    done
+}
+
+@test "remove <kind> --help describes the --failed filter" {
+    run _knit_invoke_command "remove" "job" "--help"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"failed invocations"* ]]
+    [[ "${output}" == *"exit status"* ]]
+}
+
+@test "remove artifact --help does not offer --failed" {
+    run _knit_invoke_command "remove" "artifact" "--help"
+    [ "$status" -eq 0 ]
+    [[ "${output}" != *"--failed"* ]]
+}
+
+@test "top-level remove --help still offers --failed" {
+    run _knit_invoke_command "remove" "--help"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"--failed"* ]]
 }
