@@ -135,6 +135,34 @@ _seed_failed_fixture() {
     printf -v "_KNIT_CMD_bar_type" '%s' command
 }
 
+# Seed body-table rows carrying "__exit_status__" plus their launcher/submission
+# call edges, for the job/run --failed tests. The exit status of a job/run lives in
+# a per-body table, so a failed job is a failed body row mapped up to its jobs
+# submission, and a failed run is a failed app-body row mapped up to its runs
+# launch row. Includes a tolerated case (body exit 0) for each, which must NOT be
+# selected. New tables/rows so the base graph is untouched.
+_seed_failed_body_fixture() {
+    _knit_sqlite3 "
+        INSERT INTO jobs VALUES
+            ('JF','failjob','solo','completed'),
+            ('JS','failjob','solo','completed');
+        CREATE TABLE failjob (id TEXT, __exit_status__ INTEGER);
+        INSERT INTO failjob VALUES ('BF',1),('BS',0);
+        INSERT INTO runs VALUES ('UF','failapp'),('US','failapp');
+        CREATE TABLE failapp (id TEXT, __exit_status__ INTEGER);
+        INSERT INTO failapp VALUES ('AF',3),('AS',0);
+        INSERT INTO __provenance__ VALUES
+            ('JF','submit','BF','submit:failjob','call',1,2,NULL),
+            ('JS','submit','BS','submit:failjob','call',1,2,NULL),
+            ('UF','run','AF','failapp','call',3,4,NULL),
+            ('US','run','AS','failapp','call',3,4,NULL);
+    "
+    _KNIT_DB_REGISTERED_TABLES[failjob]="submit:failjob"
+    printf -v "_KNIT_CMD_submit__1__failjob_type" '%s' job
+    _KNIT_DB_REGISTERED_TABLES[failapp]="run:failapp"
+    printf -v "_KNIT_CMD_run__1__failapp_type" '%s' app
+}
+
 # Build a real on-disk root tree matching the seeded graph and point the root
 # resolvers at it, so the filesystem phase acts on actual directories and entries.
 # The setup dir claims S1 through its .setup.id marker; the resource dir claims D1
@@ -1612,4 +1640,69 @@ _fs_fixture() {
     run _knit_invoke_command "remove" "resource" "--failed"
     [ "$status" -eq 0 ]
     [[ "${output}" == *"no failed resource recorded"* ]]
+}
+
+# ---------- --failed for the body-table kinds (M5: job, run) ----------
+
+@test "failed_ids_of_kind job maps failed bodies up to submissions (tolerated excluded)" {
+    _seed_failed_body_fixture
+    local -a ids=()
+    _knit_remove_failed_ids_of_kind ids job
+    [ "${#ids[@]}" -eq 1 ]
+    [ "${ids[0]}" = "JF" ]
+}
+
+@test "failed_ids_of_kind run maps failed app bodies up to launch rows (tolerated excluded)" {
+    _seed_failed_body_fixture
+    local -a ids=()
+    _knit_remove_failed_ids_of_kind ids run
+    [ "${#ids[@]}" -eq 1 ]
+    [ "${ids[0]}" = "UF" ]
+}
+
+@test "remove job --failed erases the failed job (submission + body), not the tolerated one" {
+    _seed_failed_body_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "job" "--failed" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"JF"* ]]
+    [[ "${output}" == *"BF"* ]]
+    [[ "${output}" != *"JS"* ]]
+    [[ "${output}" != *"BS"* ]]
+}
+
+@test "remove run --failed erases the failed run (launch + app body), not the tolerated one" {
+    _seed_failed_body_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "run" "--failed" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"UF"* ]]
+    [[ "${output}" == *"AF"* ]]
+    [[ "${output}" != *"US"* ]]
+    [[ "${output}" != *"AS"* ]]
+}
+
+@test "remove job --failed --group narrows to failed jobs in the group" {
+    _seed_failed_body_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "job" "--failed" "--group" "solo" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"JF"* ]]
+    [[ "${output}" != *"JS"* ]]
+}
+
+@test "remove run --failed --type narrows to failed runs of the app" {
+    _seed_failed_body_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "run" "--failed" "--type" "failapp" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"UF"* ]]
+    [[ "${output}" == *"AF"* ]]
+    [[ "${output}" != *"US"* ]]
+}
+
+@test "remove job --failed with no failed jobs reports info" {
+    run _knit_invoke_command "remove" "job" "--failed"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"no failed job recorded"* ]]
 }

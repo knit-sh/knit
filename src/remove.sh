@@ -280,6 +280,30 @@ _knit_remove_tables_of_kind() {
         run)      __knit_ret=("${_KNIT_RUNS_TABLE}");      return 0 ;;
         artifact) __knit_ret=("${_KNIT_ARTIFACTS_TABLE}"); return 0 ;;
     esac
+    # __-prefixed: passed straight down as another function's output nameref.
+    local -a __knit_scan_tables=()
+    _knit_remove_registry_tables_of_kind __knit_scan_tables "${kind}"
+    __knit_ret=("${__knit_scan_tables[@]}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_registry_tables_of_kind()
+#
+# Fill a caller-named array with every NON-framework table in the live registry
+# whose owning command's kind matches. This is the registry-scan half of
+# _knit_remove_tables_of_kind (which short-circuits the framework kinds to their
+# single table); it is exposed on its own so the --failed path can enumerate the
+# per-body tables that carry the exit status: the per-job body tables (kind "job",
+# the jobs framework table excluded) and the per-app body tables (kind "app").
+#
+# @param[out] __knit_ret Name of the array to fill with table names.
+# @param[in] kind The owning-command kind to match.
+# ------------------------------------------------------------------------------
+_knit_remove_registry_tables_of_kind() {
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n __knit_ret=$1; shift
+    local kind="$1"
+    __knit_ret=()
     local table tk
     for table in "${!_KNIT_DB_REGISTERED_TABLES[@]}"; do
         case "${table}" in
@@ -1897,9 +1921,59 @@ _knit_remove_failed_ids_of_kind() {
     local kind="$1"
     __knit_ret=()
     _knit_is_bootstrapped || return 0
+    # job and run carry the exit status in a per-body table, not the framework
+    # launcher/submission table, so their failed ids come from a body-to-launcher
+    # mapping (see _knit_remove_failed_ids_body_mapped): job bodies are kind "job",
+    # run (app) bodies are kind "app".
+    local -a mapped=()
+    case "${kind}" in
+        job)
+            _knit_remove_failed_ids_body_mapped mapped job
+            __knit_ret=("${mapped[@]}")
+            return 0 ;;
+        run)
+            _knit_remove_failed_ids_body_mapped mapped app
+            __knit_ret=("${mapped[@]}")
+            return 0 ;;
+    esac
     local -a tables=() out=()
     _knit_remove_tables_of_kind tables "${kind}"
     _knit_remove_append_failed_ids out "${tables[@]}"
+    __knit_ret=("${out[@]}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_failed_ids_body_mapped()
+#
+# The failed launcher/submission ids for a body-table kind (job, run). The numeric
+# exit status of a job or a run lives in its per-body table, not in the jobs/runs
+# launcher table (which is carved out of exit-status recording), so this finds the
+# failed rows in the body tables of the given body kind ("job" bodies for a job,
+# "app" bodies for a run) and maps each up to the launcher/submission that called
+# it, via the call edge (source invoked target). The mapping is the same one
+# _knit_remove_resolve_by_type uses to turn a body table into its submissions. A
+# job/run whose body returned zero (a tolerated failure inside it) is therefore not
+# itself failed. Bootstrap-gated.
+#
+# @param[out] __knit_ret  Name of the array to fill with launcher/submission ids.
+# @param[in]  body_kind   The owning-command kind of the body tables ("job"/"app").
+# ------------------------------------------------------------------------------
+_knit_remove_failed_ids_body_mapped() {
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n __knit_ret=$1; shift
+    local body_kind="$1"
+    __knit_ret=()
+    _knit_is_bootstrapped || return 0
+    local -a body_tables=() failed_bodies=()
+    _knit_remove_registry_tables_of_kind body_tables "${body_kind}"
+    _knit_remove_append_failed_ids failed_bodies "${body_tables[@]}"
+    (( ${#failed_bodies[@]} == 0 )) && return 0
+    local in_list
+    _knit_remove_id_in_list in_list "${failed_bodies[@]}"
+    [[ -z "${in_list}" ]] && return 0
+    local -a out=()
+    _knit_remove_append_ids out \
+        "SELECT DISTINCT source_id FROM ${_KNIT_PROV_TABLE} WHERE edge_type='call' AND source_id != '' AND target_id IN (${in_list});"
     __knit_ret=("${out[@]}")
 }
 
@@ -1997,6 +2071,7 @@ _knit_is_builtin
 knit_without_provenance
 _knit_remove_declare_selectors "job" id name type group
 _knit_remove_declare_flags
+_knit_remove_declare_failed_flag
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_job()
 #
@@ -2020,6 +2095,7 @@ _knit_is_builtin
 knit_without_provenance
 _knit_remove_declare_selectors "run" id type
 _knit_remove_declare_flags
+_knit_remove_declare_failed_flag
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_run()
 #
