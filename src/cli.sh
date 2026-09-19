@@ -2723,14 +2723,26 @@ _knit_print_command_usage() {
         children_var="_KNIT_CMD_${cmd}_subcommands"
     fi
     local -n children_ref="${children_var}"
-    # Before bootstrap, also omit any child that is not usable before bootstrap:
-    # it cannot run yet (the runtime guard would refuse it), so listing it would
-    # be misleading. After bootstrap every non-hidden child is listed. The usable
-    # set is a connected subtree (validation rule 3), so this per-level test is
-    # sufficient: a usable child shown at a deeper level always has a usable
-    # (hence shown) parent.
+    # Before bootstrap, omit any child that is not usable before bootstrap: it
+    # cannot run yet (the runtime guard would refuse it), so listing it would be
+    # misleading. After bootstrap every non-hidden child is listed.
+    #
+    # This filter only applies where the distinction is meaningful: at the root
+    # and under a command that is itself usable before bootstrap, the surviving
+    # children are exactly what the user can run right now. Under a command that
+    # is NOT usable before bootstrap (one the user explicitly drilled into, e.g.
+    # "remove --help" before bootstrap) every child is likewise not usable --- the
+    # usable set is a connected subtree (validation rule 3), so a not-usable
+    # parent can have no usable child --- and filtering would leave a misleading
+    # empty list. There we list all children so the command's structure stays
+    # discoverable to a user who already knows the command exists. Truly hidden
+    # ("_"-prefixed) children are still omitted in every case.
     local pre_bootstrap="false"
-    _knit_is_bootstrapped || pre_bootstrap="true"
+    if ! _knit_is_bootstrapped \
+        && { [[ "${cmd}" == "__main__" ]] \
+             || _knit_command_is_usable_before_bootstrap "${cmd}"; }; then
+        pre_bootstrap="true"
+    fi
     for c in "${children_ref[@]}"; do
         if _knit_command_hidden "${c}"; then
             continue

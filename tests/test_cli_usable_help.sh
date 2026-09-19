@@ -9,7 +9,8 @@ setup() {
     #   ubbh_pub          (usable)   with subcommands:
     #       ubbh_pub:sub  (usable)
     #       ubbh_pub:priv (not usable)
-    #   ubbh_secret       (not usable, top-level)
+    #   ubbh_secret       (not usable, top-level) with subcommands:
+    #       ubbh_secret:child (not usable --- parent is not usable)
     knit_register "ubbh_pub" knit_empty "A public command."
     knit_usable_before_bootstrap
     knit_done
@@ -19,6 +20,8 @@ setup() {
     knit_register "ubbh_pub:priv" knit_empty "A private subcommand."
     knit_done
     knit_register "ubbh_secret" knit_empty "A private command."
+    knit_done
+    knit_register "ubbh_secret:child" knit_empty "A secret subcommand."
     knit_done
 }
 
@@ -85,6 +88,17 @@ _set_bootstrapped() {
     run _knit_print_command_usage "ubbh_secret"
     [ "$status" -eq 0 ]
     [[ "$output" == *"A private command."* ]]
+}
+
+@test "before bootstrap a not-usable command lists its (not-usable) children" {
+    # A command the user explicitly drilled into is hidden at the root before
+    # bootstrap, so its subcommands --- all necessarily not usable --- are still
+    # listed, keeping its structure discoverable rather than showing an empty set.
+    _set_not_bootstrapped
+    run _knit_print_command_usage "ubbh_secret"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"child"* ]]
+    [[ "$output" == *"A secret subcommand."* ]]
 }
 
 # ---------- --help after bootstrap ----------
