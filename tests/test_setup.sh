@@ -80,9 +80,9 @@ teardown() {
     knit_done
     local names
     names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('setup:mysetup');" | cut -d'|' -f2 | tr '\n' ',')
-    # Columns are grouped id, params, then outputs (each sorted): the user's
-    # optional "version" precedes the automatic "directory"/"name" outputs.
-    [ "$names" = "id,version,directory,name," ]
+    # Columns are grouped id, exit status, params, then outputs (each sorted): the
+    # user's optional "version" precedes the automatic "directory"/"name" outputs.
+    [ "$names" = "id,__exit_status__,version,directory,name," ]
 }
 
 @test "knit_register_setup table has name and directory columns" {

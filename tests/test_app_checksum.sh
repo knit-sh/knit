@@ -294,6 +294,38 @@ _stub_dispatch() {
     [[ "$output" == *"was not produced"* ]]
 }
 
+@test "_knit_run_checksum_outputs (tolerant) hashes a present output of a failed run" {
+    # A failed run whose row survives: a produced output is still hashed.
+    local out="${BATS_TEST_TMPDIR}/partial.txt"
+    printf 'partial\n' > "${out}"
+    local expected
+    _knit_sha256 expected "${out}"
+
+    _knit_prov_ensure_table
+    sqlite3 "${_KNIT_DATABASE}" \
+        "INSERT INTO outapp (id, result) VALUES ('row1', '${out}');"
+    sqlite3 "${_KNIT_DATABASE}" \
+        "INSERT INTO __provenance__ (source_id, source_name, target_id, target_name, edge_type) VALUES ('run1', 'run', 'row1', 'run:outapp', 'call');"
+
+    _knit_run_checksum_outputs "${OUTAPP}" "outapp" "run1" "true"
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT result_checksum FROM outapp WHERE id='row1';")" \
+        = "sha256:${expected}" ]
+}
+
+@test "_knit_run_checksum_outputs (tolerant) skips a missing output of a failed run" {
+    _knit_prov_ensure_table
+    sqlite3 "${_KNIT_DATABASE}" \
+        "INSERT INTO outapp (id, result) VALUES ('row1', '${BATS_TEST_TMPDIR}/never.txt');"
+    sqlite3 "${_KNIT_DATABASE}" \
+        "INSERT INTO __provenance__ (source_id, source_name, target_id, target_name, edge_type) VALUES ('run1', 'run', 'row1', 'run:outapp', 'call');"
+
+    run _knit_run_checksum_outputs "${OUTAPP}" "outapp" "run1" "true"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"was not produced"* ]]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT result_checksum FROM outapp WHERE id='row1';")" = "" ]
+}
+
 @test "_knit_run_checksum_outputs is a no-op when no row was recorded" {
     _knit_prov_ensure_table
     run _knit_run_checksum_outputs "${OUTAPP}" "outapp" "no-such-run"

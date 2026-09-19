@@ -112,7 +112,7 @@ teardown() {
     local names
     names=$(sqlite3 "${_KNIT_DATABASE}" \
         "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
-    [ "$names" = "id,iters,label,verbose,score," ]
+    [ "$names" = "id,__exit_status__,iters,label,verbose,score," ]
 }
 
 @test "optional parameter default is used as migration default" {

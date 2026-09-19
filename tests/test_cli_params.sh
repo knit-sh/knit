@@ -443,6 +443,22 @@ teardown() {
     [ "$status" -ne 0 ]
 }
 
+# ---------- reserved __exit_status__ name ----------
+
+@test "a parameter cannot claim the reserved __exit_status__ name" {
+    knit_register "res_es1_cmd" knit_empty "Test."
+    run knit_with_optional "__exit_status__:integer" "0" "A clash."
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"reserved name"* ]]
+}
+
+@test "an output cannot claim the reserved __exit_status__ name" {
+    knit_register "res_es2_cmd" knit_empty "Test."
+    run knit_with_output "__exit_status__:integer" "0" "A clash."
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"reserved name"* ]]
+}
+
 # ---------- _knit_format_option_alternatives ----------
 
 @test "_knit_format_option_alternatives prints one spelling when identical" {

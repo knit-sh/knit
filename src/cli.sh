@@ -55,6 +55,15 @@ declare -ga _KNIT_EXECUTING_START_TIME=()
 declare -g _KNIT_INVOCATION_END_TIME=""
 
 # ------------------------------------------------------------------------------
+# Exit status of the current invocation's body, captured after it returns. When
+# non-empty _knit_record_invocation writes it into the row's reserved
+# "__exit_status__" column (for a command whose table has that column); it is read
+# once and cleared, so the eager record path (which never sets it) leaves the
+# column NULL until the outcome is known and updated separately.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_INVOCATION_EXIT_STATUS=""
+
+# ------------------------------------------------------------------------------
 # Raw (pre-expansion) arguments of the current command invocation. Set by
 # _knit_invoke_command from the exact tokens the user typed, before optional
 # defaults and flag values are spliced in, so a command body can tell an option
@@ -338,6 +347,13 @@ _knit_reserve_name() {
     local kind="$3"
     local display="$4"
     local normalized="$5"
+    # "__exit_status__" is a framework-reserved column (the per-invocation exit
+    # status recorded for every eligible command; see _knit_db_setup_table), so a
+    # user declaration cannot claim it. ("id" is not reserved here: it is a valid
+    # parameter name for table-less commands such as "knit job status --id".)
+    if [[ "${normalized}" == "__exit_status__" ]]; then
+        knit_fatal "${kind} \"${display}\" uses the reserved name \"__exit_status__\" for \"${context_name}\"."
+    fi
     # shellcheck disable=SC2178 # nameref to associative array
     local -n _knit_names_map="${ns}_names"
     if [[ -v _knit_names_map["${normalized}"] ]]; then
@@ -1286,6 +1302,23 @@ knit_without_provenance() {
     fi
     knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as not recording provenance."
     printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_provenance" '%s' 'without'
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_without_exit_status()
+#
+# Mark the command being registered so its table does not get the reserved
+# "__exit_status__" column. Used for a table whose status is tracked another way:
+# the submissions "jobs" table records a job's lifecycle in its "state" column
+# (written asynchronously, compute-side), so a numeric exit status recorded
+# eagerly on the login node would be meaningless there. This is a framework
+# internal, not part of the user-facing decorator surface.
+# ------------------------------------------------------------------------------
+_knit_without_exit_status() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "_knit_without_exit_status should be used after a call to \"knit_register\"."
+    fi
+    printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_no_exit_status" '%s' 'true'
 }
 
 # ------------------------------------------------------------------------------
@@ -2897,15 +2930,36 @@ _knit_checksum_require_exists() {
     local name="$3"
     local kind="$4"
     local value="$5"
-    case "${kind}" in
-        file)      [[ -f "${value}" ]] && return 0 ;;
-        directory) [[ -d "${value}" ]] && return 0 ;;
-    esac
+    _knit_checksum_target_exists "${kind}" "${value}" && return 0
     if [[ "${direction}" == "input" ]]; then
         knit_fatal "Input ${kind} \"${name}\" of \"${demangled_cmd}\" does not exist: \"${value}\"."
     else
         knit_fatal "Output ${kind} \"${name}\" of \"${demangled_cmd}\" was not produced: \"${value}\"."
     fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_checksum_target_exists()
+#
+# Test whether a checksummed file/directory value refers to an existing target: a
+# "file" must be a regular file (-f), a "directory" must be a directory (-d).
+# Returns success/failure without fataling, so a tolerant caller (an output hook
+# after a FAILED body, which may legitimately have produced only some outputs)
+# can skip a missing target rather than abort. _knit_checksum_require_exists is
+# the fatal wrapper for the strict callers (inputs, and outputs of a success).
+#
+# @param[in] kind  "file" or "directory".
+# @param[in] value The path to test.
+# @return 0 if the target exists and matches the kind, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_checksum_target_exists() {
+    local kind="$1"
+    local value="$2"
+    case "${kind}" in
+        file)      [[ -f "${value}" ]] ;;
+        directory) [[ -d "${value}" ]] ;;
+        *)         return 1 ;;
+    esac
 }
 
 # ------------------------------------------------------------------------------
@@ -3033,24 +3087,32 @@ _knit_checksum_inputs() {
 # ------------------------------------------------------------------------------
 # @fn _knit_checksum_outputs()
 #
-# After a command completes successfully, verify existence of every file/directory
-# "output" and, unless it opted out with --no-checksum, stash its digest for the
-# row write. The output value (the path) is read from the in-memory output store
-# set by knit_output, else the output's declared default; an output left with no
-# value is skipped (no existence check, no checksum). Existence is enforced for
-# every file/directory output; hashing is skipped for a --no-checksum one. A
-# declared output whose path does not exist is fatal. Called after the run
+# Verify existence of every file/directory "output" and, unless it opted out with
+# --no-checksum, stash its digest for the row write. The output value (the path)
+# is read from the in-memory output store set by knit_output, else the output's
+# declared default; an output left with no value is skipped (no existence check,
+# no checksum). Hashing is skipped for a --no-checksum one. Called after the run
 # duration has been captured, so hashing is excluded from the measured run time.
+#
+# When tolerant is "false" (a successful body) existence is enforced: a declared
+# output whose path does not exist is fatal (a broken postcondition). When
+# tolerant is "true" (a FAILED body) a missing output is skipped instead — a
+# failed body may legitimately have produced only some of its outputs — while an
+# output that IS present is still hashed and recorded, so a failure's partial
+# results are captured.
 #
 # In a launched app worker no rank hashes outputs: rank 0 records the output
 # paths with empty checksum columns, and the `run` dispatcher verifies existence
 # and hashes them once after the launcher returns, off every measured duration.
 # So this returns early there, leaving the checksum columns for the dispatcher.
 #
-# @param[in] cmd Mangled command name.
+# @param[in] cmd      Mangled command name.
+# @param[in] tolerant "true" to skip (not fatal on) a missing output; default
+#                     "false" enforces existence.
 # ------------------------------------------------------------------------------
 _knit_checksum_outputs() {
     local cmd="$1"
+    local tolerant="${2:-false}"
     if _knit_checksum_is_app_worker "${cmd}"; then
         return 0
     fi
@@ -3081,6 +3143,12 @@ _knit_checksum_outputs() {
         fi
         # An output left with no value has no path to check or hash.
         [[ -z "${value}" ]] && continue
+        # A failed body may not have produced this output; skip a missing one
+        # rather than abort, but still hash one that is present.
+        if [[ "${tolerant}" == "true" ]] \
+           && ! _knit_checksum_target_exists "${kind}" "${value}"; then
+            continue
+        fi
         _knit_checksum_require_exists "${demangled_cmd}" output "${param}" "${kind}" "${value}"
         [[ "${checksum}" == "yes" ]] || continue
         local hex
@@ -3205,6 +3273,8 @@ _knit_invoke_command() {
         # Record while this frame is still on the executing stacks, so recording
         # reads the frame's resolved row id from _KNIT_EXECUTING_ROW_ID (and, in a
         # later milestone, resolves its parent from the frame below). Then pop.
+        # The wrapper's row records the forwarded command's exit status.
+        _KNIT_INVOCATION_EXIT_STATUS="${wrapper_status}"
         _knit_record_invocation "${_knit_wrapper_cmd}" "$@"
         unset '_KNIT_EXECUTING_COMMAND[-1]'
         unset '_KNIT_EXECUTING_ROW_ID[-1]'
@@ -3270,13 +3340,18 @@ _knit_invoke_command() {
     # hashing a (possibly large) output is excluded from the recorded duration;
     # _knit_record_invocation reads it as the call edge's end_time.
     _KNIT_INVOCATION_END_TIME="$(_knit_prov_now)"
-    # On a successful completion, verify existence of and hash every checksummed
-    # file/directory output, setting their companion checksum outputs before the
-    # row is written. A failed body may legitimately leave an output absent, so
-    # output checks run on success only.
-    if [[ "${func_status}" -eq 0 ]]; then
-        _knit_checksum_outputs "${cmd}"
-    fi
+    # The body's exit status is recorded into the row's reserved "__exit_status__"
+    # column (see _knit_record_invocation / _knit_db_record_invocation).
+    _KNIT_INVOCATION_EXIT_STATUS="${func_status}"
+    # Verify existence of and hash every checksummed file/directory output,
+    # setting their companion checksum outputs before the row is written. On a
+    # successful completion existence is enforced (a missing output is fatal); on
+    # a failed one it is tolerant — a failed body may legitimately have produced
+    # only some outputs, so a missing one is skipped while a present one is still
+    # hashed and recorded, capturing the failure's partial results.
+    local checksum_tolerant="false"
+    [[ "${func_status}" -ne 0 ]] && checksum_tolerant="true"
+    _knit_checksum_outputs "${cmd}" "${checksum_tolerant}"
     # Record this invocation as a database row (if the command declared a table)
     # while it is still on the executing stacks, so recording reads this frame's
     # resolved row id from _KNIT_EXECUTING_ROW_ID (see the wrapper path). Then pop.
@@ -3636,6 +3711,12 @@ _knit_record_invocation() {
     # before any early return, so it can never leak into a later invocation.
     local end_time_override="${_KNIT_INVOCATION_END_TIME}"
     _KNIT_INVOCATION_END_TIME=""
+    # The body's exit status, set on the normal and wrapper record paths and
+    # written into the row's reserved "__exit_status__" column. Read and cleared
+    # first (like end_time) so the eager record path, which never sets it, leaves
+    # the column NULL and no value leaks into a later invocation.
+    local exit_status_override="${_KNIT_INVOCATION_EXIT_STATUS}"
+    _KNIT_INVOCATION_EXIT_STATUS=""
     # Global kill switch: KNIT_DISABLE_RECORDING=true disables all recording (data
     # rows and provenance edges), so a command or chain can be exercised without
     # leaving rows to clean up afterwards. Placed here so it also covers the eager
@@ -3689,7 +3770,8 @@ _knit_record_invocation() {
     # Transparent command: record only the data row (no edge), exactly as before
     # provenance existed.
     if [[ "${prov_enabled}" != "true" ]]; then
-        _knit_db_record_invocation "${cmd}" "${table}" "${id}" "" "" "" "" "" "" "$@"
+        _knit_db_record_invocation "${cmd}" "${table}" "${id}" "" "" "" "" "" "" \
+            "${exit_status_override}" "$@"
         return 0
     fi
 
@@ -3715,7 +3797,7 @@ _knit_record_invocation() {
     if [[ -n "${table}" ]]; then
         _knit_db_record_invocation "${cmd}" "${table}" "${id}" \
             "${source_id}" "${source_name}" "call" "${start_time}" "${end_time}" \
-            "${alias}" "$@"
+            "${alias}" "${exit_status_override}" "$@"
     else
         # No data row: record the edge on its own; its target id joins to nothing.
         local target_name

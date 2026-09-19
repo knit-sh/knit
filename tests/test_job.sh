@@ -51,6 +51,27 @@ teardown() {
     [ "$result" -eq 1 ]
 }
 
+@test "the per-job table has the __exit_status__ column" {
+    _test_job_fn() { :; }
+    knit_register_job "myjob" "_test_job_fn" "A test job."
+    knit_done
+    local names
+    names=$(sqlite3 "${_KNIT_DATABASE}" \
+        "PRAGMA table_info('myjob');" | cut -d'|' -f2 | tr '\n' ',')
+    [[ "$names" == *",__exit_status__,"* ]]
+}
+
+@test "the submissions jobs table has no __exit_status__ column (state carve-out)" {
+    # The submit dispatcher declares the jobs table and opts it out via
+    # _knit_without_exit_status; its status lives in the "state" column instead.
+    _knit_db_setup_table "submit" "${_KNIT_JOBS_TABLE}"
+    local names
+    names=$(sqlite3 "${_KNIT_DATABASE}" \
+        "PRAGMA table_info('${_KNIT_JOBS_TABLE}');" | cut -d'|' -f2 | tr '\n' ',')
+    [[ "$names" != *"__exit_status__"* ]]
+    [[ "$names" == *",state,"* ]]
+}
+
 # ---------- knit_with_setup ----------
 
 @test "knit_with_setup records the required setup type for the job" {

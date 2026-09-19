@@ -290,17 +290,25 @@ _knit_run() {
     # rank 0's per-app row. Rank 0 recorded only the output paths; hashing after
     # launch keeps it off every rank and out of every measured duration.
     if [[ "${run_status}" -eq 0 ]]; then
-        _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${uuid}"
+        _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${uuid}" "false"
+        # Fill in the runs row's exit status (left NULL by the eager insert).
+        _knit_run_record_exit_status "${uuid}" "${run_status}"
     else
         # A failed run leaves the eagerly-recorded runs row as a trace by default.
         # But when the app opted out of recording a failed invocation
         # (knit_no_record_on_failure), rank 0 skipped its per-app row, so the runs
         # row now joins to nothing (its "run -> run:<app>" call edge and target row
         # were never written). Remove the runs row and any edge referencing it, so
-        # the runs table stays consistent with the app's own opt-out.
+        # the runs table stays consistent with the app's own opt-out. Otherwise the
+        # row survives as the failure trace: hash any outputs the app did produce
+        # (tolerant — a failed app may have produced none) and record the exit
+        # status.
         local no_fail_var="_KNIT_CMD_${subcmd}_no_record_on_failure"
         if [[ "${!no_fail_var:-}" == "true" ]]; then
             _knit_run_delete_row "${uuid}"
+        else
+            _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${uuid}" "true"
+            _knit_run_record_exit_status "${uuid}" "${run_status}"
         fi
     fi
     return "${run_status}"
@@ -337,6 +345,26 @@ _knit_run_delete_row() {
     _knit_sqlite3_write \
         "DELETE FROM ${_KNIT_PROV_TABLE} WHERE target_id='${uuid_esc}' OR source_id='${uuid_esc}';" \
         2>/dev/null || true
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_run_record_exit_status()
+#
+# Fill in the runs row's reserved "__exit_status__" column after the launcher
+# returns. The row is recorded eagerly, before the launch, so a failed launch
+# still leaves a trace; the exit status is left NULL there because the outcome is
+# not yet known. This writes the launcher's exit status once it is. Best-effort
+# and bootstrap-gated (with no database there is nothing to update). Only called
+# when the runs row survives — never after _knit_run_delete_row removed it.
+#
+# @param[in] uuid        The run's UUID (its runs-row id).
+# @param[in] exit_status The launcher's exit status.
+# ------------------------------------------------------------------------------
+_knit_run_record_exit_status() {
+    local uuid="$1"
+    local exit_status="$2"
+    _knit_is_bootstrapped || return 0
+    _knit_db_update_row "${_KNIT_RUNS_TABLE}" "${uuid}" "__exit_status__=${exit_status}"
 }
 
 # ------------------------------------------------------------------------------
@@ -515,19 +543,27 @@ _knit_run_checksum_inputs() {
 # Rank 0's per-app row is found through the provenance graph: the "run -> run:app"
 # call edge (source_id is this run's UUID) points at the row's id. For each
 # checksummed output, the recorded path is read back from that row, its existence
-# verified (a missing output on a successful run is fatal), the digest computed,
-# and the row's companion "<param>_checksum" column updated. An output left with
-# no value, or one that opted out with --no-checksum, is skipped. When nothing
-# was recorded (recording disabled, or no such row) this is a no-op.
+# verified, the digest computed, and the row's companion "<param>_checksum"
+# column updated. An output left with no value, or one that opted out with
+# --no-checksum, is skipped. When nothing was recorded (recording disabled, or no
+# such row) this is a no-op.
+#
+# When tolerant is "false" (a successful run) a missing output is fatal (a broken
+# postcondition). When tolerant is "true" (a FAILED run whose row survives) a
+# missing output is skipped instead — a failed app may have produced only some
+# outputs — while one that IS present is still hashed and recorded.
 #
 # @param[in] subcmd   Mangled app command name (run:<app>).
 # @param[in] app_name The app name (its table is named after it).
 # @param[in] run_uuid This run's UUID (source of the provenance edge to the row).
+# @param[in] tolerant "true" to skip (not fatal on) a missing output; default
+#                     "false" enforces existence.
 # ------------------------------------------------------------------------------
 _knit_run_checksum_outputs() {
     local subcmd="$1"
     local app_name="$2"
     local run_uuid="$3"
+    local tolerant="${4:-false}"
     _knit_is_bootstrapped || return 0
     _knit_set_exists "_KNIT_CMD_${subcmd}_fileparams" || return 0
 
@@ -577,6 +613,12 @@ _knit_run_checksum_outputs() {
             2>/dev/null) || value=""
         # An output left with no value has no path to check or hash.
         [[ -z "${value}" ]] && continue
+        # A failed app may not have produced this output; skip a missing one
+        # rather than abort, but still hash one that is present.
+        if [[ "${tolerant}" == "true" ]] \
+           && ! _knit_checksum_target_exists "${kind}" "${value}"; then
+            continue
+        fi
         _knit_checksum_require_exists "${display}" output "${param}" "${kind}" "${value}"
         local hex
         _knit_sha256 hex "${value}"

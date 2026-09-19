@@ -361,6 +361,33 @@ _use_artifacts_root() {
         = "$(_knit_sqlite3 "SELECT id FROM bind_rel;")" ]
 }
 
+@test "an artifact bound before a failure is still recorded" {
+    _use_artifacts_root
+    knit_register "bind_fail" fn_bind_fail "Test."
+    knit_with_table
+    knit_with_output_artifact "table:file" "The results table."
+    # The body binds an artifact, then fails: the bind happened, so the artifact
+    # row and its "produced" edge are recorded with the (non-opt-out) failed row.
+    fn_bind_fail() {
+        local out; out="$(knit_artifact_dir)"
+        mkdir -p "${out}"
+        printf 'hello\n' > "${out}/table.csv"
+        knit_artifact "table" "table.csv"
+        return 6
+    }
+    knit_done
+    run _knit_invoke_command "bind_fail"
+    [ "$status" -eq 6 ]
+    # The artifact row and produced edge survive the failure, joined to the
+    # producer's row, which itself records the non-zero exit status.
+    [ "$(_art path)" = "table.csv" ]
+    [ "$(_produced_source)" = "bind_fail" ]
+    [ "$(_knit_sqlite3 \
+        "SELECT target_id FROM __provenance__ WHERE edge_type='produced';")" \
+        = "$(_art id)" ]
+    [ "$(_knit_sqlite3 "SELECT __exit_status__ FROM bind_fail;")" = "6" ]
+}
+
 @test "knit_artifact records the user kind and its physical type" {
     _use_artifacts_root
     knit_register_artifact "csvfile:file" "A CSV table."

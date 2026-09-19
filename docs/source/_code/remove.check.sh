@@ -126,4 +126,26 @@ check_eq "$(present "setups/buildenv")" "no" "the cascaded setup directory is go
 check_eq "$(sql "SELECT count(*) FROM __provenance__ WHERE edge_type='used_by'")" "0" \
     "both used_by edges of the erased lineage are gone"
 
+# ---- exit-status recording and remove --failed ----------------------------
+# A command records its exit status in the reserved __exit_status__ column. A
+# success records 0; a failure records the non-zero code and keeps its row.
+exp boom --code 0 >/dev/null
+exp boom --code 3 2>/dev/null || true
+check_eq "$(sql "SELECT count(*) FROM boom")" "2" \
+    "both boom invocations recorded a row (the failure is kept)"
+check_eq "$(sql "SELECT count(*) FROM boom WHERE __exit_status__=0")" "1" \
+    "the successful boom recorded exit status 0"
+check_eq "$(sql "SELECT __exit_status__ FROM boom WHERE __exit_status__<>0")" "3" \
+    "the failed boom recorded its non-zero exit code"
+
+# remove --failed selects every invocation with a non-zero exit status; the
+# successful row stays.
+out="$(exp remove --failed --dry-run 2>&1)"
+check_contains "${out}" "boom" "remove --failed lists the failed command"
+exp remove --failed --yes >/dev/null
+check_eq "$(sql "SELECT count(*) FROM boom WHERE __exit_status__<>0")" "0" \
+    "remove --failed erased the failed row"
+check_eq "$(sql "SELECT count(*) FROM boom WHERE __exit_status__=0")" "1" \
+    "remove --failed kept the successful row"
+
 dc_summary

@@ -20,7 +20,9 @@
 # manager (`knit spack`, plus Spack-backed setups), call-site aliasing of
 # provenance edges with `knit_as`, querying the database and its provenance
 # graph with `knit query` (read-only SQL, a schema catalog, and Cypher over the
-# recorded provenance), provenance-aware deletion of recorded entities and
+# recorded provenance), automatic recording of each command's exit status (so a
+# failed invocation stays queryable for diagnosis and prunable with `knit remove
+# --failed`), provenance-aware deletion of recorded entities and
 # everything that depended on them with `knit remove`, packing the whole
 # experiment — code, provenance, logs, and results — into one shippable archive,
 # optionally a standard RO-Crate research object, with `knit bundle` and `knit
@@ -1088,6 +1090,26 @@
 #
 #   ./full.sh remove job --id <uuid> --keep-artifacts --yes
 #   ./full.sh remove job --id <uuid> --keep-files --yes
+#
+# Every recorded command also records its exit status. A command that is not
+# declared `@no_record_on_failure` gets a reserved `__exit_status__` column: 0 on
+# success, the non-zero code on failure. A failed command still records its row
+# (and any output or artifact it managed to produce before failing), so you can
+# ask the database which invocation failed, and with which parameters:
+#
+#   ./full.sh query sql --format column --header --exec \
+#       "SELECT id, samples, seed, __exit_status__ FROM mcrank WHERE __exit_status__ <> 0"
+#
+# `remove --failed` selects every invocation with a non-zero exit status at once,
+# with the same closure and guards as every remove subcommand: it erases the
+# failed rows, but a failed run whose enclosing job is kept is refused (steering
+# you to --from-root, which widens to the whole job — the job and every run in it):
+#
+#   ./full.sh remove --failed --dry-run              # preview the failed set
+#   ./full.sh remove --failed --from-root --yes      # erase failed runs and their jobs
+#
+# There is no per-code selector: --failed means any non-zero code. To remove by a
+# specific code, write the SELECT yourself and pass the ids to `remove <kind> --id`.
 #
 # -----------------------------------------------------------------------------
 # 21. Bundle the experiment to ship it (knit bundle / knit export ro-crate)

@@ -52,4 +52,19 @@ _crunch() {
 }
 @done
 
+# START failing
+# A command that records a row and may fail. Because it declares a table and is
+# NOT @no_record_on_failure, knit adds a reserved __exit_status__ column and
+# records it on every invocation: 0 on success, the non-zero code on failure. A
+# failed row stays in the database (with any output it produced) so you can query
+# what failed, and prune it later with `remove --failed`.
+@command "boom" "Fail when --code is non-zero, so a failed row is recorded."
+@with_table
+@with_optional "code:integer" "0" "Exit code to return."
+_boom() {
+    return "$(knit_get_parameter code "$@")"
+}
+@done
+# END failing
+
 knit "$@"
