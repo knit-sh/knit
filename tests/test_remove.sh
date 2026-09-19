@@ -143,7 +143,7 @@ _fs_fixture() {
     [ "$status" -eq 0 ]
     [[ "${output}" == *'"name": "remove"'* ]]
     local sub
-    for sub in setup resource job run app command artifact; do
+    for sub in setup resource job run command artifact; do
         [[ "${output}" == *"\"name\": \"${sub}\""* ]] || {
             echo "missing subcommand: ${sub}"; false
         }
@@ -154,7 +154,7 @@ _fs_fixture() {
 
 @test "remove <subcommand> --help renders for every subcommand" {
     local sub
-    for sub in setup resource job run app command artifact; do
+    for sub in setup resource job run command artifact; do
         run _knit_invoke_command "remove" "${sub}" "--help"
         [ "$status" -eq 0 ]
         [[ "${output}" == *"Usage:"* ]]
@@ -264,15 +264,6 @@ _fs_fixture() {
     [[ "${output}" == *"R2"* ]]
 }
 
-@test "remove app --id of a callee whose caller is kept is refused (example 3)" {
-    run _knit_invoke_command "remove" "app" "--id" "A1"
-    [ "$status" -ne 0 ]
-    [[ "${output}" == *"is called by"* ]]
-    [[ "${output}" == *"U1"* ]]
-    [[ "${output}" == *"remove run --id U1"* ]]
-    [[ "${output}" == *"--from-root"* ]]
-}
-
 @test "remove run --id of a run whose enclosing job is kept is refused" {
     run _knit_invoke_command "remove" "run" "--id" "U1"
     [ "$status" -ne 0 ]
@@ -310,19 +301,6 @@ _fs_fixture() {
     [[ "${output}" != *"(mydata)"* ]]
 }
 
-@test "remove app --id --from-root suppresses the callee refusal" {
-    _stub_roots
-    run _knit_invoke_command "remove" "app" "--id" "A1" "--from-root" "--dry-run"
-    [ "$status" -eq 0 ]
-    # No refusal; the whole lineage is pulled in instead.
-    [[ "${output}" != *"is called by"* ]]
-    local id
-    for id in A1 U1 R1 J1 P1; do
-        [[ "${output}" == *"${id}"* ]] || { echo "missing ${id}"; false; }
-    done
-    [[ "${output}" != *"juliaenv (env)"* ]]
-}
-
 # ---------- resolve --id (existence + kind check) ----------
 
 @test "resolve setup --id returns the id" {
@@ -351,14 +329,12 @@ _fs_fixture() {
     [[ "${output}" == *"no row with id"* ]]
 }
 
-@test "resolve job/run/app/artifact --id each resolves in its framework or own table" {
+@test "resolve job/run/artifact/command --id each resolves in its framework or own table" {
     local -a ids=()
     _knit_remove_resolve_selection ids job --id J1
     [ "${ids[0]}" = "J1" ]
     _knit_remove_resolve_selection ids run --id U1
     [ "${ids[0]}" = "U1" ]
-    _knit_remove_resolve_selection ids app --id A1
-    [ "${ids[0]}" = "A1" ]
     _knit_remove_resolve_selection ids artifact --id P1
     [ "${ids[0]}" = "P1" ]
     _knit_remove_resolve_selection ids command --id F1
@@ -390,44 +366,10 @@ _fs_fixture() {
     _in J2 "${ids[@]}"
 }
 
-@test "resolve run --name matches the launched app column" {
-    local -a ids=()
-    _knit_remove_resolve_selection ids run --name julia
-    [ "${#ids[@]}" -eq 1 ]
-    [ "${ids[0]}" = "U1" ]
-}
-
-@test "resolve app --name selects the app's own table" {
-    local -a ids=()
-    _knit_remove_resolve_selection ids app --name julia
-    [ "${#ids[@]}" -eq 1 ]
-    [ "${ids[0]}" = "A1" ]
-}
-
-@test "resolve command --name selects a plain command table" {
-    local -a ids=()
-    _knit_remove_resolve_selection ids command --name foo
-    [ "${#ids[@]}" -eq 1 ]
-    [ "${ids[0]}" = "F1" ]
-}
-
-@test "resolve command --name covers a wrapper table" {
-    local -a ids=()
-    _knit_remove_resolve_selection ids command --name spack
-    [ "${#ids[@]}" -eq 1 ]
-    [ "${ids[0]}" = "W1" ]
-}
-
 @test "resolve --name with no match is fatal" {
     run _knit_remove_resolve_selection ids setup --name nosuch
     [ "$status" -ne 0 ]
     [[ "${output}" == *"no setup named"* ]]
-}
-
-@test "resolve app --name of an unregistered name is fatal" {
-    run _knit_remove_resolve_selection ids app --name ghostapp
-    [ "$status" -ne 0 ]
-    [[ "${output}" == *"no app named"* ]]
 }
 
 # ---------- resolve --type ----------
@@ -453,6 +395,33 @@ _fs_fixture() {
     [ "${#ids[@]}" -eq 2 ]
     _in J1 "${ids[@]}"
     _in J2 "${ids[@]}"
+}
+
+@test "resolve run --type matches the launched app column" {
+    local -a ids=()
+    _knit_remove_resolve_selection ids run --type julia
+    [ "${#ids[@]}" -eq 1 ]
+    [ "${ids[0]}" = "U1" ]
+}
+
+@test "resolve command --type selects a plain command table" {
+    local -a ids=()
+    _knit_remove_resolve_selection ids command --type foo
+    [ "${#ids[@]}" -eq 1 ]
+    [ "${ids[0]}" = "F1" ]
+}
+
+@test "resolve command --type covers a wrapper table" {
+    local -a ids=()
+    _knit_remove_resolve_selection ids command --type spack
+    [ "${#ids[@]}" -eq 1 ]
+    [ "${ids[0]}" = "W1" ]
+}
+
+@test "resolve command --type of an unregistered name is fatal" {
+    run _knit_remove_resolve_selection ids command --type ghostapp
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"no command of type"* ]]
 }
 
 @test "resolve --type with no match is fatal" {

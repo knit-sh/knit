@@ -78,7 +78,13 @@ _knit_remove_declare_selectors() {
         case "${sel}" in
             id)    desc="Erase the ${kind} with this row id." ;;
             name)  desc="Erase the ${kind} with this instance name." ;;
-            type)  desc="Erase every ${kind} of this type." ;;
+            type)
+                if [[ "${kind}" == "run" ]]; then
+                    desc="Erase every run that launched this app."
+                else
+                    desc="Erase every ${kind} of this type."
+                fi
+                ;;
             group) desc="Erase every job in this group." ;;
             path)  desc="Erase the artifact at this artifacts-relative path." ;;
             *)     desc="Erase the ${kind} selected by --${sel}." ;;
@@ -298,9 +304,10 @@ _knit_remove_resolve_by_id() {
 # Resolve a --name selector (the instance name given at creation) to a starting
 # id set. For setup/resource the name is scanned across every table of that kind
 # via the "name" column, so it resolves from the database even after the instance
-# directory is gone. For a job the name is the "jobs.name" alias. For run the name
-# is the launched app (the runs "app" column); for app/command the name is the
-# command/app name, which is its table. No match is fatal.
+# directory is gone. For a job the name is the "jobs.name" alias. Only the kinds
+# with a genuine instance name use --name; run and command have no instance name
+# and select by --type instead (the launched app / the command's own table),
+# resolved in _knit_remove_resolve_by_type. No match is fatal.
 #
 # @param[out] __knit_ret Name of the array to fill with the starting ids.
 # @param[in] kind The entity kind.
@@ -328,18 +335,6 @@ _knit_remove_resolve_by_name() {
             _knit_remove_append_ids out \
                 "SELECT id FROM ${_KNIT_JOBS_TABLE} WHERE name='${name_esc}';"
             ;;
-        run)
-            _knit_remove_append_ids out \
-                "SELECT id FROM ${_KNIT_RUNS_TABLE} WHERE app='${name_esc}';"
-            ;;
-        app|command)
-            local tk
-            _knit_remove_table_kind tk "${name}"
-            if [[ "${tk}" == "${kind}" ]]; then
-                local ident; _knit_db_sql_ident ident "${name}"
-                _knit_remove_append_ids out "SELECT id FROM ${ident};"
-            fi
-            ;;
     esac
     if (( ${#out[@]} == 0 )); then
         knit_fatal "remove ${kind}: no ${kind} named \"${name}\"."
@@ -354,11 +349,14 @@ _knit_remove_resolve_by_name() {
 # setup/resource the type is the per-command table (setup:<type> / resource:<type>),
 # so this selects every row in it. For a job the type is the job-body table; the
 # starting ids are the job submissions (jobs rows) whose body rows live in that
-# table, reached by the "call" edge from the submission to its body. No match is
+# table, reached by the "call" edge from the submission to its body. For a run the
+# type is the launched app: the runs rows whose "app" column matches (their app
+# body rows follow through the run -> run:<app> call edge in the closure). For a
+# plain command the type is the command's own table, selected whole. No match is
 # fatal.
 #
 # @param[out] __knit_ret Name of the array to fill with the starting ids.
-# @param[in] kind The entity kind (setup, resource, or job).
+# @param[in] kind The entity kind (setup, resource, job, run, or command).
 # @param[in] type The type to resolve.
 # ------------------------------------------------------------------------------
 _knit_remove_resolve_by_type() {
@@ -381,6 +379,19 @@ _knit_remove_resolve_by_type() {
             _knit_db_sql_ident ident "${type}"
             _knit_remove_append_ids out \
                 "SELECT DISTINCT source_id FROM ${_KNIT_PROV_TABLE} WHERE edge_type='call' AND source_id != '' AND target_id IN (SELECT id FROM ${ident});"
+            ;;
+        run)
+            local type_esc; _knit_sql_escape type_esc "${type}"
+            _knit_remove_append_ids out \
+                "SELECT id FROM ${_KNIT_RUNS_TABLE} WHERE app='${type_esc}';"
+            ;;
+        command)
+            local tk
+            _knit_remove_table_kind tk "${type}"
+            if [[ "${tk}" == "command" ]]; then
+                _knit_db_sql_ident ident "${type}"
+                _knit_remove_append_ids out "SELECT id FROM ${ident};"
+            fi
             ;;
     esac
     if (( ${#out[@]} == 0 )); then
@@ -1846,45 +1857,25 @@ knit_done
 # Registration of 'remove run'.
 # ------------------------------------------------------------------------------
 knit_register "remove:run" _knit_remove_run \
-    "Erase a single run and its per-app row; the enclosing job stays."
+    "Erase a run (its launch row and the app row); the enclosing job stays."
 _knit_is_builtin
 knit_without_provenance
-_knit_remove_declare_selectors "run" id name
+_knit_remove_declare_selectors "run" id type
 _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_run()
 #
 # Body of 'remove run': delegate to the shared dispatch (resolve, close, refuse,
-# report, confirm, and delete) for the run kind. Selecting a run whose enclosing
-# job is kept is refused (the job's call edge would dangle).
+# report, confirm, and delete) for the run kind. A run is one unit: the launch row
+# (runs) and the app row it called (reached through the run -> run:<app> call edge
+# in the downward closure), mirroring how 'remove job' erases the submission and
+# its body. Selecting a run whose enclosing job is kept is refused (the job's call
+# edge would dangle).
 #
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_remove_run() {
-    _knit_remove_dispatch "run" id name -- "$@"
-}
-knit_done
-
-# ------------------------------------------------------------------------------
-# Registration of 'remove app'.
-# ------------------------------------------------------------------------------
-knit_register "remove:app" _knit_remove_app \
-    "Erase an app-invocation row directly."
-_knit_is_builtin
-knit_without_provenance
-_knit_remove_declare_selectors "app" id name
-_knit_remove_declare_flags
-# ------------------------------------------------------------------------------
-# @fn _knit_remove_app()
-#
-# Body of 'remove app': delegate to the shared dispatch (resolve, close, refuse,
-# report, confirm, and delete) for the app kind. Selecting an app whose enclosing
-# run/job is kept is refused.
-#
-# @param[in] ... The command invocation arguments.
-# ------------------------------------------------------------------------------
-_knit_remove_app() {
-    _knit_remove_dispatch "app" id name -- "$@"
+    _knit_remove_dispatch "run" id type -- "$@"
 }
 knit_done
 
@@ -1895,7 +1886,7 @@ knit_register "remove:command" _knit_remove_command \
     "Erase a plain command invocation row (also covers wrapper rows)."
 _knit_is_builtin
 knit_without_provenance
-_knit_remove_declare_selectors "command" id name
+_knit_remove_declare_selectors "command" id type
 _knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_command()
@@ -1906,7 +1897,7 @@ _knit_remove_declare_flags
 # @param[in] ... The command invocation arguments.
 # ------------------------------------------------------------------------------
 _knit_remove_command() {
-    _knit_remove_dispatch "command" id name -- "$@"
+    _knit_remove_dispatch "command" id type -- "$@"
 }
 knit_done
 
