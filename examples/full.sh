@@ -1043,19 +1043,23 @@
 #
 # Records accumulate: stale setups, superseded runs, artifacts you no longer
 # want. `knit remove` erases a recorded entity — a setup, resource, job, run,
-# app, plain command, or artifact — together with its on-disk directory and,
+# plain command, or artifact — together with its on-disk directory and,
 # crucially, everything downstream that depended on it, deleting exactly the
 # provenance edges that connect them so no dangling edge is left behind. It is
 # the reason a setup need not be treated as append-only: a bad `mcenv` can be
 # removed and rebuilt rather than living in the database forever.
 #
 # There is one subcommand per kind, each taking exactly one selector — `--id`,
-# `--name`, `--type` (setup/resource/job), `--group` (job), or `--path`
-# (artifact):
+# `--name` (setup/resource/job, by instance name), `--type` (setup/resource/job
+# by type, run by app, command by name), `--group` (job), or `--path` (artifact).
+# A run is one unit — its launch row and the app row it ran — so `remove run`
+# erases both, and `remove run --id` accepts either the run id or the app id, just
+# as `remove job` covers a submission and its body:
 #
 #   ./full.sh remove setup    --name env         # one setup instance by name
 #   ./full.sh remove setup    --type mcenv       # every mcenv setup at once
 #   ./full.sh remove job      --id <uuid>        # one job (submission + body)
+#   ./full.sh remove run      --type mcrank      # every run of the mcrank app
 #   ./full.sh remove resource --name myseeds     # a fetched resource instance
 #
 # By default remove cascades DOWNWARD. Removing a PROVIDER (a setup or resource)
@@ -1107,6 +1111,18 @@
 #
 #   ./full.sh remove --failed --dry-run              # preview the failed set
 #   ./full.sh remove --failed --from-root --yes      # erase failed runs and their jobs
+#
+# `--failed` also works on each row-kind subcommand as a filter that composes with
+# the selector: alone it means every failed one of that kind, and with a selector
+# it narrows to the failed rows the selector chose (an AND). So failures can be
+# pruned one kind at a time, optionally scoped:
+#
+#   ./full.sh remove command --failed --dry-run           # every failed plain command
+#   ./full.sh remove run --failed --type mcrank --from-root --yes
+#   ./full.sh remove setup --failed --type mcenv --yes
+#
+# (remove artifact has no --failed: an artifact is produced, not invoked, so it
+# has no exit status.)
 #
 # There is no per-code selector: --failed means any non-zero code. To remove by a
 # specific code, write the SELECT yourself and pass the ids to `remove <kind> --id`.
