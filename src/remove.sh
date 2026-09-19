@@ -113,17 +113,34 @@ _knit_remove_declare_flags() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_remove_declare_failed_flag()
+#
+# Declare the --failed filter flag. It is separate from _knit_remove_declare_flags
+# because it is offered only by the kinds that carry an exit status (setup,
+# resource, job, run, command) and NOT by "remove artifact" (an artifact is
+# produced, not invoked, so it has no exit status). Call it between knit_register
+# and knit_done.
+# ------------------------------------------------------------------------------
+_knit_remove_declare_failed_flag() {
+    knit_with_flag "failed" \
+        "Restrict the removal to failed invocations (a non-zero recorded exit status); combine with a selector to narrow, or use alone to select every failed one. Add --from-root to also erase the jobs that contain them."
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_remove_require_one_selector()
 #
 # Enforce the presence half of the exactly-one-selector contract: at least one
-# of the named selectors must be provided. The mutual-exclusion half (at most
-# one) is enforced declaratively by the --when constraints the selectors carry,
-# so this only refuses the all-empty case. The selector names are given as
-# leading arguments up to a literal "--", after which come the command
-# invocation arguments.
+# of the named selectors must be provided. On a subcommand that offers the
+# --failed filter, --failed also satisfies presence on its own (it selects every
+# failed row of the kind), so the all-empty case is refused only when --failed is
+# absent too. The mutual-exclusion half (at most one selector) is enforced
+# declaratively by the --when constraints the selectors carry, and --failed is
+# orthogonal to it (a plain flag with no --when), so a selector together with
+# --failed is allowed. The selector names are given as leading arguments up to a
+# literal "--", after which come the command invocation arguments.
 #
 # @param[in] ... The selector names, then "--", then the invocation arguments.
-# @return Fatal if no selector was provided; otherwise 0.
+# @return Fatal if neither a selector nor --failed was provided; otherwise 0.
 # ------------------------------------------------------------------------------
 _knit_remove_require_one_selector() {
     local -a selectors=()
@@ -136,9 +153,16 @@ _knit_remove_require_one_selector() {
         value="$(knit_get_parameter "${sel}" "$@")" || value=""
         [[ -n "${value}" ]] && count=$((count + 1))
     done
-    if (( count == 0 )); then
-        knit_fatal "remove: exactly one selector is required (one of: ${selectors[*]/#/--})."
+    (( count > 0 )) && return 0
+    # No selector. If this subcommand offers --failed (knit_get_parameter succeeds
+    # only when the flag is declared, and flags are always materialized to
+    # --flag true|false) and it was set, that satisfies presence.
+    local failed
+    if failed="$(knit_get_parameter "failed" "$@")"; then
+        [[ "${failed}" == "true" ]] && return 0
+        knit_fatal "remove: name a selector (one of: ${selectors[*]/#/--}) or --failed."
     fi
+    knit_fatal "remove: exactly one selector is required (one of: ${selectors[*]/#/--})."
 }
 
 # ------------------------------------------------------------------------------
@@ -1608,6 +1632,13 @@ _knit_remove_confirm() {
 # selector names are given as leading arguments up to a literal "--", after which
 # come the command invocation arguments.
 #
+# The --failed filter, when the subcommand offers it, narrows the starting set:
+# with a selector it keeps only the failed rows the selector chose (an
+# intersection); on its own it starts from every failed row of the kind. A
+# selector that matches nothing is still fatal (it is resolved before the filter);
+# a non-empty selection with no failures, or --failed alone with no failures, is
+# an info message and exit 0, never a deletion.
+#
 # @param[in] kind The entity kind of the subcommand.
 # @param[in] ... The selector names, then "--", then the invocation arguments.
 # ------------------------------------------------------------------------------
@@ -1619,9 +1650,75 @@ _knit_remove_dispatch() {
     done
     shift  # drop the "--"
     _knit_remove_require_one_selector "${selectors[@]}" -- "$@"
+
+    # Is a selector present, is --failed present? require_one_selector has already
+    # guaranteed at least one of the two.
+    local failed
+    failed="$(knit_get_parameter "failed" "$@")" || failed="false"
+    local sel value has_selector="false"
+    for sel in "${selectors[@]}"; do
+        value="$(knit_get_parameter "${sel}" "$@")" || value=""
+        [[ -n "${value}" ]] && has_selector="true"
+    done
+
     local -a starting=()
-    _knit_remove_resolve_selection starting "${kind}" "$@"
+    if [[ "${failed}" == "true" ]]; then
+        local -a failed_ids=()
+        _knit_remove_failed_ids_of_kind failed_ids "${kind}"
+        if [[ "${has_selector}" == "true" ]]; then
+            # selector ∩ failed. resolve_selection is fatal if the selector
+            # matches nothing, so an empty starting set here means the selection
+            # matched but none of its rows failed.
+            # shellcheck disable=SC2034 # filled and read by name (resolve/intersect)
+            local -a sel_ids=()
+            _knit_remove_resolve_selection sel_ids "${kind}" "$@"
+            _knit_remove_intersect starting sel_ids failed_ids
+            if [[ ${#starting[@]} -eq 0 ]]; then
+                knit_info "remove ${kind} --failed: no failed ${kind} among the selected; nothing to erase."
+                return 0
+            fi
+        else
+            starting=("${failed_ids[@]}")
+            if [[ ${#starting[@]} -eq 0 ]]; then
+                knit_info "remove ${kind} --failed: no failed ${kind} recorded; nothing to erase."
+                return 0
+            fi
+        fi
+    else
+        _knit_remove_resolve_selection starting "${kind}" "$@"
+    fi
     _knit_remove_erase_selection starting "$@"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_intersect()
+#
+# Fill a caller-named array with the intersection of two id sets: the ids that
+# appear in both. Order follows the first set; duplicates and empty ids are
+# ignored. Used to combine a selector's rows with the failed rows of the kind.
+#
+# @param[out] __knit_ret Name of the array to fill with the intersection.
+# @param[in]  __knit_a   Name of the first id array.
+# @param[in]  __knit_b   Name of the second id array.
+# ------------------------------------------------------------------------------
+_knit_remove_intersect() {
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n __knit_ret=$1
+    local -n __knit_a=$2
+    local -n __knit_b=$3
+    __knit_ret=()
+    local -A in_b=() seen=()
+    local x
+    for x in "${__knit_b[@]}"; do [[ -n "${x}" ]] && in_b["${x}"]=1; done
+    for x in "${__knit_a[@]}"; do
+        [[ -n "${x}" ]] || continue
+        [[ -v seen["${x}"] ]] && continue
+        if [[ -v in_b["${x}"] ]]; then
+            seen["${x}"]=1
+            __knit_ret+=("${x}")
+        fi
+    done
+    return 0
 }
 
 # ------------------------------------------------------------------------------
@@ -1726,28 +1823,24 @@ _knit_remove_erase_selection() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_remove_failed_ids()
+# @fn _knit_remove_append_failed_ids()
 #
-# Collect the row ids of every failed invocation across the database: every table
-# that carries the reserved "__exit_status__" column, selecting the rows whose
-# status is a non-zero integer. NULL (outcome not recorded, e.g. an eager row) and
-# the empty migration back-fill (unknown) are excluded, so only a genuine non-zero
-# exit is selected. The ids are returned through the caller-named array; an
-# experiment with no failures yields an empty array. Bootstrap-gated: with no
-# database there is nothing to scan.
+# Append the failed row ids found in the given tables to a caller-named array. A
+# table without the reserved "__exit_status__" column is skipped; from the rest
+# only the rows whose status is a non-zero integer are selected. NULL (outcome not
+# recorded, e.g. an eager row) and the empty migration back-fill (unknown) are
+# excluded, so only a genuine non-zero exit is selected. The array is appended to,
+# never reset. Shared by _knit_remove_failed_ids (all tables) and
+# _knit_remove_failed_ids_of_kind (one kind's tables).
 #
-# @param[out] __knit_ret Name of the array to fill with the failed row ids.
+# @param[out] __knit_ret Name of the array to append the failed row ids to.
+# @param[in]  ...        The table names to scan.
 # ------------------------------------------------------------------------------
-_knit_remove_failed_ids() {
+_knit_remove_append_failed_ids() {
     # shellcheck disable=SC2178 # nameref to the caller's array
-    local -n __knit_ret=$1
-    __knit_ret=()
-    _knit_is_bootstrapped || return 0
-    local -a tables=()
-    mapfile -t tables < <(_knit_sqlite3 \
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+    local -n __knit_ret=$1; shift
     local t t_esc t_ident rid
-    for t in "${tables[@]}"; do
+    for t in "$@"; do
         [[ -z "${t}" ]] && continue
         _knit_sql_escape t_esc "${t}"
         # Only a table carrying the reserved column can hold a failed row.
@@ -1759,6 +1852,55 @@ _knit_remove_failed_ids() {
         done < <(_knit_sqlite3 \
             "SELECT id FROM ${t_ident} WHERE typeof(__exit_status__)='integer' AND __exit_status__ <> 0;")
     done
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_failed_ids()
+#
+# Collect the row ids of every failed invocation across the database: every table
+# that carries the reserved "__exit_status__" column, selecting the rows whose
+# status is a non-zero integer. The ids are returned through the caller-named
+# array; an experiment with no failures yields an empty array. Bootstrap-gated:
+# with no database there is nothing to scan.
+#
+# @param[out] __knit_ret Name of the array to fill with the failed row ids.
+# ------------------------------------------------------------------------------
+_knit_remove_failed_ids() {
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n __knit_ret=$1
+    __knit_ret=()
+    _knit_is_bootstrapped || return 0
+    local -a tables=() out=()
+    mapfile -t tables < <(_knit_sqlite3 \
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+    _knit_remove_append_failed_ids out "${tables[@]}"
+    __knit_ret=("${out[@]}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_failed_ids_of_kind()
+#
+# Collect the failed row ids of ONE kind: the failed rows found in the tables that
+# hold rows of <kind> (via _knit_remove_tables_of_kind), so it is the per-kind
+# restriction of _knit_remove_failed_ids. It works directly for the kinds whose
+# own tables carry the exit status (setup, resource, command). The body-table
+# kinds (job, run) whose exit status lives in a per-body table read through a
+# different path (see the dispatch). Bootstrap-gated.
+#
+# @param[out] __knit_ret Name of the array to fill with the failed row ids.
+# @param[in]  kind       The entity kind to scan.
+# ------------------------------------------------------------------------------
+_knit_remove_failed_ids_of_kind() {
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n __knit_ret=$1; shift
+    local kind="$1"
+    __knit_ret=()
+    _knit_is_bootstrapped || return 0
+    local -a tables=() out=()
+    _knit_remove_tables_of_kind tables "${kind}"
+    _knit_remove_append_failed_ids out "${tables[@]}"
+    __knit_ret=("${out[@]}")
 }
 
 # ------------------------------------------------------------------------------
@@ -1809,6 +1951,7 @@ _knit_is_builtin
 knit_without_provenance
 _knit_remove_declare_selectors "setup" id name type
 _knit_remove_declare_flags
+_knit_remove_declare_failed_flag
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_setup()
 #
@@ -1831,6 +1974,7 @@ _knit_is_builtin
 knit_without_provenance
 _knit_remove_declare_selectors "resource" id name type
 _knit_remove_declare_flags
+_knit_remove_declare_failed_flag
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_resource()
 #
@@ -1902,6 +2046,7 @@ _knit_is_builtin
 knit_without_provenance
 _knit_remove_declare_selectors "command" id type
 _knit_remove_declare_flags
+_knit_remove_declare_failed_flag
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_command()
 #

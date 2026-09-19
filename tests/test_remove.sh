@@ -114,6 +114,27 @@ _stub_roots() {
     _knit_artifact_root() { local -n __r=$1; __r=/ROOT/artifacts; }
 }
 
+# Seed extra tables that carry the reserved "__exit_status__" column plus a mix of
+# failed (non-zero) and succeeded (zero) rows, for the --failed filter tests. New
+# tables (a "failenv" setup type and a "bar" command) so the base graph the other
+# tests read is untouched.
+_seed_failed_fixture() {
+    _knit_sqlite3 "
+        CREATE TABLE \"setup:failenv\"
+            (id TEXT, name TEXT, directory TEXT, __exit_status__ INTEGER);
+        INSERT INTO \"setup:failenv\" VALUES
+            ('SF1','bad','setups/bad',1),
+            ('SF2','ok','setups/ok',0),
+            ('SF3','bad2','setups/bad2',2);
+        CREATE TABLE bar (id TEXT, __exit_status__ INTEGER);
+        INSERT INTO bar VALUES ('C1',0),('C2',5);
+    "
+    _KNIT_DB_REGISTERED_TABLES["setup:failenv"]="setup:failenv"
+    printf -v "_KNIT_CMD_setup__1__failenv_type" '%s' setup
+    _KNIT_DB_REGISTERED_TABLES[bar]="bar"
+    printf -v "_KNIT_CMD_bar_type" '%s' command
+}
+
 # Build a real on-disk root tree matching the seeded graph and point the root
 # resolvers at it, so the filesystem phase acts on actual directories and entries.
 # The setup dir claims S1 through its .setup.id marker; the resource dir claims D1
@@ -216,16 +237,18 @@ _fs_fixture() {
 
 # ---------- exactly-one-selector: presence via the body check ----------
 
-@test "no selector is fatal (body check)" {
+@test "no selector and no --failed is fatal (body check)" {
     run _knit_invoke_command "remove" "setup"
     [ "$status" -ne 0 ]
-    [[ "${output}" == *"exactly one selector is required"* ]]
+    [[ "${output}" == *"name a selector"* ]]
+    [[ "${output}" == *"--failed"* ]]
 }
 
-@test "no selector is fatal on remove artifact (body check)" {
+@test "no selector is fatal on remove artifact (no --failed offered)" {
     run _knit_invoke_command "remove" "artifact"
     [ "$status" -ne 0 ]
     [[ "${output}" == *"exactly one selector is required"* ]]
+    [[ "${output}" != *"--failed"* ]]
 }
 
 # ---------- the body wires resolution, closure, and refusal ----------
@@ -1512,4 +1535,81 @@ _fs_fixture() {
     [ "$(_knit_sqlite3 "SELECT count(*) FROM \"setup:juliaenv\" WHERE id='S1';")" = "1" ]
     [ -e "${BATS_TEST_TMPDIR}/root/setups/env" ]
     [ -e "${BATS_TEST_TMPDIR}/root/jobs/J1" ]
+}
+
+# ---------- --failed as a composable filter (M4: direct kinds) ----------
+
+@test "_knit_remove_intersect keeps only ids in both sets, first-set order" {
+    local -a a=(X Y Z) b=(Y W Z) out=()
+    _knit_remove_intersect out a b
+    [ "${#out[@]}" -eq 2 ]
+    [ "${out[0]}" = "Y" ]
+    [ "${out[1]}" = "Z" ]
+}
+
+@test "failed_ids_of_kind selects only the non-zero rows of the kind" {
+    _seed_failed_fixture
+    local -a ids=()
+    _knit_remove_failed_ids_of_kind ids setup
+    [ "${#ids[@]}" -eq 2 ]
+    _in SF1 "${ids[@]}"
+    _in SF3 "${ids[@]}"
+    ! _in SF2 "${ids[@]}"
+}
+
+@test "remove setup --failed selects every failed setup (dry-run)" {
+    _seed_failed_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "setup" "--failed" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"SF1"* ]]
+    [[ "${output}" == *"SF3"* ]]
+    [[ "${output}" != *"SF2"* ]]
+}
+
+@test "remove command --failed selects failed command invocations (dry-run)" {
+    _seed_failed_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "command" "--failed" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"C2"* ]]
+    [[ "${output}" != *"C1"* ]]
+}
+
+@test "remove setup --failed --type narrows to failed setups of the type" {
+    _seed_failed_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "setup" "--type" "failenv" "--failed" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"SF1"* ]]
+    [[ "${output}" == *"SF3"* ]]
+    [[ "${output}" != *"SF2"* ]]
+}
+
+@test "remove setup --id of a failed row with --failed erases it (dry-run)" {
+    _seed_failed_fixture
+    _stub_roots
+    run _knit_invoke_command "remove" "setup" "--id" "SF1" "--failed" "--dry-run"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"SF1"* ]]
+}
+
+@test "remove setup --id of a non-failed row with --failed erases nothing" {
+    _seed_failed_fixture
+    run _knit_invoke_command "remove" "setup" "--id" "SF2" "--failed"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"no failed setup among the selected"* ]]
+}
+
+@test "remove setup --failed --name of a non-failed instance erases nothing" {
+    _seed_failed_fixture
+    run _knit_invoke_command "remove" "setup" "--name" "ok" "--failed"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"no failed setup among the selected"* ]]
+}
+
+@test "remove resource --failed with no failures reports info" {
+    run _knit_invoke_command "remove" "resource" "--failed"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"no failed resource recorded"* ]]
 }
