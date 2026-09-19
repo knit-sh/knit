@@ -276,6 +276,13 @@ _knit_remove_tables_of_kind() {
 # exists but in a table of a different kind is fatal with a hint to use the right
 # subcommand (e.g. remove:setup --id given a job id).
 #
+# A run is one unit: its launch row (kind "run") and the app row it called (kind
+# "app") are both valid targets of "remove run --id", mirroring how a job's
+# submission and body rows are both kind "job". So an app id is accepted for the
+# run kind. The "app" kind has no subcommand of its own (it is erased through
+# "remove run"), so a wrong-kind hint that would otherwise name "remove app" names
+# "remove run" instead.
+#
 # @param[out] __knit_ret Name of the array to fill with the starting id.
 # @param[in] kind The expected entity kind.
 # @param[in] id The row id to resolve.
@@ -292,10 +299,14 @@ _knit_remove_resolve_by_id() {
     fi
     local found_kind
     _knit_remove_table_kind found_kind "${table}"
-    if [[ "${found_kind}" != "${kind}" ]]; then
-        knit_fatal "remove ${kind}: id \"${id}\" is a ${found_kind}, not a ${kind}; use \"remove ${found_kind} --id ${id}\"."
+    if [[ "${found_kind}" == "${kind}" ]] \
+        || { [[ "${kind}" == "run" ]] && [[ "${found_kind}" == "app" ]]; }; then
+        __knit_ret=("${id}")
+        return 0
     fi
-    __knit_ret=("${id}")
+    local suggest="${found_kind}"
+    [[ "${suggest}" == "app" ]] && suggest="run"
+    knit_fatal "remove ${kind}: id \"${id}\" is a ${found_kind}, not a ${kind}; use \"remove ${suggest} --id ${id}\"."
 }
 
 # ------------------------------------------------------------------------------
@@ -603,6 +614,9 @@ _knit_remove_check_refusal() {
                 fi
                 caller_kind=""
                 _knit_remove_table_kind caller_kind "${caller_table}"
+                # The "app" kind is erased through "remove run" (it has no
+                # subcommand of its own), so a kept app caller points at run.
+                [[ "${caller_kind}" == "app" ]] && caller_kind="run"
                 if [[ -n "${caller_kind}" ]]; then
                     hint="Remove the caller instead (\"remove ${caller_kind} --id ${src}\") or pass --from-root to erase the whole lineage."
                 else

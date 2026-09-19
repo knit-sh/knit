@@ -271,6 +271,17 @@ _fs_fixture() {
     [[ "${output}" == *"--from-root"* ]]
 }
 
+@test "remove run --id accepts an app id (a run is one unit) and is refused with the run hint" {
+    # A1 is the app row of run U1: "remove run" owns it, so the app id is a valid
+    # target (not a wrong-kind error). The run's caller U1 is kept, so the erase is
+    # refused with a hint that names remove run (never the dropped remove app).
+    run _knit_invoke_command "remove" "run" "--id" "A1"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"is called by"* ]]
+    [[ "${output}" == *"remove run --id U1"* ]]
+    [[ "${output}" != *"remove app"* ]]
+}
+
 @test "remove artifact --path on its own is refused (producer kept)" {
     run _knit_invoke_command "remove" "artifact" "--path" "frame.png"
     [ "$status" -ne 0 ]
@@ -299,6 +310,19 @@ _fs_fixture() {
     # neither appears as an erased data row.
     [[ "${output}" != *"juliaenv (env)"* ]]
     [[ "${output}" != *"(mydata)"* ]]
+}
+
+@test "remove run --id of an app id --from-root erases the whole lineage" {
+    _stub_roots
+    run _knit_invoke_command "remove" "run" "--id" "A1" "--from-root" "--dry-run"
+    [ "$status" -eq 0 ]
+    # No refusal; the whole call/produced lineage is pulled in instead.
+    [[ "${output}" != *"is called by"* ]]
+    local id
+    for id in A1 U1 R1 J1 P1; do
+        [[ "${output}" == *"${id}"* ]] || { echo "missing ${id}"; false; }
+    done
+    [[ "${output}" != *"juliaenv (env)"* ]]
 }
 
 # ---------- resolve --id (existence + kind check) ----------
@@ -339,6 +363,21 @@ _fs_fixture() {
     [ "${ids[0]}" = "P1" ]
     _knit_remove_resolve_selection ids command --id F1
     [ "${ids[0]}" = "F1" ]
+}
+
+@test "resolve run --id accepts an app id (a run is one unit)" {
+    local -a ids=()
+    _knit_remove_resolve_selection ids run --id A1
+    [ "${#ids[@]}" -eq 1 ]
+    [ "${ids[0]}" = "A1" ]
+}
+
+@test "resolve --id of an app id under the wrong kind hints at remove run" {
+    run _knit_remove_resolve_selection ids command --id A1
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"is a app, not a command"* ]]
+    [[ "${output}" == *"remove run --id A1"* ]]
+    [[ "${output}" != *"remove app"* ]]
 }
 
 # ---------- resolve --name ----------
