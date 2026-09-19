@@ -1706,3 +1706,42 @@ _fs_fixture() {
     [ "$status" -eq 0 ]
     [[ "${output}" == *"no failed job recorded"* ]]
 }
+
+# ---------- --failed: empty-result paths and help (M6) ----------
+
+@test "remove --failed with a selector matching nothing is fatal (selector resolved first)" {
+    # The selector is resolved before the failed filter, so an unknown --type is a
+    # user error (fatal) whether or not --failed is given -- not a quiet "nothing
+    # failed" info.
+    run _knit_invoke_command "remove" "setup" "--type" "nosuch" "--failed"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"no setup of type"* ]]
+}
+
+@test "remove <kind> --help shows --failed for the failed-capable kinds" {
+    local sub
+    for sub in setup resource job run command; do
+        run _knit_invoke_command "remove" "${sub}" "--help"
+        [ "$status" -eq 0 ]
+        [[ "${output}" == *"--failed"* ]] || { echo "missing --failed for ${sub}"; false; }
+    done
+}
+
+@test "remove <kind> --help describes the --failed filter" {
+    run _knit_invoke_command "remove" "job" "--help"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"failed invocations"* ]]
+    [[ "${output}" == *"exit status"* ]]
+}
+
+@test "remove artifact --help does not offer --failed" {
+    run _knit_invoke_command "remove" "artifact" "--help"
+    [ "$status" -eq 0 ]
+    [[ "${output}" != *"--failed"* ]]
+}
+
+@test "top-level remove --help still offers --failed" {
+    run _knit_invoke_command "remove" "--help"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"--failed"* ]]
+}
