@@ -15,27 +15,34 @@
 # ------------------------------------------------------------------------------
 # @fn _knit_drain_release_next()
 #
-# Release the next prepared job by re-executing the experiment as `submit next`.
+# Release the next prepared job by re-executing the experiment as `submit next`
+# (without --wait), then, when asked to wait, block on `job wait` for its outcome.
 # This is the single, stubbable point through which draining releases a job, so
 # the loop logic can be unit-tested against a simulated queue without a live
 # scheduler.
 #
-# The released job's UUID is printed to stdout (empty when the prepared queue is
-# drained), and the exit status is the released job's own status when waiting, or
-# the release status otherwise. Callers distinguish "queue drained" from "job
-# failed" by the presence of a UUID on stdout, never by the exit status alone.
+# The released job's UUID is printed to stdout, and the exit status reflects its
+# outcome when waiting: `submit next` prints the UUID and returns non-zero (empty
+# stdout) once the queue is drained, so the caller distinguishes "drained" from
+# "released" by an empty UUID; `job wait` then returns non-zero for a `failed` or
+# `killed` job. `submit --wait` is deliberately not used — it returns 0 even for a
+# job whose body failed, so it cannot detect failure (see features/submit-drain.md
+# §4.2).
 #
-# @param[in] wait_flag "true" to wait for the released job (adds --wait), else
-#                  "false".
+# @param[in] wait_flag "true" to wait for the released job's outcome (via
+#                  `job wait`), else "false".
 # @param[in] ... Filter arguments forwarded verbatim to `submit next` (for
 #                  example --type / --group).
 # ------------------------------------------------------------------------------
 _knit_drain_release_next() {
     local wait_flag="$1"
     shift
-    local -a cmd=("${_KNIT_SCRIPT_PATH}" submit next "$@")
-    [[ "${wait_flag}" == "true" ]] && cmd+=(--wait)
-    "${cmd[@]}"
+    local uuid
+    uuid="$("${_KNIT_SCRIPT_PATH}" submit next "$@")" || true
+    [[ -z "${uuid}" ]] && return 1
+    printf '%s\n' "${uuid}"
+    [[ "${wait_flag}" != "true" ]] && return 0
+    "${_KNIT_SCRIPT_PATH}" job wait --id "${uuid}" >/dev/null 2>&1
 }
 
 # ------------------------------------------------------------------------------

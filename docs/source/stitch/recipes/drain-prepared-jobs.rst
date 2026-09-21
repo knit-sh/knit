@@ -25,10 +25,11 @@ How fast they go out is set by ``--max-inflight``:
    Released 12 job(s): 12 completed, 0 failed.
 
 ``--count N`` releases at most ``N`` jobs this run; ``--stop-on-failure`` stops
-releasing new jobs once one fails (in-flight jobs still finish), and drain exits
-non-zero when any released job failed. ``--dry-run`` lists what *would* be
-released, in order, without claiming anything, and ``--json-summary`` prints a
-machine-readable object to stdout:
+releasing new jobs once one fails --- a job whose body exits non-zero (state
+``failed``) or that is killed (cancel / OOM / walltime) --- while in-flight jobs
+still finish, and drain exits non-zero when any released job failed.
+``--dry-run`` lists what *would* be released, in order, without claiming
+anything, and ``--json-summary`` prints a machine-readable object to stdout:
 
 .. code-block:: console
 
