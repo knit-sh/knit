@@ -367,6 +367,221 @@ _knit_drain_dry_run() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_drain_detach_backend()
+#
+# Resolve the detach backend to use. "auto" prefers tmux, then screen, then
+# nohup (nohup is part of coreutils, so it is the always-available fallback). A
+# named backend (tmux / screen / nohup) that is not installed is a fatal error,
+# and an unrecognized value is fatal too. Presence is probed through
+# _knit_command_path so it can be stubbed in tests.
+#
+# @param[out] __knit_ret Name of the variable to receive the resolved backend.
+# @param[in] requested  "auto", "tmux", "screen", or "nohup".
+# ------------------------------------------------------------------------------
+_knit_drain_detach_backend() {
+    local -n __knit_ret=$1
+    local requested="$2"
+    case "${requested}" in
+        tmux|screen|nohup)
+            if [[ -z "$(_knit_command_path "${requested}")" ]]; then
+                knit_fatal "submit drain: --detach-backend ${requested} was requested but ${requested} is not installed."
+            fi
+            __knit_ret="${requested}"
+            ;;
+        auto)
+            if [[ -n "$(_knit_command_path tmux)" ]]; then
+                __knit_ret="tmux"
+            elif [[ -n "$(_knit_command_path screen)" ]]; then
+                __knit_ret="screen"
+            else
+                __knit_ret="nohup"
+            fi
+            ;;
+        *)
+            knit_fatal "submit drain: unknown --detach-backend \"${requested}\" (expected auto, tmux, screen, or nohup)."
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_drain_child_argv()
+#
+# Build the argv that the detached session runs: the experiment re-executed as
+# `submit drain` with the same filters and pacing, but WITHOUT the detach options
+# (so the child runs the loop in the foreground inside the session). The
+# experiment path is _KNIT_SCRIPT_PATH (resolved at load).
+#
+# @param[out] __knit_ret     Name of the array variable to fill with the argv.
+# @param[in] type            Job-type filter, or "".
+# @param[in] group           Group filter, or "".
+# @param[in] max_inflight    Concurrency level.
+# @param[in] count           Release cap, or "".
+# @param[in] stop_on_failure "true"/"false".
+# @param[in] json_summary    "true"/"false".
+# ------------------------------------------------------------------------------
+_knit_drain_child_argv() {
+    # shellcheck disable=SC2178 # nameref to the caller's indexed array
+    local -n __knit_ret=$1
+    local type="$2" group="$3" max_inflight="$4" count="$5"
+    local stop_on_failure="$6" json_summary="$7"
+    __knit_ret=("${_KNIT_SCRIPT_PATH}" submit drain)
+    [[ -n "${type}" ]] && __knit_ret+=(--type "${type}")
+    [[ -n "${group}" ]] && __knit_ret+=(--group "${group}")
+    __knit_ret+=(--max-inflight "${max_inflight}")
+    [[ -n "${count}" ]] && __knit_ret+=(--count "${count}")
+    [[ "${stop_on_failure}" == "true" ]] && __knit_ret+=(--stop-on-failure)
+    [[ "${json_summary}" == "true" ]] && __knit_ret+=(--json-summary)
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_drain_launch_argv()
+#
+# Build the argv that actually starts the detached session for the given backend,
+# given the (already %q-escaped) child command string. tmux and screen run the
+# child through a shell and tee its output to the log, and close their session
+# when the child exits. The nohup backend runs the child under setsid (or nohup
+# when setsid is absent) with output redirected to the log; the caller
+# backgrounds it.
+#
+# @param[out] __knit_ret Name of the array variable to fill with the argv.
+# @param[in] backend   "tmux", "screen", or "nohup".
+# @param[in] session   Session name (tmux/screen).
+# @param[in] log       Path the output is written to.
+# @param[in] child_str The %q-escaped child command string.
+# ------------------------------------------------------------------------------
+_knit_drain_launch_argv() {
+    # shellcheck disable=SC2178 # nameref to the caller's indexed array
+    local -n __knit_ret=$1
+    local backend="$2" session="$3" log="$4" child_str="$5"
+    local log_q
+    printf -v log_q '%q' "${log}"
+    case "${backend}" in
+        tmux)
+            __knit_ret=(tmux new-session -d -s "${session}" \
+                "${child_str} 2>&1 | tee ${log_q}")
+            ;;
+        screen)
+            __knit_ret=(screen -dmS "${session}" bash -lc \
+                "${child_str} 2>&1 | tee ${log_q}")
+            ;;
+        nohup)
+            local runner="nohup"
+            [[ -n "$(_knit_command_path setsid)" ]] && runner="setsid"
+            __knit_ret=("${runner}" bash -c \
+                "${child_str} > ${log_q} 2>&1 < /dev/null")
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_drain_spawn()
+#
+# Start the detached session. For the nohup backend the command is backgrounded,
+# detached from this shell's stdio, and its PID is printed (for the "Stop"
+# hint); for tmux / screen the command returns immediately on its own. Factored
+# out so tests can stub the actual spawn.
+#
+# @param[in] backend "tmux", "screen", or "nohup".
+# @param[in] ...     The launch argv to execute.
+# ------------------------------------------------------------------------------
+_knit_drain_spawn() {
+    local backend="$1"
+    shift
+    if [[ "${backend}" == "nohup" ]]; then
+        "$@" </dev/null >/dev/null 2>&1 &
+        printf '%s\n' "$!"
+        disown 2>/dev/null || true
+    else
+        "$@"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_drain_detach_message()
+#
+# Print how to reattach to, follow, and stop the detached drain, to stderr. tmux
+# and screen have a reattachable session; the nohup backend has only a PID.
+#
+# @param[in] backend "tmux", "screen", or "nohup".
+# @param[in] session Session name (tmux/screen).
+# @param[in] log     Path the output is written to.
+# @param[in] pid     Background PID (nohup backend).
+# ------------------------------------------------------------------------------
+_knit_drain_detach_message() {
+    local backend="$1" session="$2" log="$3" pid="$4"
+    case "${backend}" in
+        tmux)
+            knit_info "Draining in the background (tmux session \"${session}\")."
+            knit_info "  Reattach: tmux attach -t ${session}"
+            knit_info "  Log:      tail -f ${log}"
+            knit_info "  Stop:     tmux kill-session -t ${session}"
+            ;;
+        screen)
+            knit_info "Draining in the background (screen session \"${session}\")."
+            knit_info "  Reattach: screen -r ${session}"
+            knit_info "  Log:      tail -f ${log}"
+            knit_info "  Stop:     screen -S ${session} -X quit"
+            ;;
+        nohup)
+            knit_info "Draining in the background (pid ${pid})."
+            knit_info "  Log:  tail -f ${log}"
+            knit_info "  Stop: kill ${pid}"
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_drain_detach()
+#
+# Run the drain loop in a detached background session and return immediately.
+# Resolves the backend, warns when the nohup backend cannot honor an explicit
+# --session, ensures the log directory exists, rebuilds the child command (with
+# the detach options stripped) and its backend launch argv, spawns it, and prints
+# how to reattach / follow / stop it.
+#
+# @param[in] backend_req     Requested backend ("auto"/"tmux"/"screen"/"nohup").
+# @param[in] session         Resolved session name.
+# @param[in] session_explicit "true" when the user set --session.
+# @param[in] log             Resolved log path.
+# @param[in] type            Job-type filter, or "".
+# @param[in] group           Group filter, or "".
+# @param[in] max_inflight    Concurrency level.
+# @param[in] count           Release cap, or "".
+# @param[in] stop_on_failure "true"/"false".
+# @param[in] json_summary    "true"/"false".
+# ------------------------------------------------------------------------------
+_knit_drain_detach() {
+    local backend_req="$1" session="$2" session_explicit="$3" log="$4"
+    local type="$5" group="$6" max_inflight="$7" count="$8"
+    local stop_on_failure="$9" json_summary="${10}"
+
+    local backend
+    _knit_drain_detach_backend backend "${backend_req}"
+
+    if [[ "${backend}" == "nohup" && "${session_explicit}" == "true" ]]; then
+        knit_warning "submit drain: --session is ignored by the nohup backend (no reattachable session)."
+    fi
+
+    mkdir -p "$(dirname "${log}")"
+
+    local -a child
+    _knit_drain_child_argv child "${type}" "${group}" "${max_inflight}" \
+        "${count}" "${stop_on_failure}" "${json_summary}"
+    local child_str
+    printf -v child_str '%q ' "${child[@]}"
+    child_str="${child_str% }"
+
+    local -a launch
+    _knit_drain_launch_argv launch "${backend}" "${session}" "${log}" "${child_str}"
+
+    local pid
+    pid="$(_knit_drain_spawn "${backend}" "${launch[@]}")"
+
+    _knit_drain_detach_message "${backend}" "${session}" "${log}" "${pid}"
+}
+
+# ------------------------------------------------------------------------------
 # Release prepared jobs in a loop until the queue drains.
 # ------------------------------------------------------------------------------
 knit_register "submit:drain" _knit_submit_drain \
@@ -388,6 +603,17 @@ knit_with_flag "json-summary" \
     "Print a machine-readable JSON summary object to stdout at the end."
 knit_with_flag "dry-run" \
     "List the prepared jobs that would be released, without releasing any."
+knit_with_flag "detached" \
+    "Run the drain loop in the background and return immediately."
+knit_with_optional "detach-backend:string" "auto" \
+    "Detach backend to use: auto (tmux, else screen, else nohup), tmux, screen, or nohup." \
+    --when '.detached == "true"'
+knit_with_optional "session:string" "" \
+    "Name of the tmux/screen session to reattach to (default: knit-drain-<timestamp>)." \
+    --when '.detached == "true"'
+knit_with_optional "log:string" "" \
+    "File the detached run's output is written to (default: .knit/drain/<session>.log)." \
+    --when '.detached == "true"'
 # ------------------------------------------------------------------------------
 # @fn _knit_submit_drain()
 #
@@ -402,7 +628,8 @@ knit_with_flag "dry-run" \
 # Usage:
 # ```
 # ./exp.sh submit drain [--type <t>] [--group <g>] [--max-inflight <n>] \
-#     [--count <n>] [--stop-on-failure] [--json-summary] [--dry-run]
+#     [--count <n>] [--stop-on-failure] [--json-summary] [--dry-run] \
+#     [--detached [--detach-backend <b>] [--session <name>] [--log <path>]]
 # ```
 # ------------------------------------------------------------------------------
 _knit_submit_drain() {
@@ -411,6 +638,7 @@ _knit_submit_drain() {
         knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
     fi
     local type group max_inflight count stop_on_failure json_summary dry_run
+    local detached detach_backend session log
     type=$(knit_get_parameter "type" "$@") || type=""
     group=$(knit_get_parameter "group" "$@") || group=""
     max_inflight=$(knit_get_parameter "max-inflight" "$@") || max_inflight="1"
@@ -418,6 +646,10 @@ _knit_submit_drain() {
     stop_on_failure=$(knit_get_parameter "stop-on-failure" "$@") || stop_on_failure="false"
     json_summary=$(knit_get_parameter "json-summary" "$@") || json_summary="false"
     dry_run=$(knit_get_parameter "dry-run" "$@") || dry_run="false"
+    detached=$(knit_get_parameter "detached" "$@") || detached="false"
+    detach_backend=$(knit_get_parameter "detach-backend" "$@") || detach_backend="auto"
+    session=$(knit_get_parameter "session" "$@") || session=""
+    log=$(knit_get_parameter "log" "$@") || log=""
 
     # The framework already enforced integer-ness; only the ranges remain.
     if (( max_inflight < 0 )); then
@@ -431,6 +663,18 @@ _knit_submit_drain() {
     # the pacing and detach options.
     if [[ "${dry_run}" == "true" ]]; then
         _knit_drain_dry_run "${count}" "${json_summary}" "${type}" "${group}"
+        return 0
+    fi
+
+    # Detached: hand the same drain off to a background session and return.
+    if [[ "${detached}" == "true" ]]; then
+        local session_explicit="false"
+        [[ -n "${session}" ]] && session_explicit="true"
+        [[ -z "${session}" ]] && session="knit-drain-$(date +%Y%m%d-%H%M%S)"
+        [[ -z "${log}" ]] && log="${_KNIT_PREFIX}/drain/${session}.log"
+        _knit_drain_detach "${detach_backend}" "${session}" "${session_explicit}" \
+            "${log}" "${type}" "${group}" "${max_inflight}" "${count}" \
+            "${stop_on_failure}" "${json_summary}"
         return 0
     fi
 

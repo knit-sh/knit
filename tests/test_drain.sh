@@ -333,6 +333,200 @@ _prepared_count() {
     [ "$(_prepared_count)" -eq 3 ]
 }
 
+# ---------- detached: backend resolution ----------
+
+@test "detach backend auto prefers tmux" {
+    _knit_command_path() { case "$1" in tmux|screen|nohup) echo "/usr/bin/$1";; esac; }
+    local b
+    _knit_drain_detach_backend b auto
+    [ "$b" = tmux ]
+}
+
+@test "detach backend auto falls back to screen when tmux is absent" {
+    _knit_command_path() { case "$1" in screen|nohup) echo "/usr/bin/$1";; esac; }
+    local b
+    _knit_drain_detach_backend b auto
+    [ "$b" = screen ]
+}
+
+@test "detach backend auto falls back to nohup when tmux and screen are absent" {
+    _knit_command_path() { case "$1" in nohup) echo "/usr/bin/$1";; esac; }
+    local b
+    _knit_drain_detach_backend b auto
+    [ "$b" = nohup ]
+}
+
+@test "detach backend named-but-absent is fatal" {
+    _knit_command_path() { return 0; }  # everything absent (no output)
+    run _knit_drain_detach_backend b tmux
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not installed"* ]]
+}
+
+@test "detach backend named-and-present is accepted" {
+    _knit_command_path() { echo "/usr/bin/$1"; }
+    local b
+    _knit_drain_detach_backend b screen
+    [ "$b" = screen ]
+}
+
+@test "detach backend unknown value is fatal" {
+    run _knit_drain_detach_backend b bogus
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"unknown --detach-backend"* ]]
+}
+
+# ---------- detached: child command reconstruction ----------
+
+@test "child argv includes all provided options" {
+    _KNIT_SCRIPT_PATH="/x/exp.sh"
+    local -a c
+    _knit_drain_child_argv c alpha g1 4 10 true true
+    [ "${c[0]}" = "/x/exp.sh" ]
+    local j="${c[*]}"
+    [[ "$j" == *"submit drain"* ]]
+    [[ "$j" == *"--type alpha"* ]]
+    [[ "$j" == *"--group g1"* ]]
+    [[ "$j" == *"--max-inflight 4"* ]]
+    [[ "$j" == *"--count 10"* ]]
+    [[ "$j" == *"--stop-on-failure"* ]]
+    [[ "$j" == *"--json-summary"* ]]
+}
+
+@test "child argv omits absent filters and flags" {
+    _KNIT_SCRIPT_PATH="/x/exp.sh"
+    local -a c
+    _knit_drain_child_argv c "" "" 1 "" false false
+    local j="${c[*]}"
+    [[ "$j" != *"--type"* ]]
+    [[ "$j" != *"--group"* ]]
+    [[ "$j" != *"--count"* ]]
+    [[ "$j" != *"--stop-on-failure"* ]]
+    [[ "$j" != *"--json-summary"* ]]
+    [[ "$j" == *"--max-inflight 1"* ]]
+}
+
+# ---------- detached: launch command per backend ----------
+
+@test "tmux launch argv tees the child to the log" {
+    local -a l
+    _knit_drain_launch_argv l tmux sess /tmp/x.log "CMD --max-inflight 2"
+    [ "${l[0]}" = tmux ]
+    [ "${l[1]}" = new-session ]
+    [ "${l[2]}" = -d ]
+    [ "${l[3]}" = -s ]
+    [ "${l[4]}" = sess ]
+    [ "${l[5]}" = "CMD --max-inflight 2 2>&1 | tee /tmp/x.log" ]
+}
+
+@test "screen launch argv runs the child under bash -lc" {
+    local -a l
+    _knit_drain_launch_argv l screen sess /tmp/x.log "CMD"
+    [ "${l[0]}" = screen ]
+    [ "${l[1]}" = -dmS ]
+    [ "${l[2]}" = sess ]
+    [ "${l[3]}" = bash ]
+    [ "${l[4]}" = -lc ]
+    [ "${l[5]}" = "CMD 2>&1 | tee /tmp/x.log" ]
+}
+
+@test "nohup launch argv redirects the child to the log" {
+    local -a l
+    _knit_drain_launch_argv l nohup sess /tmp/x.log "CMD"
+    [[ "${l[0]}" == setsid || "${l[0]}" == nohup ]]
+    [ "${l[1]}" = bash ]
+    [ "${l[2]}" = -c ]
+    [ "${l[3]}" = "CMD > /tmp/x.log 2>&1 < /dev/null" ]
+}
+
+# ---------- detached: --when guards ----------
+
+@test "--session without --detached is rejected" {
+    knit_test_require_jq
+    run knit submit drain --session foo
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--session"* ]]
+}
+
+@test "--log without --detached is rejected" {
+    knit_test_require_jq
+    run knit submit drain --log /tmp/x
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--log"* ]]
+}
+
+@test "--detach-backend without --detached is rejected" {
+    knit_test_require_jq
+    run knit submit drain --detach-backend tmux
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--detach_backend"* ]]
+}
+
+# ---------- detached: orchestrator (spawn stubbed, nothing really launched) ----------
+
+@test "detach orchestrator (tmux) launches and prints reattach/stop" {
+    _KNIT_SCRIPT_PATH="/x/exp.sh"
+    _KNIT_PREFIX="$(mktemp -d)"
+    local spawnfile
+    spawnfile="$(mktemp)"
+    _knit_command_path() { case "$1" in tmux) echo /usr/bin/tmux;; esac; }
+    _knit_drain_spawn() { shift; printf '%s\n' "$*" > "${spawnfile}"; }
+    run _knit_drain_detach auto sess false /tmp/s.log "" "" 2 "" false false
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'tmux session "sess"'* ]]
+    [[ "$output" == *"Reattach: tmux attach -t sess"* ]]
+    [[ "$output" == *"Stop:     tmux kill-session -t sess"* ]]
+    run cat "${spawnfile}"
+    [[ "$output" == *"tmux new-session -d -s sess"* ]]
+    [[ "$output" == *"tee /tmp/s.log"* ]]
+    rm -f "${spawnfile}"
+}
+
+@test "detach orchestrator (nohup) reports the pid and stop hint" {
+    _KNIT_SCRIPT_PATH="/x/exp.sh"
+    local spawnfile
+    spawnfile="$(mktemp)"
+    _knit_command_path() { case "$1" in nohup|setsid) echo "/usr/bin/$1";; esac; }
+    _knit_drain_spawn() { shift; printf '%s\n' "$*" > "${spawnfile}"; printf '4242\n'; }
+    run _knit_drain_detach auto sess false /tmp/s.log "" "" 1 "" false false
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"pid 4242"* ]]
+    [[ "$output" == *"Stop: kill 4242"* ]]
+    run cat "${spawnfile}"
+    [[ "$output" == *"bash -c"* ]]
+    [[ "$output" == *"> /tmp/s.log 2>&1"* ]]
+    rm -f "${spawnfile}"
+}
+
+@test "detach orchestrator warns that nohup ignores an explicit --session" {
+    _KNIT_SCRIPT_PATH="/x/exp.sh"
+    local spawnfile
+    spawnfile="$(mktemp)"
+    _knit_command_path() { case "$1" in nohup) echo /usr/bin/nohup;; esac; }
+    _knit_drain_spawn() { shift; printf '%s\n' "$*" > "${spawnfile}"; printf '1\n'; }
+    run _knit_drain_detach nohup mysess true /tmp/s.log "" "" 1 "" false false
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--session is ignored"* ]]
+    rm -f "${spawnfile}"
+}
+
+@test "submit drain --detached threads through to a background session" {
+    _KNIT_SCRIPT_PATH="/x/exp.sh"
+    _KNIT_PREFIX="$(mktemp -d)"
+    local spawnfile
+    spawnfile="$(mktemp)"
+    _knit_command_path() { case "$1" in tmux) echo /usr/bin/tmux;; esac; }
+    _knit_drain_spawn() { shift; printf '%s\n' "$*" > "${spawnfile}"; }
+    run _knit_submit_drain --detached true --max-inflight 2
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Draining in the background"* ]]
+    run cat "${spawnfile}"
+    [[ "$output" == *"tmux new-session"* ]]
+    [[ "$output" == *"submit drain"* ]]
+    [[ "$output" == *"--max-inflight 2"* ]]
+    rm -f "${spawnfile}"
+}
+
 # ---------- dispatch (--max-inflight 0 / 1 / N reach the right mode) ----------
 
 @test "submit drain --max-inflight 3 dispatches to the pool" {
