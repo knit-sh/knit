@@ -125,6 +125,107 @@ _knit_drain_serial() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_drain_pool_worker()
+#
+# A single pool worker: release one job (waiting for it) and write its outcome as
+# a "<uuid>\t<rc>" line to the given result file. Run in the background by
+# _knit_drain_pool; the result file is how the pool reaps the worker and learns
+# whether it claimed a job (non-empty uuid) and how it fared (rc). A worker
+# always writes a result, so the pool never blocks on a worker that produced
+# nothing.
+#
+# @param[in] result_file Path the worker writes its "<uuid>\t<rc>" line to.
+# @param[in] ...         Filter arguments forwarded to _knit_drain_release_next.
+# ------------------------------------------------------------------------------
+_knit_drain_pool_worker() {
+    local result_file="$1"
+    shift
+    local uuid rc
+    uuid="$(_knit_drain_release_next true "$@")" && rc=0 || rc=$?
+    printf '%s\t%s\n' "${uuid}" "${rc}" > "${result_file}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_drain_pool()
+#
+# Throttled draining (--max-inflight N > 1): keep at most N jobs alive at once.
+# The pool tops up to N background workers, then blocks on "wait -n" until any
+# worker finishes and reaps every worker whose result file is ready. A worker
+# that claimed no job marks the queue drained; a worker whose job failed bumps
+# the failure count and, with stop_on_failure, stops further top-ups. The top-up
+# guard "released + inflight < count" caps total claims at --count (each worker
+# claims at most one job). All in-flight workers are drained before returning.
+# Returns 0 when every released job succeeded, 1 otherwise.
+#
+# @param[in] max_inflight   Maximum concurrent workers (> 1).
+# @param[in] stop_on_failure "true" to stop topping up after the first failure.
+# @param[in] count          Maximum jobs to release, or "" for no cap.
+# @param[in] ...            Filter arguments forwarded to the workers.
+# ------------------------------------------------------------------------------
+_knit_drain_pool() {
+    local max_inflight="$1"
+    local stop_on_failure="$2"
+    local count="$3"
+    shift 3
+    local -a filters=("$@")
+
+    local workdir
+    workdir="$(mktemp -d)"
+
+    local inflight=0 released=0 completed=0 failed=0 next_id=0
+    local drained="false" stop="false"
+    local -A worker_file=()
+
+    while true; do
+        # Top up to max_inflight, respecting --count and the drained/stop flags.
+        while (( inflight < max_inflight )) \
+            && [[ "${drained}" == "false" && "${stop}" == "false" ]] \
+            && { [[ -z "${count}" ]] || (( released + inflight < count )); }; do
+            local rf="${workdir}/w${next_id}"
+            next_id=$(( next_id + 1 ))
+            _knit_drain_pool_worker "${rf}" "${filters[@]}" &
+            worker_file["$!"]="${rf}"
+            inflight=$(( inflight + 1 ))
+        done
+
+        (( inflight == 0 )) && break
+
+        # Block until at least one worker finishes, then reap every worker whose
+        # result file is ready (a worker writes its file just before exiting).
+        wait -n 2>/dev/null || true
+
+        local pid rf line uuid rc
+        for pid in "${!worker_file[@]}"; do
+            rf="${worker_file[${pid}]}"
+            [[ -s "${rf}" ]] || continue
+            wait "${pid}" 2>/dev/null || true
+            unset 'worker_file[${pid}]'
+            inflight=$(( inflight - 1 ))
+            line=""
+            IFS= read -r line < "${rf}" || line=""
+            rm -f "${rf}"
+            uuid="${line%%$'\t'*}"
+            rc="${line#*$'\t'}"
+            if [[ -z "${uuid}" ]]; then
+                drained="true"
+            else
+                released=$(( released + 1 ))
+                if [[ "${rc}" == "0" ]]; then
+                    completed=$(( completed + 1 ))
+                else
+                    failed=$(( failed + 1 ))
+                    [[ "${stop_on_failure}" == "true" ]] && stop="true"
+                fi
+            fi
+        done
+    done
+
+    rm -rf "${workdir}"
+    _knit_drain_report "${released}" "${completed}" "${failed}" "waiting"
+    [[ "${failed}" == "0" ]]
+}
+
+# ------------------------------------------------------------------------------
 # Release prepared jobs in a loop until the queue drains.
 # ------------------------------------------------------------------------------
 knit_register "submit:drain" _knit_submit_drain \
@@ -147,9 +248,9 @@ knit_with_flag "stop-on-failure" \
 #
 # Entry point for the `submit drain` CLI command. Validates the pacing options
 # and dispatches to the mode selected by --max-inflight: 0 drains without
-# waiting (_knit_drain_nolimit), 1 drains serially (_knit_drain_serial). Higher
-# concurrency is planned but not yet available. The exit status reflects whether
-# any released job failed (waiting modes).
+# waiting (_knit_drain_nolimit), 1 drains serially (_knit_drain_serial), and a
+# value greater than 1 drains through a bounded worker pool (_knit_drain_pool).
+# The exit status reflects whether any released job failed (waiting modes).
 #
 # Usage:
 # ```
@@ -186,8 +287,7 @@ _knit_submit_drain() {
     elif (( max_inflight == 1 )); then
         _knit_drain_serial "${stop_on_failure}" "${count}" "${filters[@]}"
     else
-        # Concurrent draining (--max-inflight > 1) is not implemented yet.
-        knit_fatal "submit drain: --max-inflight greater than 1 is not supported yet."
+        _knit_drain_pool "${max_inflight}" "${stop_on_failure}" "${count}" "${filters[@]}"
     fi
 }
 knit_done
