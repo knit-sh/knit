@@ -41,29 +41,71 @@ _knit_drain_release_next() {
 # ------------------------------------------------------------------------------
 # @fn _knit_drain_report()
 #
-# Print the end-of-run summary to stderr (via the logging system). With no jobs
-# released it reports that the queue was empty; in "no-limit" mode it reports
-# only the count (no per-job outcome was observed); otherwise it reports the
-# completed / failed breakdown. Always returns 0 so it does not disturb the
-# caller's exit status.
+# Print the end-of-run summary. The human-readable line always goes to stderr
+# (via the logging system): with no jobs released it reports that the queue was
+# empty; in "no-limit" mode it reports only the count (no per-job outcome was
+# observed); otherwise it reports the completed / failed breakdown. When
+# json_summary is "true" a machine-readable JSON object is additionally printed
+# to stdout (see _knit_drain_emit_json). Always returns 0 so it does not disturb
+# the caller's exit status.
 #
-# @param[in] released  Number of jobs released this run.
-# @param[in] completed Number that completed successfully (waiting modes).
-# @param[in] failed    Number that failed (waiting modes).
-# @param[in] mode      "no-limit" or "waiting".
+# @param[in] mode         "no-limit" or "waiting".
+# @param[in] json_summary "true" to also print the JSON object to stdout.
+# @param[in] released     Number of jobs released this run.
+# @param[in] completed    Number that completed successfully ("" in no-limit).
+# @param[in] failed       Number that failed ("" in no-limit).
+# @param[in] drained      "true" when the prepared queue was emptied.
+# @param[in] stopped      "true" when a failure halted the drain early.
 # ------------------------------------------------------------------------------
 _knit_drain_report() {
-    local released="$1" completed="$2" failed="$3" mode="$4"
+    local mode="$1" json_summary="$2"
+    local released="$3" completed="$4" failed="$5" drained="$6" stopped="$7"
     if (( released == 0 )); then
         knit_info "No prepared jobs to release."
-        return 0
-    fi
-    if [[ "${mode}" == "no-limit" ]]; then
+    elif [[ "${mode}" == "no-limit" ]]; then
         knit_info "Released ${released} job(s)."
     else
         knit_info "Released ${released} job(s): ${completed} completed, ${failed} failed."
     fi
+    if [[ "${json_summary}" == "true" ]]; then
+        _knit_drain_emit_json "${mode}" "${released}" "${completed}" "${failed}" \
+            "${drained}" "${stopped}"
+    fi
     return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_drain_emit_json()
+#
+# Print the end-of-run summary as a single JSON object to stdout, built with
+# _knit_jq so it is always well-formed and correctly typed: released is a number,
+# completed / failed are numbers in waiting modes and null in no-limit mode,
+# drained / stopped / dry_run are booleans. dry_run is always false here (the
+# dry-run path emits its own summary).
+#
+# @param[in] mode      "no-limit" or "waiting".
+# @param[in] released  Number of jobs released this run.
+# @param[in] completed Number that completed successfully ("" in no-limit).
+# @param[in] failed    Number that failed ("" in no-limit).
+# @param[in] drained   "true" when the prepared queue was emptied.
+# @param[in] stopped   "true" when a failure halted the drain early.
+# ------------------------------------------------------------------------------
+_knit_drain_emit_json() {
+    local mode="$1" released="$2" completed="$3" failed="$4" drained="$5" stopped="$6"
+    local completed_json="${completed}" failed_json="${failed}"
+    if [[ "${mode}" == "no-limit" ]]; then
+        completed_json="null"
+        failed_json="null"
+    fi
+    # shellcheck disable=SC2016 # $released etc. are jq variables, not shell
+    _knit_jq -nc \
+        --argjson released "${released}" \
+        --argjson completed "${completed_json}" \
+        --argjson failed "${failed_json}" \
+        --argjson drained "${drained}" \
+        --argjson stopped "${stopped}" \
+        --argjson dry_run "false" \
+        '{released: $released, completed: $completed, failed: $failed, drained: $drained, stopped: $stopped, dry_run: $dry_run}'
 }
 
 # ------------------------------------------------------------------------------
@@ -74,20 +116,24 @@ _knit_drain_report() {
 # reached. No per-job outcome is observed, so this always succeeds on a clean
 # drain.
 #
-# @param[in] count   Maximum jobs to release, or "" for no cap.
-# @param[in] ...     Filter arguments forwarded to _knit_drain_release_next.
+# @param[in] count        Maximum jobs to release, or "" for no cap.
+# @param[in] json_summary "true" to also print the JSON summary to stdout.
+# @param[in] ...          Filter arguments forwarded to _knit_drain_release_next.
 # ------------------------------------------------------------------------------
 _knit_drain_nolimit() {
-    local count="$1"
-    shift
+    local count="$1" json_summary="$2"
+    shift 2
     local -a filters=("$@")
-    local released=0 uuid
+    local released=0 uuid drained="false"
     while [[ -z "${count}" ]] || (( released < count )); do
         uuid="$(_knit_drain_release_next false "${filters[@]}")" || true
-        [[ -z "${uuid}" ]] && break
+        if [[ -z "${uuid}" ]]; then
+            drained="true"
+            break
+        fi
         released=$(( released + 1 ))
     done
-    _knit_drain_report "${released}" "" "" "no-limit"
+    _knit_drain_report "no-limit" "${json_summary}" "${released}" "" "" "${drained}" "false"
 }
 
 # ------------------------------------------------------------------------------
@@ -100,27 +146,37 @@ _knit_drain_nolimit() {
 #
 # @param[in] stop_on_failure "true" to stop after the first failed job.
 # @param[in] count           Maximum jobs to release, or "" for no cap.
+# @param[in] json_summary    "true" to also print the JSON summary to stdout.
 # @param[in] ...             Filter arguments forwarded to
 #                        _knit_drain_release_next.
 # ------------------------------------------------------------------------------
 _knit_drain_serial() {
     local stop_on_failure="$1"
     local count="$2"
-    shift 2
+    local json_summary="$3"
+    shift 3
     local -a filters=("$@")
     local released=0 completed=0 failed=0 uuid rc
+    local drained="false" stopped="false"
     while [[ -z "${count}" ]] || (( released < count )); do
         uuid="$(_knit_drain_release_next true "${filters[@]}")" && rc=0 || rc=$?
-        [[ -z "${uuid}" ]] && break
+        if [[ -z "${uuid}" ]]; then
+            drained="true"
+            break
+        fi
         released=$(( released + 1 ))
         if (( rc == 0 )); then
             completed=$(( completed + 1 ))
         else
             failed=$(( failed + 1 ))
-            [[ "${stop_on_failure}" == "true" ]] && break
+            if [[ "${stop_on_failure}" == "true" ]]; then
+                stopped="true"
+                break
+            fi
         fi
     done
-    _knit_drain_report "${released}" "${completed}" "${failed}" "waiting"
+    _knit_drain_report "waiting" "${json_summary}" "${released}" "${completed}" \
+        "${failed}" "${drained}" "${stopped}"
     (( failed == 0 ))
 }
 
@@ -160,13 +216,15 @@ _knit_drain_pool_worker() {
 # @param[in] max_inflight   Maximum concurrent workers (> 1).
 # @param[in] stop_on_failure "true" to stop topping up after the first failure.
 # @param[in] count          Maximum jobs to release, or "" for no cap.
+# @param[in] json_summary   "true" to also print the JSON summary to stdout.
 # @param[in] ...            Filter arguments forwarded to the workers.
 # ------------------------------------------------------------------------------
 _knit_drain_pool() {
     local max_inflight="$1"
     local stop_on_failure="$2"
     local count="$3"
-    shift 3
+    local json_summary="$4"
+    shift 4
     local -a filters=("$@")
 
     local workdir
@@ -221,7 +279,8 @@ _knit_drain_pool() {
     done
 
     rm -rf "${workdir}"
-    _knit_drain_report "${released}" "${completed}" "${failed}" "waiting"
+    _knit_drain_report "waiting" "${json_summary}" "${released}" "${completed}" \
+        "${failed}" "${drained}" "${stop}"
     [[ "${failed}" == "0" ]]
 }
 
@@ -243,6 +302,8 @@ knit_with_optional "count:integer" "" \
 knit_with_flag "stop-on-failure" \
     "Stop releasing new jobs after the first failed job." \
     --when '.max_inflight > 0'
+knit_with_flag "json-summary" \
+    "Print a machine-readable JSON summary object to stdout at the end."
 # ------------------------------------------------------------------------------
 # @fn _knit_submit_drain()
 #
@@ -255,7 +316,7 @@ knit_with_flag "stop-on-failure" \
 # Usage:
 # ```
 # ./exp.sh submit drain [--type <t>] [--group <g>] [--max-inflight <n>] \
-#     [--count <n>] [--stop-on-failure]
+#     [--count <n>] [--stop-on-failure] [--json-summary]
 # ```
 # ------------------------------------------------------------------------------
 _knit_submit_drain() {
@@ -263,12 +324,13 @@ _knit_submit_drain() {
         [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
         knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
     fi
-    local type group max_inflight count stop_on_failure
+    local type group max_inflight count stop_on_failure json_summary
     type=$(knit_get_parameter "type" "$@") || type=""
     group=$(knit_get_parameter "group" "$@") || group=""
     max_inflight=$(knit_get_parameter "max-inflight" "$@") || max_inflight="1"
     count=$(knit_get_parameter "count" "$@") || count=""
     stop_on_failure=$(knit_get_parameter "stop-on-failure" "$@") || stop_on_failure="false"
+    json_summary=$(knit_get_parameter "json-summary" "$@") || json_summary="false"
 
     # The framework already enforced integer-ness; only the ranges remain.
     if (( max_inflight < 0 )); then
@@ -283,11 +345,12 @@ _knit_submit_drain() {
     [[ -n "${group}" ]] && filters+=(--group "${group}")
 
     if (( max_inflight == 0 )); then
-        _knit_drain_nolimit "${count}" "${filters[@]}"
+        _knit_drain_nolimit "${count}" "${json_summary}" "${filters[@]}"
     elif (( max_inflight == 1 )); then
-        _knit_drain_serial "${stop_on_failure}" "${count}" "${filters[@]}"
+        _knit_drain_serial "${stop_on_failure}" "${count}" "${json_summary}" "${filters[@]}"
     else
-        _knit_drain_pool "${max_inflight}" "${stop_on_failure}" "${count}" "${filters[@]}"
+        _knit_drain_pool "${max_inflight}" "${stop_on_failure}" "${count}" \
+            "${json_summary}" "${filters[@]}"
     fi
 }
 knit_done

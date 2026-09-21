@@ -4,6 +4,9 @@ setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
     knit_test_require_sqlite
     knit_test_db_setup
+    # Used by the --json-summary path and the --when guard; harmless when unset
+    # (only the JSON tests exercise it, and they skip when jq is unavailable).
+    _KNIT_JQ_EXE="jq"
 
     # Stub the release primitive with a programmable queue so the loop logic can
     # be exercised without a live scheduler. Each entry is "uuid:rc"; a drained
@@ -59,28 +62,28 @@ teardown() {
 
 @test "serial drains all jobs and reports success" {
     _drain_program u1:0 u2:0
-    run _knit_drain_serial false ""
+    run _knit_drain_serial false "" false
     [ "$status" -eq 0 ]
     [[ "$output" == *"Released 2 job(s): 2 completed, 0 failed."* ]]
 }
 
 @test "serial reports a failure and exits non-zero" {
     _drain_program u1:0 u2:7 u3:0
-    run _knit_drain_serial false ""
+    run _knit_drain_serial false "" false
     [ "$status" -ne 0 ]
     [[ "$output" == *"Released 3 job(s): 2 completed, 1 failed."* ]]
 }
 
 @test "serial --count caps the number of releases" {
     _drain_program u1:0 u2:0 u3:0 u4:0
-    run _knit_drain_serial false 2
+    run _knit_drain_serial false 2 false
     [ "$status" -eq 0 ]
     [[ "$output" == *"Released 2 job(s): 2 completed, 0 failed."* ]]
 }
 
 @test "serial --stop-on-failure halts after the first failure" {
     _drain_program u1:0 u2:7 u3:0
-    run _knit_drain_serial true ""
+    run _knit_drain_serial true "" false
     [ "$status" -ne 0 ]
     # Only two jobs were released (u3 is never claimed).
     [[ "$output" == *"Released 2 job(s): 1 completed, 1 failed."* ]]
@@ -88,7 +91,7 @@ teardown() {
 
 @test "serial reports an empty queue" {
     _drain_program
-    run _knit_drain_serial false ""
+    run _knit_drain_serial false "" false
     [ "$status" -eq 0 ]
     [[ "$output" == *"No prepared jobs to release."* ]]
 }
@@ -97,7 +100,7 @@ teardown() {
 
 @test "no-limit releases every job without observing outcomes" {
     _drain_program u1:0 u2:7 u3:0
-    run _knit_drain_nolimit ""
+    run _knit_drain_nolimit "" false
     [ "$status" -eq 0 ]
     [[ "$output" == *"Released 3 job(s)."* ]]
     [[ "$output" != *"completed"* ]]
@@ -105,14 +108,14 @@ teardown() {
 
 @test "no-limit --count caps the number of releases" {
     _drain_program u1:0 u2:0 u3:0
-    run _knit_drain_nolimit 2
+    run _knit_drain_nolimit 2 false
     [ "$status" -eq 0 ]
     [[ "$output" == *"Released 2 job(s)."* ]]
 }
 
 @test "no-limit reports an empty queue" {
     _drain_program
-    run _knit_drain_nolimit ""
+    run _knit_drain_nolimit "" false
     [ "$status" -eq 0 ]
     [[ "$output" == *"No prepared jobs to release."* ]]
 }
@@ -143,7 +146,7 @@ teardown() {
 
 @test "pool drains all jobs and reports the breakdown" {
     _drain_program a:0 b:0 c:0 d:0 e:0 f:0
-    run _knit_drain_pool 3 false ""
+    run _knit_drain_pool 3 false "" false
     [ "$status" -eq 0 ]
     [[ "$output" == *"Released 6 job(s): 6 completed, 0 failed."* ]]
 }
@@ -151,7 +154,7 @@ teardown() {
 @test "pool keeps concurrency within --max-inflight" {
     _drain_program a:0 b:0 c:0 d:0 e:0 f:0 g:0 h:0 i:0
     _DRAIN_SLEEP="0.15"
-    run _knit_drain_pool 3 false ""
+    run _knit_drain_pool 3 false "" false
     [ "$status" -eq 0 ]
     local mx
     mx=$(cat "${_DRAIN_MAX}")
@@ -161,7 +164,7 @@ teardown() {
 
 @test "pool --count caps total releases under concurrency" {
     _drain_program a:0 b:0 c:0 d:0 e:0 f:0 g:0 h:0 i:0 j:0
-    run _knit_drain_pool 3 false 4
+    run _knit_drain_pool 3 false 4 false
     [ "$status" -eq 0 ]
     [[ "$output" == *"Released 4 job(s): 4 completed, 0 failed."* ]]
     # Six entries are left unclaimed.
@@ -170,17 +173,74 @@ teardown() {
 
 @test "pool reports a failure and exits non-zero" {
     _drain_program a:0 b:7 c:0
-    run _knit_drain_pool 3 false ""
+    run _knit_drain_pool 3 false "" false
     [ "$status" -ne 0 ]
     [[ "$output" == *"Released 3 job(s): 2 completed, 1 failed."* ]]
 }
 
 @test "pool --stop-on-failure stops launching new jobs after a failure" {
     _drain_program x:7 a:0 b:0 c:0 d:0 e:0 f:0 g:0
-    run _knit_drain_pool 2 true ""
+    run _knit_drain_pool 2 true "" false
     [ "$status" -ne 0 ]
     # Stop kicked in, so the queue was not fully drained.
     [ "$(wc -l < "${_DRAIN_FILE}")" -gt 0 ]
+}
+
+# ---------- --json-summary ----------
+
+# Extract the single JSON summary line (the only line starting with "{") from a
+# run's combined output.
+_drain_json() { printf '%s\n' "$1" | grep '^{'; }
+
+@test "serial --json-summary emits a valid, well-typed object" {
+    knit_test_require_jq
+    _drain_program a:0 b:7 c:0
+    run _knit_drain_serial false "" true
+    [ "$status" -ne 0 ]
+    local json
+    json=$(_drain_json "$output")
+    [ -n "$json" ]
+    jq -e '.released==3 and .completed==2 and .failed==1 and .drained==true and .stopped==false and .dry_run==false' <<<"$json"
+}
+
+@test "serial --json-summary reports stopped=true when a failure halts it" {
+    knit_test_require_jq
+    _drain_program a:0 b:7 c:0
+    run _knit_drain_serial true "" true
+    [ "$status" -ne 0 ]
+    jq -e '.released==2 and .failed==1 and .stopped==true and .drained==false' <<<"$(_drain_json "$output")"
+}
+
+@test "serial --json-summary is emitted even when nothing is released" {
+    knit_test_require_jq
+    _drain_program
+    run _knit_drain_serial false "" true
+    [ "$status" -eq 0 ]
+    jq -e '.released==0 and .completed==0 and .failed==0 and .drained==true' <<<"$(_drain_json "$output")"
+}
+
+@test "no-limit --json-summary reports null completed and failed" {
+    knit_test_require_jq
+    _drain_program a:0 b:7 c:0
+    run _knit_drain_nolimit "" true
+    [ "$status" -eq 0 ]
+    jq -e '.released==3 and .completed==null and .failed==null and .drained==true and .stopped==false' <<<"$(_drain_json "$output")"
+}
+
+@test "pool --json-summary emits the counts" {
+    knit_test_require_jq
+    _drain_program a:0 b:0 c:0 d:7
+    run _knit_drain_pool 2 false "" true
+    [ "$status" -ne 0 ]
+    jq -e '.released==4 and .completed==3 and .failed==1 and .dry_run==false' <<<"$(_drain_json "$output")"
+}
+
+@test "submit drain --json-summary passes the flag through" {
+    knit_test_require_jq
+    _drain_program a:0 b:0
+    run _knit_submit_drain --json-summary true
+    [ "$status" -eq 0 ]
+    jq -e '.released==2 and .completed==2' <<<"$(_drain_json "$output")"
 }
 
 # ---------- dispatch (--max-inflight 0 / 1 / N reach the right mode) ----------
