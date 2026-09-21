@@ -99,7 +99,7 @@ knit_with_flag "wait" "Block until the job completes; return its exit code."
 knit_with_table "${_KNIT_JOBS_TABLE}"
 _knit_without_exit_status
 knit_with_output "job:string" "" "Name of the submitted job (the token after --)."
-knit_with_output "state:string" "submitted" "Lifecycle state of the submitted job (submitted, running, completed, or killed)."
+knit_with_output "state:string" "submitted" "Lifecycle state of the submitted job (submitted, running, completed, failed, or killed)."
 knit_with_output "hostnames:string" "" \
     "Comma-separated deduplicated nodes the job ran on (recorded at start)."
 knit_with_output "native-cmd:string" "" \
@@ -670,7 +670,7 @@ _knit_submit_cleanup_rejected() {
 # job directory). Best-effort: status tracking must never take down the job
 # itself, so a failure is downgraded to a warning.
 #
-# @param[in] state New state value (e.g. running, completed, killed).
+# @param[in] state New state value (e.g. running, completed, failed, killed).
 # ------------------------------------------------------------------------------
 _knit_job_set_state() {
     local state="$1"
@@ -755,10 +755,18 @@ _knit_job_before_cb() {
 # @fn _knit_job_after_cb()
 #
 # After-callback installed on every submit subcommand by knit_register_job.
-# Marks the job "completed" once its body has returned normally.
+# Records the job's terminal state from the body's exit status: "failed" when the
+# body returned non-zero, "completed" when it returned zero. A signal death (a
+# cancel, an out-of-memory or walltime kill) routes through the TERM/USR1 trap
+# (_knit_job_set_state "killed"), which runs instead of this callback, so "killed"
+# takes precedence over "failed".
 # ------------------------------------------------------------------------------
 _knit_job_after_cb() {
-    _knit_job_set_state "completed"
+    if [[ "${_KNIT_INVOCATION_EXIT_STATUS:-0}" -ne 0 ]]; then
+        _knit_job_set_state "failed"
+    else
+        _knit_job_set_state "completed"
+    fi
 }
 
 # ------------------------------------------------------------------------------

@@ -38,6 +38,13 @@ _seed_job() {
     [ "$output" = "killed" ]
 }
 
+@test "job wait returns non-zero for a failed job" {
+    _seed_job "id1" "" "alpha" "failed"
+    run _knit_job_wait --id "id1"
+    [ "$status" -ne 0 ]
+    [ "$output" = "failed" ]
+}
+
 @test "job wait fails for an unknown id" {
     _seed_job "id1" "" "alpha" "completed"
     run _knit_job_wait --id "does-not-exist"
@@ -89,6 +96,24 @@ _seed_job() {
     run _knit_job_wait --id "id1"
     [ "$status" -ne 0 ]
     [ "$output" = "killed" ]
+}
+
+@test "job wait returns non-zero when the scheduler wait ends on failed" {
+    _seed_job "id1" "" "alpha" "running"
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    mkdir -p "${root}/jobs/id1"
+    echo "999" > "${root}/jobs/id1/.job.id"
+    _KNIT_SCHED_POLL_INTERVAL="0.1"
+    _knit_sched_backend() { local -n __r=$1; __r='local'; }
+    _knit_sched_local_wait() {
+        sqlite3 "${_KNIT_DATABASE}" \
+            "UPDATE jobs SET state = 'failed' WHERE id = 'id1';"
+    }
+    run _knit_job_wait --id "id1"
+    [ "$status" -ne 0 ]
+    [ "$output" = "failed" ]
 }
 
 @test "job wait is a no-op when bootstrapping and not yet bootstrapped" {

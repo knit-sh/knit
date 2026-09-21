@@ -278,9 +278,26 @@ _stub_hostfile() {
 
 # ---------- _knit_job_after_cb ----------
 
-@test "job after callback marks the job completed" {
+@test "job after callback marks the job completed on a zero exit status" {
     export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
     _seed_jobs "job" "running"
+    _KNIT_INVOCATION_EXIT_STATUS="0"
+    _knit_job_after_cb
+    [ "$(_state_of "job")" = "completed" ]
+}
+
+@test "job after callback marks the job failed on a non-zero exit status" {
+    export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
+    _seed_jobs "job" "running"
+    _KNIT_INVOCATION_EXIT_STATUS="7"
+    _knit_job_after_cb
+    [ "$(_state_of "job")" = "failed" ]
+}
+
+@test "job after callback treats an unset exit status as success" {
+    export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
+    _seed_jobs "job" "running"
+    unset _KNIT_INVOCATION_EXIT_STATUS
     _knit_job_after_cb
     [ "$(_state_of "job")" = "completed" ]
 }
