@@ -165,10 +165,11 @@ _knit_metadata_show() {
     local keys
     keys=$(_knit_sqlite3 "SELECT key FROM metadata ORDER BY key;")
     [[ -z "${keys}" ]] && return 0
-    # Terminal width, falling back to 80 columns when there is no tty.
+    # Terminal width, falling back to 80 columns when there is no usable width
+    # (_knit_terminal_width returns "0" when stdout is not a terminal).
     local cols
-    read -r _ cols < <(stty size 2>/dev/null </dev/tty || echo "24 80")
-    [[ "${cols}" =~ ^[0-9]+$ ]] && (( cols > 0 )) || cols=80
+    _knit_terminal_width cols
+    (( cols > 0 )) || cols=80
     # Width of the key column: the longest key plus a two-space gap.
     local key maxkey=0
     while IFS= read -r key; do
