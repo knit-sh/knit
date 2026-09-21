@@ -23,7 +23,7 @@ knit_with_required "id:string" "Job UUID."
 # @fn _knit_job_status()
 #
 # Look up a job by its UUID in the jobs table and print its lifecycle state
-# (e.g. submitted, running, completed, killed). An unknown id is an error.
+# (e.g. submitted, running, completed, failed, killed). An unknown id is an error.
 # ------------------------------------------------------------------------------
 _knit_job_status() {
     if ! _knit_is_bootstrapped; then
@@ -197,7 +197,7 @@ knit_with_required "id:string" "Job UUID."
 # once the job's row is not already terminal, it looks up the backend job id
 # (.job.id in the job directory) and calls the backend's native wait
 # (_knit_sched_wait), which returns when the scheduler stops running the job. The
-# job's terminal state (completed/killed) is recorded by its compute-side
+# job's terminal state (completed/failed/killed) is recorded by its compute-side
 # callbacks over the shared filesystem; that write is read back afterwards, with
 # a short reconciliation window since it may land a moment after the scheduler
 # reports the job gone. An unknown id is a fatal error rather than an endless
@@ -220,8 +220,8 @@ _knit_job_wait() {
     fi
     # Already finished: no need to involve the scheduler.
     case "${state}" in
-        completed) printf '%s\n' "${state}"; return 0 ;;
-        killed)    printf '%s\n' "${state}"; return 1 ;;
+        completed)     printf '%s\n' "${state}"; return 0 ;;
+        failed|killed) printf '%s\n' "${state}"; return 1 ;;
     esac
 
     # Block on the scheduler using the backend job id recorded at submit time.
@@ -241,8 +241,8 @@ _knit_job_wait() {
     while true; do
         state="$(_knit_sqlite3 "SELECT state FROM jobs WHERE id = '${escaped}';")"
         case "${state}" in
-            completed) printf '%s\n' "${state}"; return 0 ;;
-            killed)    printf '%s\n' "${state}"; return 1 ;;
+            completed)     printf '%s\n' "${state}"; return 0 ;;
+            failed|killed) printf '%s\n' "${state}"; return 1 ;;
         esac
         tries=$(( tries + 1 ))
         [[ "${tries}" -ge 5 ]] && break
@@ -310,7 +310,7 @@ _knit_job_cancel() {
     fi
     # Already finished: there is nothing to cancel.
     case "${state}" in
-        completed|killed)
+        completed|failed|killed)
             knit_info "Job \"${id}\" is already ${state}; nothing to cancel."
             return 0
             ;;
@@ -594,9 +594,9 @@ _knit_job_show_file() {
 # @fn _knit_job_state_is_terminal()
 #
 # Succeed (return 0) if the job's recorded lifecycle state is terminal
-# (completed or killed), meaning no more output will be written. Any other state
-# (including an unknown id, which yields an empty result) returns non-zero. Used
-# by the follow loop as a backend-agnostic "job is done" signal.
+# (completed, failed, or killed), meaning no more output will be written. Any
+# other state (including an unknown id, which yields an empty result) returns
+# non-zero. Used by the follow loop as a backend-agnostic "job is done" signal.
 #
 # @param[in] id Job UUID.
 # ------------------------------------------------------------------------------
@@ -606,7 +606,7 @@ _knit_job_state_is_terminal() {
     state="$(_knit_sqlite3 \
         "SELECT state FROM jobs WHERE id = '${esc_id}';")"
     case "${state}" in
-        completed|killed) return 0 ;;
+        completed|failed|killed) return 0 ;;
         *) return 1 ;;
     esac
 }

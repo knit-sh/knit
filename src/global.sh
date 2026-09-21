@@ -13,6 +13,19 @@ declare -g KNIT_SCRIPT_NAME
 KNIT_SCRIPT_NAME="$(basename "$0")"
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_SCRIPT_PATH
+#
+# Absolute, resolved path to the experiment script that sourced knit.sh. Unlike
+# KNIT_SCRIPT_NAME (a base name for messages), this is a runnable path, captured
+# at load time before any directory change, so commands that re-execute the
+# experiment (for example "submit drain" releasing jobs in a loop) can invoke it
+# reliably regardless of the current working directory.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_SCRIPT_PATH
+# shellcheck disable=SC2034 # used by commands that re-execute the experiment
+_KNIT_SCRIPT_PATH="$(realpath -- "$0" 2>/dev/null || printf '%s' "$0")"
+
+# ------------------------------------------------------------------------------
 # @fn _knit_stdout_is_terminal()
 #
 # Return success when standard output is a terminal. Factored into its own

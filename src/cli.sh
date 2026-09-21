@@ -3343,6 +3343,11 @@ _knit_invoke_command() {
     _KNIT_EXECUTING_ALIAS+=("${_knit_call_alias}")
     $func "${args[@]}"
     local func_status=$?
+    # Expose the body's exit status to the after-callbacks so a callback can react
+    # to a failed body (e.g. the job after-callback recording a "failed" state).
+    # It is set again below, after the callbacks, to restore the correct value in
+    # case a callback ran a nested command that overwrote it before recording.
+    _KNIT_INVOCATION_EXIT_STATUS="${func_status}"
     # call the "after" callbacks. The command stays on _KNIT_EXECUTING_COMMAND
     # for their duration (popped only afterwards) so an after-callback may call
     # knit_output, just like the command body can. The output map has already

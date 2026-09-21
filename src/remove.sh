@@ -868,9 +868,9 @@ _knit_remove_check_terminal_jobs() {
             "SELECT state FROM ${_KNIT_JOBS_TABLE} WHERE id='${id_esc}';" \
             2>/dev/null)" || state=""
         case "${state}" in
-            completed|killed) ;;
+            completed|failed|killed) ;;
             *)
-                knit_fatal "remove: cannot erase job ${id}; its state is \"${state:-unknown}\" (not completed or killed). Run \"job cancel ${id}\" first."
+                knit_fatal "remove: cannot erase job ${id}; its state is \"${state:-unknown}\" (not completed, failed, or killed). Run \"job cancel ${id}\" first."
                 ;;
         esac
     done
