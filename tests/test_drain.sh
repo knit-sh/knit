@@ -243,6 +243,96 @@ _drain_json() { printf '%s\n' "$1" | grep '^{'; }
     jq -e '.released==2 and .completed==2' <<<"$(_drain_json "$output")"
 }
 
+# ---------- --dry-run ----------
+
+# Seed a real jobs table with prepared and non-prepared rows (id order matters:
+# the dry run lists prepared jobs by ascending id).
+_seed_jobs() {
+    sqlite3 "${_KNIT_DATABASE}" \
+        "CREATE TABLE jobs (id TEXT, job TEXT, \"group\" TEXT, state TEXT);
+         INSERT INTO jobs VALUES
+           ('j01','alpha','g1','prepared'),
+           ('j02','beta','','prepared'),
+           ('j03','gamma','g1','submitted'),
+           ('j04','alpha','g2','prepared');"
+}
+
+_prepared_count() {
+    sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM jobs WHERE state='prepared';"
+}
+
+@test "dry-run lists prepared jobs in id order and skips non-prepared" {
+    _seed_jobs
+    run _knit_drain_dry_run "" false "" ""
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"j01  alpha  [g1]"* ]]
+    [[ "$output" == *"j02  beta"* ]]
+    [[ "$output" == *"j04  alpha  [g2]"* ]]
+    # j03 is submitted, not prepared.
+    [[ "$output" != *"j03"* ]]
+    [[ "$output" == *"3 prepared job(s) would be released"* ]]
+}
+
+@test "dry-run claims nothing (queue unchanged)" {
+    _seed_jobs
+    [ "$(_prepared_count)" -eq 3 ]
+    run _knit_drain_dry_run "" false "" ""
+    [ "$status" -eq 0 ]
+    [ "$(_prepared_count)" -eq 3 ]
+}
+
+@test "dry-run honors --count" {
+    _seed_jobs
+    run _knit_drain_dry_run 2 false "" ""
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"j01"* ]]
+    [[ "$output" == *"j02"* ]]
+    [[ "$output" != *"j04"* ]]
+}
+
+@test "dry-run filters by type" {
+    _seed_jobs
+    run _knit_drain_dry_run "" false alpha ""
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"j01"* ]]
+    [[ "$output" == *"j04"* ]]
+    [[ "$output" != *"j02"* ]]
+}
+
+@test "dry-run filters by group" {
+    _seed_jobs
+    run _knit_drain_dry_run "" false "" g1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"j01"* ]]
+    # j03 is g1 but submitted; j02/j04 are other/blank groups.
+    [[ "$output" != *"j02"* ]]
+    [[ "$output" != *"j04"* ]]
+}
+
+@test "dry-run --json-summary emits the peeked list" {
+    knit_test_require_jq
+    _seed_jobs
+    run _knit_drain_dry_run "" true "" ""
+    [ "$status" -eq 0 ]
+    jq -e '.dry_run==true and .count==3 and (.jobs|length)==3 and .jobs[0].id=="j01"' <<<"$output"
+}
+
+@test "dry-run --json-summary on an empty match yields an empty list" {
+    knit_test_require_jq
+    _seed_jobs
+    run _knit_drain_dry_run "" true nosuchjob ""
+    [ "$status" -eq 0 ]
+    jq -e '.dry_run==true and .count==0 and (.jobs|length)==0' <<<"$output"
+}
+
+@test "submit drain --dry-run lists without releasing" {
+    _seed_jobs
+    run _knit_submit_drain --dry-run true
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"j01"* ]]
+    [ "$(_prepared_count)" -eq 3 ]
+}
+
 # ---------- dispatch (--max-inflight 0 / 1 / N reach the right mode) ----------
 
 @test "submit drain --max-inflight 3 dispatches to the pool" {

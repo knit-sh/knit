@@ -285,6 +285,88 @@ _knit_drain_pool() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_drain_dry_run_json()
+#
+# Print the dry-run peek as a JSON object to stdout: {dry_run, count, jobs}, where
+# jobs is the array sqlite emits in -json mode (id / job / group per row). An
+# empty result set yields an empty array. Built with _knit_jq so the wrapper
+# object is well-formed.
+#
+# @param[in] sql The read-only SELECT to run in sqlite -json mode.
+# ------------------------------------------------------------------------------
+_knit_drain_dry_run_json() {
+    local sql="$1"
+    local rows
+    rows="$(_knit_sqlite3 -json "${sql}")"
+    [[ -z "${rows}" ]] && rows="[]"
+    # shellcheck disable=SC2016 # $jobs is a jq variable, not shell
+    _knit_jq -nc --argjson jobs "${rows}" \
+        '{dry_run: true, count: ($jobs | length), jobs: $jobs}'
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_drain_dry_run()
+#
+# List the prepared jobs that would be released, in release order, without
+# claiming or releasing anything. The peek mirrors _knit_prepare_claim_next: the
+# same state='prepared' filter (plus optional job / group), the same
+# ORDER BY id ASC, and --count applied as a LIMIT. It is a read-only SELECT (no
+# write lock), so it never advances a job's state. Each matching job prints as
+# "<uuid>  <job>" (with "  [<group>]" appended when the job has a group); with
+# json_summary the peeked list is printed as JSON instead. A count of matches is
+# reported to stderr.
+#
+# @param[in] count        Maximum jobs to list, or "" for no cap.
+# @param[in] json_summary "true" to print the JSON list instead of the table.
+# @param[in] job          Optional job-name filter (empty means any).
+# @param[in] group        Optional group filter (empty means any).
+# ------------------------------------------------------------------------------
+_knit_drain_dry_run() {
+    local count="$1" json_summary="$2" job="$3" group="$4"
+
+    local -a conds=("state='prepared'")
+    local esc
+    if [[ -n "${job}" ]]; then
+        _knit_sql_escape esc "${job}"
+        conds+=("job='${esc}'")
+    fi
+    local group_ident
+    _knit_db_sql_ident group_ident "group"
+    if [[ -n "${group}" ]]; then
+        _knit_sql_escape esc "${group}"
+        conds+=("${group_ident}='${esc}'")
+    fi
+    local where
+    printf -v where '%s AND ' "${conds[@]}"
+    where="${where% AND }"
+
+    local jobs_ident id_ident
+    _knit_db_sql_ident jobs_ident "${_KNIT_JOBS_TABLE}"
+    _knit_db_sql_ident id_ident "id"
+    local limit=""
+    [[ -n "${count}" ]] && limit=" LIMIT ${count}"
+    local sql="SELECT ${id_ident}, job, ${group_ident} FROM ${jobs_ident} WHERE ${where} ORDER BY ${id_ident} ASC${limit};"
+
+    if [[ "${json_summary}" == "true" ]]; then
+        _knit_drain_dry_run_json "${sql}"
+        return 0
+    fi
+
+    local id job_name grp listed=0
+    while IFS=$'\x1f' read -r id job_name grp; do
+        [[ -z "${id}" ]] && continue
+        if [[ -n "${grp}" ]]; then
+            printf '%s  %s  [%s]\n' "${id}" "${job_name}" "${grp}"
+        else
+            printf '%s  %s\n' "${id}" "${job_name}"
+        fi
+        listed=$(( listed + 1 ))
+    done < <(_knit_sqlite3 -separator $'\x1f' "${sql}")
+    knit_info "${listed} prepared job(s) would be released (dry run)."
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # Release prepared jobs in a loop until the queue drains.
 # ------------------------------------------------------------------------------
 knit_register "submit:drain" _knit_submit_drain \
@@ -304,6 +386,8 @@ knit_with_flag "stop-on-failure" \
     --when '.max_inflight > 0'
 knit_with_flag "json-summary" \
     "Print a machine-readable JSON summary object to stdout at the end."
+knit_with_flag "dry-run" \
+    "List the prepared jobs that would be released, without releasing any."
 # ------------------------------------------------------------------------------
 # @fn _knit_submit_drain()
 #
@@ -311,12 +395,14 @@ knit_with_flag "json-summary" \
 # and dispatches to the mode selected by --max-inflight: 0 drains without
 # waiting (_knit_drain_nolimit), 1 drains serially (_knit_drain_serial), and a
 # value greater than 1 drains through a bounded worker pool (_knit_drain_pool).
-# The exit status reflects whether any released job failed (waiting modes).
+# With --dry-run it only lists what would be released (_knit_drain_dry_run) and
+# claims nothing. The exit status reflects whether any released job failed
+# (waiting modes).
 #
 # Usage:
 # ```
 # ./exp.sh submit drain [--type <t>] [--group <g>] [--max-inflight <n>] \
-#     [--count <n>] [--stop-on-failure] [--json-summary]
+#     [--count <n>] [--stop-on-failure] [--json-summary] [--dry-run]
 # ```
 # ------------------------------------------------------------------------------
 _knit_submit_drain() {
@@ -324,13 +410,14 @@ _knit_submit_drain() {
         [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
         knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
     fi
-    local type group max_inflight count stop_on_failure json_summary
+    local type group max_inflight count stop_on_failure json_summary dry_run
     type=$(knit_get_parameter "type" "$@") || type=""
     group=$(knit_get_parameter "group" "$@") || group=""
     max_inflight=$(knit_get_parameter "max-inflight" "$@") || max_inflight="1"
     count=$(knit_get_parameter "count" "$@") || count=""
     stop_on_failure=$(knit_get_parameter "stop-on-failure" "$@") || stop_on_failure="false"
     json_summary=$(knit_get_parameter "json-summary" "$@") || json_summary="false"
+    dry_run=$(knit_get_parameter "dry-run" "$@") || dry_run="false"
 
     # The framework already enforced integer-ness; only the ranges remain.
     if (( max_inflight < 0 )); then
@@ -338,6 +425,13 @@ _knit_submit_drain() {
     fi
     if [[ -n "${count}" ]] && (( count < 1 )); then
         knit_fatal "submit drain: --count must be 1 or greater (got \"${count}\")."
+    fi
+
+    # A dry run only lists what would be released; it claims nothing and ignores
+    # the pacing and detach options.
+    if [[ "${dry_run}" == "true" ]]; then
+        _knit_drain_dry_run "${count}" "${json_summary}" "${type}" "${group}"
+        return 0
     fi
 
     local -a filters=()
