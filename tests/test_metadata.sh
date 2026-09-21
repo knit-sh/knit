@@ -105,6 +105,73 @@ teardown() {
     [[ "$result" == *"2"* ]]
 }
 
+@test "metadata show has no blank lines between pairs" {
+    sqlite3 "${_KNIT_DATABASE}" \
+        "INSERT INTO metadata (key, value) VALUES ('a', '1'), ('b', '2'), ('c', '3');"
+    local result
+    result=$(_knit_metadata_show)
+    # Three keys => exactly three output lines, none of them blank.
+    [ "$(printf '%s\n' "$result" | wc -l)" -eq 3 ]
+    run grep -c '^[[:space:]]*$' <(printf '%s\n' "$result")
+    [ "$output" -eq 0 ]
+}
+
+@test "metadata show aligns values in a key column" {
+    sqlite3 "${_KNIT_DATABASE}" \
+        "INSERT INTO metadata (key, value) VALUES ('short', 'x'), ('a-longer-key', 'y');"
+    local result
+    result=$(_knit_metadata_show)
+    # Both value columns start at the same offset (longest key + 2).
+    local off_short off_long
+    off_short=$(printf '%s\n' "$result" | sed -n 's/x$//p' | sed -n '/short/p' | tr -d '\n' | wc -c)
+    off_long=$(printf '%s\n' "$result" | sed -n 's/y$//p' | sed -n '/a-longer-key/p' | tr -d '\n' | wc -c)
+    [ "$off_short" -eq "$off_long" ]
+}
+
+# ---------- _knit_metadata_render_value ----------
+
+@test "render: short single-line value is shown as-is" {
+    local out
+    _knit_metadata_render_value out "hello world" 40
+    [ "$out" = "hello world" ]
+}
+
+@test "render: long single-line non-json is truncated with ellipsis" {
+    local out
+    _knit_metadata_render_value out "aaaaaaaaaaaaaaaaaaaa" 10
+    [ "$out" = "aaaaaaa..." ]
+    [ "${#out}" -eq 10 ]
+}
+
+@test "render: multi-line non-json with a short first line keeps it plus ellipsis" {
+    local out
+    _knit_metadata_render_value out $'first\nsecond\nthird' 40
+    [ "$out" = "first..." ]
+}
+
+@test "render: multi-line non-json with a long first line truncates the first line" {
+    local out
+    _knit_metadata_render_value out $'aaaaaaaaaaaaaaaaaaaa\nsecond' 10
+    [ "$out" = "aaaaaaa..." ]
+    [ "${#out}" -eq 10 ]
+}
+
+@test "render: valid multi-line json collapses to <json>" {
+    knit_test_require_jq
+    _KNIT_JQ_EXE="jq"
+    local out
+    _knit_metadata_render_value out $'{\n  "a": 1,\n  "b": 2\n}' 40
+    [ "$out" = "<json>" ]
+}
+
+@test "render: valid long single-line json collapses to <json>" {
+    knit_test_require_jq
+    _KNIT_JQ_EXE="jq"
+    local out
+    _knit_metadata_render_value out '{"a":1,"b":2,"c":3,"d":4,"e":5}' 10
+    [ "$out" = "<json>" ]
+}
+
 # ---------- bootstrap guard ----------
 
 @test "metadata store fails when experiment is not bootstrapped and not bootstrapping" {
