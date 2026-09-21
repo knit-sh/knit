@@ -82,4 +82,20 @@ check_eq "$(state_of "${doomed}")" "" "job cancel removes a prepared job's row"
 check_eq "$([[ -e "jobs/${doomed}" ]] && echo present || echo gone)" "gone" \
     "job cancel removes a prepared job's directory"
 
+# ---- submit drain releases a whole batch ----------------------------------
+exp prepare --group drainset -- sim --n 1 >/dev/null
+exp prepare --group drainset -- sim --n 2 >/dev/null
+exp prepare --group drainset -- sim --n 3 >/dev/null
+check_eq "$(prepared_count drainset)" "3" "three jobs prepared for draining"
+
+# --dry-run lists what would be released without claiming anything.
+dry="$(exp submit drain --group drainset --dry-run 2>/dev/null)"
+check_eq "$(printf '%s\n' "${dry}" | grep -c 'sim')" "3" \
+    "submit drain --dry-run lists all three prepared jobs"
+check_eq "$(prepared_count drainset)" "3" "submit drain --dry-run releases nothing"
+
+# A throttled drain empties the group, keeping at most two jobs in flight.
+exp submit drain --group drainset --max-inflight 2 >/dev/null 2>&1
+check_eq "$(prepared_count drainset)" "0" "submit drain releases the whole batch"
+
 dc_summary

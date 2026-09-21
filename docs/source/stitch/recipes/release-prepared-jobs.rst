@@ -30,6 +30,10 @@ fill-the-queue loop can drain a group and stop on its own:
    # Release every prepared job in the "sweep" group, oldest first.
    while ./exp.sh submit next --group sweep --wait; do :; done
 
+To drain a whole batch without writing that loop --- with concurrency throttling,
+a release cap, and optional background execution --- use ``submit drain`` (see
+*Drain a prepared batch with submit drain*).
+
 Releasing advances the row ``prepared -> submitted -> running -> completed`` (or
 ``killed``); the id never changes, so the job you prepared and the job that ran
 are the same recorded artifact.
