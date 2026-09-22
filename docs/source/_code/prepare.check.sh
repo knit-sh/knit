@@ -82,6 +82,29 @@ check_eq "$(state_of "${doomed}")" "" "job cancel removes a prepared job's row"
 check_eq "$([[ -e "jobs/${doomed}" ]] && echo present || echo gone)" "gone" \
     "job cancel removes a prepared job's directory"
 
+# ---- prepare from a plan with object-form args sub-axes -------------------
+exp argplan | exp prepare from >/dev/null
+# nodes[2] x n[2] x label[2] = 8 combinations; the args-subset exclude names only
+# label=b, so it drops those 4, leaving 4 prepared jobs.
+check_eq "$(prepared_count grid)" "4" \
+    "an object-form args axis expands to the product, trimmed by the subset exclude"
+# The exclude named only the args sub-key label=b, so no surviving grid job
+# carries --label b (job args live in the generated .job.sh, not a jobs column).
+kept_b=0
+while IFS= read -r gid; do
+    [[ -z "${gid}" ]] && continue
+    grep -q -- '--label b' "jobs/${gid}/.job.sh" && kept_b=$(( kept_b + 1 ))
+done < <(exp query sql --exec \
+    "SELECT id FROM jobs WHERE \"group\"='grid' AND state='prepared'" 2>/dev/null)
+check_eq "${kept_b}" "0" "the args-subset exclude dropped every label=b combination"
+
+# Clean the grid group up (prepared jobs never contacted a scheduler).
+while IFS= read -r gid; do
+    [[ -z "${gid}" ]] && continue
+    exp job cancel --id "${gid}" >/dev/null 2>&1
+done < <(exp query sql --exec \
+    "SELECT id FROM jobs WHERE \"group\"='grid' AND state='prepared'" 2>/dev/null)
+
 # ---- submit drain releases a whole batch ----------------------------------
 exp prepare --group drainset -- sim --n 1 >/dev/null
 exp prepare --group drainset -- sim --n 2 >/dev/null
