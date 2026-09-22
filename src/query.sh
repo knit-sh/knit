@@ -101,6 +101,7 @@ knit_register query knit_empty \
     "Query the experiment's provenance database (Cypher or SQL)."
 _knit_is_builtin
 knit_without_provenance
+knit_with_subcommand_discovery _knit_query_discover
 knit_done
 
 # ------------------------------------------------------------------------------
@@ -240,15 +241,6 @@ _knit_query_catalog_graph_tables() {
 }
 
 # ------------------------------------------------------------------------------
-# Registration of 'query catalog'.
-# ------------------------------------------------------------------------------
-knit_register "query:catalog" _knit_query_catalog \
-    "List the database's tables and columns, or validate a reference."
-_knit_is_builtin
-knit_without_provenance
-knit_with_optional "ref:string" "" \
-    "TABLE or TABLE.COLUMN reference to show or validate (default: list all)."
-# ------------------------------------------------------------------------------
 # @fn _knit_query_catalog()
 #
 # Body of 'query catalog': list the experiment database's tables and columns
@@ -270,7 +262,6 @@ _knit_query_catalog() {
     (( status != 0 )) && return "${status}"
     _knit_query_annotate_catalog <<< "${output}"
 }
-knit_done
 
 # ------------------------------------------------------------------------------
 # @fn _knit_query_build_names()
@@ -805,32 +796,6 @@ _knit_query_run_normalized() {
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# Registration of 'query graph'.
-# ------------------------------------------------------------------------------
-knit_register "query:graph" _knit_query_graph \
-    "Run a read-only Cypher query against the provenance database."
-_knit_is_builtin
-knit_without_provenance
-knit_with_required "exec:string" \
-    "The Cypher statement to run."
-knit_with_optional "extra:string" "" \
-    "Comma-separated extra sources to query alongside this experiment's database. Each is a directory (its .knit/knit.db is used), a database file, or a bundle (.tar.gz, extracted to a temporary directory). The current database is always included."
-knit_with_optional "format:query_format" "list" \
-    "Output mode: list, json, box, csv, markdown, table, line, html, ascii, column, tabs." \
-    --when '.explain != "true" and .ast != "true"'
-knit_with_flag "header" \
-    "Add a header row (off by default)." \
-    --when '.explain != "true" and .ast != "true"'
-knit_with_optional "separator:string" "" \
-    "Column separator (defaults to the output mode's default)." \
-    --when '.explain != "true" and .ast != "true"'
-knit_with_flag "explain" \
-    "Print the generated SQL without running it."
-knit_with_flag "ast" \
-    "Print the parsed syntax tree (no database needed)." \
-    --when '.explain != "true"'
-knit_with_extra "Extra arguments forwarded verbatim to knit-cypher-to-sql after --."
-# ------------------------------------------------------------------------------
 # @fn _knit_query_graph()
 #
 # Body of 'query graph': transpile the --exec Cypher statement to SQL with the
@@ -936,25 +901,7 @@ _knit_query_graph() {
     _knit_query_cleanup_tmps lens_tmps
     return "${status}"
 }
-knit_done
 
-# ------------------------------------------------------------------------------
-# Registration of 'query sql'.
-# ------------------------------------------------------------------------------
-knit_register "query:sql" _knit_query_sql \
-    "Run a read-only SQL query against the provenance database."
-_knit_is_builtin
-knit_without_provenance
-knit_with_required "exec:string" \
-    "The SQL statement to run (must be read-only)."
-knit_with_optional "extra:string" "" \
-    "Comma-separated extra sources to query alongside this experiment's database. Each is a directory (its .knit/knit.db is used), a database file, or a bundle (.tar.gz, extracted to a temporary directory). The current database is always included."
-knit_with_optional "format:query_format" "list" \
-    "Output mode: list, json, box, csv, markdown, table, line, html, ascii, column, tabs."
-knit_with_flag "header" \
-    "Add a header row (off by default)."
-knit_with_optional "separator:string" "" \
-    "Column separator (defaults to sqlite3's default)."
 # ------------------------------------------------------------------------------
 # @fn _knit_query_sql()
 #
@@ -1005,4 +952,64 @@ _knit_query_sql() {
     _knit_query_cleanup_tmps lens_tmps
     return "${status}"
 }
-knit_done
+
+# ------------------------------------------------------------------------------
+# @fn _knit_query_discover()
+#
+# Register the query subcommands (catalog / graph / sql). Called lazily by the
+# framework the first time a query subcommand is resolved, listed in "--help", or
+# walked by "describe". The query_format enum used by --format is registered
+# eagerly in src/ai.sh, so it is available when this runs.
+#
+# @param[in] parent The parent command's display name (unused).
+# ------------------------------------------------------------------------------
+_knit_query_discover() {
+    knit_register "query:catalog" _knit_query_catalog \
+        "List the database's tables and columns, or validate a reference."
+    _knit_is_builtin
+    knit_without_provenance
+    knit_with_optional "ref:string" "" \
+        "TABLE or TABLE.COLUMN reference to show or validate (default: list all)."
+    knit_done
+
+    knit_register "query:graph" _knit_query_graph \
+        "Run a read-only Cypher query against the provenance database."
+    _knit_is_builtin
+    knit_without_provenance
+    knit_with_required "exec:string" \
+        "The Cypher statement to run."
+    knit_with_optional "extra:string" "" \
+        "Comma-separated extra sources to query alongside this experiment's database. Each is a directory (its .knit/knit.db is used), a database file, or a bundle (.tar.gz, extracted to a temporary directory). The current database is always included."
+    knit_with_optional "format:query_format" "list" \
+        "Output mode: list, json, box, csv, markdown, table, line, html, ascii, column, tabs." \
+        --when '.explain != "true" and .ast != "true"'
+    knit_with_flag "header" \
+        "Add a header row (off by default)." \
+        --when '.explain != "true" and .ast != "true"'
+    knit_with_optional "separator:string" "" \
+        "Column separator (defaults to the output mode's default)." \
+        --when '.explain != "true" and .ast != "true"'
+    knit_with_flag "explain" \
+        "Print the generated SQL without running it."
+    knit_with_flag "ast" \
+        "Print the parsed syntax tree (no database needed)." \
+        --when '.explain != "true"'
+    knit_with_extra "Extra arguments forwarded verbatim to knit-cypher-to-sql after --."
+    knit_done
+
+    knit_register "query:sql" _knit_query_sql \
+        "Run a read-only SQL query against the provenance database."
+    _knit_is_builtin
+    knit_without_provenance
+    knit_with_required "exec:string" \
+        "The SQL statement to run (must be read-only)."
+    knit_with_optional "extra:string" "" \
+        "Comma-separated extra sources to query alongside this experiment's database. Each is a directory (its .knit/knit.db is used), a database file, or a bundle (.tar.gz, extracted to a temporary directory). The current database is always included."
+    knit_with_optional "format:query_format" "list" \
+        "Output mode: list, json, box, csv, markdown, table, line, html, ascii, column, tabs."
+    knit_with_flag "header" \
+        "Add a header row (off by default)."
+    knit_with_optional "separator:string" "" \
+        "Column separator (defaults to sqlite3's default)."
+    knit_done
+}

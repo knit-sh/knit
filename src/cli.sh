@@ -785,6 +785,34 @@ _knit_ensure_discovered() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_discover_ancestors()
+#
+# Ensure lazy subcommand discovery has run for every ancestor of a command, so
+# the command resolves even when it arrives as a single pre-mangled (or colon)
+# token rather than as separate tokens. The per-token resolver walk
+# (_knit_invoke_command) already discovers along a separate-token path; this is
+# the fallback for an internal caller that passes a whole command name in one
+# argument, e.g. _knit_invoke_command "job__1__show__1__stdout".
+#
+# Walks the mangled prefix chain top-down (job -> job:show -> ...), running each
+# existing ancestor's discovery function; each step may register the next level.
+# A no-op for a top-level command (no ancestors) and for ancestors without a
+# discovery function.
+#
+# @param[in] cmd Command (mangled name) whose ancestors to discover.
+# ------------------------------------------------------------------------------
+_knit_discover_ancestors() {
+    local rest="$1"
+    local prefix="" seg
+    while [[ "${rest}" == *"__1__"* ]]; do
+        seg="${rest%%__1__*}"
+        rest="${rest#*__1__}"
+        prefix="${prefix:+${prefix}__1__}${seg}"
+        _knit_ensure_discovered "${prefix}"
+    done
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_register_wrapper()
 #
 # Register a wrapper command: a command that forwards all of its arguments
@@ -3345,7 +3373,14 @@ _knit_invoke_command() {
     _knit_command_mangle cmd "${demangled_cmd}"
     # check if the command exists
     if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
-        knit_fatal "Unknown command \"${demangled_cmd}\"."
+        # The command may have arrived as a single pre-mangled/colon token that
+        # the per-token discovery walk did not split (e.g. an internal
+        # _knit_invoke_command "job__1__cancel"). Discover its ancestors, then
+        # re-test before giving up.
+        _knit_discover_ancestors "${cmd}"
+        if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
+            knit_fatal "Unknown command \"${demangled_cmd}\"."
+        fi
     fi
     # Central runtime guard: before bootstrap, refuse any command not declared
     # usable before bootstrap, with one uniform message, rather than letting it

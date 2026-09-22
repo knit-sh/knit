@@ -382,12 +382,24 @@ knit_register export knit_empty \
     "Export a view of the experiment in a standard format."
 _knit_is_builtin
 knit_without_provenance
+knit_with_subcommand_discovery _knit_export_discover
 knit_done
 
-knit_register "export:ro-crate" _knit_export_rocrate \
-    "Write the RO-Crate manifest (ro-crate-metadata.json) alone, no archive."
-_knit_is_builtin
-knit_without_provenance
-knit_with_optional "output:path" "./ro-crate-metadata.json" \
-    "Where to write the manifest (- for standard output)."
-knit_done
+# ------------------------------------------------------------------------------
+# @fn _knit_export_discover()
+#
+# Register the export subcommands (ro-crate). Called lazily by the framework the
+# first time an export subcommand is resolved, listed in "--help", or walked by
+# "describe".
+#
+# @param[in] parent The parent command's display name (unused).
+# ------------------------------------------------------------------------------
+_knit_export_discover() {
+    knit_register "export:ro-crate" _knit_export_rocrate \
+        "Write the RO-Crate manifest (ro-crate-metadata.json) alone, no archive."
+    _knit_is_builtin
+    knit_without_provenance
+    knit_with_optional "output:path" "./ro-crate-metadata.json" \
+        "Where to write the manifest (- for standard output)."
+    knit_done
+}

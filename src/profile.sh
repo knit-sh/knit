@@ -623,9 +623,14 @@ _knit_render_platform_files() {
 # ------------------------------------------------------------------------------
 # Registration of the profile command group.
 # ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Registration of the profile command group. Its subcommands (list / show) are
+# registered lazily by _knit_profile_discover the first time either is reached.
+# ------------------------------------------------------------------------------
 knit_register profile knit_empty "List and inspect machine profiles."
 _knit_is_builtin
 knit_usable_before_bootstrap
+knit_with_subcommand_discovery _knit_profile_discover
 knit_done
 
 # ------------------------------------------------------------------------------
@@ -638,13 +643,6 @@ _knit_profile_list() {
     hidden="$(knit_get_parameter "hidden" "$@")"
     knit_list_profiles "${hidden}"
 }
-
-knit_register "profile:list" _knit_profile_list \
-    "List the machine profiles served by the knit repository."
-knit_with_flag "hidden" "Also list profiles marked hidden (\"_hide\": true)."
-_knit_is_builtin
-knit_usable_before_bootstrap
-knit_done
 
 # ------------------------------------------------------------------------------
 # @fn _knit_profile_show()
@@ -678,10 +676,28 @@ _knit_profile_show() {
     printf '%s\n' "${resolved_json}"
 }
 
-knit_register "profile:show" _knit_profile_show \
-    "Show a machine profile (the bootstrapped one, or a given spec)."
-_knit_is_builtin
-knit_usable_before_bootstrap
-knit_with_optional "profile:string" "" \
-    "Profile spec to display: a URL, a file, or <namespace>/<machine>[@<ref>]. Ignored once bootstrapped."
-knit_done
+# ------------------------------------------------------------------------------
+# @fn _knit_profile_discover()
+#
+# Register the profile subcommands (list / show). Called lazily by the framework
+# the first time a profile subcommand is resolved, listed in "--help", or walked
+# by "describe".
+#
+# @param[in] parent The parent command's display name (unused).
+# ------------------------------------------------------------------------------
+_knit_profile_discover() {
+    knit_register "profile:list" _knit_profile_list \
+        "List the machine profiles served by the knit repository."
+    knit_with_flag "hidden" "Also list profiles marked hidden (\"_hide\": true)."
+    _knit_is_builtin
+    knit_usable_before_bootstrap
+    knit_done
+
+    knit_register "profile:show" _knit_profile_show \
+        "Show a machine profile (the bootstrapped one, or a given spec)."
+    _knit_is_builtin
+    knit_usable_before_bootstrap
+    knit_with_optional "profile:string" "" \
+        "Profile spec to display: a URL, a file, or <namespace>/<machine>[@<ref>]. Ignored once bootstrapped."
+    knit_done
+}

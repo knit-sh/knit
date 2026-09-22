@@ -168,20 +168,33 @@ _knit_skills_install() {
 }
 
 # ------------------------------------------------------------------------------
-# Registration of the skills command group.
+# Registration of the skills command group. Its "install" subcommand is
+# registered lazily by _knit_skills_discover the first time it is reached.
 # ------------------------------------------------------------------------------
 knit_register skills knit_empty \
     "Install knit's agent skills and commands into an AI harness."
 _knit_is_builtin
 knit_usable_before_bootstrap
+knit_with_subcommand_discovery _knit_skills_discover
 knit_done
 
-knit_register "skills:install" _knit_skills_install \
-    "Download knit's agent skills/commands from GitHub and install them into .agents/ (add --claude to also link .claude/ at it)."
-_knit_is_builtin
-knit_usable_before_bootstrap
-knit_with_flag "claude" \
-    "Also point Claude Code at the install by symlinking each skill and command into .claude/skills and .claude/commands."
-knit_with_optional "ref:string" "main" \
-    "Git ref (branch, tag, or commit) of knit-sh/knit to install skills from."
-knit_done
+# ------------------------------------------------------------------------------
+# @fn _knit_skills_discover()
+#
+# Register the skills subcommands (install). Called lazily by the framework the
+# first time a skills subcommand is resolved, listed in "--help", or walked by
+# "describe".
+#
+# @param[in] parent The parent command's display name (unused).
+# ------------------------------------------------------------------------------
+_knit_skills_discover() {
+    knit_register "skills:install" _knit_skills_install \
+        "Download knit's agent skills/commands from GitHub and install them into .agents/ (add --claude to also link .claude/ at it)."
+    _knit_is_builtin
+    knit_usable_before_bootstrap
+    knit_with_flag "claude" \
+        "Also point Claude Code at the install by symlinking each skill and command into .claude/skills and .claude/commands."
+    knit_with_optional "ref:string" "main" \
+        "Git ref (branch, tag, or commit) of knit-sh/knit to install skills from."
+    knit_done
+}

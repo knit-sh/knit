@@ -646,27 +646,9 @@ _knit_ai_loop() {
 knit_register ai knit_empty "Talk to your experiment in natural language."
 _knit_is_builtin
 knit_without_provenance
+knit_with_subcommand_discovery _knit_ai_discover
 knit_done
 
-# ------------------------------------------------------------------------------
-# Registration of 'ai ask'.
-# ------------------------------------------------------------------------------
-knit_register "ai:ask" _knit_ai_ask \
-    "Ask a natural-language question about the experiment."
-_knit_is_builtin
-knit_without_provenance
-knit_with_required "question:string" \
-    "The natural-language question to answer."
-knit_with_optional "model:string" "" \
-    "Override the configured model for this call."
-knit_with_optional "max-iterations:integer" "8" \
-    "Hard cap on agentic tool-call rounds."
-knit_with_optional "system:string" "" \
-    "Replace the built-in system prompt with this text."
-knit_with_flag "raw" \
-    "Print the raw final message JSON instead of just the answer text."
-knit_with_flag "verbose" \
-    "Stream each tool call and tool result to stderr as the loop runs."
 # ------------------------------------------------------------------------------
 # @fn _knit_ai_ask()
 #
@@ -693,7 +675,6 @@ _knit_ai_ask() {
     _knit_ai_loop "${base_url}" "${api_key}" "${resolved_model}" \
         "${question}" "${system_prompt}" "${max_iterations}" "${raw}" "${verbose}"
 }
-knit_done
 
 # ------------------------------------------------------------------------------
 # @fn _knit_ai_query_mode_args()
@@ -1175,33 +1156,6 @@ knit_enum "ai_query_lang" "auto" "sql" "cypher"
 _knit_is_builtin
 
 # ------------------------------------------------------------------------------
-# Registration of 'ai query'.
-# ------------------------------------------------------------------------------
-knit_register "ai:query" _knit_ai_query \
-    "Answer a question by generating and running one read-only SQL or Cypher query."
-_knit_is_builtin
-knit_without_provenance
-knit_with_required "question:string" \
-    "The natural-language question to answer."
-knit_with_optional "lang:ai_query_lang" "auto" \
-    "Query language: auto (detect), sql, or cypher."
-knit_with_optional "extra:string" "" \
-    "Comma-separated extra sources to query alongside this experiment's database. Each is a directory (its .knit/knit.db is used), a database file, or a bundle (.tar.gz, extracted to a temporary directory). The current database is always included."
-knit_with_optional "format:query_format" "box" \
-    "Output mode: box, column, csv, json, line, list, markdown, table, html, ascii, tabs."
-knit_with_flag "no-header" \
-    "Omit column headers (tabular/CSV modes)."
-knit_with_optional "separator:string" "" \
-    "Column separator for csv/list modes (defaults to the sqlite default)."
-knit_with_optional "max-iterations:integer" "3" \
-    "Cap on generate -> run -> fix rounds."
-knit_with_optional "model:string" "" \
-    "Override the configured model for this call."
-knit_with_flag "query-only" \
-    "Print the generated query and its language without running it."
-knit_with_flag "verbose" \
-    "Stream the chosen language, each generated query, and any backend error to stderr as the loop runs."
-# ------------------------------------------------------------------------------
 # @fn _knit_ai_query()
 #
 # Body of 'ai query': resolve the provider config, build the query system prompt
@@ -1250,4 +1204,60 @@ _knit_ai_query() {
     _knit_query_cleanup_tmps lens_tmps
     return "${status}"
 }
-knit_done
+
+# ------------------------------------------------------------------------------
+# @fn _knit_ai_discover()
+#
+# Register the ai subcommands (ask / query). Called lazily by the framework the
+# first time an ai subcommand is resolved, listed in "--help", or walked by
+# "describe". The query_format and ai_query_lang enums stay registered eagerly
+# above, because src/query.sh also resolves query_format at its own registration
+# time.
+#
+# @param[in] parent The parent command's display name (unused).
+# ------------------------------------------------------------------------------
+_knit_ai_discover() {
+    knit_register "ai:ask" _knit_ai_ask \
+        "Ask a natural-language question about the experiment."
+    _knit_is_builtin
+    knit_without_provenance
+    knit_with_required "question:string" \
+        "The natural-language question to answer."
+    knit_with_optional "model:string" "" \
+        "Override the configured model for this call."
+    knit_with_optional "max-iterations:integer" "8" \
+        "Hard cap on agentic tool-call rounds."
+    knit_with_optional "system:string" "" \
+        "Replace the built-in system prompt with this text."
+    knit_with_flag "raw" \
+        "Print the raw final message JSON instead of just the answer text."
+    knit_with_flag "verbose" \
+        "Stream each tool call and tool result to stderr as the loop runs."
+    knit_done
+
+    knit_register "ai:query" _knit_ai_query \
+        "Answer a question by generating and running one read-only SQL or Cypher query."
+    _knit_is_builtin
+    knit_without_provenance
+    knit_with_required "question:string" \
+        "The natural-language question to answer."
+    knit_with_optional "lang:ai_query_lang" "auto" \
+        "Query language: auto (detect), sql, or cypher."
+    knit_with_optional "extra:string" "" \
+        "Comma-separated extra sources to query alongside this experiment's database. Each is a directory (its .knit/knit.db is used), a database file, or a bundle (.tar.gz, extracted to a temporary directory). The current database is always included."
+    knit_with_optional "format:query_format" "box" \
+        "Output mode: box, column, csv, json, line, list, markdown, table, html, ascii, tabs."
+    knit_with_flag "no-header" \
+        "Omit column headers (tabular/CSV modes)."
+    knit_with_optional "separator:string" "" \
+        "Column separator for csv/list modes (defaults to the sqlite default)."
+    knit_with_optional "max-iterations:integer" "3" \
+        "Cap on generate -> run -> fix rounds."
+    knit_with_optional "model:string" "" \
+        "Override the configured model for this call."
+    knit_with_flag "query-only" \
+        "Print the generated query and its language without running it."
+    knit_with_flag "verbose" \
+        "Stream the chosen language, each generated query, and any backend error to stderr as the loop runs."
+    knit_done
+}

@@ -29,7 +29,8 @@ _store_ai() {
     _knit_command_mangle cmd "ai:init"
     run _knit_set_find _KNIT_COMMANDS "${cmd}"
     [ "$status" -ne 0 ]
-    # The rest of the ai group is intact.
+    # The rest of the ai group is intact (registered lazily on first use).
+    _knit_ensure_discovered "ai"
     _knit_command_mangle cmd "ai:ask"
     _knit_set_find _KNIT_COMMANDS "${cmd}"
     _knit_command_mangle cmd "ai:query"
