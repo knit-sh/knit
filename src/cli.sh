@@ -1397,6 +1397,52 @@ knit_with_subcommand_title() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_with_subcommand_discovery()
+#
+# Name a discovery function for the command currently being registered. The
+# command's subcommands are then registered lazily: instead of running their
+# "knit_register ... knit_done" blocks at load time, the framework calls the
+# named function at most once, and only when it must know the command's
+# subcommands (the resolver reaches for a subcommand, "--help" lists them, or
+# "describe" walks into the command). This keeps "source knit.sh" and every
+# command start cheaper by not building command subtrees a run never touches.
+#
+# The named function registers the command's immediate subcommands, each as a
+# full "knit_register ... knit_done" block. It runs in the main shell (never a
+# subshell) and receives the parent command's display name as its first
+# argument. It must be fast and side-effect free (registration only): it runs on
+# the resolution and help paths, which must stay cheap.
+#
+# State stored on the command:
+#   - _KNIT_CMD_<cmd>_subcommand_discovery : the function name.
+#   - _KNIT_CMD_<cmd>_discovered           : "true" after the function has run.
+#
+# Must be called between a knit_register* call and knit_done. It is not valid on
+# a wrapper (knit_register_wrapper), which forwards its arguments verbatim and
+# has no subcommands. A command may name at most one discovery function; a second
+# call is fatal. The function name must be a non-empty token; its existence is
+# checked when it is called (it may be defined after this decorator).
+# ------------------------------------------------------------------------------
+knit_with_subcommand_discovery() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_subcommand_discovery should be used after a call to \"knit_register\"."
+    fi
+    _knit_wrapper_reject_declaration "knit_with_subcommand_discovery"
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local fn="$1"
+    if [[ -z "${fn}" ]]; then
+        knit_fatal "knit_with_subcommand_discovery on command \"${_KNIT_CURRENT_COMMAND_DEMANGLED}\" requires a function name."
+    fi
+    local disc_var="_KNIT_CMD_${cmd}_subcommand_discovery"
+    if [[ -n "${!disc_var:-}" ]]; then
+        knit_fatal "Command \"${_KNIT_CURRENT_COMMAND_DEMANGLED}\" already has a subcommand discovery function (\"${!disc_var}\")."
+    fi
+    knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} for lazy subcommand discovery via \"${fn}\"."
+    printf -v "${disc_var}" '%s' "${fn}"
+    printf -v "_KNIT_CMD_${cmd}_discovered" '%s' 'false'
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_decl_flag_present()
 #
 # Return 0 if a bare declaration flag (e.g. "--no-checksum") appears among the
