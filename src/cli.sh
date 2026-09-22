@@ -196,11 +196,18 @@ _knit_command_demangle() {
 # not happen, since a parent is always registered before its child) falls back
 # to its canonical segment.
 #
+# The result is returned through a caller-named variable (nameref) so the
+# registration and "--help" paths pay no subshell fork.
+#
+# @param[out] __knit_ret Name of the variable to hold the display name.
 # @param[in] cmd Command to render (mangled name).
 # ------------------------------------------------------------------------------
 _knit_command_display() {
+    local -n __knit_ret=$1; shift
     local cmd="$1"
-    local display="" prefix="" rest="${cmd}"
+    # "__knit_display" is prefixed because a caller may pass its own "display"
+    # variable as the output argument; a plain "display" local would shadow it.
+    local __knit_display="" prefix="" rest="${cmd}"
     local seg basename_var seg_display
     while [[ -n "${rest}" ]]; do
         if [[ "${rest}" == *"__1__"* ]]; then
@@ -217,13 +224,13 @@ _knit_command_display() {
         fi
         basename_var="_KNIT_CMD_${prefix}_display"
         seg_display="${!basename_var:-${seg}}"
-        if [[ -n "${display}" ]]; then
-            display="${display}:${seg_display}"
+        if [[ -n "${__knit_display}" ]]; then
+            __knit_display="${__knit_display}:${seg_display}"
         else
-            display="${seg_display}"
+            __knit_display="${seg_display}"
         fi
     done
-    printf "%s" "${display}"
+    __knit_ret="${__knit_display}"
 }
 
 # ------------------------------------------------------------------------------
@@ -430,7 +437,7 @@ _knit_param_check_declaration() {
         context_name="${_KNIT_CURRENT_PARAMETER_SET}"
         ns="_KNIT_PSET_${_KNIT_CURRENT_PARAMETER_SET}"
     else
-        context_name=$(_knit_command_display "${_KNIT_CURRENT_COMMAND}")
+        _knit_command_display context_name "${_KNIT_CURRENT_COMMAND}"
         ns="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}"
     fi
     local normalized
@@ -908,7 +915,7 @@ knit_usable_before_bootstrap() {
 _knit_usable_before_bootstrap_validate() {
     local cmd="$1"
     local demangled
-    demangled=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled "${cmd}"
 
     # Rule 1: no database table.
     local table_var="_KNIT_CMD_${cmd}_table"
@@ -932,7 +939,7 @@ _knit_usable_before_bootstrap_validate() {
     _knit_command_get_parents parent "${cmd}"
     if [[ -n "${parent}" ]] && ! _knit_command_is_usable_before_bootstrap "${parent}"; then
         local parent_demangled
-        parent_demangled=$(_knit_command_display "${parent}")
+        _knit_command_display parent_demangled "${parent}"
         knit_fatal "Command \"${demangled}\" is usable before bootstrap but its parent \"${parent_demangled}\" is not."
     fi
 }
@@ -2129,7 +2136,7 @@ _knit_execute_before_commands() {
     local cmd="$1"
     shift
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
     knit_trace "Executing callbacks before ${demangled_cmd}."
     local cb_list_name="_KNIT_CMD_${cmd}_before_cb"
     # shellcheck disable=SC2178
@@ -2186,7 +2193,7 @@ _knit_execute_after_commands() {
     local cmd="$1"
     shift
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
     knit_trace "Executing callbacks after ${demangled_cmd}."
     local cb_list_name="_KNIT_CMD_${cmd}_after_cb"
     # shellcheck disable=SC2178
@@ -2265,7 +2272,7 @@ _knit_check_argument_type() {
 _knit_check_command_arguments() {
     local cmd="$1"
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
     shift
     local args=("$@")
     # Check that all the required arguments have been provided
@@ -2646,7 +2653,7 @@ _knit_print_command_usage() {
     local display
     # Registered spelling (with any hyphens), space-separated like the invocation
     # form; the display path joins segments with ":", never a space.
-    display=$(_knit_command_display "${cmd}")
+    _knit_command_display display "${cmd}"
     display="${display//:/ }"
     local extra_var="_KNIT_CMD_${cmd}_extra"
     local dispatch_var="_KNIT_CMD_${cmd}_dispatch"
@@ -2677,7 +2684,7 @@ _knit_print_command_usage() {
             "$0" "${display}" "${!dispatch_var}"
     elif [[ "${is_dispatched_child}" == "true" ]]; then
         local parent_display leaf leaf_var
-        parent_display=$(_knit_command_display "${parent}")
+        _knit_command_display parent_display "${parent}"
         parent_display="${parent_display//:/ }"
         leaf_var="_KNIT_CMD_${cmd}_display"
         leaf="${!leaf_var}"
@@ -2699,7 +2706,7 @@ _knit_print_command_usage() {
     # before the "--".
     if [[ "${is_dispatched_child}" == "true" ]]; then
         local parent_display
-        parent_display=$(_knit_command_display "${parent}")
+        _knit_command_display parent_display "${parent}"
         parent_display="${parent_display//:/ }"
         printf "\n"
         _knit_print_options_block "${parent}" "${parent_display} options" "false"
@@ -2898,7 +2905,7 @@ _knit_check_constraints() {
     [[ "${_has_constraints}" == "false" ]] && return 0
 
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
 
     local json
     json=$(_knit_build_constraint_json "${cmd}" "${_exp_ref[@]}")
@@ -3088,7 +3095,7 @@ _knit_checksum_inputs() {
         return 0
     fi
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
     local param
     while IFS= read -r param; do
         [[ -z "${param}" ]] && continue
@@ -3143,7 +3150,7 @@ _knit_checksum_outputs() {
         return 0
     fi
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
     # shellcheck disable=SC2178 # nameref to the command's output-value array
     local -n _knit_co_out="_KNIT_CMD_${cmd}_output_value"
     local param
@@ -3474,7 +3481,7 @@ knit_output() {
     fi
     local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
     local normalized
     normalized=$(_knit_name_normalize "${name}")
     if ! _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${normalized}"; then

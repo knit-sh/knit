@@ -657,7 +657,7 @@ _knit_describe_json_command() {
     local inner="${indent}${_KNIT_DESCRIBE_JSON_IND}"
     local cs="${_KNIT_DESCRIBE_JSON_CS}"
     local demangled
-    demangled=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled "${cmd}"
     local -a segs
     IFS=':' read -r -a segs <<< "${demangled}"
     local name="${segs[-1]}"
@@ -1104,7 +1104,7 @@ _knit_describe_yaml_command() {
     local key="${item_indent}  "
     local cont="${key}  "
     local demangled
-    demangled=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled "${cmd}"
     local -a segs
     IFS=':' read -r -a segs <<< "${demangled}"
     local name="${segs[-1]}"
@@ -1542,7 +1542,7 @@ _knit_describe_default_command() {
         # The registered spelling (with any hyphens), rendered space-separated
         # like the invocation form; the display path joins segments with ":",
         # never a space, so replacing ":" with " " is safe.
-        display=$(_knit_command_display "${cmd}")
+        _knit_command_display display "${cmd}"
         display="${display//:/ }"
         _knit_describe_command_kind kind "${cmd}"
         if _knit_command_is_builtin "${cmd}"; then tag="builtin"; else tag="user"; fi
@@ -1914,7 +1914,7 @@ _knit_describe_md_command() {
         # The registered spelling (with any hyphens), rendered space-separated
         # like the invocation form; the display path joins segments with ":",
         # never a space, so replacing ":" with " " is safe.
-        display=$(_knit_command_display "${cmd}")
+        _knit_command_display display "${cmd}"
         display="${display//:/ }"
         _knit_describe_command_kind kind "${cmd}"
         if _knit_command_is_builtin "${cmd}"; then tag="builtin"; else tag="user"; fi

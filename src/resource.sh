@@ -451,7 +451,9 @@ _knit_resource_fetch_body() {
             _knit_fetch_local "${dest}" "${path}" "${copy}" "${expected}" || ret=1
             ;;
         *)
-            knit_fatal "Resource \"$(_knit_command_display "${cmd}")\" has no download method."
+            local display
+            _knit_command_display display "${cmd}"
+            knit_fatal "Resource \"${display}\" has no download method."
             ;;
     esac
 
@@ -708,7 +710,7 @@ _knit_resource_check_method() {
     local marker_var="_KNIT_CMD_${cmd}_fetch_method"
     if [[ -z "${!marker_var:-}" ]]; then
         local demangled
-        demangled=$(_knit_command_display "${cmd}")
+        _knit_command_display demangled "${cmd}"
         knit_fatal "Resource \"${demangled}\" declares no download method; add one of knit_with_git / knit_with_url / knit_with_local."
     fi
 }

@@ -505,7 +505,7 @@ _knit_run_checksum_inputs() {
     shift
     local -a app_args=("$@")
     local demangled
-    demangled=$(_knit_command_display "${subcmd}")
+    _knit_command_display demangled "${subcmd}"
     local param
     while IFS= read -r param; do
         [[ -z "${param}" ]] && continue
@@ -572,7 +572,7 @@ _knit_run_checksum_outputs() {
     # spelling) is used only in the human-facing existence error below.
     local demangled display
     demangled=$(_knit_command_demangle "${subcmd}")
-    display=$(_knit_command_display "${subcmd}")
+    _knit_command_display display "${subcmd}"
 
     # Locate rank 0's per-app row via the run -> run:<app> call edge. Its target
     # is the row's id; absent when nothing was recorded (e.g. recording disabled).

@@ -68,7 +68,7 @@ teardown() {
     knit_register "db-show" knit_empty "A hyphenated command."
     knit_done
     local result
-    result=$(_knit_command_display "db_show")
+    _knit_command_display result "db_show"
     [ "$result" = "db-show" ]
 }
 
@@ -78,7 +78,7 @@ teardown() {
     knit_register "grp:db-show" knit_empty "A nested hyphenated command."
     knit_done
     local result
-    result=$(_knit_command_display "grp__1__db_show")
+    _knit_command_display result "grp__1__db_show"
     [ "$result" = "grp:db-show" ]
 }
 
@@ -86,7 +86,7 @@ teardown() {
     knit_register "db_show" knit_empty "An underscore command."
     knit_done
     local result
-    result=$(_knit_command_display "db_show")
+    _knit_command_display result "db_show"
     [ "$result" = "db_show" ]
 }
 
