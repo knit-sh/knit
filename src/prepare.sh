@@ -642,10 +642,14 @@ def merge_under($lo; $hi):
         fi
     done < <(printf '%s' "${rendered}" | _knit_jq -r '.subkeys[]')
 
-    local job
+    local job job_norm
     while IFS= read -r job; do
         [[ -z "${job}" ]] && continue
-        if [[ ! -v _KNIT_JOBS["${job}"] ]]; then
+        # _KNIT_JOBS is keyed by the normalized (underscore) name, so a job
+        # registered as "fio-depth" is stored as "fio_depth"; normalize the
+        # plan's spelling before the lookup so hyphenated names still resolve.
+        job_norm=$(_knit_name_normalize "${job}")
+        if [[ ! -v _KNIT_JOBS["${job_norm}"] ]]; then
             knit_fatal "prepare from: unknown job \"${job}\" in plan."
         fi
     done < <(printf '%s' "${rendered}" | _knit_jq -r '.job')

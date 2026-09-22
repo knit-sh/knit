@@ -67,6 +67,12 @@ _register_jobs_with_setup() {
     knit_register_job "other" _submit_other_fn "another test job"
     knit_with_setup "mcenv"
     knit_done
+
+    # A hyphenated job name: exercises normalization on the plan lookup.
+    _submit_fio_depth_fn() { :; }
+    knit_register_job "fio-depth" _submit_fio_depth_fn "hyphenated test job"
+    knit_with_setup "mcenv"
+    knit_done
 }
 
 # Count of prepared jobs of a given job type.
@@ -275,6 +281,16 @@ JSON
 JSON
     [ "$status" -ne 0 ]
     [[ "$output" == *"unknown job"* ]]
+}
+
+@test "prepare from resolves a hyphenated job name in the plan" {
+    _register_jobs_with_setup
+
+    run _knit_invoke_command prepare from <<'JSON'
+{ "defaults": { "setup": "setup" }, "jobs": [ { "job": "fio-depth" } ] }
+JSON
+    [ "$status" -eq 0 ]
+    [ "$(_prepared_count)" = "1" ]
 }
 
 # ---------- defaults merge and group precedence ----------
