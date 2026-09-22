@@ -3303,21 +3303,35 @@ _knit_invoke_command() {
     _KNIT_CALL_ALIAS=""
     # find the command and subcommands
     local demangled_cmd=""
-    local wrapper_probe
+    local wrapper_probe parent_probe
     while [[ $# -gt 0 ]]; do
         if [[ $1 == --* ]]; then
             break
         fi
+        # Parent = the command accumulated so far (empty for the first token,
+        # which is a root command and is never lazy — see O3). Capture it before
+        # appending the next token so lazy subcommand discovery can run.
+        _knit_command_mangle parent_probe "${demangled_cmd}"
         if [[ -n "${demangled_cmd}" ]]; then
             demangled_cmd+=" "
         fi
         demangled_cmd+="$1"
         shift
+        _knit_command_mangle wrapper_probe "${demangled_cmd}"
+        # If the accumulated command is not yet known but its parent is and
+        # carries an undiscovered discovery function, run it to register the
+        # parent's subcommands, then re-test below. This walks the tree one level
+        # per token, so "aaa bbb ccc" discovers "aaa"'s children to reveal
+        # "aaa:bbb", then "aaa:bbb"'s children to reveal "aaa:bbb:ccc".
+        if [[ -n "${parent_probe}" ]] \
+            && ! _knit_set_find _KNIT_COMMANDS "${wrapper_probe}" \
+            && _knit_set_find _KNIT_COMMANDS "${parent_probe}"; then
+            _knit_ensure_discovered "${parent_probe}"
+        fi
         # Stop consuming tokens once the accumulated command is a wrapper: a
         # wrapper forwards everything after its name verbatim, so its arguments
         # (which need not start with "--") must not be mistaken for further
         # subcommand names.
-        _knit_command_mangle wrapper_probe "${demangled_cmd}"
         if _knit_command_is_wrapper "${wrapper_probe}"; then
             break
         fi

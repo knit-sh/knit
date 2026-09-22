@@ -113,3 +113,98 @@ teardown() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"is not defined"* ]]
 }
+
+# ---------- resolver hook (_knit_invoke_command) ----------
+
+# These tests invoke _knit_invoke_command directly (not through $(...)) because
+# discovery registers commands as a global side effect; a command substitution
+# would run it in a subshell and the registration would not survive. Command
+# bodies therefore report through a global marker instead of stdout.
+
+@test "resolution discovers a one-level lazy subcommand" {
+    _KNIT_BBB_RAN=""
+    aaa_discover() {
+        knit_register "aaa:bbb" fn_bbb "A lazy subcommand."
+        fn_bbb() { _KNIT_BBB_RAN="yes"; }
+        knit_done
+    }
+    knit_register "aaa" knit_empty "A group."
+    knit_with_subcommand_discovery aaa_discover
+    knit_done
+
+    # Not registered until reached.
+    run _knit_set_find _KNIT_COMMANDS "aaa__1__bbb"
+    [ "$status" -ne 0 ]
+
+    _knit_invoke_command "aaa" "bbb"
+    [ "${_KNIT_BBB_RAN}" = "yes" ]
+    _knit_set_find _KNIT_COMMANDS "aaa__1__bbb"
+}
+
+@test "resolution discovers a two-level lazy subcommand, running both functions in order" {
+    _KNIT_DISC_ORDER=""
+    _KNIT_CCC_RAN=""
+    aaa_discover() {
+        _KNIT_DISC_ORDER+="aaa"
+        knit_register "aaa:bbb" knit_empty "A lazy subcommand."
+        knit_with_subcommand_discovery bbb_discover
+        knit_done
+    }
+    bbb_discover() {
+        _KNIT_DISC_ORDER+=":bbb"
+        knit_register "aaa:bbb:ccc" fn_ccc "A deeper lazy subcommand."
+        fn_ccc() { _KNIT_CCC_RAN="yes"; }
+        knit_done
+    }
+    knit_register "aaa" knit_empty "A group."
+    knit_with_subcommand_discovery aaa_discover
+    knit_done
+
+    _knit_invoke_command "aaa" "bbb" "ccc"
+    [ "${_KNIT_CCC_RAN}" = "yes" ]
+    [ "${_KNIT_DISC_ORDER}" = "aaa:bbb" ]
+}
+
+@test "an unknown child after discovery still fatals with Unknown command" {
+    aaa_discover() {
+        knit_register "aaa:bbb" knit_empty "A lazy subcommand."
+        knit_done
+    }
+    knit_register "aaa" knit_empty "A group."
+    knit_with_subcommand_discovery aaa_discover
+    knit_done
+
+    run _knit_invoke_command "aaa" "zzz"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Unknown command \"aaa zzz\""* ]]
+}
+
+@test "invoking the parent alone does not trigger discovery" {
+    aaa_discover() {
+        knit_register "aaa:bbb" knit_empty "A lazy subcommand."
+        knit_done
+    }
+    knit_register "aaa" fn_aaa "A group."
+    knit_with_subcommand_discovery aaa_discover
+    fn_aaa() { echo "in aaa"; }
+    knit_done
+
+    local result
+    result=$(_knit_invoke_command "aaa")
+    [ "$result" = "in aaa" ]
+    [ "${_KNIT_CMD_aaa_discovered}" = "false" ]
+    run _knit_set_find _KNIT_COMMANDS "aaa__1__bbb"
+    [ "$status" -ne 0 ]
+}
+
+@test "resolution of a non-lazy nested command is unchanged" {
+    knit_register "aaa" knit_empty "A group."
+    knit_done
+    knit_register "aaa:bbb" fn_nb "An eager subcommand."
+    fn_nb() { echo "eager bbb"; }
+    knit_done
+
+    local result
+    result=$(_knit_invoke_command "aaa" "bbb")
+    [ "$result" = "eager bbb" ]
+}
