@@ -50,6 +50,15 @@
                 ],
                 "buildable": false
             },
+            "daos": {
+                "externals": [
+                    {
+                        "spec": "daos@2.2.0",
+                        "prefix": "/usr"
+                    }
+                ],
+                "buildable": false
+            },
             "mpi": {
                 "require": ["mpich"]
             }
