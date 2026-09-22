@@ -26,7 +26,9 @@ _columns_of() {
     knit_register_resource "julia_code" "Julia source."
     knit_with_git "https://example.org/x.git" "main"
     knit_done
-    _knit_set_find _KNIT_COMMANDS "$(_knit_command_mangle "fetch:julia_code")"
+    local cmd
+    _knit_command_mangle cmd "fetch:julia_code"
+    _knit_set_find _KNIT_COMMANDS "${cmd}"
 }
 
 @test "register records the type in the resource registry" {
@@ -41,7 +43,7 @@ _columns_of() {
     knit_with_git "https://example.org/x.git" "main"
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "fetch:julia_code")
+    _knit_command_mangle cmd "fetch:julia_code"
     _knit_command_is_resource "${cmd}"
 }
 
@@ -74,7 +76,7 @@ _columns_of() {
     knit_with_git "https://example.org/x.git" "main"
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "fetch:r")
+    _knit_command_mangle cmd "fetch:r"
     local marker="_KNIT_CMD_${cmd}_fetch_method"
     [ "${!marker}" = "git" ]
 }
@@ -110,7 +112,7 @@ _columns_of() {
     knit_with_url "https://example.org/x.tar.gz"
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "fetch:r")
+    _knit_command_mangle cmd "fetch:r"
     local marker="_KNIT_CMD_${cmd}_fetch_method"
     [ "${!marker}" = "url" ]
 }
@@ -139,7 +141,7 @@ _columns_of() {
     knit_with_local "/data/x"
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "fetch:r")
+    _knit_command_mangle cmd "fetch:r"
     local marker="_KNIT_CMD_${cmd}_fetch_method"
     [ "${!marker}" = "local" ]
 }
@@ -201,7 +203,7 @@ _columns_of() {
     knit_with_checksum "deadbeef"
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "fetch:r")
+    _knit_command_mangle cmd "fetch:r"
     local marker="_KNIT_CMD_${cmd}_checksum"
     [ "${!marker}" = "deadbeef" ]
 }
@@ -228,7 +230,7 @@ _columns_of() {
     knit_with_git "https://example.org/x.git" "main"
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "fetch:r")
+    _knit_command_mangle cmd "fetch:r"
     local marker="_KNIT_CMD_${cmd}_checksum"
     [ -z "${!marker:-}" ]
 }

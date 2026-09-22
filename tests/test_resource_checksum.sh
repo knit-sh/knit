@@ -101,7 +101,7 @@ _stub_git() {
     knit_register_resource "g" "d"
     knit_with_git "https://x/a.git" "main"
     knit_done
-    local cmd; cmd=$(_knit_command_mangle "fetch:g")
+    local cmd; _knit_command_mangle cmd "fetch:g"
     run _knit_resource_defaults_used "${cmd}" git --url "https://x/a.git" --ref "main"
     [ "${status}" -eq 0 ]
     run _knit_resource_defaults_used "${cmd}" git --url "https://x/other.git" --ref "main"

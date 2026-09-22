@@ -39,7 +39,7 @@ teardown() {
     knit_with_spack_env "spack.yaml"
     knit_done
     local cmd cbs
-    cmd=$(_knit_command_mangle "setup:libs")
+    _knit_command_mangle cmd "setup:libs"
     eval "cbs=\"\${_KNIT_CMD_${cmd}_before_cb[*]}\""
     [[ "${cbs}" == *_knit_setup_spack_env_before_cb* ]]
     [[ "${cbs}" == *file* ]]
@@ -56,7 +56,7 @@ spack:
 EOF
     knit_done
     local cmd cbs
-    cmd=$(_knit_command_mangle "setup:libs")
+    _knit_command_mangle cmd "setup:libs"
     eval "cbs=\"\${_KNIT_CMD_${cmd}_before_cb[*]}\""
     [[ "${cbs}" == *stdin* ]]
     [[ "${cbs}" == *zlib* ]]
@@ -97,7 +97,7 @@ EOF
     knit_with_spack_env "spack.yaml"
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "setup:libs")
+    _knit_command_mangle cmd "setup:libs"
     local -a cbs
     eval "cbs=(\"\${_KNIT_CMD_${cmd}_after_cb[@]}\")"
     # The generic writer must come first (it truncates .activate.sh), the spack
@@ -265,7 +265,7 @@ EOF
     knit_with_spack_env "spack.yaml"
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "setup:libs")
+    _knit_command_mangle cmd "setup:libs"
     declare -gA "_KNIT_CMD_${cmd}_output_value=()"
     _KNIT_EXECUTING_COMMAND=("${cmd}")
 
@@ -294,7 +294,7 @@ EOF
     knit_with_spack_env "spack.yaml"
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "setup:libs")
+    _knit_command_mangle cmd "setup:libs"
     declare -gA "_KNIT_CMD_${cmd}_output_value=()"
 
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"

@@ -402,7 +402,9 @@ teardown() {
     # knit_register_job / knit_register_app); an ordinary nested command keeps
     # type "command" and renders with plain nesting instead. Mark the leaf as a
     # job so it renders with the dispatcher grammar.
-    printf -v "_KNIT_CMD_$(_knit_command_mangle "ic_disp2:leaf")_type" '%s' 'job'
+    local leaf_cmd
+    _knit_command_mangle leaf_cmd "ic_disp2:leaf"
+    printf -v "_KNIT_CMD_${leaf_cmd}_type" '%s' 'job'
     local result
     result=$(_knit_invoke_command "ic_disp2" "leaf" "--help")
     # Usage reflects the "parent [OPTIONS] -- leaf [OPTIONS]" grammar.

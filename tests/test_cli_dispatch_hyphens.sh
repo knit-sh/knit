@@ -104,7 +104,7 @@ teardown() {
     knit_with_setup "libs-inline"
     knit_done
     local cmd marker
-    cmd=$(_knit_command_mangle "consumer")
+    _knit_command_mangle cmd "consumer"
     marker="_KNIT_CMD_${cmd}_setup"
     [ "${!marker}" = "libs_inline" ]
 }
@@ -133,7 +133,7 @@ teardown() {
     knit_done
 
     local cmd marker
-    cmd=$(_knit_command_mangle "consumer")
+    _knit_command_mangle cmd "consumer"
     marker="_KNIT_CMD_${cmd}_resource_dep"
     [ "${!marker}" = "my_code" ]
 }

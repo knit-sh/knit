@@ -25,11 +25,15 @@ _store_ai() {
 
 @test "ai init is no longer a registered command" {
     # Commands are stored under their mangled name (colons -> __1__).
-    run _knit_set_find _KNIT_COMMANDS "$(_knit_command_mangle "ai:init")"
+    local cmd
+    _knit_command_mangle cmd "ai:init"
+    run _knit_set_find _KNIT_COMMANDS "${cmd}"
     [ "$status" -ne 0 ]
     # The rest of the ai group is intact.
-    _knit_set_find _KNIT_COMMANDS "$(_knit_command_mangle "ai:ask")"
-    _knit_set_find _KNIT_COMMANDS "$(_knit_command_mangle "ai:query")"
+    _knit_command_mangle cmd "ai:ask"
+    _knit_set_find _KNIT_COMMANDS "${cmd}"
+    _knit_command_mangle cmd "ai:query"
+    _knit_set_find _KNIT_COMMANDS "${cmd}"
 }
 
 @test "the ai init body function is gone" {

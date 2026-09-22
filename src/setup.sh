@@ -151,7 +151,7 @@ _knit_setup() {
 
     # Validate args for the setup subcommand (knit_fatal on bad args)
     local subcmd
-    subcmd=$(_knit_command_mangle "setup:${setup_name}")
+    _knit_command_mangle subcmd "setup:${setup_name}"
 
     # Registered spelling of the setup, for human-facing messages.
     local setup_display_var="_KNIT_CMD_${subcmd}_display"

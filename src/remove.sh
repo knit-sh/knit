@@ -193,7 +193,7 @@ _knit_remove_table_kind() {
     fi
     local owner mangled type_var kind
     owner="${_KNIT_DB_REGISTERED_TABLES["${table}"]}"
-    mangled="$(_knit_command_mangle "${owner}")"
+    _knit_command_mangle mangled "${owner}"
     type_var="_KNIT_CMD_${mangled}_type"
     kind="${!type_var:-command}"
     [[ "${kind}" == "wrapper" ]] && kind="command"
@@ -819,7 +819,7 @@ _knit_remove_plain_outputs() {
         esac
         owner="${_KNIT_DB_REGISTERED_TABLES["${tbl}"]:-}"
         [[ -z "${owner}" ]] && continue
-        mangled="$(_knit_command_mangle "${owner}")"
+        _knit_command_mangle mangled "${owner}"
         # No file-parameter markers means the command has no file outputs to
         # classify (or is no longer registered): nothing to list for this row.
         _knit_set_exists "_KNIT_CMD_${mangled}_fileparams" || continue

@@ -448,7 +448,7 @@ _knit_job_resubmit() {
     # job command whose schema we can consult.
     local -a job_args=()
     local job_cmd
-    job_cmd=$(_knit_command_mangle "submit:${job_name}")
+    _knit_command_mangle job_cmd "submit:${job_name}"
     if [[ -n "${job_name}" ]] && _knit_set_find _KNIT_COMMANDS "${job_cmd}"; then
         local cnt esc_job_name
         _knit_sql_escape esc_job_name "${job_name}"

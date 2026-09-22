@@ -517,7 +517,7 @@ _knit_fetch() {
     fi
 
     local subcmd
-    subcmd=$(_knit_command_mangle "fetch:${type}")
+    _knit_command_mangle subcmd "fetch:${type}"
 
     # Registered spelling of the resource type, for human-facing messages.
     local type_display_var="_KNIT_CMD_${subcmd}_display"

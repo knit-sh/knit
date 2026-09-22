@@ -20,31 +20,31 @@ teardown() {
 
 @test "_knit_command_mangle converts colons to __1__" {
     local result
-    result=$(_knit_command_mangle "foo:bar:baz")
+    _knit_command_mangle result "foo:bar:baz"
     [ "$result" = "foo__1__bar__1__baz" ]
 }
 
 @test "_knit_command_mangle converts spaces to __1__" {
     local result
-    result=$(_knit_command_mangle "foo bar baz")
+    _knit_command_mangle result "foo bar baz"
     [ "$result" = "foo__1__bar__1__baz" ]
 }
 
 @test "_knit_command_mangle leaves single word unchanged" {
     local result
-    result=$(_knit_command_mangle "foo")
+    _knit_command_mangle result "foo"
     [ "$result" = "foo" ]
 }
 
 @test "_knit_command_mangle folds hyphens to underscores" {
     local result
-    result=$(_knit_command_mangle "db-show")
+    _knit_command_mangle result "db-show"
     [ "$result" = "db_show" ]
 }
 
 @test "_knit_command_mangle folds hyphens per nested segment" {
     local result
-    result=$(_knit_command_mangle "grp:db-show")
+    _knit_command_mangle result "grp:db-show"
     [ "$result" = "grp__1__db_show" ]
 }
 

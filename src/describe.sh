@@ -2016,10 +2016,11 @@ _knit_describe_read_filters() {
     if [[ -n "${only}" ]]; then
         local -a selected=()
         IFS=',' read -r -a selected <<< "${only}"
-        local name
+        local name mangled
         for name in "${selected[@]}"; do
             [[ -z "${name}" ]] && continue
-            _knit_set_add _KNIT_DESCRIBE_ONLY "$(_knit_command_mangle "${name}")"
+            _knit_command_mangle mangled "${name}"
+            _knit_set_add _KNIT_DESCRIBE_ONLY "${mangled}"
         done
     fi
 }

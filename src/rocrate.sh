@@ -113,7 +113,7 @@ _knit_rocrate_rows_json() {
     for table in "${!_KNIT_DB_REGISTERED_TABLES[@]}"; do
         _knit_rocrate_table_exists "${table}" || continue
         cmd="${_KNIT_DB_REGISTERED_TABLES[${table}]}"
-        mangled="$(_knit_command_mangle "${cmd}")"
+        _knit_command_mangle mangled "${cmd}"
         outputs_json="$(_knit_rocrate_outputs_json "${mangled}")"
         _knit_db_sql_ident tbl_ident "${table}"
         rows_json="$(_knit_sqlite3 -json "SELECT * FROM ${tbl_ident};")"

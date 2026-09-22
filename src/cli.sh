@@ -143,14 +143,28 @@ knit_empty() {
 # underscore), the same way hyphens and underscores are interchangeable in
 # parameter names.
 #
-# @param[in] cmd Command to mangle.
+# The result is returned through a caller-named variable (nameref) so the
+# registration hot path pays no subshell fork. The body is pure Bash (no sed),
+# which is far cheaper: this runs once per command and parameter at load time.
+#
+# @param[out] __knit_ret Name of the variable to hold the mangled command.
+# @param[in] cmd Command to mangle (remaining arguments are joined with spaces).
 # ------------------------------------------------------------------------------
 _knit_command_mangle() {
-    local cmd="$*"
-    cmd="${cmd//-/_}"
-    local mangled
-    mangled=$(sed -E 's/[: ]+/__1__/g' <<< "${cmd}")
-    printf "%s" "${mangled}"
+    local -n __knit_ret=$1; shift
+    local __knit_mangle="$*"
+    __knit_mangle="${__knit_mangle//-/_}"
+    # Collapse runs of ":" and space separators into a single "__1__", the same
+    # as the previous "s/[: ]+/__1__/g": fold ":" to space, then split on
+    # whitespace (which drops empty fields) and rejoin with "__1__".
+    __knit_mangle="${__knit_mangle//:/ }"
+    local -a __knit_parts
+    read -ra __knit_parts <<< "${__knit_mangle}"
+    local __knit_out="" __knit_part
+    for __knit_part in "${__knit_parts[@]}"; do
+        __knit_out+="${__knit_out:+__1__}${__knit_part}"
+    done
+    __knit_ret="${__knit_out}"
 }
 
 # ------------------------------------------------------------------------------
@@ -612,7 +626,7 @@ knit_register() {
         knit_fatal "Invalid character found in command name \"${demangled_cmd}\"."
     fi
     local cmd
-    cmd=$(_knit_command_mangle "${demangled_cmd}")
+    _knit_command_mangle cmd "${demangled_cmd}"
     local parent_cmd
     _knit_command_get_parents parent_cmd "$cmd"
     if [ -n "${parent_cmd}" ]  &&  ! _knit_set_find _KNIT_COMMANDS "${parent_cmd}"; then
@@ -2628,7 +2642,7 @@ _knit_print_options_block() {
 # ------------------------------------------------------------------------------
 _knit_print_command_usage() {
     local cmd
-    cmd=$(_knit_command_mangle "$*")
+    _knit_command_mangle cmd "$*"
     local display
     # Registered spelling (with any hyphens), space-separated like the invocation
     # form; the display path joins segments with ":", never a space.
@@ -3192,6 +3206,7 @@ _knit_invoke_command() {
     _KNIT_CALL_ALIAS=""
     # find the command and subcommands
     local demangled_cmd=""
+    local wrapper_probe
     while [[ $# -gt 0 ]]; do
         if [[ $1 == --* ]]; then
             break
@@ -3205,13 +3220,14 @@ _knit_invoke_command() {
         # wrapper forwards everything after its name verbatim, so its arguments
         # (which need not start with "--") must not be mistaken for further
         # subcommand names.
-        if _knit_command_is_wrapper "$(_knit_command_mangle "${demangled_cmd}")"; then
+        _knit_command_mangle wrapper_probe "${demangled_cmd}"
+        if _knit_command_is_wrapper "${wrapper_probe}"; then
             break
         fi
     done
     # create the mangled command name
     local cmd
-    cmd=$(_knit_command_mangle "${demangled_cmd}")
+    _knit_command_mangle cmd "${demangled_cmd}"
     # check if the command exists
     if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
         knit_fatal "Unknown command \"${demangled_cmd}\"."

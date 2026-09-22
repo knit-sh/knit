@@ -136,7 +136,7 @@ _knit_run() {
 
     # Validate args for the app subcommand (knit_fatal on bad args).
     local subcmd
-    subcmd=$(_knit_command_mangle "run:${app_name}")
+    _knit_command_mangle subcmd "run:${app_name}"
 
     # Registered spelling of the app, for human-facing messages.
     local app_display_var="_KNIT_CMD_${subcmd}_display"

@@ -64,7 +64,7 @@ teardown() {
     knit_provides_launcher
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "setup:mpienv")
+    _knit_command_mangle cmd "setup:mpienv"
     local -a cbs
     eval "cbs=(\"\${_KNIT_CMD_${cmd}_after_cb[@]}\")"
     # The generic writer truncates .activate.sh and must run first; the launcher
@@ -106,7 +106,7 @@ _arm_cmd() {
     knit_register_setup "mpienv" "_test_setup_fn" "Build MPI."
     knit_provides_launcher
     knit_done
-    _ARMED_CMD=$(_knit_command_mangle "setup:mpienv")
+    _knit_command_mangle _ARMED_CMD "setup:mpienv"
     declare -gA "_KNIT_CMD_${_ARMED_CMD}_output_value=()"
     _KNIT_EXECUTING_COMMAND=("${_ARMED_CMD}")
 }

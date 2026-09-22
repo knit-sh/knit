@@ -146,7 +146,7 @@ teardown() {
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "submit:myjob")
+    _knit_command_mangle cmd "submit:myjob"
     local cb_content
     eval "cb_content=\"\${_KNIT_CMD_${cmd}_before_cb[*]}\""
     [[ "${cb_content}" == *_knit_job_before_cb* ]]
@@ -157,7 +157,7 @@ teardown() {
     knit_register_job "myjob" "_test_job_fn" "A test job."
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "submit:myjob")
+    _knit_command_mangle cmd "submit:myjob"
     local cb_content
     eval "cb_content=\"\${_KNIT_CMD_${cmd}_after_cb[*]}\""
     [[ "${cb_content}" == *_knit_job_after_cb* ]]

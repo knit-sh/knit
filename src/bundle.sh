@@ -527,7 +527,7 @@ _knit_bundle_warn_unselected_local() {
         [[ -f "${type_marker}" ]] || continue
         IFS= read -r rtype < "${type_marker}" || rtype=""
         [[ -n "${rtype}" ]] || continue
-        mangled="$(_knit_command_mangle "fetch:${rtype}")"
+        _knit_command_mangle mangled "fetch:${rtype}"
         method_var="_KNIT_CMD_${mangled}_fetch_method"
         if [[ "${!method_var:-}" == "local" ]]; then
             knit_warning "bundle: local resource \"%s\" is not selected and will not be in the archive (a local resource has no remote source to re-fetch); add it with --include-resources or --include-all-resources." \
