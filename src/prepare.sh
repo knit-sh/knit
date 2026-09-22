@@ -376,7 +376,11 @@ knit_done
 #   - "axes"    — a map from field name to a list of values; the block expands to
 #                 the cartesian product of the axes (first axis varies slowest).
 #   - "exclude" — a list of field maps; drop every combination that matches all
-#                 fields of any exclude entry.
+#                 fields of any exclude entry. A submission field matches by
+#                 value equality; the "args" field matches as a SUBSET (every
+#                 sub-key the exclude names must equal the combination's), so an
+#                 exclude can target a single job argument (e.g.
+#                 `"exclude": [ { "args": { "x": 2 } } ]` drops every x==2 combo).
 #   - "include" — a list of field maps; append each, merged over the block's
 #                 fixed fields, as a new standalone combination (after exclude).
 # Every other key on the block (e.g. "job", a fixed "setup") is carried into
@@ -442,7 +446,13 @@ def expand_matrix($i; $block):
   | (axis_combos($axes) | map($fixed + .)) as $base
   | ($base | map(. as $c
       | select( any($exclude[]; . as $x
-                    | all(($x|keys_unsorted[]); . as $k | $c[$k] == $x[$k]) )
+                    | all(($x|keys_unsorted[]); . as $k
+                          | if $k == "args"
+                               and (($x.args|type) == "object")
+                               and (($c.args|type) == "object")
+                            then all(($x.args|keys_unsorted[]); . as $ak
+                                     | $c.args[$ak] == $x.args[$ak])
+                            else $c[$k] == $x[$k] end) )
                 | not ))) as $kept
   | ($kept + ($includes | map($fixed + .)));
 .jobs |= ( [ range(0; length) as $i | (.[$i]) as $e

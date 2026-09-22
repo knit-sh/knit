@@ -635,3 +635,67 @@ JSON
     [[ "$output" == *"args"* ]]
     [ "$(_prepared_count)" = "0" ]
 }
+
+# ---------- matrix expansion: args-subset exclude ----------
+
+@test "prepare from exclude subset-matches a single job argument" {
+    _register_jobs_with_setup
+
+    # 2 colormaps x 2 zooms = 4; exclude every zoom=2.0 combination by naming
+    # only that one sub-key, leaving the two zoom=1.0 combinations.
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "axes": { "args": { "colormap": ["fire","ice"], "zoom": ["1.0","2.0"] } },
+      "exclude": [ { "args": { "zoom": "2.0" } } ] } } ] }
+JSON
+    [ "$(_prepared_count)" = "2" ]
+    local id combos=""
+    while IFS= read -r id; do
+        combos+="$(_colormap_of "${id}")/$(_zoom_of "${id}") "
+    done < <(_ordered_uuids)
+    [ "${combos}" = "fire/1.0 ice/1.0 " ]
+}
+
+@test "prepare from exclude combines an args subset with a submission key" {
+    _register_jobs_with_setup
+
+    # nodes[2] x colormap[fire,ice] = 4 combinations; drop only fire-at-2 by
+    # naming both the submission key and the single arg sub-key.
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "axes": { "nodes": [2, 4],
+                "args": { "colormap": ["fire","ice"] } },
+      "exclude": [ { "nodes": 2, "args": { "colormap": "fire" } } ] } } ] }
+JSON
+    [ "$(_prepared_count)" = "3" ]
+    local id combos=""
+    while IFS= read -r id; do
+        combos+="$(sqlite3 "${_KNIT_DATABASE}" \
+            "SELECT nodes FROM jobs WHERE id='${id}';")/$(_colormap_of "${id}") "
+    done < <(_ordered_uuids)
+    # The 2/fire combination is dropped; the other three survive in order.
+    [ "${combos}" = "2/ice 4/fire 4/ice " ]
+}
+
+@test "prepare from exclude naming a whole arg object still drops exactly that combination" {
+    _register_jobs_with_setup
+
+    # Back-compat: an exclude that names every sub-key equals the coupled tuple,
+    # so it drops exactly the ice/2.0 combination (subset == equality here).
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "axes": { "args": [ {"colormap":"fire","zoom":"1.0"},
+                          {"colormap":"ice","zoom":"2.0"} ] },
+      "exclude": [ { "args": {"colormap":"ice","zoom":"2.0"} } ] } } ] }
+JSON
+    [ "$(_prepared_count)" = "1" ]
+    local id
+    id="$(_ordered_uuids)"
+    [ "$(_colormap_of "${id}")/$(_zoom_of "${id}")" = "fire/1.0" ]
+}
