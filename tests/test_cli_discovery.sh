@@ -62,3 +62,54 @@ teardown() {
     [[ "$output" == *"already has a subcommand discovery function"* ]]
     knit_done
 }
+
+# ---------- _knit_ensure_discovered ----------
+
+@test "_knit_ensure_discovered runs the discovery function exactly once" {
+    _KNIT_DISC_CALLS=0
+    grp_discover() {
+        _KNIT_DISC_CALLS=$((_KNIT_DISC_CALLS + 1))
+        knit_register "grp:sub" knit_empty "A subcommand."
+        knit_done
+    }
+    knit_register "grp" knit_empty "A group."
+    knit_with_subcommand_discovery grp_discover
+    knit_done
+
+    _knit_ensure_discovered "grp"
+    _knit_ensure_discovered "grp"
+    [ "${_KNIT_DISC_CALLS}" -eq 1 ]
+    [ "${_KNIT_CMD_grp_discovered}" = "true" ]
+    _knit_set_find _KNIT_COMMANDS "grp__1__sub"
+}
+
+@test "_knit_ensure_discovered passes the parent display name to the function" {
+    _KNIT_DISC_ARG=""
+    grp_discover() { _KNIT_DISC_ARG="$1"; }
+    knit_register "my-grp" knit_empty "A group."
+    knit_with_subcommand_discovery grp_discover
+    knit_done
+
+    _knit_ensure_discovered "my_grp"
+    [ "${_KNIT_DISC_ARG}" = "my-grp" ]
+}
+
+@test "_knit_ensure_discovered is a no-op for a command without a discovery function" {
+    knit_register "grp" knit_empty "A group."
+    knit_done
+    _knit_ensure_discovered "grp"
+    [ ! -v _KNIT_CMD_grp_discovered ]
+}
+
+@test "_knit_ensure_discovered is a no-op for an unknown command" {
+    _knit_ensure_discovered "does_not_exist"
+}
+
+@test "_knit_ensure_discovered is fatal when the discovery function is missing" {
+    knit_register "grp" knit_empty "A group."
+    knit_with_subcommand_discovery not_defined_anywhere
+    knit_done
+    run _knit_ensure_discovered "grp"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"is not defined"* ]]
+}

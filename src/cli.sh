@@ -748,6 +748,43 @@ _knit_command_is_wrapper() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_ensure_discovered()
+#
+# Run a command's subcommand discovery function (see
+# knit_with_subcommand_discovery) if it has one and it has not run yet. A no-op
+# for a command without a discovery function or whose function has already run,
+# so every trigger (the resolver, "--help", "describe") may call it freely
+# before reading the command's subcommands.
+#
+# The "_discovered" guard is set to "true" BEFORE the function is called, so a
+# discovery function that (directly or through a callback) causes the same
+# command to be resolved again does not run the function a second time.
+#
+# The function name is checked with "declare -F" when it is called (not at
+# declaration time), because the function may be defined after the decorator. It
+# is called in the current shell (never a subshell) with the command's display
+# name as its first argument.
+#
+# @param[in] cmd Command (mangled name) whose discovery to ensure.
+# ------------------------------------------------------------------------------
+_knit_ensure_discovered() {
+    local cmd="$1"
+    local disc_var="_KNIT_CMD_${cmd}_subcommand_discovery"
+    [[ -n "${!disc_var:-}" ]] || return 0            # no discovery function
+    local done_var="_KNIT_CMD_${cmd}_discovered"
+    [[ "${!done_var:-}" == "true" ]] && return 0     # already discovered
+    printf -v "${done_var}" '%s' 'true'
+    local fn="${!disc_var}"
+    local display
+    _knit_command_display display "${cmd}"
+    if ! declare -F "${fn}" > /dev/null; then
+        knit_fatal "Subcommand discovery function \"${fn}\" for command \"${display}\" is not defined."
+    fi
+    knit_trace "Discovering subcommands of \"${display}\" via \"${fn}\"."
+    "${fn}" "${display}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_register_wrapper()
 #
 # Register a wrapper command: a command that forwards all of its arguments
