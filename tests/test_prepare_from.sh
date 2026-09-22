@@ -699,3 +699,76 @@ JSON
     id="$(_ordered_uuids)"
     [ "$(_colormap_of "${id}")/$(_zoom_of "${id}")" = "fire/1.0" ]
 }
+
+# ---------- defaults.args deep-merge ----------
+
+@test "prepare from deep-merges defaults.args under a concrete entry's args" {
+    _register_jobs_with_setup
+
+    # colormap is set only in defaults.args; the entry overrides only zoom. With a
+    # shallow merge the entry's args would replace defaults.args wholesale, dropping
+    # colormap. The deep merge keeps it.
+    local uuid
+    uuid="$(_knit_invoke_command prepare from <<'JSON'
+{ "defaults": { "setup": "setup", "args": { "colormap": "gray", "zoom": "1.0" } },
+  "jobs": [ { "job": "render", "args": { "zoom": "2.0" } } ] }
+JSON
+)"
+    [ "$(_colormap_of "${uuid}")" = "gray" ]   # survived from defaults.args
+    [ "$(_zoom_of "${uuid}")" = "2.0" ]        # entry wins for the shared key
+}
+
+@test "prepare from deep-merges defaults.args under every matrix combination" {
+    _register_jobs_with_setup
+
+    # The user's scenario: a shared job argument (colormap) in defaults.args, the
+    # swept argument (zoom) in a matrix args axis. Every combination must keep
+    # colormap while varying zoom.
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup", "args": { "colormap": "gray" } },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "axes": { "args": { "zoom": ["1.0","2.0"] } } } } ] }
+JSON
+    [ "$(_prepared_count)" = "2" ]
+    local id combos=""
+    while IFS= read -r id; do
+        combos+="$(_colormap_of "${id}")/$(_zoom_of "${id}") "
+    done < <(_ordered_uuids)
+    [ "${combos}" = "gray/1.0 gray/2.0 " ]
+}
+
+@test "prepare from deep-merges a matrix block's fixed args under each combination" {
+    _register_jobs_with_setup
+
+    # A fixed args on the block (colormap) is shared; the args axis varies zoom.
+    # Each combination keeps the block's colormap.
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "args": { "colormap": "gray" },
+      "axes": { "args": { "zoom": ["1.0","2.0"] } } } } ] }
+JSON
+    [ "$(_prepared_count)" = "2" ]
+    local id combos=""
+    while IFS= read -r id; do
+        combos+="$(_colormap_of "${id}")/$(_zoom_of "${id}") "
+    done < <(_ordered_uuids)
+    [ "${combos}" = "gray/1.0 gray/2.0 " ]
+}
+
+@test "prepare from lets an entry array args override defaults.args wholesale" {
+    _register_jobs_with_setup
+
+    # The array form is the raw-token escape hatch: it takes full control, so
+    # defaults.args does NOT deep-merge into it (colormap is dropped).
+    local uuid
+    uuid="$(_knit_invoke_command prepare from <<'JSON'
+{ "defaults": { "setup": "setup", "args": { "colormap": "gray" } },
+  "jobs": [ { "job": "render", "args": ["--zoom", "2.0"] } ] }
+JSON
+)"
+    [ -z "$(_colormap_of "${uuid}")" ]         # array args wins wholesale
+    [[ "$(_jobscript_of "${uuid}")" == *"--zoom 2.0"* ]]
+}

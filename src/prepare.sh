@@ -384,8 +384,11 @@ knit_done
 #   - "include" — a list of field maps; append each, merged over the block's
 #                 fixed fields, as a new standalone combination (after exclude).
 # Every other key on the block (e.g. "job", a fixed "setup") is carried into
-# every combination. Combinations keep product order, then the appended
-# includes; blocks and concrete entries interleave in plan order.
+# every combination. A fixed "args" on the block is deep-merged under each
+# combination's (and each include's) own "args", so a combination keeps the
+# block's shared arguments while overriding only the ones it varies. Combinations
+# keep product order, then the appended includes; blocks and concrete entries
+# interleave in plan order.
 #
 # A top-level non-reserved axis key is a submission field, so it varies a
 # submission argument (e.g. "nodes") directly. To vary a job's own arguments, use
@@ -414,6 +417,16 @@ _knit_prepare_matrix_expand() {
 def axis_combos($axes):
   reduce ($axes|to_entries)[] as $e ([{}];
     [ .[] as $acc | $e.value[] as $v | $acc + {($e.key): $v} ]);
+# Merge $hi over $lo (a shallow object merge, $hi wins), but deep-merge the "args"
+# object when both provide one so a combination (or include) inheriting a
+# block-level fixed "args" keeps the arguments it does not itself set, rather than
+# replacing the whole map (matches the plan-defaults merge in
+# _knit_prepare_from_file). An "args" that is an array (the raw-token form) on
+# either side falls back to the shallow merge, so $hi wins wholesale.
+def merge_under($lo; $hi):
+  ($lo + $hi)
+  | if (($lo.args|type) == "object") and (($hi.args|type) == "object")
+    then .args = ($lo.args + $hi.args) else . end;
 def expand_matrix($i; $block):
   (if ($block|type) != "object"
      then error("plan entry \($i): \"matrix\" must be an object") else . end)
@@ -443,7 +456,7 @@ def expand_matrix($i; $block):
        then error("plan entry \($i): matrix \"include\" must be an array")
      else . end)
   | ($block | del(.axes, .exclude, .include)) as $fixed
-  | (axis_combos($axes) | map($fixed + .)) as $base
+  | (axis_combos($axes) | map(merge_under($fixed; .))) as $base
   | ($base | map(. as $c
       | select( any($exclude[]; . as $x
                     | all(($x|keys_unsorted[]); . as $k
@@ -454,7 +467,7 @@ def expand_matrix($i; $block):
                                      | $c.args[$ak] == $x.args[$ak])
                             else $c[$k] == $x[$k] end) )
                 | not ))) as $kept
-  | ($kept + ($includes | map($fixed + .)));
+  | ($kept + ($includes | map(merge_under($fixed; .))));
 .jobs |= ( [ range(0; length) as $i | (.[$i]) as $e
              | if ($e|type)=="object" and ($e|has("matrix"))
                then expand_matrix($i; $e.matrix)
@@ -473,6 +486,13 @@ def expand_matrix($i; $block):
 # list of concrete entries. Every entry is resolved to a `prepare` argument list
 # and validated before anything is prepared, so a malformed plan leaves no job
 # half-prepared. Prints one prepared job UUID per line.
+#
+# "defaults" is merged under each entry as a shallow object merge (an explicit
+# entry field wins), EXCEPT the "args" object, which is deep-merged when both
+# "defaults" and the entry supply one: an entry overrides individual arguments and
+# keeps the rest of "defaults.args", so a matrix sweep over one argument does not
+# drop arguments shared through "defaults.args". When either side's "args" is an
+# array (the raw-token escape hatch), the entry's "args" wins wholesale.
 #
 # Per-entry field resolution (an explicit field on the entry wins over defaults):
 #   - "job"   (required) — the registered job name (the token after --).
@@ -552,6 +572,15 @@ def render_value($k; $v):
   if $v == true then ["--\($k)"]
   elif $v == false then []
   else ["--\($k)", ($v|tostring)] end;
+# Merge $hi over $lo (a shallow object merge, $hi wins), but deep-merge the "args"
+# object when both provide one so an entry overrides individual arguments and keeps
+# the rest of "defaults.args" (a matrix sweep over one argument must not drop shared
+# arguments set only in "defaults.args"). An array "args" on either side falls back
+# to the shallow merge, so the entry wins wholesale.
+def merge_under($lo; $hi):
+  ($lo + $hi)
+  | if (($lo.args|type) == "object") and (($hi.args|type) == "object")
+    then .args = ($lo.args + $hi.args) else . end;
 . as $plan
 | ($plan.defaults // {}) as $defaults
 | ($plan.jobs) as $jobs
@@ -559,7 +588,7 @@ def render_value($k; $v):
 | ($jobs[$i]) as $raw
 | (if ($raw|type) != "object"
      then error("plan entry \($i) is not an object") else null end)
-| ($defaults + $raw) as $m0
+| merge_under($defaults; $raw) as $m0
 | (if ($m0|has("group")|not) and ($top_group != "")
      then $m0 + {group: $top_group} else $m0 end) as $m
 | (if ($m|has("job")|not)

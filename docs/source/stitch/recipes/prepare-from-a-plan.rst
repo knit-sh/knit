@@ -20,7 +20,11 @@ omitted. Each entry is prepared as if you had run ``prepare -- <job> …`` by ha
   (a per-entry ``group``, or a ``--group`` on the command line, overrides it).
 - ``defaults`` (optional object) --- a field map merged **under** every entry, so
   an explicit field on the entry wins. Applies to concrete entries and to every
-  matrix combination.
+  matrix combination. The ``args`` object is deep-merged: an entry (or a matrix
+  combination) overrides only the arguments it names and keeps the rest of
+  ``defaults.args``, so you can sweep one argument in a matrix while sharing the
+  others through ``defaults.args``. (An ``args`` given as a raw-token **array**
+  takes full control and does not merge with ``defaults.args``.)
 - ``jobs`` (required array) --- the entries to prepare. Each element is **either**
   a concrete entry **or** a ``matrix`` block.
 

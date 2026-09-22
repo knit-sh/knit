@@ -105,6 +105,24 @@ while IFS= read -r gid; do
 done < <(exp query sql --exec \
     "SELECT id FROM jobs WHERE \"group\"='grid' AND state='prepared'" 2>/dev/null)
 
+# ---- defaults.args deep-merges under a matrix sweep -----------------------
+# label is shared through defaults.args; n is swept in the matrix args axis. A
+# shallow merge would let each combination's args replace defaults.args, dropping
+# the shared label; the deep merge keeps it.
+printf '%s' '{ "group": "merge",
+  "defaults": { "args": { "label": "shared" } },
+  "jobs": [ { "matrix": { "job": "sim",
+                          "axes": { "args": { "n": [1, 2] } } } } ] }' \
+    | exp prepare from >/dev/null
+check_eq "$(prepared_count merge)" "2" "the defaults.args sweep prepared two jobs"
+kept_label=0
+while IFS= read -r mid; do
+    [[ -z "${mid}" ]] && continue
+    grep -q -- '--label shared' "jobs/${mid}/.job.sh" && kept_label=$(( kept_label + 1 ))
+done < <(exp query sql --exec \
+    "SELECT id FROM jobs WHERE \"group\"='merge' AND state='prepared'" 2>/dev/null)
+check_eq "${kept_label}" "2" "defaults.args.label survived the matrix sweep (deep merge)"
+
 # ---- submit drain releases a whole batch ----------------------------------
 exp prepare --group drainset -- sim --n 1 >/dev/null
 exp prepare --group drainset -- sim --n 2 >/dev/null

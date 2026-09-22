@@ -12,6 +12,8 @@
 #     + include) into several prepared rows
 #   - a matrix with an object-form `args` axis (independent job-argument sub-axes)
 #     trimmed by an args-subset exclude expands to the right combinations
+#   - `defaults.args` deep-merges under a matrix sweep, so an argument shared
+#     through `defaults.args` survives in every swept combination
 #   - `submit prepared --id` releases one specific prepared job
 #   - `job cancel` on a still-prepared job removes its row and directory without
 #     ever contacting the scheduler
@@ -215,5 +217,33 @@ grid_target=$("${SQLITE}" "${DB}" \
 ./experiment.sh submit prepared --id "${grid_target}" --wait >/dev/null
 check_eq "$(state_of "${grid_target}")" "completed" \
     "an object-form-prepared grid job releases and completes"
+
+# ==========================================================================
+# Part D — defaults.args deep-merges under a matrix sweep.
+# ==========================================================================
+# A shared job argument (label) lives in defaults.args; the matrix sweeps only n.
+# A shallow merge would let each combination's args replace defaults.args and drop
+# the shared label; the deep merge keeps it.
+cat > mergeplan.json <<'JSON'
+{
+  "group": "merge",
+  "defaults": { "args": { "label": "shared" } },
+  "jobs": [
+    { "matrix": { "job": "sim", "axes": { "args": { "n": [ 1, 2 ] } } } }
+  ]
+}
+JSON
+
+./experiment.sh prepare from --file mergeplan.json
+check_eq "$(prepared_count merge)" "2" "the defaults.args sweep prepared two jobs"
+
+# Every prepared job must carry the shared --label (survived the deep merge).
+kept_label=0
+while IFS= read -r mid; do
+    [[ -z "${mid}" ]] && continue
+    grep -q -- '--label shared' "jobs/${mid}/.job.sh" && kept_label=$(( kept_label + 1 ))
+done < <("${SQLITE}" "${DB}" \
+    "SELECT id FROM jobs WHERE state='prepared' AND \"group\"='merge';")
+check_eq "${kept_label}" "2" "defaults.args.label survived the matrix sweep (deep merge)"
 
 assert_summary
