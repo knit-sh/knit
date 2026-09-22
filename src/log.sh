@@ -11,6 +11,23 @@ declare -x KNIT_LOG_LEVEL
 KNIT_LOG_LEVEL=${KNIT_LOG_LEVEL:-info}
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_LOG_LEVELS
+#
+# Maps each log level name to its integer value: trace=0, debug=1, info=2,
+# warning=3, error=4, critical=5. The log functions run once per registered
+# command and parameter at load time, so each looks the current level up here
+# directly (an "${_KNIT_LOG_LEVELS[${KNIT_LOG_LEVEL:-info}]:-2}" arithmetic test)
+# rather than calling a helper: the lookup reads KNIT_LOG_LEVEL fresh (so a
+# direct assignment still takes effect) with no per-call function overhead, and
+# an unknown level yields 2 (info). The subscript defaults to "info" ("${KNIT_LOG_LEVEL:-info}")
+# because an empty subscript is a Bash error, which the "${...:-2}" value default
+# cannot suppress; a non-empty but unknown level is a valid (absent) key and does
+# fall through to 2.
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_LOG_LEVELS
+_KNIT_LOG_LEVELS=([trace]=0 [debug]=1 [info]=2 [warning]=3 [error]=4 [critical]=5)
+
+# ------------------------------------------------------------------------------
 # @fn _knit_log_level_to_int()
 #
 # Convert a log level string to its integer value, storing it in the
@@ -22,15 +39,7 @@ KNIT_LOG_LEVEL=${KNIT_LOG_LEVEL:-info}
 # ------------------------------------------------------------------------------
 _knit_log_level_to_int() {
     local -n __knit_ret=$1
-    case "$2" in
-        trace)    __knit_ret=0 ;;
-        debug)    __knit_ret=1 ;;
-        info)     __knit_ret=2 ;;
-        warning)  __knit_ret=3 ;;
-        error)    __knit_ret=4 ;;
-        critical) __knit_ret=5 ;;
-        *)        __knit_ret=2 ;;
-    esac
+    __knit_ret=${_KNIT_LOG_LEVELS[${2:-info}]:-2}
 }
 
 # ------------------------------------------------------------------------------
@@ -110,9 +119,7 @@ _knit_log() {
 # @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_trace() {
-    local __lvl
-    _knit_log_level_to_int __lvl "${KNIT_LOG_LEVEL}"
-    if (( __lvl <= 0 )); then
+    if (( ${_KNIT_LOG_LEVELS[${KNIT_LOG_LEVEL:-info}]:-2} <= 0 )); then
         _knit_log trace "$@"
     fi
 }
@@ -126,9 +133,7 @@ knit_trace() {
 # @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_debug() {
-    local __lvl
-    _knit_log_level_to_int __lvl "${KNIT_LOG_LEVEL}"
-    if (( __lvl <= 1 )); then
+    if (( ${_KNIT_LOG_LEVELS[${KNIT_LOG_LEVEL:-info}]:-2} <= 1 )); then
         _knit_log debug "$@"
     fi
 }
@@ -142,9 +147,7 @@ knit_debug() {
 # @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_info() {
-    local __lvl
-    _knit_log_level_to_int __lvl "${KNIT_LOG_LEVEL}"
-    if (( __lvl <= 2 )); then
+    if (( ${_KNIT_LOG_LEVELS[${KNIT_LOG_LEVEL:-info}]:-2} <= 2 )); then
         _knit_log info "$@"
     fi
 }
@@ -158,9 +161,7 @@ knit_info() {
 # @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_warning() {
-    local __lvl
-    _knit_log_level_to_int __lvl "${KNIT_LOG_LEVEL}"
-    if (( __lvl <= 3 )); then
+    if (( ${_KNIT_LOG_LEVELS[${KNIT_LOG_LEVEL:-info}]:-2} <= 3 )); then
         _knit_log warning "$@"
     fi
 }
@@ -174,9 +175,7 @@ knit_warning() {
 # @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_error() {
-    local __lvl
-    _knit_log_level_to_int __lvl "${KNIT_LOG_LEVEL}"
-    if (( __lvl <= 4 )); then
+    if (( ${_KNIT_LOG_LEVELS[${KNIT_LOG_LEVEL:-info}]:-2} <= 4 )); then
         _knit_log error "$@"
     fi
 }
@@ -190,9 +189,7 @@ knit_error() {
 # @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
 knit_critical() {
-    local __lvl
-    _knit_log_level_to_int __lvl "${KNIT_LOG_LEVEL}"
-    if (( __lvl <= 5 )); then
+    if (( ${_KNIT_LOG_LEVELS[${KNIT_LOG_LEVEL:-info}]:-2} <= 5 )); then
         _knit_log critical "$@"
     fi
 }
