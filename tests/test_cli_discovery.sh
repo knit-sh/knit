@@ -239,3 +239,62 @@ teardown() {
     run _knit_set_find _KNIT_COMMANDS "aaa__1__bbb"
     [ "$status" -ne 0 ]
 }
+
+# ---------- describe hook (_knit_describe_children) ----------
+
+@test "_knit_describe_children discovers only the visited parent's subtree" {
+    aaa_discover() {
+        knit_register "aaa:bbb" knit_empty "A lazy subcommand."
+        knit_done
+    }
+    knit_register "aaa" knit_empty "A lazy group."
+    knit_with_subcommand_discovery aaa_discover
+    knit_done
+    knit_register "ccc" knit_empty "An eager group."
+    knit_done
+    knit_register "ccc:ddd" knit_empty "An eager child."
+    knit_done
+
+    # Walking a different parent must not expand the lazy subtree.
+    local kids=()
+    _knit_describe_children kids "ccc"
+    [ "${kids[*]}" = "ccc__1__ddd" ]
+    run _knit_set_find _KNIT_COMMANDS "aaa__1__bbb"
+    [ "$status" -ne 0 ]
+
+    # Walking the lazy parent expands exactly its subtree.
+    _knit_describe_children kids "aaa"
+    [ "${kids[*]}" = "aaa__1__bbb" ]
+    _knit_set_find _KNIT_COMMANDS "aaa__1__bbb"
+}
+
+@test "describe includes a lazy subtree it walks" {
+    aaa_discover() {
+        knit_register "aaa:bbb" knit_empty "A lazy subcommand."
+        knit_done
+    }
+    knit_register "aaa" knit_empty "A lazy group."
+    knit_with_subcommand_discovery aaa_discover
+    knit_done
+
+    run knit describe --format default
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"bbb"* ]]
+}
+
+@test "describe --only a deeper lazy node discovers the subtree to reach it" {
+    aaa_discover() {
+        knit_register "aaa:bbb" knit_empty "A lazy subcommand."
+        knit_done
+    }
+    knit_register "aaa" knit_empty "A lazy group."
+    knit_with_subcommand_discovery aaa_discover
+    knit_done
+
+    # Reaching aaa:bbb requires walking aaa as a container, which discovers its
+    # children.
+    run knit describe --only aaa:bbb
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"aaa bbb"* ]]
+    [[ "$output" == *"A lazy subcommand."* ]]
+}

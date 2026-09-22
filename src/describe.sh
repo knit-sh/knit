@@ -184,8 +184,14 @@ _knit_describe_emit_array() {
 # registration (declaration) order. The parent is given as a mangled name, or
 # the empty string to list the top-level (root) commands. This reads the command
 # tree adjacency built at registration time (_KNIT_ROOT_COMMANDS and the
-# per-command "_KNIT_CMD_<cmd>_subcommands" arrays), so it is fork-free and needs
-# no per-invocation build/teardown.
+# per-command "_KNIT_CMD_<cmd>_subcommands" arrays), so it needs no
+# per-invocation build/teardown.
+#
+# It first ensures the parent's lazy subcommands (if any) are discovered, so a
+# describe walk expands exactly the part of the tree it visits. That step is
+# fork-free once a subtree is discovered (the common case); the first walk into a
+# lazy subtree pays its registration cost, which is the deferred work this
+# feature is designed to avoid up front.
 #
 # @param[out] __knit_ret Name of the array variable to populate (nameref output).
 # @param[in] parent Mangled parent command name, or "" for top-level commands.
@@ -198,6 +204,10 @@ _knit_describe_children() {
     # shellcheck disable=SC2178 # nameref to indexed array
     local -n __knit_ret_children=$1; shift
     local parent="$1"
+    # Ensure lazy subcommands are registered before the parent's subcommand list
+    # is read. A no-op for the root ("") and for a parent without a discovery
+    # function.
+    _knit_ensure_discovered "${parent}"
     if [[ -z "${parent}" ]]; then
         __knit_ret_children=("${_KNIT_ROOT_COMMANDS[@]}")
     else
