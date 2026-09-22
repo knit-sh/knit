@@ -57,4 +57,29 @@ JSON
 }
 @done
 
+# A second plan for the "vary job arguments" part of the recipe. Here the `args`
+# axis is an OBJECT of sub-axes: `n` and `label` each vary independently, so the
+# matrix is their full product (times the `nodes` submission axis). The exclude
+# names a single arg sub-key (`label: "b"`), a subset match that drops every
+# label=b combination regardless of the other axes.
+@command "argplan" "Print the args-sub-axes sweep plan as JSON."
+_args_plan() {
+    cat <<'ARGSPLAN'
+{
+  "group": "grid",
+  "jobs": [
+    { "matrix": {
+        "job": "sim",
+        "axes": {
+          "nodes": [ 1, 2 ],
+          "args":  { "n": [ 1, 2 ], "label": [ "a", "b" ] }
+        },
+        "exclude": [ { "args": { "label": "b" } } ]
+    } }
+  ]
+}
+ARGSPLAN
+}
+@done
+
 knit "$@"

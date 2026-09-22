@@ -41,8 +41,8 @@ combination, plus each ``include`` entry appended as a standalone combination.
 The block's fixed fields (like ``job``) are carried into every combination.
 Because a bare axis key is a submission option, an axis varies a submission field
 (like ``nodes``) directly; to vary the job's **own** arguments, use an ``args``
-axis whose values are arg objects. The plan above expands to five prepared jobs:
-the ``baseline`` entry, three surviving product combinations
+axis (see *Varying job arguments* below). The plan above expands to five prepared
+jobs: the ``baseline`` entry, three surviving product combinations
 (``a``/1, ``a``/2, ``b``/1 --- ``b``/2 is excluded), and the ``c``/4 include.
 
 Feed the plan on stdin (a here-doc, here-string, or pipe) or from a file:
@@ -56,3 +56,26 @@ The whole plan is validated before any job is prepared, so a malformed plan leav
 nothing half-prepared. Jobs are prepared in plan order (matrix combinations in
 product order, then includes), so ``submit next`` later releases them in that
 order --- see *Release prepared jobs*.
+
+Varying job arguments
+^^^^^^^^^^^^^^^^^^^^^^
+
+A submission field (``nodes``, ``queue``, ...) is a bare axis key, but a job's own
+arguments live under ``args``. The ``args`` axis takes **either** shape:
+
+- an **object** of sub-axes --- ``"args": { "n": [1,2], "label": ["a","b"] }`` ---
+  where each key is an independent argument axis, so the matrix is their full
+  product (times any submission axes);
+- an **array** of complete arg objects --- ``"args": [ {"n":1}, {"n":8} ]`` --- a
+  single axis of pre-built tuples, for arguments that must vary **together**.
+
+An ``exclude`` matches a submission field by value, but matches ``args`` as a
+**subset**: it need only name the sub-keys you want to pin, so it can drop
+combinations by a single argument. This plan takes the product of ``nodes``,
+``n``, and ``label`` (``2 x 2 x 2 = 8``), then drops every ``label`` = ``b``
+combination (an ``args`` subset), leaving four prepared jobs:
+
+.. knit-code:: /_code/prepare.sh
+   :language: json
+   :start-after: <<'ARGSPLAN'
+   :end-before: ARGSPLAN

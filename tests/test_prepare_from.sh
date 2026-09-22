@@ -146,6 +146,14 @@ _colormap_of() {
     [[ "${script}" =~ --colormap\ ([^\ ]+) ]] && printf '%s' "${BASH_REMATCH[1]}"
 }
 
+# The --zoom value baked into a prepared job's .job.sh (a second job arg, used to
+# tell object-form args sub-axes apart from coupled tuples).
+_zoom_of() {
+    local script
+    script="$(_jobscript_of "$1")"
+    [[ "${script}" =~ --zoom\ ([^\ ]+) ]] && printf '%s' "${BASH_REMATCH[1]}"
+}
+
 # Prepared job UUIDs in ascending id order (uuidv7 => prepare order).
 _ordered_uuids() {
     sqlite3 "${_KNIT_DATABASE}" \
@@ -537,4 +545,157 @@ JSON
     [ "$status" -ne 0 ]
     [[ "$output" == *"unknown job"* ]]
     [ "$(_prepared_count)" = "0" ]
+}
+
+# ---------- matrix expansion: object-form args sub-axes ----------
+
+@test "prepare from expands an object-form args axis to the product of its sub-axes" {
+    _register_jobs_with_setup
+
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "axes": { "args": { "colormap": ["fire","ice"], "zoom": ["1.0","2.0"] } }
+  } } ] }
+JSON
+    # 2 colormaps x 2 zooms = 4 prepared jobs, each a distinct (colormap, zoom).
+    [ "$(_prepared_count)" = "4" ]
+    local id combos=""
+    while IFS= read -r id; do
+        combos+="$(_colormap_of "${id}")/$(_zoom_of "${id}") "
+    done < <(_ordered_uuids)
+    [ "${combos}" = "fire/1.0 fire/2.0 ice/1.0 ice/2.0 " ]
+}
+
+@test "prepare from combines an object-form args axis with a submission axis in product order" {
+    _register_jobs_with_setup
+
+    # nodes is declared before args, so it varies slowest; within the args block
+    # colormap (first sub-axis) varies slower than the (single) zoom value.
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "axes": { "nodes": [2, 4],
+                "args": { "colormap": ["fire","ice"] } } } } ] }
+JSON
+    [ "$(_prepared_count)" = "4" ]
+    local id combos=""
+    while IFS= read -r id; do
+        combos+="$(sqlite3 "${_KNIT_DATABASE}" \
+            "SELECT nodes FROM jobs WHERE id='${id}';")/$(_colormap_of "${id}") "
+    done < <(_ordered_uuids)
+    [ "${combos}" = "2/fire 2/ice 4/fire 4/ice " ]
+}
+
+@test "prepare from still treats an array args axis as coupled tuples" {
+    _register_jobs_with_setup
+
+    # The array form is one axis of pre-built objects: colormap and zoom move
+    # together (2 combos), NOT a 2x2 product.
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "axes": { "args": [ {"colormap":"fire","zoom":"1.0"},
+                          {"colormap":"ice","zoom":"2.0"} ] } } } ] }
+JSON
+    [ "$(_prepared_count)" = "2" ]
+    local id combos=""
+    while IFS= read -r id; do
+        combos+="$(_colormap_of "${id}")/$(_zoom_of "${id}") "
+    done < <(_ordered_uuids)
+    [ "${combos}" = "fire/1.0 ice/2.0 " ]
+}
+
+@test "prepare from rejects a non-list object-form args sub-axis" {
+    _register_jobs_with_setup
+
+    # A sub-axis value must be a list; a bare scalar names the offending arg.
+    run _knit_invoke_command prepare from <<'JSON'
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": { "job": "render",
+                          "axes": { "args": { "colormap": "fire" } } } } ] }
+JSON
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"colormap"* ]]
+    [ "$(_prepared_count)" = "0" ]
+}
+
+@test "prepare from rejects an args axis that is neither an array nor an object" {
+    _register_jobs_with_setup
+
+    run _knit_invoke_command prepare from <<'JSON'
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": { "job": "render",
+                          "axes": { "args": "nope" } } } ] }
+JSON
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"args"* ]]
+    [ "$(_prepared_count)" = "0" ]
+}
+
+# ---------- matrix expansion: args-subset exclude ----------
+
+@test "prepare from exclude subset-matches a single job argument" {
+    _register_jobs_with_setup
+
+    # 2 colormaps x 2 zooms = 4; exclude every zoom=2.0 combination by naming
+    # only that one sub-key, leaving the two zoom=1.0 combinations.
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "axes": { "args": { "colormap": ["fire","ice"], "zoom": ["1.0","2.0"] } },
+      "exclude": [ { "args": { "zoom": "2.0" } } ] } } ] }
+JSON
+    [ "$(_prepared_count)" = "2" ]
+    local id combos=""
+    while IFS= read -r id; do
+        combos+="$(_colormap_of "${id}")/$(_zoom_of "${id}") "
+    done < <(_ordered_uuids)
+    [ "${combos}" = "fire/1.0 ice/1.0 " ]
+}
+
+@test "prepare from exclude combines an args subset with a submission key" {
+    _register_jobs_with_setup
+
+    # nodes[2] x colormap[fire,ice] = 4 combinations; drop only fire-at-2 by
+    # naming both the submission key and the single arg sub-key.
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "axes": { "nodes": [2, 4],
+                "args": { "colormap": ["fire","ice"] } },
+      "exclude": [ { "nodes": 2, "args": { "colormap": "fire" } } ] } } ] }
+JSON
+    [ "$(_prepared_count)" = "3" ]
+    local id combos=""
+    while IFS= read -r id; do
+        combos+="$(sqlite3 "${_KNIT_DATABASE}" \
+            "SELECT nodes FROM jobs WHERE id='${id}';")/$(_colormap_of "${id}") "
+    done < <(_ordered_uuids)
+    # The 2/fire combination is dropped; the other three survive in order.
+    [ "${combos}" = "2/ice 4/fire 4/ice " ]
+}
+
+@test "prepare from exclude naming a whole arg object still drops exactly that combination" {
+    _register_jobs_with_setup
+
+    # Back-compat: an exclude that names every sub-key equals the coupled tuple,
+    # so it drops exactly the ice/2.0 combination (subset == equality here).
+    _knit_invoke_command prepare from <<'JSON' >/dev/null
+{ "defaults": { "setup": "setup" },
+  "jobs": [ { "matrix": {
+      "job": "render",
+      "axes": { "args": [ {"colormap":"fire","zoom":"1.0"},
+                          {"colormap":"ice","zoom":"2.0"} ] },
+      "exclude": [ { "args": {"colormap":"ice","zoom":"2.0"} } ] } } ] }
+JSON
+    [ "$(_prepared_count)" = "1" ]
+    local id
+    id="$(_ordered_uuids)"
+    [ "$(_colormap_of "${id}")/$(_zoom_of "${id}")" = "fire/1.0" ]
 }

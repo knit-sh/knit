@@ -376,20 +376,32 @@ knit_done
 #   - "axes"    — a map from field name to a list of values; the block expands to
 #                 the cartesian product of the axes (first axis varies slowest).
 #   - "exclude" — a list of field maps; drop every combination that matches all
-#                 fields of any exclude entry.
+#                 fields of any exclude entry. A submission field matches by
+#                 value equality; the "args" field matches as a SUBSET (every
+#                 sub-key the exclude names must equal the combination's), so an
+#                 exclude can target a single job argument (e.g.
+#                 `"exclude": [ { "args": { "x": 2 } } ]` drops every x==2 combo).
 #   - "include" — a list of field maps; append each, merged over the block's
 #                 fixed fields, as a new standalone combination (after exclude).
 # Every other key on the block (e.g. "job", a fixed "setup") is carried into
 # every combination. Combinations keep product order, then the appended
 # includes; blocks and concrete entries interleave in plan order.
 #
-# To vary a job argument, use an "args" axis whose values are arg objects/arrays
-# (e.g. `"args": [ {"colormap":"fire"}, {"colormap":"ice"} ]`): a top-level
-# non-reserved field is a submission argument, exactly as for a concrete entry.
+# A top-level non-reserved axis key is a submission field, so it varies a
+# submission argument (e.g. "nodes") directly. To vary a job's own arguments, use
+# the reserved "args" axis, in either of two forms (chosen by JSON type):
+#   - an object of sub-axes — `"args": { "x": [1,2], "y": [10,20] }` — each key an
+#     independent job-argument axis; it is rewritten (before the product) into the
+#     cartesian product of its sub-axes as arg objects (first sub-axis varies
+#     slowest), so the block's product includes every combination of them.
+#   - an array of arg objects — `"args": [ {"x":1}, {"x":2} ]` — a single axis of
+#     complete, pre-built arg objects, for arguments that must vary together.
 #
 # A structural problem (a non-object matrix, a non-object "axes", an axis that is
-# not a list, a non-array "exclude"/"include") raises a jq error naming the
-# offending entry, so the whole expansion fails and nothing is prepared.
+# not a list, an "args" axis that is neither an array nor an object, an object-form
+# "args" sub-axis that is not a list, a non-array "exclude"/"include") raises a jq
+# error naming the offending entry, so the whole expansion fails and nothing is
+# prepared.
 #
 # @param[in] plan The plan JSON text (already checked to be an object with a "jobs"
 #             array).
@@ -405,10 +417,20 @@ def axis_combos($axes):
 def expand_matrix($i; $block):
   (if ($block|type) != "object"
      then error("plan entry \($i): \"matrix\" must be an object") else . end)
-  | ($block.axes // {}) as $axes
-  | (if ($axes|type) != "object"
+  | ($block.axes // {}) as $axes0
+  | (if ($axes0|type) != "object"
        then error("plan entry \($i): matrix \"axes\" must be an object")
      else . end)
+  | ($axes0.args) as $argaxis
+  | ( if $argaxis == null or ($argaxis|type) == "array" then $axes0
+      elif ($argaxis|type) == "object" then
+        ( ($argaxis|to_entries|map(select((.value|type) != "array"))|.[0].key)
+            as $bad
+          | if $bad != null then
+              error("plan entry \($i): matrix \"args\" axis \"\($bad)\" must be a list of values")
+            else $axes0 + { args: axis_combos($argaxis) } end )
+      else error("plan entry \($i): matrix \"args\" axis must be an array or object")
+      end ) as $axes
   | (if ($axes|to_entries|all(.value|type=="array")) then .
      else error("plan entry \($i): every matrix axis must be a list of values")
      end)
@@ -424,7 +446,13 @@ def expand_matrix($i; $block):
   | (axis_combos($axes) | map($fixed + .)) as $base
   | ($base | map(. as $c
       | select( any($exclude[]; . as $x
-                    | all(($x|keys_unsorted[]); . as $k | $c[$k] == $x[$k]) )
+                    | all(($x|keys_unsorted[]); . as $k
+                          | if $k == "args"
+                               and (($x.args|type) == "object")
+                               and (($c.args|type) == "object")
+                            then all(($x.args|keys_unsorted[]); . as $ak
+                                     | $c.args[$ak] == $x.args[$ak])
+                            else $c[$k] == $x[$k] end) )
                 | not ))) as $kept
   | ($kept + ($includes | map($fixed + .)));
 .jobs |= ( [ range(0; length) as $i | (.[$i]) as $e

@@ -10,6 +10,8 @@
 #     released job completes; a drained group makes `submit next` return non-zero
 #   - `prepare from --file` expands a JSON plan (with a matrix: product - exclude
 #     + include) into several prepared rows
+#   - a matrix with an object-form `args` axis (independent job-argument sub-axes)
+#     trimmed by an args-subset exclude expands to the right combinations
 #   - `submit prepared --id` releases one specific prepared job
 #   - `job cancel` on a still-prepared job removes its row and directory without
 #     ever contacting the scheduler
@@ -160,5 +162,58 @@ check_eq "$(state_of "${doomed}")" "" "job cancel removed the prepared job's row
 dir_gone="gone"
 [[ -e "jobs/${doomed}" ]] && dir_gone="present"
 check_eq "${dir_gone}" "gone" "job cancel removed the prepared job's directory"
+
+# ==========================================================================
+# Part C — prepare from a plan whose matrix has an OBJECT-form args axis (n and
+# label vary independently) trimmed by an args-subset exclude.
+# ==========================================================================
+cat > argplan.json <<'JSON'
+{
+  "group": "grid",
+  "jobs": [
+    { "matrix": {
+        "job": "sim",
+        "axes": {
+          "nodes": [ 1, 2 ],
+          "args":  { "n": [ 1, 2 ], "label": [ "a", "b" ] }
+        },
+        "exclude": [ { "args": { "label": "b" } } ]
+    } }
+  ]
+}
+JSON
+
+./experiment.sh prepare from --file argplan.json
+# nodes[2] x n[2] x label[2] = 8 combinations; the args-subset exclude names only
+# label=b, dropping those 4, leaving 4 prepared jobs.
+check_eq "$(prepared_count grid)" "4" \
+    "an object-form args axis expands to the product, trimmed by the subset exclude"
+
+# The exclude cut an args sub-key (label), not a submission field, so it removed
+# combinations evenly across the nodes axis: 2 at nodes=1 and 2 at nodes=2.
+g1=$("${SQLITE}" "${DB}" \
+    "SELECT count(*) FROM jobs WHERE state='prepared' AND \"group\"='grid' AND nodes='1';")
+g2=$("${SQLITE}" "${DB}" \
+    "SELECT count(*) FROM jobs WHERE state='prepared' AND \"group\"='grid' AND nodes='2';")
+check_eq "${g1}" "2" "two surviving grid combinations at nodes=1"
+check_eq "${g2}" "2" "two surviving grid combinations at nodes=2"
+
+# No surviving grid job carries --label b (job args live in the generated .job.sh,
+# not a jobs column), proving the subset exclude dropped exactly the label=b combos.
+kept_b=0
+while IFS= read -r gid; do
+    [[ -z "${gid}" ]] && continue
+    grep -q -- '--label b' "jobs/${gid}/.job.sh" && kept_b=$(( kept_b + 1 ))
+done < <("${SQLITE}" "${DB}" \
+    "SELECT id FROM jobs WHERE state='prepared' AND \"group\"='grid';")
+check_eq "${kept_b}" "0" "the args-subset exclude dropped every label=b combination"
+
+# Release one single-node grid job by id (so it schedules on a small cluster) and
+# confirm an object-form-prepared job runs to completion like any other.
+grid_target=$("${SQLITE}" "${DB}" \
+    "SELECT id FROM jobs WHERE state='prepared' AND \"group\"='grid' AND nodes='1' ORDER BY id ASC LIMIT 1;")
+./experiment.sh submit prepared --id "${grid_target}" --wait >/dev/null
+check_eq "$(state_of "${grid_target}")" "completed" \
+    "an object-form-prepared grid job releases and completes"
 
 assert_summary
