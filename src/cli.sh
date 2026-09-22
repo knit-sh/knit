@@ -2740,6 +2740,10 @@ _knit_print_options_block() {
 _knit_print_command_usage() {
     local cmd
     _knit_command_mangle cmd "$*"
+    # Ensure any lazy subcommands are registered before this command's subcommand
+    # list is read below. A no-op for a command without a discovery function, so
+    # the root ("__main__", always eager) is unaffected.
+    _knit_ensure_discovered "${cmd}"
     local display
     # Registered spelling (with any hyphens), space-separated like the invocation
     # form; the display path joins segments with ":", never a space.

@@ -208,3 +208,34 @@ teardown() {
     result=$(_knit_invoke_command "aaa" "bbb")
     [ "$result" = "eager bbb" ]
 }
+
+# ---------- --help hook (_knit_print_command_usage) ----------
+
+@test "<cmd> --help lists lazy subcommands" {
+    aaa_discover() {
+        knit_register "aaa:bbb" knit_empty "A lazy subcommand."
+        knit_done
+    }
+    knit_register "aaa" knit_empty "A group."
+    knit_with_subcommand_discovery aaa_discover
+    knit_done
+
+    run _knit_invoke_command "aaa" "--help"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"bbb"* ]]
+}
+
+@test "root --help does not register lazy subcommands" {
+    aaa_discover() {
+        knit_register "aaa:bbb" knit_empty "A lazy subcommand."
+        knit_done
+    }
+    knit_register "aaa" knit_empty "A group."
+    knit_with_subcommand_discovery aaa_discover
+    knit_done
+
+    # Rendered in the current shell so any registration side effect would persist.
+    _knit_print_command_usage "__main__" > /dev/null
+    run _knit_set_find _KNIT_COMMANDS "aaa__1__bbb"
+    [ "$status" -ne 0 ]
+}
