@@ -131,7 +131,7 @@ _knit_setup() {
     # interchangeable; the registered spelling is restored for display below.
     local setup_name_typed="${extra[0]}"
     local setup_name
-    setup_name=$(_knit_name_normalize "${setup_name_typed}")
+    _knit_name_normalize setup_name "${setup_name_typed}"
     local setup_args=("${extra[@]:1}")
 
     # Validate the instance name (a single path component).
@@ -521,7 +521,7 @@ knit_register_setup() {
     # -- <name>` resolves the setup whether it is typed with hyphens or
     # underscores (the registered spelling is preserved for display).
     local normalized_name
-    normalized_name=$(_knit_name_normalize "${name}")
+    _knit_name_normalize normalized_name "${name}"
     _KNIT_SETUPS["${normalized_name}"]=1
     printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_type" '%s' 'setup'
     _knit_run_before _knit_setup_before_cb
@@ -912,7 +912,7 @@ knit_with_setup() {
         knit_fatal "Setup type \"${setup_type_typed}\" is not a valid name."
     fi
     local setup_type
-    setup_type=$(_knit_name_normalize "${setup_type_typed}")
+    _knit_name_normalize setup_type "${setup_type_typed}"
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local marker_var="_KNIT_CMD_${cmd}_setup"
     if [[ -n "${!marker_var:-}" ]]; then

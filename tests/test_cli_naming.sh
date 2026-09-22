@@ -108,13 +108,13 @@ teardown() {
 
 @test "_knit_name_normalize converts hyphens to underscores" {
     local result
-    result=$(_knit_name_normalize "my-param-name")
+    _knit_name_normalize result "my-param-name"
     [ "$result" = "my_param_name" ]
 }
 
 @test "_knit_name_normalize leaves underscores unchanged" {
     local result
-    result=$(_knit_name_normalize "my_param_name")
+    _knit_name_normalize result "my_param_name"
     [ "$result" = "my_param_name" ]
 }
 

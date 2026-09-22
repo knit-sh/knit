@@ -208,7 +208,7 @@ _knit_prepare_build() {
     # the registered spelling is restored for display below.
     local job_name_typed="${extra[0]}"
     local job_name
-    job_name=$(_knit_name_normalize "${job_name_typed}")
+    _knit_name_normalize job_name "${job_name_typed}"
     local job_args=("${extra[@]:1}")
 
     # Check job name is registered
@@ -941,7 +941,7 @@ knit_register_job() {
     # registry key so they stay stable whether the job is registered or invoked
     # with hyphens or underscores (the registered spelling is kept for display).
     local normalized_name
-    normalized_name=$(_knit_name_normalize "${name}")
+    _knit_name_normalize normalized_name "${name}"
     # Record each job's invocations in a table named after the job itself (not
     # the "submit:<name>" command name), so the table reads naturally and needs
     # no SQL quoting of the colon.

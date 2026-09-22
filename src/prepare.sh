@@ -636,7 +636,7 @@ def merge_under($lo; $hi):
     local key norm
     while IFS= read -r key; do
         [[ -z "${key}" ]] && continue
-        norm=$(_knit_name_normalize "${key}")
+        _knit_name_normalize norm "${key}"
         if ! _knit_set_find _KNIT_CMD_prepare_optional "${norm}"; then
             knit_fatal "prepare from: unknown key \"${key}\" in plan (not a \"prepare\"/\"submit\" option)."
         fi
@@ -648,7 +648,7 @@ def merge_under($lo; $hi):
         # _KNIT_JOBS is keyed by the normalized (underscore) name, so a job
         # registered as "fio-depth" is stored as "fio_depth"; normalize the
         # plan's spelling before the lookup so hyphenated names still resolve.
-        job_norm=$(_knit_name_normalize "${job}")
+        _knit_name_normalize job_norm "${job}"
         if [[ ! -v _KNIT_JOBS["${job_norm}"] ]]; then
             knit_fatal "prepare from: unknown job \"${job}\" in plan."
         fi

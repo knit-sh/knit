@@ -662,7 +662,7 @@ _knit_db_update_row() {
     for pair in "$@"; do
         name="${pair%%=*}"
         value="${pair#*=}"
-        name=$(_knit_name_normalize "${name}")
+        _knit_name_normalize name "${name}"
         _knit_db_sql_ident col_ident "${name}"
         _knit_sql_escape val_esc "${value}"
         sets+=("${col_ident}='${val_esc}'")

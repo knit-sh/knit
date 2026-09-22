@@ -507,7 +507,7 @@ _knit_fetch() {
     # interchangeable; the registered spelling is restored for display below.
     local type_typed="${extra[0]}"
     local type
-    type=$(_knit_name_normalize "${type_typed}")
+    _knit_name_normalize type "${type_typed}"
     local resource_args=("${extra[@]:1}")
 
     # Validate the instance name (a single path component).
@@ -753,7 +753,7 @@ knit_register_resource() {
     # key so both stay stable whether the type is registered or invoked with
     # hyphens or underscores (the registered spelling is kept for display).
     local normalized_type
-    normalized_type=$(_knit_name_normalize "${type}")
+    _knit_name_normalize normalized_type "${type}"
     # A failed fetch (bad download or a checksum mismatch) records no data row: the
     # dispatcher removes the partial instance, so a row would dangle.
     knit_no_record_on_failure
@@ -1050,14 +1050,14 @@ knit_with_resource() {
         knit_fatal "knit_with_resource requires a resource type after the colon; got \"${spec}\"."
     fi
     local type
-    type=$(_knit_name_normalize "${type_typed}")
+    _knit_name_normalize type "${type_typed}"
     if [[ ! -v _KNIT_RESOURCES["${type}"] ]]; then
         knit_fatal "knit_with_resource references unknown resource type \"${type_typed}\"; register it with knit_register_resource first."
     fi
 
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local param
-    param=$(_knit_name_normalize "${param_name}")
+    _knit_name_normalize param "${param_name}"
 
     # Record the declared type in a per-parameter marker, read by the validation
     # before-callback and (later) by describe / --help.

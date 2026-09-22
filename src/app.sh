@@ -126,7 +126,7 @@ _knit_run() {
     # spelling is restored for display below.
     local app_name_typed="${extra[0]}"
     local app_name
-    app_name=$(_knit_name_normalize "${app_name_typed}")
+    _knit_name_normalize app_name "${app_name_typed}"
     local app_args=("${extra[@]:1}")
 
     # Check app name is registered.
@@ -763,7 +763,7 @@ knit_register_app() {
     # registry key so they stay stable whether the app is registered or invoked
     # with hyphens or underscores (the registered spelling is kept for display).
     local normalized_name
-    normalized_name=$(_knit_name_normalize "${name}")
+    _knit_name_normalize normalized_name "${name}"
     # Record each app's invocations in a table named after the app itself (not
     # the "run:<name>" command name), so the table reads naturally and needs no
     # SQL quoting of the colon.

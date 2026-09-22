@@ -63,7 +63,7 @@ _knit_rocrate_outputs_json() {
         local out norm
         while IFS= read -r out; do
             [[ -z "${out}" ]] && continue
-            norm="$(_knit_name_normalize "${out}")"
+            _knit_name_normalize norm "${out}"
             names+=("${norm}")
         done < <(_knit_set_iter "_KNIT_CMD_${mangled}_outputs")
     fi

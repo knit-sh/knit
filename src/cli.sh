@@ -252,12 +252,19 @@ _knit_command_with_space() {
 # Normalizes a parameter or command name, i.e. converts its hyphens into
 # underscores.
 #
+# The result is returned through a caller-named variable (nameref) so the
+# registration hot path (this runs once per parameter and command) pays no
+# subshell fork. A plain temp holds the delegated result rather than passing the
+# output nameref straight through, which would risk a circular name reference.
+#
+# @param[out] __knit_ret Name of the variable to hold the normalized name.
 # @param[in] name Name to normalize.
 # ------------------------------------------------------------------------------
 _knit_name_normalize() {
-    local __ret
-    _knit_str_hyphens_to_underscores __ret "$1"
-    printf '%s\n' "${__ret}"
+    local -n __knit_ret=$1
+    local __knit_norm
+    _knit_str_hyphens_to_underscores __knit_norm "$2"
+    __knit_ret="${__knit_norm}"
 }
 
 # ------------------------------------------------------------------------------
@@ -441,7 +448,7 @@ _knit_param_check_declaration() {
         ns="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}"
     fi
     local normalized
-    normalized=$(_knit_name_normalize "${param_name}")
+    _knit_name_normalize normalized "${param_name}"
 
     # Every declared name (parameter, output, artifact, or synthesized checksum
     # column) shares one name space, so a single reservation both rejects a
@@ -817,7 +824,7 @@ knit_parameter_set() {
         knit_fatal "Parameter set name \"${set_name}\" is not valid."
     fi
     local normalized
-    normalized=$(_knit_name_normalize "${set_name}")
+    _knit_name_normalize normalized "${set_name}"
     if [[ -v "_KNIT_PARAMETER_SETS[${normalized}]" ]]; then
         knit_fatal "Parameter set \"${set_name}\" is already defined."
     fi
@@ -1442,7 +1449,7 @@ _knit_register_fileparam() {
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local kind param
     _knit_type_resolve_alias kind "${type}"
-    param=$(_knit_name_normalize "${name}")
+    _knit_name_normalize param "${name}"
     # Create the set as associative on first use (knit_register does not, since
     # not every command has a file/directory declaration); a bare _knit_set_add
     # would otherwise make it an indexed array and collapse every key to index 0.
@@ -1517,7 +1524,7 @@ _knit_register_checksum() {
     [[ "${checksum}" == "no" ]] && return 0
 
     local companion
-    companion=$(_knit_name_normalize "${name}-checksum")
+    _knit_name_normalize companion "${name}-checksum"
 
     # Reserve the synthesized name against the command's whole name space so it can
     # never overwrite a user-declared parameter, output, or artifact.
@@ -1555,7 +1562,7 @@ _knit_register_result() {
     [[ -v _KNIT_CURRENT_COMMAND ]] || return 0
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local output
-    output=$(_knit_name_normalize "${name}")
+    _knit_name_normalize output "${name}"
     _knit_set_exists "_KNIT_CMD_${cmd}_results" \
         || _knit_set_new "_KNIT_CMD_${cmd}_results"
     _knit_set_add "_KNIT_CMD_${cmd}_results" "${output}"
@@ -1597,7 +1604,7 @@ knit_with_required() {
     local param_name="${param_spec%%:*}"
     local param_type="${param_spec#*:}"
     local param
-    param=$(_knit_name_normalize "${param_name}")
+    _knit_name_normalize param "${param_name}"
     local ns demangled_cmd
     if [[ -v _KNIT_CURRENT_PARAMETER_SET ]]; then
         ns="_KNIT_PSET_${_KNIT_CURRENT_PARAMETER_SET}"
@@ -1664,7 +1671,7 @@ knit_with_optional() {
     local param_name="${param_spec%%:*}"
     local param_type="${param_spec#*:}"
     local param
-    param=$(_knit_name_normalize "${param_name}")
+    _knit_name_normalize param "${param_name}"
     local ns demangled_cmd
     if [[ -v _KNIT_CURRENT_PARAMETER_SET ]]; then
         ns="_KNIT_PSET_${_KNIT_CURRENT_PARAMETER_SET}"
@@ -1715,7 +1722,7 @@ knit_with_flag() {
     knit_check_arguments "when" "" "${@:3}" \
         || knit_fatal "knit_with_flag takes a flag name, a description, and an optional --when."
     local param
-    param=$(_knit_name_normalize "$1")
+    _knit_name_normalize param "$1"
     local ns demangled_cmd
     if [[ -v _KNIT_CURRENT_PARAMETER_SET ]]; then
         ns="_KNIT_PSET_${_KNIT_CURRENT_PARAMETER_SET}"
@@ -1782,7 +1789,7 @@ _knit_pset_filter_build() {
         raw="${raw#"${raw%%[![:space:]]*}"}"
         raw="${raw%"${raw##*[![:space:]]}"}"
         [[ -z "${raw}" ]] && continue
-        name=$(_knit_name_normalize "${raw}")
+        _knit_name_normalize name "${raw}"
         if ! _knit_set_find "${pset_ns}_required" "${name}" \
            && ! _knit_set_find "${pset_ns}_optional" "${name}" \
            && ! _knit_set_find "${pset_ns}_flags" "${name}"; then
@@ -1823,7 +1830,7 @@ knit_with_parameter_set() {
         || knit_fatal "knit_with_parameter_set takes a set name and an optional --exclude or --only."
     local set_name="$1"
     local normalized
-    normalized=$(_knit_name_normalize "${set_name}")
+    _knit_name_normalize normalized "${set_name}"
     if [[ ! -v "_KNIT_PARAMETER_SETS[${normalized}]" ]]; then
         knit_fatal "Parameter set \"${set_name}\" is not defined."
     fi
@@ -1975,7 +1982,7 @@ knit_with_output() {
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
     local output
-    output=$(_knit_name_normalize "${param_name}")
+    _knit_name_normalize output "${param_name}"
     # Reserve the name against the command's whole name space: a duplicate output,
     # or a clash with a parameter, an artifact, or a synthesized checksum column,
     # is rejected uniformly.
@@ -3483,7 +3490,7 @@ knit_output() {
     local demangled_cmd
     _knit_command_display demangled_cmd "${cmd}"
     local normalized
-    normalized=$(_knit_name_normalize "${name}")
+    _knit_name_normalize normalized "${name}"
     if ! _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${normalized}"; then
         knit_fatal "\"${name}\" is not a declared output of command \"${demangled_cmd}\"."
     fi
