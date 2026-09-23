@@ -7,9 +7,7 @@
 #   - a job whose body exits non-zero lands in state "failed", and
 #     `submit drain --max-inflight 1 --stop-on-failure` exits non-zero and leaves
 #     the jobs after the failure still prepared;
-#   - `--dry-run` lists what would be released without claiming anything;
-#   - `--detached` runs the loop in the background (tmux/screen if present, else
-#     the nohup fallback), writes a log, and drains the group on its own.
+#   - `--dry-run` lists what would be released without claiming anything.
 #
 # Run from inside the cluster login node as hpcuser:
 #   bash /shared/knit/tests/integration/experiments/33_submit_drain/test.sh
@@ -109,34 +107,5 @@ check_eq "$(prepared_count stop)" "2" "the two jobs after the failure stay prepa
 # Draining without --stop-on-failure then clears the rest (they succeed).
 ./experiment.sh submit drain --group stop >/dev/null 2>&1
 check_eq "$(prepared_count stop)" "0" "a plain drain releases the remaining jobs"
-
-# ==========================================================================
-# 4. --detached runs the loop in the background and drains on its own.
-# ==========================================================================
-./experiment.sh prepare --group detach -- sim --n 1 >/dev/null
-./experiment.sh prepare --group detach -- sim --n 2 >/dev/null
-check_eq "$(prepared_count detach)" "2" "two jobs prepared in the detach group"
-
-detach_out=$(./experiment.sh submit drain --group detach --detached 2>&1)
-check_grep "background" <(printf '%s' "${detach_out}") \
-    "submit drain --detached reports it is running in the background"
-
-# A log file is written under .knit/drain regardless of backend.
-log_ok="no"
-for _ in $(seq 1 30); do
-    [[ -n "$(ls .knit/drain/*.log 2>/dev/null)" ]] && { log_ok="yes"; break; }
-    sleep 1
-done
-check_eq "${log_ok}" "yes" "the detached run writes a log under .knit/drain"
-
-# Poll until the detached loop has run both jobs to completion. Draining empties
-# the "prepared" queue as soon as the last job is CLAIMED, so wait on the
-# completed count (the last job may still be running at that point).
-deadline=$(( SECONDS + 120 ))
-while [[ "$(count_state detach completed)" != "2" && "${SECONDS}" -lt "${deadline}" ]]; do
-    sleep 2
-done
-check_eq "$(prepared_count detach)" "0" "the detached drain emptied the group"
-check_eq "$(count_state detach completed)" "2" "both detached jobs completed"
 
 assert_summary

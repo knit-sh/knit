@@ -881,14 +881,10 @@
 # most --max-inflight jobs alive at once (default 1 = one at a time; 0 = release
 # all without waiting), optionally capped by --count and halted by
 # --stop-on-failure. --dry-run lists what it would release without releasing, and
-# --json-summary prints a machine-readable summary. With --detached it runs the
-# whole loop in the background (tmux, else screen, else nohup) and returns at
-# once, printing how to reattach, follow the log, and stop it — so you can log out
-# while a big sweep drains:
+# --json-summary prints a machine-readable summary:
 #
 #   ./full.sh submit drain --group pi-sweep --max-inflight 4
 #   ./full.sh submit drain --group pi-sweep --dry-run
-#   ./full.sh submit drain --group pi-sweep --max-inflight 4 --detached
 #
 # Releasing advances the same row prepared -> submitted -> running -> completed;
 # the UUID never changes, so the job you prepared and the job that ran are one

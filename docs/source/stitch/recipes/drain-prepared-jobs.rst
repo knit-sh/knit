@@ -2,7 +2,7 @@
    title: Drain a prepared batch with submit drain
    categories: jobs
    order: 66
-   description: Release a whole prepared batch in one command, throttled to N jobs at once, optionally in the background.
+   description: Release a whole prepared batch in one command, throttled to N jobs at once.
    apis: submit:drain
 
 Once a batch is prepared (see *Prepare a job instead of submitting it*), you
@@ -39,21 +39,6 @@ anything, and ``--json-summary`` prints a machine-readable object to stdout:
    $ ./exp.sh submit drain --group sweep --json-summary
    {"released":2,"completed":2,"failed":0,"drained":true,"stopped":false,"dry_run":false}
 
-Draining a large batch can take a while, so ``--detached`` runs the whole loop in
-the background and returns at once --- pick the backend with ``--detach-backend``
-(``auto`` tries ``tmux``, then ``screen``, then ``nohup``). Output is always
-written to a log, and drain prints how to reattach, follow it, and stop it:
-
-.. code-block:: console
-
-   $ ./exp.sh submit drain --group sweep --max-inflight 4 --detached
-   Draining in the background (tmux session "knit-drain-20260921-142530").
-     Reattach: tmux attach -t knit-drain-20260921-142530
-     Log:      tail -f .knit/drain/knit-drain-20260921-142530.log
-     Stop:     tmux kill-session -t knit-drain-20260921-142530
-
-Stopping the session stops *further* releases; jobs already handed to the
-scheduler keep running (use ``job cancel`` for those). Like ``submit next``,
-draining records nothing of its own --- each release advances an existing
-``jobs`` row --- so the jobs you prepared and the jobs that ran are the same
-recorded rows.
+Like ``submit next``, draining records nothing of its own --- each release
+advances an existing ``jobs`` row --- so the jobs you prepared and the jobs that
+ran are the same recorded rows.
