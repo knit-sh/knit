@@ -50,6 +50,35 @@ _say_goodbye() {
 @done
 # END nest
 
+# START discover
+# For a larger subtree, register the children lazily. Attach a discovery function
+# to the parent with @with_subcommand_discovery: knit calls it at most once, the
+# first time a subcommand of "widget" is reached (resolved, listed in --help, or
+# walked by describe), so sourcing the script never builds the subtree up front.
+@command "widget" "Work with widgets."
+@empty
+@with_subcommand_discovery _widget_discover
+@done
+
+# The discovery function registers the immediate subcommands with the usual
+# calls. It runs in the main shell (never a subshell) and receives the parent's
+# display name as $1 (unused here).
+_widget_discover() {
+    @command "widget:list" "List widgets."
+    _widget_list() {
+        echo "widget-a widget-b"
+    }
+    @done
+
+    @command "widget:make" "Make a widget."
+    @with_required "name:string" "Widget name."
+    _widget_make() {
+        echo "made $(knit_get_parameter "name" "$@")"
+    }
+    @done
+}
+# END discover
+
 # START dispatch
 # A dispatcher forwards everything after "--" to a target it looks up itself.
 # @with_dispatch changes the --help usage line to "tool [OPTIONS] -- <tool>"
