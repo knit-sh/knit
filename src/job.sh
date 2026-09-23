@@ -208,7 +208,7 @@ _knit_prepare_build() {
     # the registered spelling is restored for display below.
     local job_name_typed="${extra[0]}"
     local job_name
-    job_name=$(_knit_name_normalize "${job_name_typed}")
+    _knit_name_normalize job_name "${job_name_typed}"
     local job_args=("${extra[@]:1}")
 
     # Check job name is registered
@@ -226,7 +226,7 @@ _knit_prepare_build() {
     # with no setup. The markers are the generic per-command markers set by those
     # decorators.
     local mangled
-    mangled="$(_knit_command_mangle "submit:${job_name}")"
+    _knit_command_mangle mangled "submit:${job_name}"
 
     # Registered spelling of the job, for human-facing messages.
     local job_display_var="_KNIT_CMD_${mangled}_display"
@@ -316,7 +316,7 @@ _knit_prepare_build() {
     # and record against it: a prepared job and a directly-submitted job then
     # produce identically-shaped, identically-labeled rows and edges.
     local owner
-    owner="$(_knit_command_mangle "submit")"
+    _knit_command_mangle owner "submit"
 
     # The recorded row's id is the canonical job UUID. Set it on the executing
     # frame so the recording below (and any nested callee) sees it as the row id.
@@ -476,7 +476,7 @@ _knit_submit_dispatch() {
     # Registered spelling of the job (job_name is the canonical, underscore form),
     # for the log line below.
     local job_mangled
-    job_mangled=$(_knit_command_mangle "submit:${job_name}")
+    _knit_command_mangle job_mangled "submit:${job_name}"
     local job_display_var="_KNIT_CMD_${job_mangled}_display"
     local job_display="${!job_display_var:-${job_name}}"
 
@@ -941,7 +941,7 @@ knit_register_job() {
     # registry key so they stay stable whether the job is registered or invoked
     # with hyphens or underscores (the registered spelling is kept for display).
     local normalized_name
-    normalized_name=$(_knit_name_normalize "${name}")
+    _knit_name_normalize normalized_name "${name}"
     # Record each job's invocations in a table named after the job itself (not
     # the "submit:<name>" command name), so the table reads naturally and needs
     # no SQL quoting of the colon.

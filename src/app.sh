@@ -126,7 +126,7 @@ _knit_run() {
     # spelling is restored for display below.
     local app_name_typed="${extra[0]}"
     local app_name
-    app_name=$(_knit_name_normalize "${app_name_typed}")
+    _knit_name_normalize app_name "${app_name_typed}"
     local app_args=("${extra[@]:1}")
 
     # Check app name is registered.
@@ -136,7 +136,7 @@ _knit_run() {
 
     # Validate args for the app subcommand (knit_fatal on bad args).
     local subcmd
-    subcmd=$(_knit_command_mangle "run:${app_name}")
+    _knit_command_mangle subcmd "run:${app_name}"
 
     # Registered spelling of the app, for human-facing messages.
     local app_display_var="_KNIT_CMD_${subcmd}_display"
@@ -505,7 +505,7 @@ _knit_run_checksum_inputs() {
     shift
     local -a app_args=("$@")
     local demangled
-    demangled=$(_knit_command_display "${subcmd}")
+    _knit_command_display demangled "${subcmd}"
     local param
     while IFS= read -r param; do
         [[ -z "${param}" ]] && continue
@@ -572,7 +572,7 @@ _knit_run_checksum_outputs() {
     # spelling) is used only in the human-facing existence error below.
     local demangled display
     demangled=$(_knit_command_demangle "${subcmd}")
-    display=$(_knit_command_display "${subcmd}")
+    _knit_command_display display "${subcmd}"
 
     # Locate rank 0's per-app row via the run -> run:<app> call edge. Its target
     # is the row's id; absent when nothing was recorded (e.g. recording disabled).
@@ -763,7 +763,7 @@ knit_register_app() {
     # registry key so they stay stable whether the app is registered or invoked
     # with hyphens or underscores (the registered spelling is kept for display).
     local normalized_name
-    normalized_name=$(_knit_name_normalize "${name}")
+    _knit_name_normalize normalized_name "${name}"
     # Record each app's invocations in a table named after the app itself (not
     # the "run:<name>" command name), so the table reads naturally and needs no
     # SQL quoting of the colon.

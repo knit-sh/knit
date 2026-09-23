@@ -188,6 +188,12 @@ setup() {
     [ "$(cat "${BATS_TEST_TMPDIR}/got")" = "y:integer 0 The y value." ]
 }
 
+@test "@with_subcommand_discovery forwards verbatim to knit_with_subcommand_discovery" {
+    knit_with_subcommand_discovery() { printf '%s\n' "$*" > "${BATS_TEST_TMPDIR}/got"; }
+    @with_subcommand_discovery _my_discover
+    [ "$(cat "${BATS_TEST_TMPDIR}/got")" = "_my_discover" ]
+}
+
 @test "@done forwards verbatim to knit_done" {
     knit_done() { printf '%s\n' "called" > "${BATS_TEST_TMPDIR}/got"; }
     @done

@@ -143,14 +143,28 @@ knit_empty() {
 # underscore), the same way hyphens and underscores are interchangeable in
 # parameter names.
 #
-# @param[in] cmd Command to mangle.
+# The result is returned through a caller-named variable (nameref) so the
+# registration hot path pays no subshell fork. The body is pure Bash (no sed),
+# which is far cheaper: this runs once per command and parameter at load time.
+#
+# @param[out] __knit_ret Name of the variable to hold the mangled command.
+# @param[in] cmd Command to mangle (remaining arguments are joined with spaces).
 # ------------------------------------------------------------------------------
 _knit_command_mangle() {
-    local cmd="$*"
-    cmd="${cmd//-/_}"
-    local mangled
-    mangled=$(sed -E 's/[: ]+/__1__/g' <<< "${cmd}")
-    printf "%s" "${mangled}"
+    local -n __knit_ret=$1; shift
+    local __knit_mangle="$*"
+    __knit_mangle="${__knit_mangle//-/_}"
+    # Collapse runs of ":" and space separators into a single "__1__", the same
+    # as the previous "s/[: ]+/__1__/g": fold ":" to space, then split on
+    # whitespace (which drops empty fields) and rejoin with "__1__".
+    __knit_mangle="${__knit_mangle//:/ }"
+    local -a __knit_parts
+    read -ra __knit_parts <<< "${__knit_mangle}"
+    local __knit_out="" __knit_part
+    for __knit_part in "${__knit_parts[@]}"; do
+        __knit_out+="${__knit_out:+__1__}${__knit_part}"
+    done
+    __knit_ret="${__knit_out}"
 }
 
 # ------------------------------------------------------------------------------
@@ -182,11 +196,18 @@ _knit_command_demangle() {
 # not happen, since a parent is always registered before its child) falls back
 # to its canonical segment.
 #
+# The result is returned through a caller-named variable (nameref) so the
+# registration and "--help" paths pay no subshell fork.
+#
+# @param[out] __knit_ret Name of the variable to hold the display name.
 # @param[in] cmd Command to render (mangled name).
 # ------------------------------------------------------------------------------
 _knit_command_display() {
+    local -n __knit_ret=$1; shift
     local cmd="$1"
-    local display="" prefix="" rest="${cmd}"
+    # "__knit_display" is prefixed because a caller may pass its own "display"
+    # variable as the output argument; a plain "display" local would shadow it.
+    local __knit_display="" prefix="" rest="${cmd}"
     local seg basename_var seg_display
     while [[ -n "${rest}" ]]; do
         if [[ "${rest}" == *"__1__"* ]]; then
@@ -203,13 +224,13 @@ _knit_command_display() {
         fi
         basename_var="_KNIT_CMD_${prefix}_display"
         seg_display="${!basename_var:-${seg}}"
-        if [[ -n "${display}" ]]; then
-            display="${display}:${seg_display}"
+        if [[ -n "${__knit_display}" ]]; then
+            __knit_display="${__knit_display}:${seg_display}"
         else
-            display="${seg_display}"
+            __knit_display="${seg_display}"
         fi
     done
-    printf "%s" "${display}"
+    __knit_ret="${__knit_display}"
 }
 
 # ------------------------------------------------------------------------------
@@ -231,12 +252,19 @@ _knit_command_with_space() {
 # Normalizes a parameter or command name, i.e. converts its hyphens into
 # underscores.
 #
+# The result is returned through a caller-named variable (nameref) so the
+# registration hot path (this runs once per parameter and command) pays no
+# subshell fork. A plain temp holds the delegated result rather than passing the
+# output nameref straight through, which would risk a circular name reference.
+#
+# @param[out] __knit_ret Name of the variable to hold the normalized name.
 # @param[in] name Name to normalize.
 # ------------------------------------------------------------------------------
 _knit_name_normalize() {
-    local __ret
-    _knit_str_hyphens_to_underscores __ret "$1"
-    printf '%s\n' "${__ret}"
+    local -n __knit_ret=$1
+    local __knit_norm
+    _knit_str_hyphens_to_underscores __knit_norm "$2"
+    __knit_ret="${__knit_norm}"
 }
 
 # ------------------------------------------------------------------------------
@@ -416,11 +444,11 @@ _knit_param_check_declaration() {
         context_name="${_KNIT_CURRENT_PARAMETER_SET}"
         ns="_KNIT_PSET_${_KNIT_CURRENT_PARAMETER_SET}"
     else
-        context_name=$(_knit_command_display "${_KNIT_CURRENT_COMMAND}")
+        _knit_command_display context_name "${_KNIT_CURRENT_COMMAND}"
         ns="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}"
     fi
     local normalized
-    normalized=$(_knit_name_normalize "${param_name}")
+    _knit_name_normalize normalized "${param_name}"
 
     # Every declared name (parameter, output, artifact, or synthesized checksum
     # column) shares one name space, so a single reservation both rejects a
@@ -612,7 +640,7 @@ knit_register() {
         knit_fatal "Invalid character found in command name \"${demangled_cmd}\"."
     fi
     local cmd
-    cmd=$(_knit_command_mangle "${demangled_cmd}")
+    _knit_command_mangle cmd "${demangled_cmd}"
     local parent_cmd
     _knit_command_get_parents parent_cmd "$cmd"
     if [ -n "${parent_cmd}" ]  &&  ! _knit_set_find _KNIT_COMMANDS "${parent_cmd}"; then
@@ -720,6 +748,71 @@ _knit_command_is_wrapper() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_ensure_discovered()
+#
+# Run a command's subcommand discovery function (see
+# knit_with_subcommand_discovery) if it has one and it has not run yet. A no-op
+# for a command without a discovery function or whose function has already run,
+# so every trigger (the resolver, "--help", "describe") may call it freely
+# before reading the command's subcommands.
+#
+# The "_discovered" guard is set to "true" BEFORE the function is called, so a
+# discovery function that (directly or through a callback) causes the same
+# command to be resolved again does not run the function a second time.
+#
+# The function name is checked with "declare -F" when it is called (not at
+# declaration time), because the function may be defined after the decorator. It
+# is called in the current shell (never a subshell) with the command's display
+# name as its first argument.
+#
+# @param[in] cmd Command (mangled name) whose discovery to ensure.
+# ------------------------------------------------------------------------------
+_knit_ensure_discovered() {
+    local cmd="$1"
+    local disc_var="_KNIT_CMD_${cmd}_subcommand_discovery"
+    [[ -n "${!disc_var:-}" ]] || return 0            # no discovery function
+    local done_var="_KNIT_CMD_${cmd}_discovered"
+    [[ "${!done_var:-}" == "true" ]] && return 0     # already discovered
+    printf -v "${done_var}" '%s' 'true'
+    local fn="${!disc_var}"
+    local display
+    _knit_command_display display "${cmd}"
+    if ! declare -F "${fn}" > /dev/null; then
+        knit_fatal "Subcommand discovery function \"${fn}\" for command \"${display}\" is not defined."
+    fi
+    knit_trace "Discovering subcommands of \"${display}\" via \"${fn}\"."
+    "${fn}" "${display}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_discover_ancestors()
+#
+# Ensure lazy subcommand discovery has run for every ancestor of a command, so
+# the command resolves even when it arrives as a single pre-mangled (or colon)
+# token rather than as separate tokens. The per-token resolver walk
+# (_knit_invoke_command) already discovers along a separate-token path; this is
+# the fallback for an internal caller that passes a whole command name in one
+# argument, e.g. _knit_invoke_command "job__1__show__1__stdout".
+#
+# Walks the mangled prefix chain top-down (job -> job:show -> ...), running each
+# existing ancestor's discovery function; each step may register the next level.
+# A no-op for a top-level command (no ancestors) and for ancestors without a
+# discovery function.
+#
+# @param[in] cmd Command (mangled name) whose ancestors to discover.
+# ------------------------------------------------------------------------------
+_knit_discover_ancestors() {
+    local rest="$1"
+    local prefix="" seg
+    while [[ "${rest}" == *"__1__"* ]]; do
+        seg="${rest%%__1__*}"
+        rest="${rest#*__1__}"
+        prefix="${prefix:+${prefix}__1__}${seg}"
+        _knit_ensure_discovered "${prefix}"
+    done
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_register_wrapper()
 #
 # Register a wrapper command: a command that forwards all of its arguments
@@ -796,7 +889,7 @@ knit_parameter_set() {
         knit_fatal "Parameter set name \"${set_name}\" is not valid."
     fi
     local normalized
-    normalized=$(_knit_name_normalize "${set_name}")
+    _knit_name_normalize normalized "${set_name}"
     if [[ -v "_KNIT_PARAMETER_SETS[${normalized}]" ]]; then
         knit_fatal "Parameter set \"${set_name}\" is already defined."
     fi
@@ -894,7 +987,7 @@ knit_usable_before_bootstrap() {
 _knit_usable_before_bootstrap_validate() {
     local cmd="$1"
     local demangled
-    demangled=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled "${cmd}"
 
     # Rule 1: no database table.
     local table_var="_KNIT_CMD_${cmd}_table"
@@ -918,7 +1011,7 @@ _knit_usable_before_bootstrap_validate() {
     _knit_command_get_parents parent "${cmd}"
     if [[ -n "${parent}" ]] && ! _knit_command_is_usable_before_bootstrap "${parent}"; then
         local parent_demangled
-        parent_demangled=$(_knit_command_display "${parent}")
+        _knit_command_display parent_demangled "${parent}"
         knit_fatal "Command \"${demangled}\" is usable before bootstrap but its parent \"${parent_demangled}\" is not."
     fi
 }
@@ -1369,6 +1462,52 @@ knit_with_subcommand_title() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_with_subcommand_discovery()
+#
+# Name a discovery function for the command currently being registered. The
+# command's subcommands are then registered lazily: instead of running their
+# "knit_register ... knit_done" blocks at load time, the framework calls the
+# named function at most once, and only when it must know the command's
+# subcommands (the resolver reaches for a subcommand, "--help" lists them, or
+# "describe" walks into the command). This keeps "source knit.sh" and every
+# command start cheaper by not building command subtrees a run never touches.
+#
+# The named function registers the command's immediate subcommands, each as a
+# full "knit_register ... knit_done" block. It runs in the main shell (never a
+# subshell) and receives the parent command's display name as its first
+# argument. It must be fast and side-effect free (registration only): it runs on
+# the resolution and help paths, which must stay cheap.
+#
+# State stored on the command:
+#   - _KNIT_CMD_<cmd>_subcommand_discovery : the function name.
+#   - _KNIT_CMD_<cmd>_discovered           : "true" after the function has run.
+#
+# Must be called between a knit_register* call and knit_done. It is not valid on
+# a wrapper (knit_register_wrapper), which forwards its arguments verbatim and
+# has no subcommands. A command may name at most one discovery function; a second
+# call is fatal. The function name must be a non-empty token; its existence is
+# checked when it is called (it may be defined after this decorator).
+# ------------------------------------------------------------------------------
+knit_with_subcommand_discovery() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_subcommand_discovery should be used after a call to \"knit_register\"."
+    fi
+    _knit_wrapper_reject_declaration "knit_with_subcommand_discovery"
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local fn="$1"
+    if [[ -z "${fn}" ]]; then
+        knit_fatal "knit_with_subcommand_discovery on command \"${_KNIT_CURRENT_COMMAND_DEMANGLED}\" requires a function name."
+    fi
+    local disc_var="_KNIT_CMD_${cmd}_subcommand_discovery"
+    if [[ -n "${!disc_var:-}" ]]; then
+        knit_fatal "Command \"${_KNIT_CURRENT_COMMAND_DEMANGLED}\" already has a subcommand discovery function (\"${!disc_var}\")."
+    fi
+    knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} for lazy subcommand discovery via \"${fn}\"."
+    printf -v "${disc_var}" '%s' "${fn}"
+    printf -v "_KNIT_CMD_${cmd}_discovered" '%s' 'false'
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_decl_flag_present()
 #
 # Return 0 if a bare declaration flag (e.g. "--no-checksum") appears among the
@@ -1421,7 +1560,7 @@ _knit_register_fileparam() {
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local kind param
     _knit_type_resolve_alias kind "${type}"
-    param=$(_knit_name_normalize "${name}")
+    _knit_name_normalize param "${name}"
     # Create the set as associative on first use (knit_register does not, since
     # not every command has a file/directory declaration); a bare _knit_set_add
     # would otherwise make it an indexed array and collapse every key to index 0.
@@ -1496,7 +1635,7 @@ _knit_register_checksum() {
     [[ "${checksum}" == "no" ]] && return 0
 
     local companion
-    companion=$(_knit_name_normalize "${name}-checksum")
+    _knit_name_normalize companion "${name}-checksum"
 
     # Reserve the synthesized name against the command's whole name space so it can
     # never overwrite a user-declared parameter, output, or artifact.
@@ -1534,7 +1673,7 @@ _knit_register_result() {
     [[ -v _KNIT_CURRENT_COMMAND ]] || return 0
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local output
-    output=$(_knit_name_normalize "${name}")
+    _knit_name_normalize output "${name}"
     _knit_set_exists "_KNIT_CMD_${cmd}_results" \
         || _knit_set_new "_KNIT_CMD_${cmd}_results"
     _knit_set_add "_KNIT_CMD_${cmd}_results" "${output}"
@@ -1576,7 +1715,7 @@ knit_with_required() {
     local param_name="${param_spec%%:*}"
     local param_type="${param_spec#*:}"
     local param
-    param=$(_knit_name_normalize "${param_name}")
+    _knit_name_normalize param "${param_name}"
     local ns demangled_cmd
     if [[ -v _KNIT_CURRENT_PARAMETER_SET ]]; then
         ns="_KNIT_PSET_${_KNIT_CURRENT_PARAMETER_SET}"
@@ -1643,7 +1782,7 @@ knit_with_optional() {
     local param_name="${param_spec%%:*}"
     local param_type="${param_spec#*:}"
     local param
-    param=$(_knit_name_normalize "${param_name}")
+    _knit_name_normalize param "${param_name}"
     local ns demangled_cmd
     if [[ -v _KNIT_CURRENT_PARAMETER_SET ]]; then
         ns="_KNIT_PSET_${_KNIT_CURRENT_PARAMETER_SET}"
@@ -1694,7 +1833,7 @@ knit_with_flag() {
     knit_check_arguments "when" "" "${@:3}" \
         || knit_fatal "knit_with_flag takes a flag name, a description, and an optional --when."
     local param
-    param=$(_knit_name_normalize "$1")
+    _knit_name_normalize param "$1"
     local ns demangled_cmd
     if [[ -v _KNIT_CURRENT_PARAMETER_SET ]]; then
         ns="_KNIT_PSET_${_KNIT_CURRENT_PARAMETER_SET}"
@@ -1761,7 +1900,7 @@ _knit_pset_filter_build() {
         raw="${raw#"${raw%%[![:space:]]*}"}"
         raw="${raw%"${raw##*[![:space:]]}"}"
         [[ -z "${raw}" ]] && continue
-        name=$(_knit_name_normalize "${raw}")
+        _knit_name_normalize name "${raw}"
         if ! _knit_set_find "${pset_ns}_required" "${name}" \
            && ! _knit_set_find "${pset_ns}_optional" "${name}" \
            && ! _knit_set_find "${pset_ns}_flags" "${name}"; then
@@ -1802,7 +1941,7 @@ knit_with_parameter_set() {
         || knit_fatal "knit_with_parameter_set takes a set name and an optional --exclude or --only."
     local set_name="$1"
     local normalized
-    normalized=$(_knit_name_normalize "${set_name}")
+    _knit_name_normalize normalized "${set_name}"
     if [[ ! -v "_KNIT_PARAMETER_SETS[${normalized}]" ]]; then
         knit_fatal "Parameter set \"${set_name}\" is not defined."
     fi
@@ -1954,7 +2093,7 @@ knit_with_output() {
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
     local output
-    output=$(_knit_name_normalize "${param_name}")
+    _knit_name_normalize output "${param_name}"
     # Reserve the name against the command's whole name space: a duplicate output,
     # or a clash with a parameter, an artifact, or a synthesized checksum column,
     # is rejected uniformly.
@@ -2115,7 +2254,7 @@ _knit_execute_before_commands() {
     local cmd="$1"
     shift
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
     knit_trace "Executing callbacks before ${demangled_cmd}."
     local cb_list_name="_KNIT_CMD_${cmd}_before_cb"
     # shellcheck disable=SC2178
@@ -2172,7 +2311,7 @@ _knit_execute_after_commands() {
     local cmd="$1"
     shift
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
     knit_trace "Executing callbacks after ${demangled_cmd}."
     local cb_list_name="_KNIT_CMD_${cmd}_after_cb"
     # shellcheck disable=SC2178
@@ -2251,7 +2390,7 @@ _knit_check_argument_type() {
 _knit_check_command_arguments() {
     local cmd="$1"
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
     shift
     local args=("$@")
     # Check that all the required arguments have been provided
@@ -2628,11 +2767,15 @@ _knit_print_options_block() {
 # ------------------------------------------------------------------------------
 _knit_print_command_usage() {
     local cmd
-    cmd=$(_knit_command_mangle "$*")
+    _knit_command_mangle cmd "$*"
+    # Ensure any lazy subcommands are registered before this command's subcommand
+    # list is read below. A no-op for a command without a discovery function, so
+    # the root ("__main__", always eager) is unaffected.
+    _knit_ensure_discovered "${cmd}"
     local display
     # Registered spelling (with any hyphens), space-separated like the invocation
     # form; the display path joins segments with ":", never a space.
-    display=$(_knit_command_display "${cmd}")
+    _knit_command_display display "${cmd}"
     display="${display//:/ }"
     local extra_var="_KNIT_CMD_${cmd}_extra"
     local dispatch_var="_KNIT_CMD_${cmd}_dispatch"
@@ -2663,7 +2806,7 @@ _knit_print_command_usage() {
             "$0" "${display}" "${!dispatch_var}"
     elif [[ "${is_dispatched_child}" == "true" ]]; then
         local parent_display leaf leaf_var
-        parent_display=$(_knit_command_display "${parent}")
+        _knit_command_display parent_display "${parent}"
         parent_display="${parent_display//:/ }"
         leaf_var="_KNIT_CMD_${cmd}_display"
         leaf="${!leaf_var}"
@@ -2685,7 +2828,7 @@ _knit_print_command_usage() {
     # before the "--".
     if [[ "${is_dispatched_child}" == "true" ]]; then
         local parent_display
-        parent_display=$(_knit_command_display "${parent}")
+        _knit_command_display parent_display "${parent}"
         parent_display="${parent_display//:/ }"
         printf "\n"
         _knit_print_options_block "${parent}" "${parent_display} options" "false"
@@ -2884,7 +3027,7 @@ _knit_check_constraints() {
     [[ "${_has_constraints}" == "false" ]] && return 0
 
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
 
     local json
     json=$(_knit_build_constraint_json "${cmd}" "${_exp_ref[@]}")
@@ -3074,7 +3217,7 @@ _knit_checksum_inputs() {
         return 0
     fi
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
     local param
     while IFS= read -r param; do
         [[ -z "${param}" ]] && continue
@@ -3129,7 +3272,7 @@ _knit_checksum_outputs() {
         return 0
     fi
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
     # shellcheck disable=SC2178 # nameref to the command's output-value array
     local -n _knit_co_out="_KNIT_CMD_${cmd}_output_value"
     local param
@@ -3192,29 +3335,52 @@ _knit_invoke_command() {
     _KNIT_CALL_ALIAS=""
     # find the command and subcommands
     local demangled_cmd=""
+    local wrapper_probe parent_probe
     while [[ $# -gt 0 ]]; do
         if [[ $1 == --* ]]; then
             break
         fi
+        # Parent = the command accumulated so far (empty for the first token,
+        # which is a root command and is never lazy — see O3). Capture it before
+        # appending the next token so lazy subcommand discovery can run.
+        _knit_command_mangle parent_probe "${demangled_cmd}"
         if [[ -n "${demangled_cmd}" ]]; then
             demangled_cmd+=" "
         fi
         demangled_cmd+="$1"
         shift
+        _knit_command_mangle wrapper_probe "${demangled_cmd}"
+        # If the accumulated command is not yet known but its parent is and
+        # carries an undiscovered discovery function, run it to register the
+        # parent's subcommands, then re-test below. This walks the tree one level
+        # per token, so "aaa bbb ccc" discovers "aaa"'s children to reveal
+        # "aaa:bbb", then "aaa:bbb"'s children to reveal "aaa:bbb:ccc".
+        if [[ -n "${parent_probe}" ]] \
+            && ! _knit_set_find _KNIT_COMMANDS "${wrapper_probe}" \
+            && _knit_set_find _KNIT_COMMANDS "${parent_probe}"; then
+            _knit_ensure_discovered "${parent_probe}"
+        fi
         # Stop consuming tokens once the accumulated command is a wrapper: a
         # wrapper forwards everything after its name verbatim, so its arguments
         # (which need not start with "--") must not be mistaken for further
         # subcommand names.
-        if _knit_command_is_wrapper "$(_knit_command_mangle "${demangled_cmd}")"; then
+        if _knit_command_is_wrapper "${wrapper_probe}"; then
             break
         fi
     done
     # create the mangled command name
     local cmd
-    cmd=$(_knit_command_mangle "${demangled_cmd}")
+    _knit_command_mangle cmd "${demangled_cmd}"
     # check if the command exists
     if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
-        knit_fatal "Unknown command \"${demangled_cmd}\"."
+        # The command may have arrived as a single pre-mangled/colon token that
+        # the per-token discovery walk did not split (e.g. an internal
+        # _knit_invoke_command "job__1__cancel"). Discover its ancestors, then
+        # re-test before giving up.
+        _knit_discover_ancestors "${cmd}"
+        if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
+            knit_fatal "Unknown command \"${demangled_cmd}\"."
+        fi
     fi
     # Central runtime guard: before bootstrap, refuse any command not declared
     # usable before bootstrap, with one uniform message, rather than letting it
@@ -3458,9 +3624,9 @@ knit_output() {
     fi
     local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
     local normalized
-    normalized=$(_knit_name_normalize "${name}")
+    _knit_name_normalize normalized "${name}"
     if ! _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${normalized}"; then
         knit_fatal "\"${name}\" is not a declared output of command \"${demangled_cmd}\"."
     fi

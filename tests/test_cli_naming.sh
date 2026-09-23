@@ -20,31 +20,31 @@ teardown() {
 
 @test "_knit_command_mangle converts colons to __1__" {
     local result
-    result=$(_knit_command_mangle "foo:bar:baz")
+    _knit_command_mangle result "foo:bar:baz"
     [ "$result" = "foo__1__bar__1__baz" ]
 }
 
 @test "_knit_command_mangle converts spaces to __1__" {
     local result
-    result=$(_knit_command_mangle "foo bar baz")
+    _knit_command_mangle result "foo bar baz"
     [ "$result" = "foo__1__bar__1__baz" ]
 }
 
 @test "_knit_command_mangle leaves single word unchanged" {
     local result
-    result=$(_knit_command_mangle "foo")
+    _knit_command_mangle result "foo"
     [ "$result" = "foo" ]
 }
 
 @test "_knit_command_mangle folds hyphens to underscores" {
     local result
-    result=$(_knit_command_mangle "db-show")
+    _knit_command_mangle result "db-show"
     [ "$result" = "db_show" ]
 }
 
 @test "_knit_command_mangle folds hyphens per nested segment" {
     local result
-    result=$(_knit_command_mangle "grp:db-show")
+    _knit_command_mangle result "grp:db-show"
     [ "$result" = "grp__1__db_show" ]
 }
 
@@ -68,7 +68,7 @@ teardown() {
     knit_register "db-show" knit_empty "A hyphenated command."
     knit_done
     local result
-    result=$(_knit_command_display "db_show")
+    _knit_command_display result "db_show"
     [ "$result" = "db-show" ]
 }
 
@@ -78,7 +78,7 @@ teardown() {
     knit_register "grp:db-show" knit_empty "A nested hyphenated command."
     knit_done
     local result
-    result=$(_knit_command_display "grp__1__db_show")
+    _knit_command_display result "grp__1__db_show"
     [ "$result" = "grp:db-show" ]
 }
 
@@ -86,7 +86,7 @@ teardown() {
     knit_register "db_show" knit_empty "An underscore command."
     knit_done
     local result
-    result=$(_knit_command_display "db_show")
+    _knit_command_display result "db_show"
     [ "$result" = "db_show" ]
 }
 
@@ -108,13 +108,13 @@ teardown() {
 
 @test "_knit_name_normalize converts hyphens to underscores" {
     local result
-    result=$(_knit_name_normalize "my-param-name")
+    _knit_name_normalize result "my-param-name"
     [ "$result" = "my_param_name" ]
 }
 
 @test "_knit_name_normalize leaves underscores unchanged" {
     local result
-    result=$(_knit_name_normalize "my_param_name")
+    _knit_name_normalize result "my_param_name"
     [ "$result" = "my_param_name" ]
 }
 

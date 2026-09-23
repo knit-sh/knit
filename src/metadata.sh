@@ -3,20 +3,15 @@
 ## @file metadata.sh
 
 # ------------------------------------------------------------------------------
-# Registration of the metadata command.
+# Registration of the metadata command. Its subcommands (store / load / show)
+# are registered lazily by _knit_metadata_discover the first time any of them is
+# reached, so sourcing knit.sh does not build the subtree up front.
 # ------------------------------------------------------------------------------
 knit_register metadata knit_empty "Access metadata about the experiment."
 _knit_is_builtin
+knit_with_subcommand_discovery _knit_metadata_discover
 knit_done
 
-# ------------------------------------------------------------------------------
-# Store a key/value pair in the metadata table of the experiment.
-# ------------------------------------------------------------------------------
-knit_register "metadata:store" _knit_metadata_store "Store a key/value pair of metadata."
-_knit_is_builtin
-knit_with_required "key:string" "Key."
-knit_with_required "value:string" "Value."
-knit_with_flag "force" "Overwrite the value if the key already exists."
 # ------------------------------------------------------------------------------
 # @fn _knit_metadata_store()
 #
@@ -42,7 +37,6 @@ _knit_metadata_store() {
     _knit_sql_escape esc_value "${value}"
     _knit_sqlite3_write "${verb} INTO metadata (key, value) VALUES ('${esc_key}', '${esc_value}');"
 }
-knit_done
 
 # ------------------------------------------------------------------------------
 # @fn _knit_metadata_get()
@@ -65,12 +59,6 @@ _knit_metadata_get() {
 }
 
 # ------------------------------------------------------------------------------
-# Load the value associated with a key from the metadata table.
-# ------------------------------------------------------------------------------
-knit_register "metadata:load" _knit_metadata_load "Load the value associated with a key in the metadata."
-_knit_is_builtin
-knit_with_required "key:string" "Key."
-# ------------------------------------------------------------------------------
 # @fn _knit_metadata_load()
 #
 # Load the value associated with a key from the metadata table (the CLI command
@@ -87,7 +75,6 @@ _knit_metadata_load() {
     _knit_metadata_get value "${key}"
     printf '%s\n' "${value}"
 }
-knit_done
 
 # ------------------------------------------------------------------------------
 # @fn _knit_metadata_is_json()
@@ -146,11 +133,6 @@ _knit_metadata_render_value() {
 }
 
 # ------------------------------------------------------------------------------
-# Show the content of the metadata table of the experiment.
-# ------------------------------------------------------------------------------
-knit_register "metadata:show" _knit_metadata_show "Show all the stored metadata."
-_knit_is_builtin
-# ------------------------------------------------------------------------------
 # @fn _knit_metadata_show()
 #
 # Show the content of the metadata table, one key/value pair per line. Values
@@ -185,4 +167,30 @@ _knit_metadata_show() {
         printf '%-*s%s\n' "${keycol}" "${key}" "${rendered}"
     done <<< "${keys}"
 }
-knit_done
+
+# ------------------------------------------------------------------------------
+# @fn _knit_metadata_discover()
+#
+# Register the metadata subcommands (store / load / show). Called lazily by the
+# framework the first time a metadata subcommand is resolved, listed in
+# "--help", or walked by "describe".
+#
+# @param[in] parent The parent command's display name (unused).
+# ------------------------------------------------------------------------------
+_knit_metadata_discover() {
+    knit_register "metadata:store" _knit_metadata_store "Store a key/value pair of metadata."
+    _knit_is_builtin
+    knit_with_required "key:string" "Key."
+    knit_with_required "value:string" "Value."
+    knit_with_flag "force" "Overwrite the value if the key already exists."
+    knit_done
+
+    knit_register "metadata:load" _knit_metadata_load "Load the value associated with a key in the metadata."
+    _knit_is_builtin
+    knit_with_required "key:string" "Key."
+    knit_done
+
+    knit_register "metadata:show" _knit_metadata_show "Show all the stored metadata."
+    _knit_is_builtin
+    knit_done
+}

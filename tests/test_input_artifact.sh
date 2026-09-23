@@ -286,7 +286,9 @@ _seed_artifact() {
     knit_with_input_artifact "input_table:csvfile" "The table."
     _plot() { :; }
     knit_done
-    _KNIT_EXECUTING_COMMAND=("$(_knit_command_mangle "plot")")
+    local plot_cmd
+    _knit_command_mangle plot_cmd "plot"
+    _KNIT_EXECUTING_COMMAND=("${plot_cmd}")
     _KNIT_EXECUTING_ROW_ID=("target-uuid-1")
     _knit_input_artifact_after_cb "input_table" "csvfile" "" "" \
         --input-table "tables/absent.csv"
@@ -300,7 +302,7 @@ _seed_artifact() {
     _plot() { :; }
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "plot")
+    _knit_command_mangle cmd "plot"
     _knit_input_artifact_record_used_by_edge "tables/run7.csv" "${cmd}" "target-uuid-9"
     [ "$(_knit_sqlite3 \
         "SELECT source_id,source_name,target_id,target_name,edge_type,start_time,end_time FROM ${_KNIT_PROV_TABLE};")" \
@@ -314,7 +316,7 @@ _seed_artifact() {
     _plot() { :; }
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "plot")
+    _knit_command_mangle cmd "plot"
     _knit_input_artifact_record_used_by_edge "tables/run7.csv" "${cmd}" "target-uuid-9"
     _knit_prov_ensure_table
     [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE};")" = "0" ]
@@ -335,7 +337,7 @@ _seed_artifact() {
     _plot() { :; }
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "plot")
+    _knit_command_mangle cmd "plot"
     _KNIT_IS_BOOTSTRAPPED=""
     _KNIT_PREFIX="${_KNIT_TEST_TMPDIR}/nonexistent"
     _knit_input_artifact_record_used_by_edge "tables/run7.csv" "${cmd}" "target-uuid-9"
@@ -364,7 +366,7 @@ _seed_artifact() {
     _plot() { :; }
     knit_done
     local cmd akind
-    cmd=$(_knit_command_mangle "plot")
+    _knit_command_mangle cmd "plot"
     _knit_input_artifact_param_kind akind "${cmd}" "input_table"
     [ "${akind}" = "csvfile" ]
     _knit_input_artifact_param_kind akind "${cmd}" "title"

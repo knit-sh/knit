@@ -59,6 +59,7 @@ _KNIT_SHORTHAND_PASSTHROUGH=(
     [with_spack_env]=knit_with_spack_env
     [with_spack_specs]=knit_with_spack_specs
     [with_subcommand_title]=knit_with_subcommand_title
+    [with_subcommand_discovery]=knit_with_subcommand_discovery
     [hidden]=knit_hidden
     [hidden_if]=knit_hidden_if
     [hidden_if_not_usable]=knit_hidden_if_not_usable

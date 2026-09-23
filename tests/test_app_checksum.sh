@@ -24,7 +24,7 @@ setup() {
     knit_with_optional "aux:file" "" "Auxiliary file (no digest)." --no-checksum
     knit_done
 
-    SUBCMD="$(_knit_command_mangle "run:myapp")"
+    _knit_command_mangle SUBCMD "run:myapp"
 
     # A second app producing outputs: a checksummed file output, and a directory
     # output that opted out of the digest. The body writes whatever paths the
@@ -50,7 +50,7 @@ setup() {
     knit_with_output "work:directory" "" "The produced scratch tree." --no-checksum
     knit_done
 
-    OUTAPP="$(_knit_command_mangle "run:outapp")"
+    _knit_command_mangle OUTAPP "run:outapp"
 
     # Simulate the launcher spawning rank 0 in-process: find the "_run --" marker
     # in the launch argv and re-enter the app command as rank 0 would (records the
@@ -206,7 +206,9 @@ _stub_dispatch() {
 
 @test "_knit_checksum_is_app_worker is false for a non-app command" {
     export KNIT_RUN_ID="aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"
-    ! _knit_checksum_is_app_worker "$(_knit_command_mangle "run")"
+    local cmd
+    _knit_command_mangle cmd "run"
+    ! _knit_checksum_is_app_worker "${cmd}"
 }
 
 @test "the worker input hook stashes the forwarded digest without hashing" {

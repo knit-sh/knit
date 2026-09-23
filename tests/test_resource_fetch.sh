@@ -224,7 +224,7 @@ _prep_body() {
         url)   knit_register_resource "r" "d"; knit_with_url "https://x/a.tgz"; knit_done ;;
         local) knit_register_resource "r" "d"; knit_with_local "/data/x"; knit_done ;;
     esac
-    _BODY_CMD=$(_knit_command_mangle "fetch:r")
+    _knit_command_mangle _BODY_CMD "fetch:r"
     _KNIT_EXECUTING_COMMAND=("${_BODY_CMD}")
     declare -gA "_KNIT_CMD_${_BODY_CMD}_output_value=()"
 }

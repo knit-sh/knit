@@ -184,8 +184,14 @@ _knit_describe_emit_array() {
 # registration (declaration) order. The parent is given as a mangled name, or
 # the empty string to list the top-level (root) commands. This reads the command
 # tree adjacency built at registration time (_KNIT_ROOT_COMMANDS and the
-# per-command "_KNIT_CMD_<cmd>_subcommands" arrays), so it is fork-free and needs
-# no per-invocation build/teardown.
+# per-command "_KNIT_CMD_<cmd>_subcommands" arrays), so it needs no
+# per-invocation build/teardown.
+#
+# It first ensures the parent's lazy subcommands (if any) are discovered, so a
+# describe walk expands exactly the part of the tree it visits. That step is
+# fork-free once a subtree is discovered (the common case); the first walk into a
+# lazy subtree pays its registration cost, which is the deferred work this
+# feature is designed to avoid up front.
 #
 # @param[out] __knit_ret Name of the array variable to populate (nameref output).
 # @param[in] parent Mangled parent command name, or "" for top-level commands.
@@ -198,6 +204,10 @@ _knit_describe_children() {
     # shellcheck disable=SC2178 # nameref to indexed array
     local -n __knit_ret_children=$1; shift
     local parent="$1"
+    # Ensure lazy subcommands are registered before the parent's subcommand list
+    # is read. A no-op for the root ("") and for a parent without a discovery
+    # function.
+    _knit_ensure_discovered "${parent}"
     if [[ -z "${parent}" ]]; then
         __knit_ret_children=("${_KNIT_ROOT_COMMANDS[@]}")
     else
@@ -657,7 +667,7 @@ _knit_describe_json_command() {
     local inner="${indent}${_KNIT_DESCRIBE_JSON_IND}"
     local cs="${_KNIT_DESCRIBE_JSON_CS}"
     local demangled
-    demangled=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled "${cmd}"
     local -a segs
     IFS=':' read -r -a segs <<< "${demangled}"
     local name="${segs[-1]}"
@@ -1104,7 +1114,7 @@ _knit_describe_yaml_command() {
     local key="${item_indent}  "
     local cont="${key}  "
     local demangled
-    demangled=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled "${cmd}"
     local -a segs
     IFS=':' read -r -a segs <<< "${demangled}"
     local name="${segs[-1]}"
@@ -1542,7 +1552,7 @@ _knit_describe_default_command() {
         # The registered spelling (with any hyphens), rendered space-separated
         # like the invocation form; the display path joins segments with ":",
         # never a space, so replacing ":" with " " is safe.
-        display=$(_knit_command_display "${cmd}")
+        _knit_command_display display "${cmd}"
         display="${display//:/ }"
         _knit_describe_command_kind kind "${cmd}"
         if _knit_command_is_builtin "${cmd}"; then tag="builtin"; else tag="user"; fi
@@ -1914,7 +1924,7 @@ _knit_describe_md_command() {
         # The registered spelling (with any hyphens), rendered space-separated
         # like the invocation form; the display path joins segments with ":",
         # never a space, so replacing ":" with " " is safe.
-        display=$(_knit_command_display "${cmd}")
+        _knit_command_display display "${cmd}"
         display="${display//:/ }"
         _knit_describe_command_kind kind "${cmd}"
         if _knit_command_is_builtin "${cmd}"; then tag="builtin"; else tag="user"; fi
@@ -2016,10 +2026,11 @@ _knit_describe_read_filters() {
     if [[ -n "${only}" ]]; then
         local -a selected=()
         IFS=',' read -r -a selected <<< "${only}"
-        local name
+        local name mangled
         for name in "${selected[@]}"; do
             [[ -z "${name}" ]] && continue
-            _knit_set_add _KNIT_DESCRIBE_ONLY "$(_knit_command_mangle "${name}")"
+            _knit_command_mangle mangled "${name}"
+            _knit_set_add _KNIT_DESCRIBE_ONLY "${mangled}"
         done
     fi
 }

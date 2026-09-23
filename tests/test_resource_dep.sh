@@ -54,7 +54,7 @@ _fake_instance() {
     _train() { :; }
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "train")
+    _knit_command_mangle cmd "train"
     _knit_set_find "_KNIT_CMD_${cmd}_required" "training_dataset"
 }
 
@@ -64,7 +64,7 @@ _fake_instance() {
     _train() { :; }
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "train")
+    _knit_command_mangle cmd "train"
     local marker="_KNIT_CMD_${cmd}_resource_training_dataset"
     [ "${!marker}" = "images" ]
 }
@@ -75,7 +75,7 @@ _fake_instance() {
     _train() { :; }
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "train")
+    _knit_command_mangle cmd "train"
     local marker="_KNIT_CMD_${cmd}_resource_training_set"
     [ "${!marker}" = "images" ]
 }
@@ -125,7 +125,7 @@ _fake_instance() {
     _train() { :; }
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "train")
+    _knit_command_mangle cmd "train"
     _knit_set_find "_KNIT_CMD_${cmd}_required" "train_set"
     _knit_set_find "_KNIT_CMD_${cmd}_required" "test_set"
 }
@@ -208,7 +208,7 @@ _fake_instance() {
     _train() { :; }
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "train")
+    _knit_command_mangle cmd "train"
     local -n _acbs="_KNIT_CMD_${cmd}_after_cb"
     [[ "${_acbs[*]}" == *"_knit_resource_dep_after_cb"* ]]
 }
@@ -249,7 +249,7 @@ _fake_instance() {
     _train() { :; }
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "train")
+    _knit_command_mangle cmd "train"
     _knit_resource_record_used_by_edge "cats" "${cmd}" "target-uuid-9"
     [ "$(_knit_sqlite3 \
         "SELECT source_id,source_name,target_id,target_name,edge_type,start_time,end_time FROM ${_KNIT_PROV_TABLE};")" \
@@ -263,7 +263,7 @@ _fake_instance() {
     _train() { :; }
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "train")
+    _knit_command_mangle cmd "train"
     _knit_resource_record_used_by_edge "cats" "${cmd}" "target-uuid-9"
     _knit_prov_ensure_table
     [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM ${_KNIT_PROV_TABLE};")" = "0" ]
@@ -287,7 +287,7 @@ _fake_instance() {
     _train() { :; }
     knit_done
     local cmd rtype
-    cmd=$(_knit_command_mangle "train")
+    _knit_command_mangle cmd "train"
     _knit_resource_param_type rtype "${cmd}" "dataset"
     [ "${rtype}" = "images" ]
     _knit_resource_param_type rtype "${cmd}" "epochs"

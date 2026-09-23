@@ -16,6 +16,16 @@ check_eq "$(exp hello)" "Hello World" "hello prints the greeting"
 check_eq "$(exp say hello)" "Hello" "the first nested subcommand runs"
 check_eq "$(exp say goodbye)" "Goodbye" "the second nested subcommand runs"
 
+# widget list / widget make: subcommands registered lazily by a discovery
+# function. They resolve and run exactly like eagerly-registered ones.
+check_eq "$(exp widget list)" "widget-a widget-b" \
+    "a lazily-discovered subcommand runs"
+check_eq "$(exp widget make --name gizmo)" "made gizmo" \
+    "a lazily-discovered subcommand reads its parameters"
+widget_help="$(exp widget --help 2>&1)"
+check_contains "${widget_help}" "list" "widget --help lists a lazy subcommand"
+check_contains "${widget_help}" "make" "widget --help lists every lazy subcommand"
+
 # tool: a dispatcher forwards everything after -- to its body.
 check_eq "$(exp tool -- render --size 4)" "running: render --size 4" \
     "the dispatcher forwards the trailing arguments"

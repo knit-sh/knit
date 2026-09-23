@@ -63,7 +63,7 @@ _knit_rocrate_outputs_json() {
         local out norm
         while IFS= read -r out; do
             [[ -z "${out}" ]] && continue
-            norm="$(_knit_name_normalize "${out}")"
+            _knit_name_normalize norm "${out}"
             names+=("${norm}")
         done < <(_knit_set_iter "_KNIT_CMD_${mangled}_outputs")
     fi
@@ -113,7 +113,7 @@ _knit_rocrate_rows_json() {
     for table in "${!_KNIT_DB_REGISTERED_TABLES[@]}"; do
         _knit_rocrate_table_exists "${table}" || continue
         cmd="${_KNIT_DB_REGISTERED_TABLES[${table}]}"
-        mangled="$(_knit_command_mangle "${cmd}")"
+        _knit_command_mangle mangled "${cmd}"
         outputs_json="$(_knit_rocrate_outputs_json "${mangled}")"
         _knit_db_sql_ident tbl_ident "${table}"
         rows_json="$(_knit_sqlite3 -json "SELECT * FROM ${tbl_ident};")"
@@ -382,12 +382,24 @@ knit_register export knit_empty \
     "Export a view of the experiment in a standard format."
 _knit_is_builtin
 knit_without_provenance
+knit_with_subcommand_discovery _knit_export_discover
 knit_done
 
-knit_register "export:ro-crate" _knit_export_rocrate \
-    "Write the RO-Crate manifest (ro-crate-metadata.json) alone, no archive."
-_knit_is_builtin
-knit_without_provenance
-knit_with_optional "output:path" "./ro-crate-metadata.json" \
-    "Where to write the manifest (- for standard output)."
-knit_done
+# ------------------------------------------------------------------------------
+# @fn _knit_export_discover()
+#
+# Register the export subcommands (ro-crate). Called lazily by the framework the
+# first time an export subcommand is resolved, listed in "--help", or walked by
+# "describe".
+#
+# @param[in] parent The parent command's display name (unused).
+# ------------------------------------------------------------------------------
+_knit_export_discover() {
+    knit_register "export:ro-crate" _knit_export_rocrate \
+        "Write the RO-Crate manifest (ro-crate-metadata.json) alone, no archive."
+    _knit_is_builtin
+    knit_without_provenance
+    knit_with_optional "output:path" "./ro-crate-metadata.json" \
+        "Where to write the manifest (- for standard output)."
+    knit_done
+}

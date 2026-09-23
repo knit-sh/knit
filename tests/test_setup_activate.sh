@@ -28,7 +28,7 @@ _enter_setup_body() {
     knit_register_setup "${name}" "_test_setup_fn" "A test setup."
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "setup:${name}")
+    _knit_command_mangle cmd "setup:${name}"
     _KNIT_EXECUTING_COMMAND=("${cmd}")
 }
 
@@ -236,7 +236,7 @@ _compose() {
     knit_register "plaincmd" "_test_fn" "A plain command."
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "plaincmd")
+    _knit_command_mangle cmd "plaincmd"
     _KNIT_EXECUTING_COMMAND=("${cmd}")
     run knit_setup_env_set KNIT_T_VAR "x"
     [ "${status}" -ne 0 ]

@@ -22,9 +22,13 @@ teardown() {
 
 @test "a nested framework command reports builtin" {
     local cmd
-    cmd=$(_knit_command_mangle "metadata:store")
+    # These subcommands are registered lazily; discover them before reading their
+    # markers.
+    _knit_command_mangle cmd "metadata:store"
+    _knit_discover_ancestors "${cmd}"
     _knit_command_is_builtin "${cmd}"
-    cmd=$(_knit_command_mangle "job:show:stdout")
+    _knit_command_mangle cmd "job:show:stdout"
+    _knit_discover_ancestors "${cmd}"
     _knit_command_is_builtin "${cmd}"
 }
 

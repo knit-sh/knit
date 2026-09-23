@@ -1,0 +1,30 @@
+name: Speed
+
+on:
+  push:
+    branches: [main]
+    paths:
+    - "src/**"
+    - Makefile
+    - maint/speed-check.sh
+    - .github/workflows/speed.yml
+  pull_request:
+    branches:
+    - main
+    paths:
+    - "src/**"
+    - Makefile
+    - maint/speed-check.sh
+    - .github/workflows/speed.yml
+
+jobs:
+  speed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build knit.sh
+        run: make
+
+      - name: Measure source knit.sh (fail over 300 ms)
+        run: bash maint/speed-check.sh 300

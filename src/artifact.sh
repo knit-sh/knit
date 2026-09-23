@@ -502,7 +502,7 @@ _knit_register_artifact() {
     [[ -v _KNIT_CURRENT_COMMAND ]] || return 0
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local output
-    output=$(_knit_name_normalize "${name}")
+    _knit_name_normalize output "${name}"
     _knit_set_exists "_KNIT_CMD_${cmd}_artifacts" \
         || _knit_set_new "_KNIT_CMD_${cmd}_artifacts"
     _knit_set_add "_KNIT_CMD_${cmd}_artifacts" "${output}"
@@ -585,7 +585,7 @@ knit_with_output_artifact() {
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
     local output
-    output=$(_knit_name_normalize "${param_name}")
+    _knit_name_normalize output "${param_name}"
     # Reserve the name against the command's whole name space: a duplicate
     # artifact, or a clash with a parameter, an output, or a synthesized checksum
     # column, is rejected uniformly. An artifact is not itself an output column,
@@ -809,9 +809,9 @@ knit_artifact() {
     fi
     local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
     local demangled_cmd
-    demangled_cmd=$(_knit_command_display "${cmd}")
+    _knit_command_display demangled_cmd "${cmd}"
     local normalized
-    normalized=$(_knit_name_normalize "${name}")
+    _knit_name_normalize normalized "${name}"
     if ! _knit_set_find "_KNIT_CMD_${cmd}_artifacts" "${normalized}"; then
         knit_fatal "\"${name}\" is not a declared artifact of command \"${demangled_cmd}\"."
     fi
@@ -1456,7 +1456,7 @@ knit_with_input_artifact() {
 
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local param
-    param=$(_knit_name_normalize "${param_name}")
+    _knit_name_normalize param "${param_name}"
 
     # Record the required kind in a per-parameter marker, read by the validation
     # before-callback and (later) by describe / --help.

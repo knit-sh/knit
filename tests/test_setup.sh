@@ -100,7 +100,7 @@ teardown() {
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "setup:mysetup")
+    _knit_command_mangle cmd "setup:mysetup"
     local cb_content
     eval "cb_content=\"\${_KNIT_CMD_${cmd}_before_cb[*]}\""
     [[ "${cb_content}" == *_knit_setup_before_cb* ]]
@@ -111,7 +111,7 @@ teardown() {
     knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
     knit_done
     local cmd
-    cmd=$(_knit_command_mangle "setup:mysetup")
+    _knit_command_mangle cmd "setup:mysetup"
     local cb_content
     eval "cb_content=\"\${_KNIT_CMD_${cmd}_after_cb[*]}\""
     [[ "${cb_content}" == *_knit_setup_after_cb* ]]

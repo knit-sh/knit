@@ -92,6 +92,14 @@
 # `@with_setup` — the setup type it requires. (`@with_setup` works on any
 # command now, not just jobs; a non-job command gains its own `--setup` option.)
 #
+# A parent with many subcommands can register them lazily with
+# `@with_subcommand_discovery`, so the subtree is built only when a subcommand is
+# first reached. The `about` group near the end of this file does exactly that:
+# `./full.sh --help` lists `about`, but `about facts` / `about pi` are registered
+# only when you run `./full.sh about ...`, `./full.sh about --help`, or
+# `./full.sh describe`. This is how knit keeps its own start-up cheap — most of
+# its builtin subcommands are registered this way.
+#
 # Most commands only make sense once the experiment is bootstrapped (they need
 # the database and binaries that `bootstrap` provisions under ./.knit). A few are
 # meaningful *before* bootstrap and are declared `@usable_before_bootstrap`:
@@ -1823,6 +1831,43 @@ _merge() {
     printf 'merged %s shard(s), %s data row(s)\n' "${#paths[@]}" "${total}"
 }
 @done
+
+# -----------------------------------------------------------------------------
+# Lazily-registered subcommands (knit_with_subcommand_discovery).
+#
+# "about" only groups its subcommands, and they are registered lazily: the
+# discovery function _about_discover runs at most once, the first time an "about"
+# subcommand is reached (e.g. "about facts", "about --help", or "describe"). A
+# subtree a run never touches costs nothing at source time, which keeps every
+# command's start-up cheap even as an experiment (or knit itself) grows. Try:
+#   ./full.sh about --help
+#   ./full.sh about facts
+# -----------------------------------------------------------------------------
+@command "about" "Facts about this example experiment."
+@empty
+@usable_before_bootstrap
+@with_subcommand_discovery _about_discover
+@done
+
+# The discovery function registers "about"'s immediate subcommands with the usual
+# calls. It receives the parent's display name as $1 (unused here). These
+# subcommands only print static text, so they are usable before bootstrap too (a
+# subcommand may be usable before bootstrap only if its parent is).
+_about_discover() {
+    @command "about:facts" "Print a few facts about this experiment."
+    @usable_before_bootstrap
+    _about_facts() {
+        printf 'A Monte-Carlo pi tour built on the knit framework.\n'
+    }
+    @done
+
+    @command "about:pi" "Print a high-precision reference value of pi."
+    @usable_before_bootstrap
+    _about_pi() {
+        printf '3.14159265358979\n'
+    }
+    @done
+}
 
 # -----------------------------------------------------------------------------
 # Call the main entry point of the knit framework (must come last).

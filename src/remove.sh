@@ -193,7 +193,7 @@ _knit_remove_table_kind() {
     fi
     local owner mangled type_var kind
     owner="${_KNIT_DB_REGISTERED_TABLES["${table}"]}"
-    mangled="$(_knit_command_mangle "${owner}")"
+    _knit_command_mangle mangled "${owner}"
     type_var="_KNIT_CMD_${mangled}_type"
     kind="${!type_var:-command}"
     [[ "${kind}" == "wrapper" ]] && kind="command"
@@ -819,7 +819,7 @@ _knit_remove_plain_outputs() {
         esac
         owner="${_KNIT_DB_REGISTERED_TABLES["${tbl}"]:-}"
         [[ -z "${owner}" ]] && continue
-        mangled="$(_knit_command_mangle "${owner}")"
+        _knit_command_mangle mangled "${owner}"
         # No file-parameter markers means the command has no file outputs to
         # classify (or is no longer registered): nothing to list for this row.
         _knit_set_exists "_KNIT_CMD_${mangled}_fileparams" || continue
@@ -2005,7 +2005,9 @@ _knit_remove_toplevel() {
 }
 
 # ------------------------------------------------------------------------------
-# Registration of the remove command group.
+# Registration of the remove command group. Its subcommands (setup / resource /
+# job / run / command / artifact) are registered lazily by _knit_remove_discover
+# the first time any of them is reached.
 # ------------------------------------------------------------------------------
 knit_register remove _knit_remove_toplevel \
     "Erase recorded entities and their provenance from the database."
@@ -2014,18 +2016,9 @@ knit_without_provenance
 knit_with_flag "failed" \
     "Erase every failed invocation (a non-zero recorded exit status); add --from-root to also erase the jobs that contain them."
 _knit_remove_declare_flags
+knit_with_subcommand_discovery _knit_remove_discover
 knit_done
 
-# ------------------------------------------------------------------------------
-# Registration of 'remove setup'.
-# ------------------------------------------------------------------------------
-knit_register "remove:setup" _knit_remove_setup \
-    "Erase a setup instance and everything that used it."
-_knit_is_builtin
-knit_without_provenance
-_knit_remove_declare_selectors "setup" id name type
-_knit_remove_declare_flags
-_knit_remove_declare_failed_flag
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_setup()
 #
@@ -2037,18 +2030,7 @@ _knit_remove_declare_failed_flag
 _knit_remove_setup() {
     _knit_remove_dispatch "setup" id name type -- "$@"
 }
-knit_done
 
-# ------------------------------------------------------------------------------
-# Registration of 'remove resource'.
-# ------------------------------------------------------------------------------
-knit_register "remove:resource" _knit_remove_resource \
-    "Erase a fetched resource instance and everything that used it."
-_knit_is_builtin
-knit_without_provenance
-_knit_remove_declare_selectors "resource" id name type
-_knit_remove_declare_flags
-_knit_remove_declare_failed_flag
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_resource()
 #
@@ -2060,18 +2042,7 @@ _knit_remove_declare_failed_flag
 _knit_remove_resource() {
     _knit_remove_dispatch "resource" id name type -- "$@"
 }
-knit_done
 
-# ------------------------------------------------------------------------------
-# Registration of 'remove job'.
-# ------------------------------------------------------------------------------
-knit_register "remove:job" _knit_remove_job \
-    "Erase a job (submission and body); the setup and resource it used stay."
-_knit_is_builtin
-knit_without_provenance
-_knit_remove_declare_selectors "job" id name type group
-_knit_remove_declare_flags
-_knit_remove_declare_failed_flag
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_job()
 #
@@ -2084,18 +2055,7 @@ _knit_remove_declare_failed_flag
 _knit_remove_job() {
     _knit_remove_dispatch "job" id name type group -- "$@"
 }
-knit_done
 
-# ------------------------------------------------------------------------------
-# Registration of 'remove run'.
-# ------------------------------------------------------------------------------
-knit_register "remove:run" _knit_remove_run \
-    "Erase a run (its launch row and the app row); the enclosing job stays."
-_knit_is_builtin
-knit_without_provenance
-_knit_remove_declare_selectors "run" id type
-_knit_remove_declare_flags
-_knit_remove_declare_failed_flag
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_run()
 #
@@ -2111,18 +2071,7 @@ _knit_remove_declare_failed_flag
 _knit_remove_run() {
     _knit_remove_dispatch "run" id type -- "$@"
 }
-knit_done
 
-# ------------------------------------------------------------------------------
-# Registration of 'remove command'.
-# ------------------------------------------------------------------------------
-knit_register "remove:command" _knit_remove_command \
-    "Erase a plain command invocation row (also covers wrapper rows)."
-_knit_is_builtin
-knit_without_provenance
-_knit_remove_declare_selectors "command" id type
-_knit_remove_declare_flags
-_knit_remove_declare_failed_flag
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_command()
 #
@@ -2134,17 +2083,7 @@ _knit_remove_declare_failed_flag
 _knit_remove_command() {
     _knit_remove_dispatch "command" id type -- "$@"
 }
-knit_done
 
-# ------------------------------------------------------------------------------
-# Registration of 'remove artifact'.
-# ------------------------------------------------------------------------------
-knit_register "remove:artifact" _knit_remove_artifact \
-    "Name a produced artifact directly; meaningful only with --from-root."
-_knit_is_builtin
-knit_without_provenance
-_knit_remove_declare_selectors "artifact" id path
-_knit_remove_declare_flags
 # ------------------------------------------------------------------------------
 # @fn _knit_remove_artifact()
 #
@@ -2158,4 +2097,67 @@ _knit_remove_declare_flags
 _knit_remove_artifact() {
     _knit_remove_dispatch "artifact" id path -- "$@"
 }
-knit_done
+
+# ------------------------------------------------------------------------------
+# @fn _knit_remove_discover()
+#
+# Register the remove subcommands (setup / resource / job / run / command /
+# artifact). Called lazily by the framework the first time a remove subcommand is
+# resolved, listed in "--help", or walked by "describe".
+#
+# @param[in] parent The parent command's display name (unused).
+# ------------------------------------------------------------------------------
+_knit_remove_discover() {
+    knit_register "remove:setup" _knit_remove_setup \
+        "Erase a setup instance and everything that used it."
+    _knit_is_builtin
+    knit_without_provenance
+    _knit_remove_declare_selectors "setup" id name type
+    _knit_remove_declare_flags
+    _knit_remove_declare_failed_flag
+    knit_done
+
+    knit_register "remove:resource" _knit_remove_resource \
+        "Erase a fetched resource instance and everything that used it."
+    _knit_is_builtin
+    knit_without_provenance
+    _knit_remove_declare_selectors "resource" id name type
+    _knit_remove_declare_flags
+    _knit_remove_declare_failed_flag
+    knit_done
+
+    knit_register "remove:job" _knit_remove_job \
+        "Erase a job (submission and body); the setup and resource it used stay."
+    _knit_is_builtin
+    knit_without_provenance
+    _knit_remove_declare_selectors "job" id name type group
+    _knit_remove_declare_flags
+    _knit_remove_declare_failed_flag
+    knit_done
+
+    knit_register "remove:run" _knit_remove_run \
+        "Erase a run (its launch row and the app row); the enclosing job stays."
+    _knit_is_builtin
+    knit_without_provenance
+    _knit_remove_declare_selectors "run" id type
+    _knit_remove_declare_flags
+    _knit_remove_declare_failed_flag
+    knit_done
+
+    knit_register "remove:command" _knit_remove_command \
+        "Erase a plain command invocation row (also covers wrapper rows)."
+    _knit_is_builtin
+    knit_without_provenance
+    _knit_remove_declare_selectors "command" id type
+    _knit_remove_declare_flags
+    _knit_remove_declare_failed_flag
+    knit_done
+
+    knit_register "remove:artifact" _knit_remove_artifact \
+        "Name a produced artifact directly; meaningful only with --from-root."
+    _knit_is_builtin
+    knit_without_provenance
+    _knit_remove_declare_selectors "artifact" id path
+    _knit_remove_declare_flags
+    knit_done
+}
