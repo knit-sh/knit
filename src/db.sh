@@ -31,36 +31,6 @@ _knit_db_sql_ident() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_db_type_default()
-#
-# Return a sensible default value string for a given Knit type. Used when
-# migrating a table to provide a back-fill value for newly added columns that
-# do not have a user-supplied default.
-#
-# Example:
-# ```
-# local d; _knit_db_type_default d "integer"  # d == 0
-# local d; _knit_db_type_default d "boolean"  # d == false
-# local d; _knit_db_type_default d "string"   # d == (empty)
-# ```
-#
-# @param[out] __knit_ret Name of the variable to hold the default value.
-# @param[in] type Knit type name or alias.
-# ------------------------------------------------------------------------------
-_knit_db_type_default() {
-    local -n __knit_ret=$1
-    local type="$2"
-    local resolved
-    _knit_type_resolve_alias resolved "${type}" || resolved="${type}"
-    case "${resolved}" in
-        integer) __knit_ret='0' ;;
-        real)    __knit_ret='0' ;;
-        boolean) __knit_ret='false' ;;
-        *)       __knit_ret='' ;;
-    esac
-}
-
-# ------------------------------------------------------------------------------
 # @fn _knit_db_create_table()
 #
 # Create a new table in the Knit database. Each column specification must be of
@@ -118,10 +88,16 @@ _knit_db_create_table() {
 # ------------------------------------------------------------------------------
 # @fn _knit_db_check_table()
 #
-# Check whether a table exists in the Knit database and matches the given
-# column specifications exactly (count, names, types, and order). Returns 0 if
-# the table exists and matches, 1 if the table does not exist, or 2 if the
-# table exists but the schema differs from what was specified.
+# Check whether a table exists and already carries every declared column.
+# Returns 0 if the table exists and every desired column is present, 1 if the
+# table does not exist, or 2 if the table exists but is missing one or more of
+# the desired columns.
+#
+# The match is a superset test: columns present in the table but absent from the
+# desired specification (e.g. a parameter later removed from the command) are
+# ignored, and so are column order and column type. Migration is additive only
+# (see _knit_db_migrate_table), so a present column of any type is treated as
+# satisfying the specification and never triggers a change.
 #
 # Example:
 # ```
@@ -131,7 +107,7 @@ _knit_db_create_table() {
 #
 # @param[in] table_name Name of the table to check.
 # @param[in] ...specs   One or more "column-name:type" specifications.
-# @return 0 if the table matches, 1 if absent, 2 if schema differs.
+# @return 0 if every desired column is present, 1 if absent, 2 if any is missing.
 # ------------------------------------------------------------------------------
 _knit_db_check_table() {
     local table_name="$1"
@@ -145,37 +121,25 @@ _knit_db_check_table() {
         return 1
     fi
 
-    local expected_names=()
-    local expected_types=()
-    local spec
+    local desired_names=()
+    local spec col_name
     for spec in "$@"; do
         if [[ "${spec}" != *:* ]]; then
             knit_fatal "Column specification \"${spec}\" is missing a type (expected \"name:type\")."
         fi
-        local col_name="${spec%%:*}"
-        local col_type="${spec#*:}"
+        col_name="${spec%%:*}"
         _knit_str_hyphens_to_underscores col_name "${col_name}"
-        local sqlite_type
-        _knit_type_to_sqlite sqlite_type "${col_type}" || return 2
-        expected_names+=("${col_name}")
-        expected_types+=("${sqlite_type}")
+        desired_names+=("${col_name}")
     done
 
-    local actual_names=()
-    local actual_types=()
-    while IFS='|' read -r _cid col_name col_type _rest; do
-        actual_names+=("${col_name}")
-        actual_types+=("${col_type}")
+    local -A actual=()
+    local name
+    while IFS='|' read -r _cid name _rest; do
+        actual["${name}"]=1
     done < <(_knit_sqlite3 "PRAGMA table_info('${esc_table}');" )
 
-    if [[ "${#expected_names[@]}" -ne "${#actual_names[@]}" ]]; then
-        return 2
-    fi
-
-    local i
-    for (( i = 0; i < ${#expected_names[@]}; i++ )); do
-        if [[ "${expected_names[$i]}" != "${actual_names[$i]}" ]] \
-        || [[ "${expected_types[$i]}" != "${actual_types[$i]}" ]]; then
+    for name in "${desired_names[@]}"; do
+        if [[ -z "${actual[$name]:-}" ]]; then
             return 2
         fi
     done
@@ -186,24 +150,26 @@ _knit_db_check_table() {
 # ------------------------------------------------------------------------------
 # @fn _knit_db_migrate_table()
 #
-# Migrate an existing table to a new column schema. Each column specification
-# may be "name:type" (for columns that already exist or are being retyped) or
-# "name:type=default" (required for columns not present in the current schema,
-# so that existing rows can be back-filled with the given default value).
-# Columns absent from the new spec are dropped. Column names are normalized
-# (hyphens converted to underscores). If the current schema already matches the
-# desired schema the function returns 0 without touching the database.
+# Migrate an existing table so it carries every declared column. Migration is
+# additive only: each desired "name:type" column that the table does not already
+# have is appended with "ALTER TABLE ... ADD COLUMN". A column already present is
+# left untouched (its type is never changed), and a column present in the table
+# but absent from the specification (e.g. a parameter later removed from the
+# command) is kept, preserving the values recorded for it. Column names are
+# normalized (hyphens converted to underscores).
 #
-# The default value is always treated as a SQL string literal; SQLite's type
-# affinity coercion handles integer/real columns correctly.
+# A newly added column carries no SQL default: existing rows read NULL for it
+# (the run predates the column) and a future row that does not record the column
+# is NULL too, rather than a stale copy of some default value. Dropping a column
+# is never automatic; that is an explicit, separate operation.
 #
 # Example:
 # ```
-# _knit_db_migrate_table "runs" "id:uuid" "count:integer=0" "label:string"
+# _knit_db_migrate_table "runs" "id:uuid" "count:integer" "label:string"
 # ```
 #
 # @param[in] table_name Name of the table to migrate.
-# @param[in] ...specs   One or more "name:type" or "name:type=default" specs.
+# @param[in] ...specs   One or more "name:type" specifications.
 # @return 0 if the migration was applied or no migration was needed.
 # ------------------------------------------------------------------------------
 _knit_db_migrate_table() {
@@ -223,124 +189,45 @@ _knit_db_migrate_table() {
         knit_fatal "Table \"${table_name}\" does not exist in the database."
     fi
 
-    # Parse desired specs
-    local desired_names=()
-    local desired_knit_types=()
-    local desired_sqlite_types=()
-    local desired_defaults=()
-    local desired_has_default=()
-    local spec col_name rest col_type col_default has_def sqlite_type
-    for spec in "$@"; do
-        if [[ "${spec}" != *:* ]]; then
-            knit_fatal "Column specification \"${spec}\" is missing a type (expected \"name:type\" or \"name:type=default\")."
-        fi
-        col_name="${spec%%:*}"
-        rest="${spec#*:}"
-        if [[ "${rest}" == *=* ]]; then
-            col_type="${rest%%=*}"
-            col_default="${rest#*=}"
-            has_def="1"
-        else
-            col_type="${rest}"
-            col_default=""
-            has_def="0"
-        fi
-        _knit_str_hyphens_to_underscores col_name "${col_name}"
-        _knit_type_to_sqlite sqlite_type "${col_type}" \
-            || knit_fatal "Column \"${col_name}\" has unknown type \"${col_type}\"."
-        desired_names+=("${col_name}")
-        desired_knit_types+=("${col_type}")
-        desired_sqlite_types+=("${sqlite_type}")
-        desired_defaults+=("${col_default}")
-        desired_has_default+=("${has_def}")
-    done
-
-    # Get current column names
-    local current_names=()
-    while IFS='|' read -r _cid col_name _rest; do
-        current_names+=("${col_name}")
+    # Column names already present in the table.
+    local -A present=()
+    local name
+    while IFS='|' read -r _cid name _rest; do
+        present["${name}"]=1
     done < <(_knit_sqlite3 "PRAGMA table_info('${esc_table}');" )
 
-    # Validate: new columns must have defaults; record which columns are new
-    local i is_new cur
-    local new_columns=()
-    for (( i = 0; i < ${#desired_names[@]}; i++ )); do
-        is_new=1
-        for cur in "${current_names[@]}"; do
-            if [[ "${cur}" == "${desired_names[$i]}" ]]; then
-                is_new=0
-                break
-            fi
-        done
-        if [[ "${is_new}" -eq 1 && "${desired_has_default[$i]}" == "0" ]]; then
-            knit_fatal "New column \"${desired_names[$i]}\" requires a default value (use \"name:type=default\")."
+    # Append each declared column that is missing. New columns land at the end of
+    # the table, so physical column order reflects when columns were added, not
+    # the declared order.
+    local q_table col_ident
+    _knit_db_sql_ident q_table "${table_name}"
+    local spec col_name col_type sqlite_type
+    local stmts=()
+    for spec in "$@"; do
+        if [[ "${spec}" != *:* ]]; then
+            knit_fatal "Column specification \"${spec}\" is missing a type (expected \"name:type\")."
         fi
-        new_columns+=("${is_new}")
+        col_name="${spec%%:*}"
+        col_type="${spec#*:}"
+        _knit_str_hyphens_to_underscores col_name "${col_name}"
+        [[ -n "${present[${col_name}]:-}" ]] && continue
+        _knit_type_to_sqlite sqlite_type "${col_type}" \
+            || knit_fatal "Column \"${col_name}\" has unknown type \"${col_type}\"."
+        _knit_db_sql_ident col_ident "${col_name}"
+        knit_trace "Adding column \"${col_name}\" to table \"${table_name}\"."
+        stmts+=("ALTER TABLE ${q_table} ADD COLUMN ${col_ident} ${sqlite_type};")
     done
 
-    # Check if migration is actually needed (use clean name:knit_type specs)
-    local clean_specs=()
-    for (( i = 0; i < ${#desired_names[@]}; i++ )); do
-        clean_specs+=("${desired_names[$i]}:${desired_knit_types[$i]}")
-    done
-    if _knit_db_check_table "${table_name}" "${clean_specs[@]}"; then
-        knit_trace "Table \"${table_name}\" already matches desired schema; no migration needed."
+    if [[ "${#stmts[@]}" -eq 0 ]]; then
+        knit_trace "Table \"${table_name}\" already carries every declared column; no migration needed."
         return 0
     fi
 
-    # Log dropped columns
-    local found
-    for cur in "${current_names[@]}"; do
-        found=0
-        for (( i = 0; i < ${#desired_names[@]}; i++ )); do
-            if [[ "${desired_names[$i]}" == "${cur}" ]]; then
-                found=1; break
-            fi
-        done
-        if [[ "${found}" -eq 0 ]]; then
-            knit_trace "Dropping column \"${cur}\" from table \"${table_name}\"."
-        fi
-    done
-
-    # Build column definitions for CREATE TABLE
-    local col_defs=()
-    local col_ident
-    for (( i = 0; i < ${#desired_names[@]}; i++ )); do
-        _knit_db_sql_ident col_ident "${desired_names[$i]}"
-        col_defs+=("${col_ident} ${desired_sqlite_types[$i]}")
-    done
-
-    # Build INSERT column list and SELECT expressions
-    local insert_cols=()
-    local select_exprs=()
-    local esc_default
-    for (( i = 0; i < ${#desired_names[@]}; i++ )); do
-        _knit_db_sql_ident col_ident "${desired_names[$i]}"
-        insert_cols+=("${col_ident}")
-        if [[ "${new_columns[$i]}" == "0" ]]; then
-            select_exprs+=("${col_ident}")
-        else
-            knit_trace "Adding column \"${desired_names[$i]}\" with default \"${desired_defaults[$i]}\" to table \"${table_name}\"."
-            _knit_sql_escape esc_default "${desired_defaults[$i]}"
-            select_exprs+=("'${esc_default}'")
-        fi
-    done
-
-    local cols_sql insert_cols_sql select_exprs_sql tmp_name q_table q_tmp
-    cols_sql=$(IFS=', '; printf '%s' "${col_defs[*]}")
-    insert_cols_sql=$(IFS=', '; printf '%s' "${insert_cols[*]}")
-    select_exprs_sql=$(IFS=', '; printf '%s' "${select_exprs[*]}")
-    tmp_name="${table_name}_knit_tmp"
-    _knit_db_sql_ident q_table "${table_name}"
-    _knit_db_sql_ident q_tmp "${tmp_name}"
-
+    local body
+    body=$(printf '%s\n' "${stmts[@]}")
     _knit_sqlite3_write <<EOF
 BEGIN;
-ALTER TABLE ${q_table} RENAME TO ${q_tmp};
-CREATE TABLE ${q_table} (${cols_sql});
-INSERT INTO ${q_table} (${insert_cols_sql}) SELECT ${select_exprs_sql} FROM ${q_tmp};
-DROP TABLE ${q_tmp};
-COMMIT;
+${body}COMMIT;
 EOF
 }
 
@@ -371,18 +258,16 @@ _knit_db_command_has_exit_status() {
 #
 # Done callback installed by knit_with_table. Inspects the registered
 # parameters, flags, and outputs of the command and ensures the database table
-# matches that schema — creating it if absent or migrating it if the schema has
-# changed.
+# carries a column for each — creating the table if absent or adding any missing
+# columns if the schema has grown.
 #
-# Column order: "id" (uuid) first, the reserved "__exit_status__" column (unless
-# the command opted out, see _knit_db_command_has_exit_status), then required
-# parameters, optional parameters, flags, and outputs, each group sorted
-# alphabetically.
-#
-# For migration defaults:
-# - Optional parameters use their declared default value.
-# - Outputs use their declared default value.
-# - Required parameters and flags use a type-based default (0, false, or "").
+# Column order at creation: "id" (uuid) first, the reserved "__exit_status__"
+# column (unless the command opted out, see _knit_db_command_has_exit_status),
+# then required parameters, optional parameters, flags, and outputs, each group
+# sorted alphabetically. Migration is additive only (see _knit_db_migrate_table):
+# a later-added column lands at the end of the table, and a column for a parameter
+# that was removed from the command is kept, so physical column order need not
+# match this declared order over the life of a table.
 #
 # @param[in] cmd        Mangled command name (as used in _KNIT_CMD_* variables).
 # @param[in] table_name Name of the database table to create or migrate.
@@ -400,13 +285,11 @@ _knit_db_setup_table() {
     local cmd="$1"
     local table_name="$2"
 
-    local check_specs=()
-    local migrate_specs=()
-    local param type_var type default default_var
+    local specs=()
+    local param type_var type
 
     # Reserved "__exit_status__" column, recorded right after "id" for a command
-    # whose table has it (see _knit_db_command_has_exit_status). The migration
-    # default is empty (unknown) so existing rows are not marked as successful.
+    # whose table has it (see _knit_db_command_has_exit_status).
     local include_exit_status=0
     _knit_db_command_has_exit_status "${cmd}" && include_exit_status=1
 
@@ -414,77 +297,75 @@ _knit_db_setup_table() {
     # the exit status, and the whole forwarded command line in a single "args"
     # column.
     if _knit_command_is_wrapper "${cmd}"; then
-        check_specs=("id:uuid")
-        migrate_specs=("id:uuid=")
+        specs=("id:uuid")
         if [[ "${include_exit_status}" -eq 1 ]]; then
-            check_specs+=("__exit_status__:integer")
-            migrate_specs+=("__exit_status__:integer=")
+            specs+=("__exit_status__:integer")
         fi
-        check_specs+=("args:string")
-        migrate_specs+=("args:string=")
-        local wrapper_check_result=0
-        _knit_db_check_table "${table_name}" "${check_specs[@]}" || wrapper_check_result=$?
-        case "${wrapper_check_result}" in
-            0) knit_trace "Table \"${table_name}\" is already up-to-date." ;;
-            1) _knit_db_create_table "${table_name}" "${check_specs[@]}" ;;
-            2) _knit_db_migrate_table "${table_name}" "${migrate_specs[@]}" ;;
-        esac
+        specs+=("args:string")
+        _knit_db_ensure_table "${table_name}" "${specs[@]}"
         return 0
     fi
 
     # Always-present id column
-    check_specs+=("id:uuid")
-    migrate_specs+=("id:uuid=")
+    specs+=("id:uuid")
 
     # Reserved exit-status column (see the note above), right after "id".
     if [[ "${include_exit_status}" -eq 1 ]]; then
-        check_specs+=("__exit_status__:integer")
-        migrate_specs+=("__exit_status__:integer=")
+        specs+=("__exit_status__:integer")
     fi
 
-    # Required parameters (no declared default — use type-based fallback)
+    # Required parameters
     while IFS= read -r param; do
         type_var="_KNIT_CMD_${cmd}_2_${param}_type"
         type="${!type_var}"
-        _knit_db_type_default default "${type}"
-        check_specs+=("${param}:${type}")
-        migrate_specs+=("${param}:${type}=${default}")
+        specs+=("${param}:${type}")
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_required" | sort)
 
-    # Optional parameters (use declared default)
+    # Optional parameters
     while IFS= read -r param; do
         type_var="_KNIT_CMD_${cmd}_2_${param}_type"
         type="${!type_var}"
-        default_var="_KNIT_CMD_${cmd}_2_${param}_default"
-        default="${!default_var}"
-        check_specs+=("${param}:${type}")
-        migrate_specs+=("${param}:${type}=${default}")
+        specs+=("${param}:${type}")
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_optional" | sort)
 
-    # Flags (always boolean; default is false)
+    # Flags (always boolean)
     while IFS= read -r param; do
-        check_specs+=("${param}:boolean")
-        migrate_specs+=("${param}:boolean=false")
+        specs+=("${param}:boolean")
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_flags" | sort)
 
-    # Outputs (use declared default). An artifact is not an output column: it is
-    # recorded in the artifacts table with a "produced" edge and is kept out of the
-    # outputs set (in the artifacts set instead), so this loop never sees one.
+    # Outputs. An artifact is not an output column: it is recorded in the
+    # artifacts table with a "produced" edge and is kept out of the outputs set
+    # (in the artifacts set instead), so this loop never sees one.
     while IFS= read -r param; do
         type_var="_KNIT_CMD_${cmd}_3_${param}_type"
         type="${!type_var}"
-        default_var="_KNIT_CMD_${cmd}_3_${param}_default"
-        default="${!default_var}"
-        check_specs+=("${param}:${type}")
-        migrate_specs+=("${param}:${type}=${default}")
+        specs+=("${param}:${type}")
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
 
+    _knit_db_ensure_table "${table_name}" "${specs[@]}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_db_ensure_table()
+#
+# Ensure a table exists and carries every column in the given "name:type"
+# specification: create it if absent, add any missing columns if present, or do
+# nothing if it is already a superset of the specification. This is the shared
+# create-or-migrate step used by _knit_db_setup_table for both wrapper and
+# ordinary command tables.
+#
+# @param[in] table_name Name of the table to ensure.
+# @param[in] ...specs   One or more "name:type" specifications.
+# ------------------------------------------------------------------------------
+_knit_db_ensure_table() {
+    local table_name="$1"
+    shift
     local check_result=0
-    _knit_db_check_table "${table_name}" "${check_specs[@]}" || check_result=$?
+    _knit_db_check_table "${table_name}" "$@" || check_result=$?
     case "${check_result}" in
         0) knit_trace "Table \"${table_name}\" is already up-to-date." ;;
-        1) _knit_db_create_table "${table_name}" "${check_specs[@]}" ;;
-        2) _knit_db_migrate_table "${table_name}" "${migrate_specs[@]}" ;;
+        1) _knit_db_create_table "${table_name}" "$@" ;;
+        2) _knit_db_migrate_table "${table_name}" "$@" ;;
     esac
 }
 

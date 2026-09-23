@@ -74,13 +74,13 @@ teardown() {
     [ "$status" -eq 0 ]
 }
 
-@test "check table returns 2 when expected has fewer columns than actual" {
+@test "check table returns 0 when the table is a superset of the desired schema" {
     _knit_db_create_table "runs" "id:uuid" "count:integer"
     run _knit_db_check_table "runs" "id:uuid"
-    [ "$status" -eq 2 ]
+    [ "$status" -eq 0 ]
 }
 
-@test "check table returns 2 when expected has more columns than actual" {
+@test "check table returns 2 when a desired column is missing" {
     _knit_db_create_table "runs" "id:uuid"
     run _knit_db_check_table "runs" "id:uuid" "count:integer"
     [ "$status" -eq 2 ]
@@ -92,16 +92,16 @@ teardown() {
     [ "$status" -eq 2 ]
 }
 
-@test "check table returns 2 on column type mismatch" {
+@test "check table ignores column type differences" {
     _knit_db_create_table "runs" "id:uuid" "count:integer"
     run _knit_db_check_table "runs" "id:uuid" "count:real"
-    [ "$status" -eq 2 ]
+    [ "$status" -eq 0 ]
 }
 
-@test "check table returns 2 on column order mismatch" {
+@test "check table ignores column order" {
     _knit_db_create_table "runs" "id:uuid" "count:integer"
     run _knit_db_check_table "runs" "count:integer" "id:uuid"
-    [ "$status" -eq 2 ]
+    [ "$status" -eq 0 ]
 }
 
 # ---------- _knit_db_migrate_table ----------
@@ -117,12 +117,6 @@ teardown() {
     [ "$status" -ne 0 ]
 }
 
-@test "migrate table fails when new column has no default" {
-    _knit_db_create_table "runs" "id:uuid"
-    run _knit_db_migrate_table "runs" "id:uuid" "count:integer"
-    [ "$status" -ne 0 ]
-}
-
 @test "migrate table is a no-op when schema is unchanged" {
     _knit_db_create_table "runs" "id:uuid" "count:integer"
     sqlite3 "${_KNIT_DATABASE}" "INSERT INTO runs (id, count) VALUES ('550e8400-e29b-41d4-a716-446655440000', 1);"
@@ -134,72 +128,68 @@ teardown() {
 
 @test "migrate table adds a new column" {
     _knit_db_create_table "runs" "id:uuid"
-    _knit_db_migrate_table "runs" "id:uuid" "label:string=unknown"
+    _knit_db_migrate_table "runs" "id:uuid" "label:string"
     local col
     col=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2 | sed -n '2p')
     [ "$col" = "label" ]
 }
 
-@test "migrate table fills new column with default for existing rows" {
+@test "migrate table back-fills a new column with NULL for existing rows" {
     _knit_db_create_table "runs" "id:uuid"
     sqlite3 "${_KNIT_DATABASE}" "INSERT INTO runs (id) VALUES ('550e8400-e29b-41d4-a716-446655440000');"
-    _knit_db_migrate_table "runs" "id:uuid" "label:string=unknown"
-    local val
-    val=$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM runs;")
-    [ "$val" = "unknown" ]
+    _knit_db_migrate_table "runs" "id:uuid" "label:string"
+    local nulls
+    nulls=$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM runs WHERE label IS NULL;")
+    [ "$nulls" -eq 1 ]
 }
 
-@test "migrate table drops a column" {
+@test "migrate table keeps a column absent from the specification" {
     _knit_db_create_table "runs" "id:uuid" "count:integer"
+    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO runs (id, count) VALUES ('550e8400-e29b-41d4-a716-446655440000', 5);"
     _knit_db_migrate_table "runs" "id:uuid"
-    local ncols
-    ncols=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('runs');" | wc -l)
-    [ "$ncols" -eq 1 ]
+    local names val
+    names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2 | tr '\n' ',')
+    val=$(sqlite3 "${_KNIT_DATABASE}" "SELECT count FROM runs;")
+    [ "$names" = "id,count," ]
+    [ "$val" -eq 5 ]
 }
 
 @test "migrate table preserves existing row values" {
     _knit_db_create_table "runs" "id:uuid" "count:integer"
     sqlite3 "${_KNIT_DATABASE}" "INSERT INTO runs (id, count) VALUES ('550e8400-e29b-41d4-a716-446655440000', 42);"
-    _knit_db_migrate_table "runs" "id:uuid" "count:integer" "label:string=x"
+    _knit_db_migrate_table "runs" "id:uuid" "count:integer" "label:string"
     local val
     val=$(sqlite3 "${_KNIT_DATABASE}" "SELECT count FROM runs;")
     [ "$val" -eq 42 ]
 }
 
-@test "migrate table changes column type" {
+@test "migrate table does not change the type of an existing column" {
     _knit_db_create_table "runs" "id:uuid" "score:integer"
     _knit_db_migrate_table "runs" "id:uuid" "score:real"
     local col_type
     col_type=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f3 | sed -n '2p')
-    [ "$col_type" = "REAL" ]
+    [ "$col_type" = "INTEGER" ]
 }
 
 @test "migrate table handles multiple simultaneous changes" {
     _knit_db_create_table "runs" "id:uuid" "old_col:integer"
     sqlite3 "${_KNIT_DATABASE}" "INSERT INTO runs (id, old_col) VALUES ('550e8400-e29b-41d4-a716-446655440000', 7);"
-    _knit_db_migrate_table "runs" "id:uuid" "new_col:string=hello"
-    local names col_val
+    _knit_db_migrate_table "runs" "id:uuid" "new_col:string" "another:integer"
+    local names old_val new_null
     names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2 | tr '\n' ',')
-    col_val=$(sqlite3 "${_KNIT_DATABASE}" "SELECT new_col FROM runs;")
-    [ "$names" = "id,new_col," ]
-    [ "$col_val" = "hello" ]
+    old_val=$(sqlite3 "${_KNIT_DATABASE}" "SELECT old_col FROM runs;")
+    new_null=$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM runs WHERE new_col IS NULL;")
+    [ "$names" = "id,old_col,new_col,another," ]
+    [ "$old_val" -eq 7 ]
+    [ "$new_null" -eq 1 ]
 }
 
 @test "migrate table normalizes hyphen in column name" {
     _knit_db_create_table "runs" "id:uuid"
-    _knit_db_migrate_table "runs" "id:uuid" "my-col:string=x"
+    _knit_db_migrate_table "runs" "id:uuid" "my-col:string"
     local col
     col=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('runs');" | cut -d'|' -f2 | sed -n '2p')
     [ "$col" = "my_col" ]
-}
-
-@test "migrate table default value with single quote is handled correctly" {
-    _knit_db_create_table "runs" "id:uuid"
-    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO runs (id) VALUES ('550e8400-e29b-41d4-a716-446655440000');"
-    _knit_db_migrate_table "runs" "id:uuid" "label:string=it's here"
-    local val
-    val=$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM runs;")
-    [ "$val" = "it's here" ]
 }
 
 # ---------- _knit_db_setup_table ----------
@@ -309,6 +299,26 @@ __test_register_cmd() {
     local preserved
     preserved=$(sqlite3 "${_KNIT_DATABASE}" "SELECT count FROM mycmd;")
     [ "$preserved" -eq 7 ]
+}
+
+@test "setup table keeps a column for a removed parameter" {
+    # First registration: one required parameter, with a recorded row.
+    knit_register "mycmd" knit_empty "A test command."
+    knit_with_required "count:integer" "A count."
+    knit_with_table
+    knit_done
+    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO mycmd (id, count) VALUES ('550e8400-e29b-41d4-a716-446655440000', 9);"
+
+    # Simulate the parameter being removed from the command declaration and
+    # re-run the schema setup: the column and its recorded value must survive.
+    _knit_set_remove "_KNIT_CMD_mycmd_required" "count"
+    _knit_db_setup_table "mycmd" "mycmd"
+
+    local names preserved
+    names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
+    preserved=$(sqlite3 "${_KNIT_DATABASE}" "SELECT count FROM mycmd;")
+    [ "$names" = "id,__exit_status__,count," ]
+    [ "$preserved" -eq 9 ]
 }
 
 # ---------- bootstrap guard ----------

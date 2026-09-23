@@ -115,7 +115,7 @@ teardown() {
     [ "$names" = "id,__exit_status__,iters,label,verbose,score," ]
 }
 
-@test "optional parameter default is used as migration default" {
+@test "a migrated-in column is back-filled with NULL, not the declared default" {
     # Create the table first with only the id column (simulating old schema)
     knit_register "mycmd" knit_empty "A command."
     knit_with_table
@@ -123,15 +123,17 @@ teardown() {
     sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO mycmd (id) VALUES ('550e8400-e29b-41d4-a716-446655440000');"
 
-    # Now add an optional parameter and re-run setup directly
+    # Now add an optional parameter and re-run setup directly. The row recorded
+    # before the column existed must read NULL for it: that run genuinely had no
+    # value, and the declared default is not frozen into the database.
     _knit_set_add "_KNIT_CMD_mycmd_optional" "label"
     eval "_KNIT_CMD_mycmd_2_label_type=string"
     eval "_KNIT_CMD_mycmd_2_label_default=mydefault"
     _knit_db_setup_table "mycmd" "mycmd"
 
-    local val
-    val=$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM mycmd;")
-    [ "$val" = "mydefault" ]
+    local nulls
+    nulls=$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM mycmd WHERE label IS NULL;")
+    [ "$nulls" -eq 1 ]
 }
 
 # ---------- knit_parameter_set / knit_with_parameter_set ----------
