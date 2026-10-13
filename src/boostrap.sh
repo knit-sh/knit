@@ -13,6 +13,26 @@ declare -g _KNIT_PREFIX
 _KNIT_PREFIX="${_KNIT_PREFIX:-$(pwd)/.knit}"
 
 # ------------------------------------------------------------------------------
+# @fn knit_prefix()
+#
+# Print Knit's runtime directory (the experiment's ".knit" directory) to
+# stdout. This is the public accessor over the private _KNIT_PREFIX; a plugin
+# uses it to locate where to write its own logs, caches, or materialized trees,
+# e.g.
+#
+#     local mydir
+#     mydir="$(knit_prefix)/my-plugin"
+#     mkdir -p "${mydir}"
+#
+# The path is always set (it defaults to "<cwd>/.knit" before bootstrap), and
+# is returned whether or not the directory yet exists; a caller that needs it
+# present should create it.
+# ------------------------------------------------------------------------------
+knit_prefix() {
+    printf '%s\n' "${_KNIT_PREFIX}"
+}
+
+# ------------------------------------------------------------------------------
 # @var _KNIT_IS_BOOTSTRAPPED
 #
 # Cache for _knit_is_bootstrapped(). Empty means "not yet checked"; "1" means
