@@ -54,6 +54,41 @@ _knit_github_resolve_commit() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_github_resolve_commit_light()
+#
+# Resolve a ref (tag, branch, or commit) to its commit SHA via the GitHub API,
+# returning it through a nameref and WITHOUT jq. The plugin import path runs at
+# source time, before bootstrap, when the provisioned jq
+# (_knit_github_resolve_commit's parser) does not exist yet; this reads the
+# top-level "sha" field (the commit's own, first in the commits response) with a
+# plain grep instead. Returning by nameref (not stdout) also keeps a failure
+# fatal in the caller's shell rather than lost inside a command substitution.
+#
+# @param[out] commit_out Nameref receiving the resolved 40-hex commit SHA.
+# @param[in]  org  Repository owner (organization or user).
+# @param[in]  repo Repository name under that owner.
+# @param[in]  ref  Tag, branch, or commit SHA to resolve.
+# @return 0 and sets the output when resolved; 1 (output untouched) otherwise.
+# ------------------------------------------------------------------------------
+_knit_github_resolve_commit_light() {
+    local -n __knit_ret=$1
+    local org="$2"
+    local repo="$3"
+    local ref="$4"
+    local url="https://api.github.com/repos/${org}/${repo}/commits/${ref}"
+    # __-prefixed internals: a caller may name its output variable "sha" or
+    # "body", which the nameref aliases; a plain local of that name would shadow
+    # the nameref (nameref-shadow-collision).
+    local __knit_body __knit_sha
+    __knit_body="$(_knit_github_api "${url}")" || return 1
+    __knit_sha="$(printf '%s' "${__knit_body}" \
+        | grep -m1 -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-f]{40}"' \
+        | grep -oE '[0-9a-f]{40}')"
+    [[ -n "${__knit_sha}" ]] || return 1
+    __knit_ret="${__knit_sha}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_github_download()
 #
 # Download a GitHub repository at a specific commit as a tarball, compute the

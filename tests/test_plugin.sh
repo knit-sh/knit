@@ -99,7 +99,7 @@ _stub_fetch() {
 # ---------- resolve ----------
 
 @test "resolve_commit returns a full SHA without touching the network" {
-    _knit_github_resolve_commit() { echo "SHOULD_NOT_BE_CALLED"; }
+    _knit_github_resolve_commit_light() { local -n __o=$1; __o="SHOULD_NOT_BE_CALLED"; }
     local c wb
     _knit_plugin_resolve_commit c wb "github.com" "o" "r" "${SHA}"
     [ "${c}" = "${SHA}" ]
@@ -107,7 +107,7 @@ _stub_fetch() {
 }
 
 @test "resolve_commit delegates a non-SHA ref to the host resolver and flags writeback" {
-    _knit_github_resolve_commit() { printf 'resolvedsha'; }
+    _knit_github_resolve_commit_light() { local -n __o=$1; __o='resolvedsha'; }
     local c wb
     _knit_plugin_resolve_commit c wb "github.com" "o" "r" "v1.0"
     [ "${c}" = "resolvedsha" ]
@@ -152,7 +152,7 @@ _stub_fetch() {
 
 @test "knit_import treats an unpinned repeat as a dedup, not a conflict" {
     _seed_cache "github.com" "knit-sh" "knit-demo" "${SHA}" "ONCE"
-    _knit_github_resolve_commit() { printf '%s' "${SHA}"; }
+    _knit_github_resolve_commit_light() { local -n __o=$1; __o="${SHA}"; }
     knit_import "demo@${SHA}"
     run knit_import "demo"
     [ "$status" -eq 0 ]
@@ -162,7 +162,7 @@ _stub_fetch() {
 # ---------- version conflict ----------
 
 @test "knit_import is fatal when the same id is imported at two different refs" {
-    _knit_github_resolve_commit() { printf 'anysha'; }
+    _knit_github_resolve_commit_light() { local -n __o=$1; __o='anysha'; }
     _stub_fetch
     knit_import "demo@v1"
     run knit_import "demo@v2"

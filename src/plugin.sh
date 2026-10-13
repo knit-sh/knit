@@ -416,7 +416,15 @@ _knit_plugin_resolve_commit() {
         return 1
     fi
 
-    __knit_commit="$(_knit_github_resolve_commit "${org}" "${repo}" "${ref:-HEAD}")"
+    # Resolve through the jq-free, nameref resolver: the import runs at source
+    # time, before bootstrap provisions jq, and a failure must stay fatal in this
+    # shell (a command substitution would swallow it).
+    if ! _knit_github_resolve_commit_light __knit_commit "${org}" "${repo}" \
+            "${ref:-HEAD}"; then
+        knit_fatal "knit_import: could not resolve \"${ref:-HEAD}\" to a commit \
+in ${org}/${repo}. Check the ref and network access (set GITHUB_TOKEN if \
+rate-limited), or commit a knit-plugins.lock pin."
+    fi
     __knit_ret1="${__knit_commit}"
     __knit_ret2="true"
     return 0

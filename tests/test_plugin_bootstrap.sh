@@ -174,9 +174,9 @@ _seed_import() {
 # ---------- importer (dependency) edge via the import stack ----------
 
 @test "a transitive import records the importing plugin as imported_by" {
-    _knit_github_resolve_commit() {
-        # $1=org $2=repo $3=ref -> a deterministic per-repo commit.
-        printf 'commit_%s' "$2"
+    _knit_github_resolve_commit_light() {
+        # $1=out $2=org $3=repo $4=ref -> a deterministic per-repo commit.
+        local -n __o=$1; __o="commit_$3"
     }
     _knit_github_download() {
         local -n __out=$1; shift

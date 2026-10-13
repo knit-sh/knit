@@ -84,6 +84,32 @@ teardown() {
     [[ "$output" == *"Could not resolve"* ]]
 }
 
+# ---------- _knit_github_resolve_commit_light ----------
+
+@test "resolve_commit_light extracts the sha from the API without jq" {
+    # No _knit_jq stub: the light resolver must not depend on jq.
+    _knit_github_api() {
+        printf '%s' '{"sha": "0123456789abcdef0123456789abcdef01234567", "node_id": "x"}'
+    }
+    local sha
+    _knit_github_resolve_commit_light sha myorg myrepo "v1.0"
+    [ "${sha}" = "0123456789abcdef0123456789abcdef01234567" ]
+}
+
+@test "resolve_commit_light returns non-zero when the API returns no sha" {
+    _knit_github_api() { printf '%s' '{"message":"Not Found"}'; }
+    local sha="unset"
+    run _knit_github_resolve_commit_light sha myorg myrepo "nope"
+    [ "$status" -ne 0 ]
+}
+
+@test "resolve_commit_light returns non-zero when the API call fails" {
+    _knit_github_api() { return 22; }
+    local sha="unset"
+    run _knit_github_resolve_commit_light sha myorg myrepo "v1.0"
+    [ "$status" -ne 0 ]
+}
+
 # ---------- _knit_github_download ----------
 
 @test "download curls the archive, extracts stripping one level, and returns the sha256" {

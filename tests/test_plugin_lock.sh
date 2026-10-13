@@ -78,7 +78,7 @@ _seed_cache() {
 
 @test "resolve_commit prefers a lockfile pin over resolving the ref" {
     _knit_plugin_lock_set "github.com/knit-sh/knit-demo" "pinnedcommit" "s"
-    _knit_github_resolve_commit() { echo "SHOULD_NOT_BE_CALLED"; }
+    _knit_github_resolve_commit_light() { local -n __o=$1; __o="SHOULD_NOT_BE_CALLED"; }
     local c wb
     _knit_plugin_resolve_commit c wb "github.com" "knit-sh" "knit-demo" "main"
     [ "${c}" = "pinnedcommit" ]
@@ -97,7 +97,7 @@ _seed_cache() {
 # ---------- write-back of a freshly resolved mutable ref ----------
 
 @test "knit_import writes a resolved mutable ref back to the lockfile" {
-    _knit_github_resolve_commit() { printf '%s' "${SHA}"; }
+    _knit_github_resolve_commit_light() { local -n __o=$1; __o="${SHA}"; }
     _knit_github_download() {
         local -n __out=$1; shift
         mkdir -p "$4"
