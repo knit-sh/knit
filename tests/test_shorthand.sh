@@ -250,3 +250,53 @@ setup() {
     run my@helper
     [ "$output" = "called" ]
 }
+
+# ---------- knit_register_shorthand (public seam for plugins) ----------
+
+@test "register_shorthand: defines an @token forwarding to the target" {
+    _m2_target() { printf 'got:%s' "$*"; }
+    knit_register_shorthand m2tok _m2_target
+    declare -F @m2tok >/dev/null
+    run @m2tok a b c
+    [ "$output" = "got:a b c" ]
+}
+
+@test "register_shorthand: rejects redefining a built-in shorthand" {
+    _m2_target() { :; }
+    run knit_register_shorthand with_required _m2_target
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"built-in shorthand"* ]]
+}
+
+@test "register_shorthand: rejects a second registration of the same token" {
+    _m2_target() { :; }
+    knit_register_shorthand m2dup _m2_target
+    run knit_register_shorthand m2dup _m2_target
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"already defined"* ]]
+}
+
+@test "register_shorthand: rejects an invalid token" {
+    _m2_target() { :; }
+    run knit_register_shorthand "bad-token" _m2_target
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid shorthand token"* ]]
+}
+
+@test "register_shorthand: rejects an undefined target function" {
+    run knit_register_shorthand m2undef _m2_not_defined
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"not defined"* ]]
+}
+
+@test "register_shorthand: honours KNIT_WITHOUT_SHORTHAND for the token" {
+    _m2_target() { :; }
+    KNIT_WITHOUT_SHORTHAND="m2opt" knit_register_shorthand m2opt _m2_target
+    ! declare -F @m2opt >/dev/null
+}
+
+@test "register_shorthand: honours KNIT_WITHOUT_SHORTHAND=all" {
+    _m2_target() { :; }
+    KNIT_WITHOUT_SHORTHAND="all" knit_register_shorthand m2all _m2_target
+    ! declare -F @m2all >/dev/null
+}

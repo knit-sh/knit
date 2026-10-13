@@ -413,7 +413,7 @@ _knit_param_check_declaration() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]] && [[ ! -v _KNIT_CURRENT_PARAMETER_SET ]]; then
         knit_fatal "knit_with_${suffix} should be used after a call to \"knit_register\" or \"knit_parameter_set\"."
     fi
-    _knit_wrapper_reject_declaration "knit_with_${suffix}"
+    knit_reject_if_wrapper "knit_with_${suffix}"
 
     # Extract name and type from "name:type" format (flags are implicitly boolean)
     local param_name param_type
@@ -711,6 +711,12 @@ knit_done() {
         unset _KNIT_CURRENT_PARAMETER_SET
         return 0
     fi
+    # An enum-edit context (opened by knit_extend on an enum) carries no function
+    # to validate and no done-callbacks to run; closing it just clears the state.
+    if [[ -v _KNIT_CURRENT_ENUM ]]; then
+        unset _KNIT_CURRENT_ENUM
+        return 0
+    fi
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_warning "\"knit_done\" called without a matching \"knit_register\"."
     fi
@@ -720,13 +726,77 @@ knit_done() {
     fi
     local i
     for (( i=${#_KNIT_DONE_CBS[@]}-1; i>=0; i-- )); do
-        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by _knit_push_done_cb
+        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by knit_push_done_cb
         eval "${_KNIT_DONE_CBS[$i]}"
     done
     unset _KNIT_DONE_CBS
     unset _KNIT_CURRENT_FUNCTION
     unset _KNIT_CURRENT_COMMAND
     unset _KNIT_CURRENT_COMMAND_DEMANGLED
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_extend()
+#
+# Reopen the registration context of an already-registered entity so the
+# ordinary decorators apply to it again, then close the block with knit_done.
+# This is the general primitive for growing an entity a plugin (or the core)
+# already defined:
+#
+#   - A command, setup, job, app, or wrapper (all registered through
+#     knit_register and sharing the same _KNIT_CMD_<name>_* state): the command
+#     context (_KNIT_CURRENT_COMMAND / _FUNCTION / _DEMANGLED) is re-established
+#     and _KNIT_DONE_CBS is reset, so subsequent knit_with_* / knit_run_* calls
+#     append to the existing parameter sets and callback arrays. Any done
+#     callbacks pushed in the extend block run at the closing knit_done; they
+#     must be idempotent (knit_with_table's _knit_db_setup_table is — it is
+#     create-or-migrate).
+#   - An enum: an enum-edit context is established (see _KNIT_CURRENT_ENUM) so
+#     knit_enum_value appends values to the existing enum.
+#
+# Example:
+# ```
+# knit_extend "bootstrap"                 # add an option + body hook to a command
+# knit_with_optional "spack:string" "" "Spack ref to provision."
+# knit_run_after _spack_bootstrap_after
+# knit_done
+#
+# knit_extend "__scheduler__"             # add a value to an enum
+# knit_enum_value "flux-nested"
+# knit_done
+# ```
+#
+# A name that resolves to neither a registered enum nor a registered command is
+# a fatal. The enum namespace is consulted first, by the raw name, so an enum
+# name that would be altered by command-name mangling is matched as written.
+#
+# @param[in] name Demangled command name or enum name to reopen.
+# ------------------------------------------------------------------------------
+knit_extend() {
+    local name="$1"
+    if [[ -v _KNIT_CURRENT_COMMAND ]] \
+        || [[ -v _KNIT_CURRENT_ENUM ]] \
+        || [[ -v _KNIT_CURRENT_PARAMETER_SET ]]; then
+        knit_done
+        knit_warning "You forgot to call \"knit_done\" after the previous registration."
+    fi
+    if [[ -v _KNIT_ENUMS["${name}"] ]]; then
+        knit_trace "Reopening enum \"${name}\" for extension."
+        _KNIT_CURRENT_ENUM="${name}"
+        return 0
+    fi
+    local cmd
+    _knit_command_mangle cmd "${name}"
+    if _knit_set_find _KNIT_COMMANDS "${cmd}"; then
+        knit_trace "Reopening command \"${name}\" for extension."
+        _KNIT_DONE_CBS=()
+        local -n _knit_fn_ref="_KNIT_CMD_${cmd}_function"
+        _KNIT_CURRENT_FUNCTION="${_knit_fn_ref}"
+        _KNIT_CURRENT_COMMAND="${cmd}"
+        _KNIT_CURRENT_COMMAND_DEMANGLED="${cmd//__1__/:}"
+        return 0
+    fi
+    knit_fatal "Cannot extend \"${name}\": no command or enum with that name is registered."
 }
 
 # ------------------------------------------------------------------------------
@@ -850,7 +920,7 @@ knit_register_wrapper() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_wrapper_reject_declaration()
+# @fn knit_reject_if_wrapper()
 #
 # Fatal if the command currently being registered is a wrapper. Called by the
 # declaration functions that a wrapper is not allowed to use (parameters,
@@ -859,7 +929,7 @@ knit_register_wrapper() {
 #
 # @param[in] directive Name of the calling directive (for the error message).
 # ------------------------------------------------------------------------------
-_knit_wrapper_reject_declaration() {
+knit_reject_if_wrapper() {
     if [[ -v _KNIT_CURRENT_COMMAND ]] \
         && _knit_command_is_wrapper "${_KNIT_CURRENT_COMMAND}"; then
         knit_fatal "$1 cannot be used with a wrapper command (registered with knit_register_wrapper)."
@@ -957,7 +1027,7 @@ knit_usable_before_bootstrap() {
     knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as usable before bootstrap."
     local cmd="${_KNIT_CURRENT_COMMAND}"
     if ! _knit_command_is_usable_before_bootstrap "${cmd}"; then
-        _knit_push_done_cb _knit_usable_before_bootstrap_validate "${cmd}"
+        knit_push_done_cb _knit_usable_before_bootstrap_validate "${cmd}"
     fi
     printf -v "_KNIT_CMD_${cmd}_usable_before_bootstrap" '%s' 'true'
 }
@@ -1436,7 +1506,7 @@ knit_no_record_on_failure() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_no_record_on_failure should be used after a call to \"knit_register\"."
     fi
-    _knit_wrapper_reject_declaration "knit_no_record_on_failure"
+    knit_reject_if_wrapper "knit_no_record_on_failure"
     local cmd="${_KNIT_CURRENT_COMMAND}"
     if _knit_command_is_job "${cmd}"; then
         knit_fatal "knit_no_record_on_failure cannot be used with a job (registered with knit_register_job): a job's row records its state (running / killed / completed), which suppressing a failed job's row would drop."
@@ -1492,7 +1562,7 @@ knit_with_subcommand_discovery() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_subcommand_discovery should be used after a call to \"knit_register\"."
     fi
-    _knit_wrapper_reject_declaration "knit_with_subcommand_discovery"
+    knit_reject_if_wrapper "knit_with_subcommand_discovery"
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local fn="$1"
     if [[ -z "${fn}" ]]; then
@@ -1936,7 +2006,7 @@ knit_with_parameter_set() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_parameter_set should be used after a call to \"knit_register\"."
     fi
-    _knit_wrapper_reject_declaration "knit_with_parameter_set"
+    knit_reject_if_wrapper "knit_with_parameter_set"
     knit_check_arguments "exclude only" "" "${@:2}" \
         || knit_fatal "knit_with_parameter_set takes a set name and an optional --exclude or --only."
     local set_name="$1"
@@ -2072,7 +2142,7 @@ knit_with_output() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_output should be used after a call to \"knit_register\"."
     fi
-    _knit_wrapper_reject_declaration "knit_with_output"
+    knit_reject_if_wrapper "knit_with_output"
     knit_check_arguments "" "no-checksum result" "${@:4}" \
         || knit_fatal "knit_with_output takes an output, a default, a description, and an optional --no-checksum and --result."
     local param_spec="$1"
@@ -2148,7 +2218,7 @@ knit_with_dispatch() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_dispatch should be used after a call to \"knit_register\"."
     fi
-    _knit_wrapper_reject_declaration "knit_with_dispatch"
+    knit_reject_if_wrapper "knit_with_dispatch"
     local cmd="${_KNIT_CURRENT_COMMAND}"
     printf -v "_KNIT_CMD_${cmd}_dispatch" '%s' "$1"
     printf -v "_KNIT_CMD_${cmd}_extra"    '%s' "${2:-$1}"
@@ -2204,11 +2274,11 @@ knit_with_table() {
     local cmd="${_KNIT_CURRENT_COMMAND}"
     printf -v "_KNIT_CMD_${cmd}_table" '%s' "${table_name}"
 
-    _knit_push_done_cb _knit_db_setup_table "${cmd}" "${table_name}"
+    knit_push_done_cb _knit_db_setup_table "${cmd}" "${table_name}"
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_run_before()
+# @fn knit_run_before()
 #
 # In the context of a knit_register, install a callback to run before the
 # command currently being registered.
@@ -2219,9 +2289,9 @@ knit_with_table() {
 # knit_run_before echo "Running before command"
 # ```
 # ------------------------------------------------------------------------------
-_knit_run_before() {
+knit_run_before() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
-        knit_fatal "_knit_run_before should be used after a call to \"knit_register\"."
+        knit_fatal "knit_run_before should be used after a call to \"knit_register\"."
     fi
     knit_trace "Adding callback to run before ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
     local cmd="${_KNIT_CURRENT_COMMAND}"
@@ -2261,7 +2331,7 @@ _knit_execute_before_commands() {
     local -n cb_list_ref="${cb_list_name}"
     local status
     for cb in "${cb_list_ref[@]}"; do
-        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by _knit_run_before
+        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by knit_run_before
         eval "${cb} $*" || {
             status=$?
             knit_trace "Before callback failed for ${demangled_cmd} (status ${status})."
@@ -2272,7 +2342,7 @@ _knit_execute_before_commands() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_run_after()
+# @fn knit_run_after()
 #
 # In the context of a knit_register, install a callback to run after the
 # command currently being registered.
@@ -2283,9 +2353,9 @@ _knit_execute_before_commands() {
 # knit_run_after echo "Running after command"
 # ```
 # ------------------------------------------------------------------------------
-_knit_run_after() {
+knit_run_after() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
-        knit_fatal "_knit_run_after should be used after a call to \"knit_register\"."
+        knit_fatal "knit_run_after should be used after a call to \"knit_register\"."
     fi
     knit_trace "Adding callback to run after ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
     local cmd="${_KNIT_CURRENT_COMMAND}"
@@ -2317,13 +2387,81 @@ _knit_execute_after_commands() {
     # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"
     for cb in "${cb_list_ref[@]}"; do
-        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by _knit_run_after
+        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by knit_run_after
         eval "${cb} $*"
     done
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_push_done_cb()
+# @fn knit_command_run_before()
+#
+# Install a before-callback on an already-registered command, by name. This is
+# the by-name twin of knit_run_before (which targets the command currently being
+# registered); it is what a plugin uses to hook a command it did not register,
+# e.g.
+#
+#     knit_command_run_before bootstrap my_plugin_prepare
+#
+# It is sugar over "knit_extend <cmd>; knit_run_before <fn...>; knit_done": the
+# callback is appended to the command's before-callback list, so an existing
+# callback is kept and the new one runs after it.
+#
+# @param[in] name Command name (hyphens/underscores/colons as the user types it).
+# @param[in] ...  Callback function and its arguments.
+# ------------------------------------------------------------------------------
+knit_command_run_before() {
+    local name="$1"
+    shift
+    local cmd
+    _knit_command_mangle cmd "${name}"
+    if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
+        knit_fatal "Cannot add a before-callback to \"${name}\": no command with that name is registered."
+    fi
+    knit_trace "Adding by-name callback to run before ${name}."
+    local cb_list_name="_KNIT_CMD_${cmd}_before_cb"
+    # shellcheck disable=SC2178
+    local -n cb_list_ref="${cb_list_name}"
+    local cb
+    printf -v cb "%q " "$@"
+    cb_list_ref+=("${cb}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_command_run_after()
+#
+# Install an after-callback on an already-registered command, by name. This is
+# the by-name twin of knit_run_after (which targets the command currently being
+# registered); it is what a plugin uses to hook a command it did not register,
+# e.g.
+#
+#     knit_command_run_after run my_plugin_collect
+#
+# It is sugar over "knit_extend <cmd>; knit_run_after <fn...>; knit_done": the
+# callback is appended to the command's after-callback list, so an existing
+# callback is kept and the new one runs after it.
+#
+# @param[in] name Command name (hyphens/underscores/colons as the user types it).
+# @param[in] ...  Callback function and its arguments.
+# ------------------------------------------------------------------------------
+knit_command_run_after() {
+    local name="$1"
+    shift
+    local cmd
+    _knit_command_mangle cmd "${name}"
+    if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
+        knit_fatal "Cannot add an after-callback to \"${name}\": no command with that name is registered."
+    fi
+    knit_trace "Adding by-name callback to run after ${name}."
+    local cb_list_name="_KNIT_CMD_${cmd}_after_cb"
+    # shellcheck disable=SC2178
+    local -n cb_list_ref="${cb_list_name}"
+    local cb
+    printf -v cb "%q " "$@"
+    cb_list_ref+=("${cb}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_push_done_cb()
 #
 # In the context of a knit_register, push a callback to be called at the next
 # call to knit_done. Multiple callbacks may be pushed; they are all called in
@@ -2331,14 +2469,116 @@ _knit_execute_after_commands() {
 #
 # @param[in] ... Callback function and its arguments.
 # ------------------------------------------------------------------------------
-_knit_push_done_cb() {
+knit_push_done_cb() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
-        knit_fatal "_knit_push_done_cb should be used after a call to \"knit_register\"."
+        knit_fatal "knit_push_done_cb should be used after a call to \"knit_register\"."
     fi
     knit_trace "Pushing done callback in ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
     local cb
     printf -v cb "%q " "$@"
     _KNIT_DONE_CBS+=("${cb}")
+}
+
+# ==============================================================================
+# Public decorator-authoring surface
+#
+# The registration-state accessors below let a plugin author its own decorators
+# (functions that manipulate the command currently being registered) using the
+# same machinery the built-in knit_with_* decorators use, without reaching into
+# the _KNIT_CMD_<cmd>_* globals directly. They complement the registration
+# primitives that are themselves part of the public API: knit_run_before,
+# knit_run_after, knit_push_done_cb, and knit_reject_if_wrapper.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# @fn knit_current_command()
+#
+# Print the name of the command currently being registered, in its
+# colon-separated form (hyphens normalized to underscores). A decorator uses it
+# to key per-command state or to build a message. Fatal when no command is being
+# registered.
+# ------------------------------------------------------------------------------
+knit_current_command() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_current_command must be used after a call to \"knit_register\"."
+    fi
+    printf '%s\n' "${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_add_command_note()
+#
+# Append a line to the "Requirements" block shown in the command's "--help"
+# output. A decorator uses it to document a precondition it installs (e.g. "Needs
+# a conda environment."). Fatal when no command is being registered.
+#
+# @param[in] text The note line to append.
+# ------------------------------------------------------------------------------
+knit_add_command_note() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_add_command_note must be used after a call to \"knit_register\"."
+    fi
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    # shellcheck disable=SC2178 # nameref to the command's notes array
+    local -n _knit_notes_ref="_KNIT_CMD_${cmd}_notes"
+    _knit_notes_ref+=("$1")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_command_marker_var()
+#
+# Resolve the global variable name backing a per-command marker, storing it in
+# the caller-named variable. Markers live in their own _KNIT_CMD_<cmd>_marker_*
+# namespace so a plugin cannot collide with core per-command state. The marker
+# name is normalized (hyphens to underscores) and validated; a name that is not a
+# valid identifier is fatal.
+#
+# @param[out] __knit_ret Name of the variable to hold the resolved global name.
+# @param[in] name The marker name.
+# ------------------------------------------------------------------------------
+_knit_command_marker_var() {
+    # shellcheck disable=SC2178 # scalar nameref; the array use of __knit_ret is an unrelated earlier function
+    local -n __knit_ret=$1
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "a command marker must be used after a call to \"knit_register\"."
+    fi
+    local normalized
+    _knit_str_hyphens_to_underscores normalized "$2"
+    if [[ ! "${normalized}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        knit_fatal "Invalid command marker name \"$2\"."
+    fi
+    # shellcheck disable=SC2178 # scalar nameref (see above)
+    __knit_ret="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_marker_${normalized}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_command_set_marker()
+#
+# Set a named marker on the command currently being registered. Together with
+# knit_command_has_marker this lets a decorator enforce "at most one" of itself:
+# test the marker, fatal if already set, then set it. Fatal when no command is
+# being registered.
+#
+# @param[in] name The marker name.
+# ------------------------------------------------------------------------------
+knit_command_set_marker() {
+    local marker_var
+    _knit_command_marker_var marker_var "$1"
+    printf -v "${marker_var}" '%s' '1'
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_command_has_marker()
+#
+# Return success when the named marker is set on the command currently being
+# registered, failure otherwise. Fatal when no command is being registered.
+#
+# @param[in] name The marker name.
+# ------------------------------------------------------------------------------
+knit_command_has_marker() {
+    local marker_var
+    _knit_command_marker_var marker_var "$1"
+    [[ -n "${!marker_var:-}" ]]
 }
 
 # ------------------------------------------------------------------------------
@@ -2946,6 +3186,10 @@ _knit_print_command_usage() {
         printf "\n-----\n"
         printf "  %s\n" "${!extra_var}"
     fi
+
+    # Note (on stderr) any plugin deferred this invocation, so a user reading
+    # --help sees that some commands/decorators are missing until it is fetched.
+    _knit_plugin_print_deferred_footer
 }
 
 # ------------------------------------------------------------------------------
@@ -3313,6 +3557,188 @@ _knit_checksum_outputs() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_resolve_command_tokens()
+#
+# Walk the leading command-name tokens of an argument list and resolve them to a
+# mangled command name, running lazy subcommand discovery along the way (an
+# idempotent side effect). It is greedy: it consumes non-"--" tokens one level at
+# a time, registering each level's subcommands as it descends, and stops at the
+# first "--"/"--option" token or once the accumulated name is a wrapper (a
+# wrapper forwards everything after its name verbatim, so it resolves to itself).
+# A single pre-mangled/colon token that the per-token walk did not split (e.g. an
+# internal "job__1__cancel") is handled by an ancestor-discovery fallback.
+#
+# This is the shared resolver behind both the command invoker
+# (_knit_invoke_command) and the public dispatcher API (knit_resolve_subcommand
+# and its companions), so all of them resolve and discover identically.
+#
+# @param[out] __knit_ret_cmd      Nameref receiving the mangled command name (set
+#             even when the command is unknown, so a caller can message it).
+# @param[out] __knit_ret_consumed Nameref receiving the count of leading tokens
+#             consumed as the command name.
+# @param[in]  ...                 The argument list (command tokens then options).
+# @return 0 when the resolved command exists, 1 when it does not.
+# ------------------------------------------------------------------------------
+_knit_resolve_command_tokens() {
+    local -n __knit_ret_cmd=$1
+    local -n __knit_ret_consumed=$2
+    shift 2
+
+    # The accumulator is named __knit_count, not __knit_consumed, on purpose: a
+    # caller passes its consumed-count output variable (often named
+    # __knit_consumed) by nameref as $2, and an internal local of that same name
+    # would shadow the nameref (nameref-shadow-collision), so the count would
+    # never reach the caller.
+    local __knit_demangled="" __knit_count=0
+    local __knit_parent_probe __knit_wrapper_probe
+    while [[ $# -gt 0 ]]; do
+        if [[ $1 == --* ]]; then
+            break
+        fi
+        # Parent = the command accumulated so far (empty for the first token,
+        # which is a root command and is never lazy — see O3). Capture it before
+        # appending the next token so lazy subcommand discovery can run.
+        _knit_command_mangle __knit_parent_probe "${__knit_demangled}"
+        if [[ -n "${__knit_demangled}" ]]; then
+            __knit_demangled+=" "
+        fi
+        __knit_demangled+="$1"
+        shift
+        (( __knit_count += 1 ))
+        _knit_command_mangle __knit_wrapper_probe "${__knit_demangled}"
+        # If the accumulated command is not yet known but its parent is and
+        # carries an undiscovered discovery function, run it to register the
+        # parent's subcommands, then re-test below. This walks the tree one level
+        # per token, so "aaa bbb ccc" discovers "aaa"'s children to reveal
+        # "aaa:bbb", then "aaa:bbb:ccc".
+        if [[ -n "${__knit_parent_probe}" ]] \
+            && ! _knit_set_find _KNIT_COMMANDS "${__knit_wrapper_probe}" \
+            && _knit_set_find _KNIT_COMMANDS "${__knit_parent_probe}"; then
+            _knit_ensure_discovered "${__knit_parent_probe}"
+        fi
+        # Stop consuming tokens once the accumulated command is a wrapper: a
+        # wrapper forwards everything after its name verbatim, so its arguments
+        # (which need not start with "--") must not be mistaken for further
+        # subcommand names.
+        if _knit_command_is_wrapper "${__knit_wrapper_probe}"; then
+            break
+        fi
+    done
+
+    local __knit_resolved
+    _knit_command_mangle __knit_resolved "${__knit_demangled}"
+    __knit_ret_consumed="${__knit_count}"
+    if ! _knit_set_find _KNIT_COMMANDS "${__knit_resolved}"; then
+        # The command may have arrived as a single pre-mangled/colon token that
+        # the per-token discovery walk did not split (e.g. an internal
+        # _knit_invoke_command "job__1__cancel"). Discover its ancestors, then
+        # re-test below.
+        _knit_discover_ancestors "${__knit_resolved}"
+    fi
+    __knit_ret_cmd="${__knit_resolved}"
+    _knit_set_find _KNIT_COMMANDS "${__knit_resolved}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_resolve_subcommand()
+#
+# Resolve a sequence of command-name tokens to the mangled command name and the
+# count of tokens consumed, running lazy subcommand discovery as a side effect.
+# Shares the invoker's resolution semantics exactly (greedy non-"--" tokens,
+# stop at the first option or wrapper). Fatal when the tokens name no command;
+# use knit_check_subcommand_exists first for a non-fatal test.
+#
+# A plugin dispatcher uses this to learn the real target of a "parent -- <leaf>
+# ..." style invocation before it acts on it.
+#
+# @param[out] cmd_out      Nameref receiving the resolved mangled command name.
+# @param[out] consumed_out Nameref receiving the consumed token count.
+# @param[in]  ...          The command-name tokens (optionally followed by args).
+# ------------------------------------------------------------------------------
+knit_resolve_subcommand() {
+    local -n __knit_ret1=$1
+    local -n __knit_ret2=$2
+    shift 2
+    local __knit_cmd __knit_consumed
+    if ! _knit_resolve_command_tokens __knit_cmd __knit_consumed "$@"; then
+        knit_fatal "Unknown command \"${*:1:${__knit_consumed}}\"."
+    fi
+    __knit_ret1="${__knit_cmd}"
+    __knit_ret2="${__knit_consumed}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_check_subcommand_exists()
+#
+# Return 0 when the given command-name tokens resolve to a registered command,
+# 1 otherwise. Lazy subcommand discovery runs as an idempotent side effect (as a
+# real invocation would), but no callbacks, body, or recording run. Non-fatal, so
+# a dispatcher can branch on the result.
+#
+# @param[in] ... The command-name tokens.
+# @return 0 if the command exists, 1 otherwise.
+# ------------------------------------------------------------------------------
+knit_check_subcommand_exists() {
+    local __knit_cmd __knit_consumed
+    _knit_resolve_command_tokens __knit_cmd __knit_consumed "$@"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_ensure_subcommand_exists()
+#
+# Fatal twin of knit_check_subcommand_exists: resolve the given command-name
+# tokens (running lazy discovery) and stop with a fatal error when they name no
+# command. Returns 0 when the command exists.
+#
+# @param[in] ... The command-name tokens.
+# ------------------------------------------------------------------------------
+knit_ensure_subcommand_exists() {
+    local __knit_cmd __knit_consumed
+    if ! _knit_resolve_command_tokens __knit_cmd __knit_consumed "$@"; then
+        knit_fatal "Unknown command \"${*:1:${__knit_consumed}}\"."
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_check_subcommand_args()
+#
+# Resolve the given command-name tokens to a command (fatal when unknown), then
+# validate the remaining tokens as that command's arguments: the required/typed
+# argument checks (_knit_check_command_arguments) and the "--when" constraint
+# checks (_knit_check_constraints), with the same fatal, standard messages the
+# invoker produces. A dispatcher uses it to reject a bad dispatched invocation
+# early, before it acts.
+#
+# A wrapper target forwards its arguments verbatim and declares none, so there is
+# nothing to validate; likewise a "--help" request is introspection, not an
+# invocation. Both short-circuit to success.
+#
+# @param[in] ... The command-name tokens followed by the arguments to validate.
+# ------------------------------------------------------------------------------
+knit_check_subcommand_args() {
+    local -a argv=("$@")
+    local __knit_cmd __knit_consumed
+    if ! _knit_resolve_command_tokens __knit_cmd __knit_consumed "$@"; then
+        knit_fatal "Unknown command \"${*:1:${__knit_consumed}}\"."
+    fi
+
+    # The arguments are everything after the consumed command-name tokens.
+    local -a subargs=("${argv[@]:${__knit_consumed}}")
+
+    # A wrapper has no declared arguments, and "--help" is introspection: nothing
+    # to validate in either case.
+    _knit_command_is_wrapper "${__knit_cmd}" && return 0
+    [[ "${subargs[0]:-}" == "--help" ]] && return 0
+
+    _knit_check_command_arguments "${__knit_cmd}" "${subargs[@]}"
+    local -a original_args=("${subargs[@]}")
+    local -a args
+    readarray -d '' -t args \
+        < <(_knit_expand_command_arguments "${__knit_cmd}" "${subargs[@]}")
+    _knit_check_constraints "${__knit_cmd}" original_args args
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_invoke_command()
 #
 # Invoke a command.
@@ -3333,55 +3759,18 @@ _knit_invoke_command() {
     # alias slot at each push site below.
     local _knit_call_alias="${_KNIT_CALL_ALIAS}"
     _KNIT_CALL_ALIAS=""
-    # find the command and subcommands
-    local demangled_cmd=""
-    local wrapper_probe parent_probe
-    while [[ $# -gt 0 ]]; do
-        if [[ $1 == --* ]]; then
-            break
-        fi
-        # Parent = the command accumulated so far (empty for the first token,
-        # which is a root command and is never lazy — see O3). Capture it before
-        # appending the next token so lazy subcommand discovery can run.
-        _knit_command_mangle parent_probe "${demangled_cmd}"
-        if [[ -n "${demangled_cmd}" ]]; then
-            demangled_cmd+=" "
-        fi
-        demangled_cmd+="$1"
-        shift
-        _knit_command_mangle wrapper_probe "${demangled_cmd}"
-        # If the accumulated command is not yet known but its parent is and
-        # carries an undiscovered discovery function, run it to register the
-        # parent's subcommands, then re-test below. This walks the tree one level
-        # per token, so "aaa bbb ccc" discovers "aaa"'s children to reveal
-        # "aaa:bbb", then "aaa:bbb"'s children to reveal "aaa:bbb:ccc".
-        if [[ -n "${parent_probe}" ]] \
-            && ! _knit_set_find _KNIT_COMMANDS "${wrapper_probe}" \
-            && _knit_set_find _KNIT_COMMANDS "${parent_probe}"; then
-            _knit_ensure_discovered "${parent_probe}"
-        fi
-        # Stop consuming tokens once the accumulated command is a wrapper: a
-        # wrapper forwards everything after its name verbatim, so its arguments
-        # (which need not start with "--") must not be mistaken for further
-        # subcommand names.
-        if _knit_command_is_wrapper "${wrapper_probe}"; then
-            break
-        fi
-    done
-    # create the mangled command name
-    local cmd
-    _knit_command_mangle cmd "${demangled_cmd}"
-    # check if the command exists
+    # Resolve the leading command-name tokens (running lazy discovery) through the
+    # shared resolver, then shift them off so the remainder is exactly the option
+    # tokens. The demangled name is rebuilt from the original tokens so it keeps
+    # the user's exact spelling (including hyphens) for any message.
+    local -a _knit_argv=("$@")
+    local cmd _knit_consumed
+    _knit_resolve_command_tokens cmd _knit_consumed "$@"
+    local demangled_cmd="${_knit_argv[*]:0:${_knit_consumed}}"
     if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
-        # The command may have arrived as a single pre-mangled/colon token that
-        # the per-token discovery walk did not split (e.g. an internal
-        # _knit_invoke_command "job__1__cancel"). Discover its ancestors, then
-        # re-test before giving up.
-        _knit_discover_ancestors "${cmd}"
-        if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
-            knit_fatal "Unknown command \"${demangled_cmd}\"."
-        fi
+        knit_fatal "Unknown command \"${demangled_cmd}\"."
     fi
+    shift "${_knit_consumed}"
     # Central runtime guard: before bootstrap, refuse any command not declared
     # usable before bootstrap, with one uniform message, rather than letting it
     # fail deep inside for want of a provisioned binary. Introspection stays

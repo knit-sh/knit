@@ -948,6 +948,6 @@ knit_register_job() {
     knit_with_table "${normalized_name}"
     _KNIT_JOBS["${normalized_name}"]=1
     printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_type" '%s' 'job'
-    _knit_run_before _knit_job_before_cb
-    _knit_run_after  _knit_job_after_cb
+    knit_run_before _knit_job_before_cb
+    knit_run_after  _knit_job_after_cb
 }

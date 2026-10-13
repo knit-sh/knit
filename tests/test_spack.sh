@@ -44,36 +44,6 @@ teardown() {
     [ "$status" -eq 0 ]
 }
 
-# ---------- _knit_spack_github_api ----------
-
-@test "github_api sends no Authorization header when no token is set" {
-    local GITHUB_TOKEN="" GH_TOKEN=""
-    curl() { printf '%s\n' "$*"; }
-
-    run _knit_spack_github_api "https://api.github.com/x"
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"Authorization"* ]]
-    [[ "$output" == *"https://api.github.com/x"* ]]
-}
-
-@test "github_api authenticates with GITHUB_TOKEN when set" {
-    local GITHUB_TOKEN="tok123" GH_TOKEN=""
-    curl() { printf '%s\n' "$*"; }
-
-    run _knit_spack_github_api "https://api.github.com/x"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"Authorization: Bearer tok123"* ]]
-}
-
-@test "github_api falls back to GH_TOKEN when GITHUB_TOKEN is unset" {
-    local GITHUB_TOKEN="" GH_TOKEN="ghtok"
-    curl() { printf '%s\n' "$*"; }
-
-    run _knit_spack_github_api "https://api.github.com/x"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"Authorization: Bearer ghtok"* ]]
-}
-
 # ---------- _knit_spack_latest_release ----------
 
 @test "latest release resolves the tag from the GitHub releases/latest API" {
@@ -96,58 +66,6 @@ teardown() {
     [[ "$output" == *"Could not resolve"* ]]
 }
 
-# ---------- _knit_spack_resolve_commit ----------
-
-@test "resolve_commit returns the sha from the GitHub commits API" {
-    command -v jq >/dev/null 2>&1 || skip "jq not available"
-    curl() { printf '%s' '{"sha":"deadbeef"}'; }
-    _knit_jq() { jq "$@"; }
-
-    run _knit_spack_resolve_commit spack "v1.0"
-    [ "$status" -eq 0 ]
-    [ "$output" = "deadbeef" ]
-}
-
-@test "resolve_commit is fatal when the API returns no sha" {
-    command -v jq >/dev/null 2>&1 || skip "jq not available"
-    curl() { printf '%s' '{}'; }
-    _knit_jq() { jq "$@"; }
-
-    run _knit_spack_resolve_commit spack "nope"
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"Could not resolve"* ]]
-}
-
-# ---------- _knit_spack_download ----------
-
-@test "download curls the archive tarball then extracts it stripping one level" {
-    local -a titles=() cmds=()
-    _knit_spack_framed_run() {
-        titles+=("$1")
-        shift
-        cmds+=("$*")
-        return 0
-    }
-
-    _knit_spack_download spack "${_KNIT_SPACK_ROOT}" "abc123"
-
-    # First call downloads the archive/<sha>.tar.gz with curl.
-    [[ "${cmds[0]}" == "curl -L -o "*"https://github.com/spack/spack/archive/abc123.tar.gz" ]]
-    # Second call extracts into the destination, stripping the top-level dir.
-    [[ "${cmds[1]}" == tar\ -xzf\ *" -C ${_KNIT_SPACK_ROOT} --strip-components=1" ]]
-    # The destination is created before extraction.
-    [ -d "${_KNIT_SPACK_ROOT}" ]
-}
-
-@test "download is fatal when the curl download fails" {
-    _knit_spack_framed_run() { return 1; }
-
-    run _knit_spack_download spack "${_KNIT_SPACK_ROOT}" "abc123"
-
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"Could not download"* ]]
-}
-
 # ---------- _knit_spack_write_repos_yaml ----------
 
 @test "repos.yaml points the builtin repo at the local spack-packages path" {
@@ -165,11 +83,11 @@ teardown() {
 
 # Stub out downloading/repos.yaml and capture the metadata that gets stored.
 _stub_provisioning() {
-    _knit_spack_download() { :; }
+    _knit_github_download() { :; }
     _knit_spack_write_repos_yaml() { :; }
-    # _knit_spack_resolve_commit <repo> <ref>  ->  a per-repo fake commit.
-    _knit_spack_resolve_commit() {
-        case "$1" in
+    # _knit_github_resolve_commit <org> <repo> <ref>  ->  a per-repo fake commit.
+    _knit_github_resolve_commit() {
+        case "$2" in
             spack-packages) printf 'pkgsha' ;;
             *)              printf 'spacksha' ;;
         esac

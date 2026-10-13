@@ -58,51 +58,6 @@ _knit_bootstrap_need_spack() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_spack_framed_run()
-#
-# Run a command with its combined stdout/stderr written to _KNIT_TRACE_FILE and,
-# when KNIT_LOG_LEVEL is trace, also displayed live in a 10-line frame. Returns
-# the exit status of the command.
-#
-# @param[in] title Title shown on the frame's top border.
-# @param[in] ... Command and arguments to execute.
-# ------------------------------------------------------------------------------
-_knit_spack_framed_run() {
-    local title="$1"
-    shift
-    _knit_ensure_trace_file
-    "$@" 2>&1 | tee "${_KNIT_TRACE_FILE}" | \
-        knit_framed 10 -1 --title "${title}" --log-level trace --cleanup
-    local -a pipe_status=("${PIPESTATUS[@]}")
-    return "${pipe_status[0]}"
-}
-
-# ------------------------------------------------------------------------------
-# @fn _knit_spack_github_api()
-#
-# Fetch a GitHub REST API URL and print the response body. When GITHUB_TOKEN or
-# GH_TOKEN is set, the request is authenticated: the anonymous api.github.com
-# limit is 60 requests per hour per address, shared by every process behind that
-# address, so continuous-integration runners exhaust it and knit sees an error
-# body instead of JSON. An authenticated request uses the far higher per-token
-# limit. curl also retries a few times so a transient network error does not
-# abort a bootstrap, and "-f" makes an HTTP error status a clean failure (empty
-# output) instead of a non-JSON body that would confuse the caller's parser.
-#
-# @param[in] url The api.github.com URL to fetch.
-# @return Prints the response body; non-zero on a hard failure or HTTP error.
-# ------------------------------------------------------------------------------
-_knit_spack_github_api() {
-    local url="$1"
-    local token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-    local -a args=(-fsSL --retry 3 --retry-delay 2)
-    if [[ -n "${token}" ]]; then
-        args+=(-H "Authorization: Bearer ${token}")
-    fi
-    curl "${args[@]}" "${url}"
-}
-
-# ------------------------------------------------------------------------------
 # @fn _knit_spack_latest_release()
 #
 # Resolve the latest release tag of a Spack repository via the GitHub API. Used
@@ -115,72 +70,12 @@ _knit_spack_latest_release() {
     local repo="$1"
     local url="https://api.github.com/repos/spack/${repo}/releases/latest"
     local tag
-    tag="$(_knit_spack_github_api "${url}" | _knit_jq -r '.tag_name // empty')"
+    tag="$(_knit_github_api "${url}" | _knit_jq -r '.tag_name // empty')"
     if [[ -z "${tag}" ]]; then
         knit_fatal "Could not resolve the latest ${repo} release from ${url}." \
             "If this is a rate-limited environment, set GITHUB_TOKEN."
     fi
     printf '%s' "${tag}"
-}
-
-# ------------------------------------------------------------------------------
-# @fn _knit_spack_resolve_commit()
-#
-# Resolve a ref (tag, branch, or commit SHA) to its exact commit SHA via the
-# GitHub API. Resolving upstream gives a single download path (the archive URL
-# takes a SHA) and the exact commit for provenance, without needing git.
-#
-# @param[in] repo Repository name under the spack org ("spack" or "spack-packages").
-# @param[in] ref Tag, branch, or commit SHA to resolve.
-# @return Prints the commit SHA; fatal if it cannot be resolved.
-# ------------------------------------------------------------------------------
-_knit_spack_resolve_commit() {
-    local repo="$1"
-    local ref="$2"
-    local url="https://api.github.com/repos/spack/${repo}/commits/${ref}"
-    local sha
-    sha="$(_knit_spack_github_api "${url}" | _knit_jq -r '.sha // empty')"
-    if [[ -z "${sha}" ]]; then
-        knit_fatal "Could not resolve ${ref} to a commit in spack/${repo}" \
-            "from ${url}. If this is a rate-limited environment, set GITHUB_TOKEN."
-    fi
-    printf '%s' "${sha}"
-}
-
-# ------------------------------------------------------------------------------
-# @fn _knit_spack_download()
-#
-# Download a Spack repository at a specific commit as a tarball and extract it
-# into the destination directory. Uses curl and tar (as the sqlite/jq
-# provisioning does) so knit has no git dependency. GitHub serves any commit at
-# archive/<sha>.tar.gz, whose single top-level "<repo>-<sha>/" directory is
-# stripped so files land directly in the destination.
-#
-# @param[in] repo Repository name under the spack org ("spack" or "spack-packages").
-# @param[in] dest Destination directory.
-# @param[in] sha Commit SHA to download.
-# ------------------------------------------------------------------------------
-_knit_spack_download() {
-    local repo="$1"
-    local dest="$2"
-    local sha="$3"
-    local url="https://github.com/spack/${repo}/archive/${sha}.tar.gz"
-    local tarball="${_KNIT_PREFIX}/${repo}-${sha}.tar.gz"
-    _knit_ensure_trace_file
-    knit_trace "Downloading spack/${repo} at ${sha}..."
-    if ! _knit_spack_framed_run "spack: download ${repo}" \
-            curl -L -o "${tarball}" "${url}"; then
-        knit_fatal "Could not download spack/${repo} at ${sha} from ${url}." \
-            "See ${_KNIT_TRACE_FILE} for more information."
-    fi
-    knit_trace "Extracting spack/${repo}..."
-    mkdir -p "${dest}"
-    if ! _knit_spack_framed_run "spack: extract ${repo}" \
-            tar -xzf "${tarball}" -C "${dest}" --strip-components=1; then
-        knit_fatal "Could not extract spack/${repo} from ${tarball}." \
-            "See ${_KNIT_TRACE_FILE} for more information."
-    fi
-    rm -f "${tarball}"
 }
 
 # ------------------------------------------------------------------------------
@@ -230,12 +125,17 @@ _knit_bootstrap_spack() {
     # provisioning stays reproducible even after the ref moves, and the archive
     # URL (which takes a SHA) has a single code path for every ref kind.
     local spack_commit packages_commit
-    spack_commit="$(_knit_spack_resolve_commit spack "${spack_ref}")"
-    packages_commit="$(_knit_spack_resolve_commit spack-packages "${packages_ref}")"
+    spack_commit="$(_knit_github_resolve_commit spack spack "${spack_ref}")"
+    packages_commit="$(_knit_github_resolve_commit spack spack-packages "${packages_ref}")"
 
-    _knit_spack_download spack "${_KNIT_SPACK_ROOT}" "${spack_commit}"
-    _knit_spack_download spack-packages "${_KNIT_SPACK_PACKAGES_ROOT}" \
-        "${packages_commit}"
+    # The tarball sha256 is unused here (Spack provenance tracks the commit, not
+    # the archive checksum); _knit_github_download requires the output nameref.
+    # shellcheck disable=SC2034 # required-but-unused nameref outputs of _knit_github_download
+    local spack_sha256 packages_sha256
+    _knit_github_download spack_sha256 _knit_framed_run \
+        spack spack "${_KNIT_SPACK_ROOT}" "${spack_commit}"
+    _knit_github_download packages_sha256 _knit_framed_run \
+        spack spack-packages "${_KNIT_SPACK_PACKAGES_ROOT}" "${packages_commit}"
 
     _knit_spack_write_repos_yaml
 
@@ -382,7 +282,7 @@ _knit_spack_install() {
         local spec
         for spec in "$@"; do
             knit_info "Installing package ${spec}..."
-            _knit_spack_framed_run "spack: install ${spec}" spack install "${spec}"
+            _knit_framed_run "spack: install ${spec}" spack install "${spec}"
         done
     )
 }

@@ -13,6 +13,20 @@ declare -g KNIT_SCRIPT_NAME
 KNIT_SCRIPT_NAME="$(basename "$0")"
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_SCRIPT_ARGV
+#
+# The positional parameters the experiment script was invoked with, captured at
+# the very top of the concatenated knit.sh (which is sourced with no arguments
+# of its own, so "$@" here is the experiment's own argv). Plugin import and
+# bootstrap materialization consult this to tell the current command apart (for
+# example "bootstrap", which must also materialize into .knit/, from an ordinary
+# run) without re-parsing the command line.
+# ------------------------------------------------------------------------------
+declare -ga _KNIT_SCRIPT_ARGV
+# shellcheck disable=SC2034 # consumed by plugin import and bootstrap materialization
+_KNIT_SCRIPT_ARGV=("$@")
+
+# ------------------------------------------------------------------------------
 # @var _KNIT_SCRIPT_PATH
 #
 # Absolute, resolved path to the experiment script that sourced knit.sh. Unlike

@@ -57,6 +57,16 @@ declare -g _KNIT_LAST_ENUM
 _KNIT_LAST_ENUM=''
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_CURRENT_ENUM
+#
+# Name of the enum whose definition is currently open for extension, i.e. set
+# by knit_extend on an enum and cleared by the matching knit_done. Unset when no
+# enum-edit context is active. This is the enum counterpart of
+# _KNIT_CURRENT_COMMAND; knit_enum_value appends to this enum.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_CURRENT_ENUM
+
+# ------------------------------------------------------------------------------
 # @fn _knit_type_resolve_alias()
 #
 # Resolve a type name or alias to its canonical type name. If the name is
@@ -133,6 +143,32 @@ knit_enum() {
     _KNIT_LAST_ENUM="${name}"
     _knit_set_new "_KNIT_ENUM_${name}"
     _knit_set_add "_KNIT_ENUM_${name}" "$@"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_enum_value()
+#
+# Add one or more values to the enum whose definition is open for extension.
+# Used inside a "knit_extend <enum> ... knit_done" block (the enum-edit context
+# established by knit_extend); the values are appended to the existing enum, so
+# a plugin can grow a core or another plugin's enum (e.g. add a scheduler value)
+# without redefining it. Duplicate values are ignored. It is a fatal to call
+# this outside an enum-edit context.
+#
+# Example:
+# ```
+# knit_extend "__scheduler__"
+# knit_enum_value "flux-nested"
+# knit_done
+# ```
+#
+# @param[in] ...values Values to add to the current enum.
+# ------------------------------------------------------------------------------
+knit_enum_value() {
+    if [[ ! -v _KNIT_CURRENT_ENUM ]]; then
+        knit_fatal "knit_enum_value must be used inside a \"knit_extend <enum>\" block."
+    fi
+    _knit_set_add "_KNIT_ENUM_${_KNIT_CURRENT_ENUM}" "$@"
 }
 
 # ------------------------------------------------------------------------------

@@ -17,6 +17,17 @@ teardown() {
     _KNIT_IS_BOOTSTRAPPED=""
 }
 
+# ---------- knit_prefix ----------
+
+@test "knit_prefix prints the runtime directory" {
+    [ "$(knit_prefix)" = "${_KNIT_PREFIX}" ]
+}
+
+@test "knit_prefix prints the path even before the directory exists" {
+    [ ! -d "${_KNIT_PREFIX}" ]
+    [ "$(knit_prefix)" = "${_KNIT_PREFIX}" ]
+}
+
 # ---------- _knit_is_bootstrapped ----------
 
 @test "is bootstrapped returns 1 when prefix directory does not exist" {

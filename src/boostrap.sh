@@ -13,6 +13,26 @@ declare -g _KNIT_PREFIX
 _KNIT_PREFIX="${_KNIT_PREFIX:-$(pwd)/.knit}"
 
 # ------------------------------------------------------------------------------
+# @fn knit_prefix()
+#
+# Print Knit's runtime directory (the experiment's ".knit" directory) to
+# stdout. This is the public accessor over the private _KNIT_PREFIX; a plugin
+# uses it to locate where to write its own logs, caches, or materialized trees,
+# e.g.
+#
+#     local mydir
+#     mydir="$(knit_prefix)/my-plugin"
+#     mkdir -p "${mydir}"
+#
+# The path is always set (it defaults to "<cwd>/.knit" before bootstrap), and
+# is returned whether or not the directory yet exists; a caller that needs it
+# present should create it.
+# ------------------------------------------------------------------------------
+knit_prefix() {
+    printf '%s\n' "${_KNIT_PREFIX}"
+}
+
+# ------------------------------------------------------------------------------
 # @var _KNIT_IS_BOOTSTRAPPED
 #
 # Cache for _knit_is_bootstrapped(). Empty means "not yet checked"; "1" means
@@ -420,6 +440,12 @@ _knit_bootstrap_update() {
     _knit_bootstrap_update_jq "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_cypher_to_sql "${cypher_to_sql_version}" "${cypher_to_sql_url}" "${__knit_raw[@]}" && updated="true"
 
+    # Record any plugins the experiment imports (idempotent): a plugin added to
+    # the experiment since the last bootstrap is picked up here. Plugins come from
+    # the experiment script, not a bootstrap option, so this does not by itself
+    # count as an "update".
+    _knit_plugin_bootstrap
+
     if [[ "${updated}" == "false" ]]; then
         knit_info "Knit is already bootstrapped; no updatable option was given, nothing to update."
     fi
@@ -764,6 +790,11 @@ _knit_bootstrap() {
     if ! ( knit setup --name default -- default ); then
         knit_fatal "Failed to instantiate the default setup."
     fi
+
+    # Record the plugins the experiment imported: write the committed lockfile,
+    # create the plugins provenance table, record a row per plugin, and
+    # materialize each pinned tree under .knit for a self-contained directory.
+    _knit_plugin_bootstrap
 
     # AI provider config: written only when an API-key env var name is supplied
     # (the one required field of a usable config). Overwrite is on since bootstrap

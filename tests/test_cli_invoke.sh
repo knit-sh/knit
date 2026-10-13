@@ -440,8 +440,8 @@ teardown() {
 
 @test "_knit_invoke_command runs before and after callbacks in order" {
     knit_register "ic_cmd4" fn_ic4 "Test."
-    _knit_run_before echo "before"
-    _knit_run_after echo "after"
+    knit_run_before echo "before"
+    knit_run_after echo "after"
     fn_ic4() { echo "body"; }
     knit_done
     local result
@@ -457,7 +457,7 @@ teardown() {
 @test "_knit_invoke_command aborts the body and returns non-zero when a before-callback fails" {
     knit_register "ic_bfail" fn_ic_bfail "Test."
     _ic_before_fail() { return 1; }
-    _knit_run_before _ic_before_fail
+    knit_run_before _ic_before_fail
     fn_ic_bfail() { echo "body-ran" > "${BATS_TEST_TMPDIR}/ic_bfail.out"; }
     knit_done
     run _knit_invoke_command "ic_bfail"
@@ -470,8 +470,8 @@ teardown() {
     knit_register "ic_bfail2" fn_ic_bfail2 "Test."
     _ic_before_fail2() { return 1; }
     _ic_before_after() { echo "second-ran" > "${BATS_TEST_TMPDIR}/ic_bfail2.out"; }
-    _knit_run_before _ic_before_fail2
-    _knit_run_before _ic_before_after
+    knit_run_before _ic_before_fail2
+    knit_run_before _ic_before_after
     fn_ic_bfail2() { :; }
     knit_done
     run _knit_invoke_command "ic_bfail2"
@@ -483,7 +483,7 @@ teardown() {
     knit_register "ic_bfail_rec" fn_ic_bfail_rec "Test."
     knit_with_table
     _ic_bfail_rec_before() { return 1; }
-    _knit_run_before _ic_bfail_rec_before
+    knit_run_before _ic_bfail_rec_before
     fn_ic_bfail_rec() { :; }
     knit_done
     run _knit_invoke_command "ic_bfail_rec"
@@ -499,7 +499,7 @@ teardown() {
     knit_register "ic_ocb" fn_ic_ocb "Test."
     knit_with_table
     knit_with_output "note:string" "" "A note."
-    _knit_run_after _ic_after_out
+    knit_run_after _ic_after_out
     fn_ic_ocb() { :; }
     knit_done
     _knit_invoke_command "ic_ocb"
@@ -513,7 +513,7 @@ teardown() {
     knit_register "ic_ocb2" fn_ic_ocb2 "Test."
     knit_with_table
     knit_with_output "num:integer" "0" "A number."
-    _knit_run_after _ic_after_bad
+    knit_run_after _ic_after_bad
     fn_ic_ocb2() { :; }
     knit_done
     run _knit_invoke_command "ic_ocb2"
@@ -526,7 +526,7 @@ teardown() {
     knit_register "ic_ocb3" fn_ic_ocb3 "Test."
     knit_with_table
     knit_with_output "note:string" "" "A note."
-    _knit_run_after _ic_after_sup
+    knit_run_after _ic_after_sup
     fn_ic_ocb3() { :; }
     knit_done
     _KNIT_RECORDING_SUPPRESSED="1"
