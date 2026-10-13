@@ -58,26 +58,6 @@ _knit_bootstrap_need_spack() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_spack_framed_run()
-#
-# Run a command with its combined stdout/stderr written to _KNIT_TRACE_FILE and,
-# when KNIT_LOG_LEVEL is trace, also displayed live in a 10-line frame. Returns
-# the exit status of the command.
-#
-# @param[in] title Title shown on the frame's top border.
-# @param[in] ... Command and arguments to execute.
-# ------------------------------------------------------------------------------
-_knit_spack_framed_run() {
-    local title="$1"
-    shift
-    _knit_ensure_trace_file
-    "$@" 2>&1 | tee "${_KNIT_TRACE_FILE}" | \
-        knit_framed 10 -1 --title "${title}" --log-level trace --cleanup
-    local -a pipe_status=("${PIPESTATUS[@]}")
-    return "${pipe_status[0]}"
-}
-
-# ------------------------------------------------------------------------------
 # @fn _knit_spack_latest_release()
 #
 # Resolve the latest release tag of a Spack repository via the GitHub API. Used
@@ -152,9 +132,9 @@ _knit_bootstrap_spack() {
     # the archive checksum); _knit_github_download requires the output nameref.
     # shellcheck disable=SC2034 # required-but-unused nameref outputs of _knit_github_download
     local spack_sha256 packages_sha256
-    _knit_github_download spack_sha256 _knit_spack_framed_run \
+    _knit_github_download spack_sha256 _knit_framed_run \
         spack spack "${_KNIT_SPACK_ROOT}" "${spack_commit}"
-    _knit_github_download packages_sha256 _knit_spack_framed_run \
+    _knit_github_download packages_sha256 _knit_framed_run \
         spack spack-packages "${_KNIT_SPACK_PACKAGES_ROOT}" "${packages_commit}"
 
     _knit_spack_write_repos_yaml
@@ -302,7 +282,7 @@ _knit_spack_install() {
         local spec
         for spec in "$@"; do
             knit_info "Installing package ${spec}..."
-            _knit_spack_framed_run "spack: install ${spec}" spack install "${spec}"
+            _knit_framed_run "spack: install ${spec}" spack install "${spec}"
         done
     )
 }

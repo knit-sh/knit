@@ -16,6 +16,7 @@ KNIT_SOURCE = src/global.sh   \
               src/prov.sh     \
               src/db.sh       \
               src/github.sh   \
+              src/plugin.sh   \
               src/spack.sh    \
               src/metadata.sh \
               src/sched.sh    \

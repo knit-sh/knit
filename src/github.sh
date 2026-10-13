@@ -64,7 +64,7 @@ _knit_github_resolve_commit() {
 # destination.
 #
 # The download and extraction run through a caller-supplied framing callback (a
-# function taking a title then a command, e.g. _knit_spack_framed_run) so this
+# function taking a title then a command, e.g. _knit_framed_run) so this
 # helper stays decoupled from any particular progress display.
 #
 # @param[out] sha256_out Nameref that receives the tarball's sha256 hex digest.

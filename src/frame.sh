@@ -195,3 +195,26 @@ knit_framed() {
         printf '\033[J'
     fi
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_framed_run()
+#
+# Run a command with its combined stdout/stderr written to _KNIT_TRACE_FILE and,
+# when KNIT_LOG_LEVEL is trace, also displayed live in a 10-line frame. Returns
+# the exit status of the command. Shared by every subsystem that provisions or
+# fetches over the network (Spack provisioning, plugin import); the helper is
+# passed by name to _knit_github_download so that module stays decoupled from
+# any particular display.
+#
+# @param[in] title Title shown on the frame's top border.
+# @param[in] ... Command and arguments to execute.
+# ------------------------------------------------------------------------------
+_knit_framed_run() {
+    local title="$1"
+    shift
+    _knit_ensure_trace_file
+    "$@" 2>&1 | tee "${_KNIT_TRACE_FILE}" | \
+        knit_framed 10 -1 --title "${title}" --log-level trace --cleanup
+    local -a pipe_status=("${PIPESTATUS[@]}")
+    return "${pipe_status[0]}"
+}
