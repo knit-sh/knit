@@ -3557,6 +3557,188 @@ _knit_checksum_outputs() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_resolve_command_tokens()
+#
+# Walk the leading command-name tokens of an argument list and resolve them to a
+# mangled command name, running lazy subcommand discovery along the way (an
+# idempotent side effect). It is greedy: it consumes non-"--" tokens one level at
+# a time, registering each level's subcommands as it descends, and stops at the
+# first "--"/"--option" token or once the accumulated name is a wrapper (a
+# wrapper forwards everything after its name verbatim, so it resolves to itself).
+# A single pre-mangled/colon token that the per-token walk did not split (e.g. an
+# internal "job__1__cancel") is handled by an ancestor-discovery fallback.
+#
+# This is the shared resolver behind both the command invoker
+# (_knit_invoke_command) and the public dispatcher API (knit_resolve_subcommand
+# and its companions), so all of them resolve and discover identically.
+#
+# @param[out] __knit_ret_cmd      Nameref receiving the mangled command name (set
+#             even when the command is unknown, so a caller can message it).
+# @param[out] __knit_ret_consumed Nameref receiving the count of leading tokens
+#             consumed as the command name.
+# @param[in]  ...                 The argument list (command tokens then options).
+# @return 0 when the resolved command exists, 1 when it does not.
+# ------------------------------------------------------------------------------
+_knit_resolve_command_tokens() {
+    local -n __knit_ret_cmd=$1
+    local -n __knit_ret_consumed=$2
+    shift 2
+
+    # The accumulator is named __knit_count, not __knit_consumed, on purpose: a
+    # caller passes its consumed-count output variable (often named
+    # __knit_consumed) by nameref as $2, and an internal local of that same name
+    # would shadow the nameref (nameref-shadow-collision), so the count would
+    # never reach the caller.
+    local __knit_demangled="" __knit_count=0
+    local __knit_parent_probe __knit_wrapper_probe
+    while [[ $# -gt 0 ]]; do
+        if [[ $1 == --* ]]; then
+            break
+        fi
+        # Parent = the command accumulated so far (empty for the first token,
+        # which is a root command and is never lazy — see O3). Capture it before
+        # appending the next token so lazy subcommand discovery can run.
+        _knit_command_mangle __knit_parent_probe "${__knit_demangled}"
+        if [[ -n "${__knit_demangled}" ]]; then
+            __knit_demangled+=" "
+        fi
+        __knit_demangled+="$1"
+        shift
+        (( __knit_count += 1 ))
+        _knit_command_mangle __knit_wrapper_probe "${__knit_demangled}"
+        # If the accumulated command is not yet known but its parent is and
+        # carries an undiscovered discovery function, run it to register the
+        # parent's subcommands, then re-test below. This walks the tree one level
+        # per token, so "aaa bbb ccc" discovers "aaa"'s children to reveal
+        # "aaa:bbb", then "aaa:bbb:ccc".
+        if [[ -n "${__knit_parent_probe}" ]] \
+            && ! _knit_set_find _KNIT_COMMANDS "${__knit_wrapper_probe}" \
+            && _knit_set_find _KNIT_COMMANDS "${__knit_parent_probe}"; then
+            _knit_ensure_discovered "${__knit_parent_probe}"
+        fi
+        # Stop consuming tokens once the accumulated command is a wrapper: a
+        # wrapper forwards everything after its name verbatim, so its arguments
+        # (which need not start with "--") must not be mistaken for further
+        # subcommand names.
+        if _knit_command_is_wrapper "${__knit_wrapper_probe}"; then
+            break
+        fi
+    done
+
+    local __knit_resolved
+    _knit_command_mangle __knit_resolved "${__knit_demangled}"
+    __knit_ret_consumed="${__knit_count}"
+    if ! _knit_set_find _KNIT_COMMANDS "${__knit_resolved}"; then
+        # The command may have arrived as a single pre-mangled/colon token that
+        # the per-token discovery walk did not split (e.g. an internal
+        # _knit_invoke_command "job__1__cancel"). Discover its ancestors, then
+        # re-test below.
+        _knit_discover_ancestors "${__knit_resolved}"
+    fi
+    __knit_ret_cmd="${__knit_resolved}"
+    _knit_set_find _KNIT_COMMANDS "${__knit_resolved}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_resolve_subcommand()
+#
+# Resolve a sequence of command-name tokens to the mangled command name and the
+# count of tokens consumed, running lazy subcommand discovery as a side effect.
+# Shares the invoker's resolution semantics exactly (greedy non-"--" tokens,
+# stop at the first option or wrapper). Fatal when the tokens name no command;
+# use knit_check_subcommand_exists first for a non-fatal test.
+#
+# A plugin dispatcher uses this to learn the real target of a "parent -- <leaf>
+# ..." style invocation before it acts on it.
+#
+# @param[out] cmd_out      Nameref receiving the resolved mangled command name.
+# @param[out] consumed_out Nameref receiving the consumed token count.
+# @param[in]  ...          The command-name tokens (optionally followed by args).
+# ------------------------------------------------------------------------------
+knit_resolve_subcommand() {
+    local -n __knit_ret1=$1
+    local -n __knit_ret2=$2
+    shift 2
+    local __knit_cmd __knit_consumed
+    if ! _knit_resolve_command_tokens __knit_cmd __knit_consumed "$@"; then
+        knit_fatal "Unknown command \"${*:1:${__knit_consumed}}\"."
+    fi
+    __knit_ret1="${__knit_cmd}"
+    __knit_ret2="${__knit_consumed}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_check_subcommand_exists()
+#
+# Return 0 when the given command-name tokens resolve to a registered command,
+# 1 otherwise. Lazy subcommand discovery runs as an idempotent side effect (as a
+# real invocation would), but no callbacks, body, or recording run. Non-fatal, so
+# a dispatcher can branch on the result.
+#
+# @param[in] ... The command-name tokens.
+# @return 0 if the command exists, 1 otherwise.
+# ------------------------------------------------------------------------------
+knit_check_subcommand_exists() {
+    local __knit_cmd __knit_consumed
+    _knit_resolve_command_tokens __knit_cmd __knit_consumed "$@"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_ensure_subcommand_exists()
+#
+# Fatal twin of knit_check_subcommand_exists: resolve the given command-name
+# tokens (running lazy discovery) and stop with a fatal error when they name no
+# command. Returns 0 when the command exists.
+#
+# @param[in] ... The command-name tokens.
+# ------------------------------------------------------------------------------
+knit_ensure_subcommand_exists() {
+    local __knit_cmd __knit_consumed
+    if ! _knit_resolve_command_tokens __knit_cmd __knit_consumed "$@"; then
+        knit_fatal "Unknown command \"${*:1:${__knit_consumed}}\"."
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_check_subcommand_args()
+#
+# Resolve the given command-name tokens to a command (fatal when unknown), then
+# validate the remaining tokens as that command's arguments: the required/typed
+# argument checks (_knit_check_command_arguments) and the "--when" constraint
+# checks (_knit_check_constraints), with the same fatal, standard messages the
+# invoker produces. A dispatcher uses it to reject a bad dispatched invocation
+# early, before it acts.
+#
+# A wrapper target forwards its arguments verbatim and declares none, so there is
+# nothing to validate; likewise a "--help" request is introspection, not an
+# invocation. Both short-circuit to success.
+#
+# @param[in] ... The command-name tokens followed by the arguments to validate.
+# ------------------------------------------------------------------------------
+knit_check_subcommand_args() {
+    local -a argv=("$@")
+    local __knit_cmd __knit_consumed
+    if ! _knit_resolve_command_tokens __knit_cmd __knit_consumed "$@"; then
+        knit_fatal "Unknown command \"${*:1:${__knit_consumed}}\"."
+    fi
+
+    # The arguments are everything after the consumed command-name tokens.
+    local -a subargs=("${argv[@]:${__knit_consumed}}")
+
+    # A wrapper has no declared arguments, and "--help" is introspection: nothing
+    # to validate in either case.
+    _knit_command_is_wrapper "${__knit_cmd}" && return 0
+    [[ "${subargs[0]:-}" == "--help" ]] && return 0
+
+    _knit_check_command_arguments "${__knit_cmd}" "${subargs[@]}"
+    local -a original_args=("${subargs[@]}")
+    local -a args
+    readarray -d '' -t args \
+        < <(_knit_expand_command_arguments "${__knit_cmd}" "${subargs[@]}")
+    _knit_check_constraints "${__knit_cmd}" original_args args
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_invoke_command()
 #
 # Invoke a command.
@@ -3577,55 +3759,18 @@ _knit_invoke_command() {
     # alias slot at each push site below.
     local _knit_call_alias="${_KNIT_CALL_ALIAS}"
     _KNIT_CALL_ALIAS=""
-    # find the command and subcommands
-    local demangled_cmd=""
-    local wrapper_probe parent_probe
-    while [[ $# -gt 0 ]]; do
-        if [[ $1 == --* ]]; then
-            break
-        fi
-        # Parent = the command accumulated so far (empty for the first token,
-        # which is a root command and is never lazy — see O3). Capture it before
-        # appending the next token so lazy subcommand discovery can run.
-        _knit_command_mangle parent_probe "${demangled_cmd}"
-        if [[ -n "${demangled_cmd}" ]]; then
-            demangled_cmd+=" "
-        fi
-        demangled_cmd+="$1"
-        shift
-        _knit_command_mangle wrapper_probe "${demangled_cmd}"
-        # If the accumulated command is not yet known but its parent is and
-        # carries an undiscovered discovery function, run it to register the
-        # parent's subcommands, then re-test below. This walks the tree one level
-        # per token, so "aaa bbb ccc" discovers "aaa"'s children to reveal
-        # "aaa:bbb", then "aaa:bbb"'s children to reveal "aaa:bbb:ccc".
-        if [[ -n "${parent_probe}" ]] \
-            && ! _knit_set_find _KNIT_COMMANDS "${wrapper_probe}" \
-            && _knit_set_find _KNIT_COMMANDS "${parent_probe}"; then
-            _knit_ensure_discovered "${parent_probe}"
-        fi
-        # Stop consuming tokens once the accumulated command is a wrapper: a
-        # wrapper forwards everything after its name verbatim, so its arguments
-        # (which need not start with "--") must not be mistaken for further
-        # subcommand names.
-        if _knit_command_is_wrapper "${wrapper_probe}"; then
-            break
-        fi
-    done
-    # create the mangled command name
-    local cmd
-    _knit_command_mangle cmd "${demangled_cmd}"
-    # check if the command exists
+    # Resolve the leading command-name tokens (running lazy discovery) through the
+    # shared resolver, then shift them off so the remainder is exactly the option
+    # tokens. The demangled name is rebuilt from the original tokens so it keeps
+    # the user's exact spelling (including hyphens) for any message.
+    local -a _knit_argv=("$@")
+    local cmd _knit_consumed
+    _knit_resolve_command_tokens cmd _knit_consumed "$@"
+    local demangled_cmd="${_knit_argv[*]:0:${_knit_consumed}}"
     if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
-        # The command may have arrived as a single pre-mangled/colon token that
-        # the per-token discovery walk did not split (e.g. an internal
-        # _knit_invoke_command "job__1__cancel"). Discover its ancestors, then
-        # re-test before giving up.
-        _knit_discover_ancestors "${cmd}"
-        if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
-            knit_fatal "Unknown command \"${demangled_cmd}\"."
-        fi
+        knit_fatal "Unknown command \"${demangled_cmd}\"."
     fi
+    shift "${_knit_consumed}"
     # Central runtime guard: before bootstrap, refuse any command not declared
     # usable before bootstrap, with one uniform message, rather than letting it
     # fail deep inside for want of a provisioned binary. Introspection stays
