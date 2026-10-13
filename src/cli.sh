@@ -2393,6 +2393,74 @@ _knit_execute_after_commands() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_command_run_before()
+#
+# Install a before-callback on an already-registered command, by name. This is
+# the by-name twin of knit_run_before (which targets the command currently being
+# registered); it is what a plugin uses to hook a command it did not register,
+# e.g.
+#
+#     knit_command_run_before bootstrap my_plugin_prepare
+#
+# It is sugar over "knit_extend <cmd>; knit_run_before <fn...>; knit_done": the
+# callback is appended to the command's before-callback list, so an existing
+# callback is kept and the new one runs after it.
+#
+# @param[in] name Command name (hyphens/underscores/colons as the user types it).
+# @param[in] ...  Callback function and its arguments.
+# ------------------------------------------------------------------------------
+knit_command_run_before() {
+    local name="$1"
+    shift
+    local cmd
+    _knit_command_mangle cmd "${name}"
+    if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
+        knit_fatal "Cannot add a before-callback to \"${name}\": no command with that name is registered."
+    fi
+    knit_trace "Adding by-name callback to run before ${name}."
+    local cb_list_name="_KNIT_CMD_${cmd}_before_cb"
+    # shellcheck disable=SC2178
+    local -n cb_list_ref="${cb_list_name}"
+    local cb
+    printf -v cb "%q " "$@"
+    cb_list_ref+=("${cb}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_command_run_after()
+#
+# Install an after-callback on an already-registered command, by name. This is
+# the by-name twin of knit_run_after (which targets the command currently being
+# registered); it is what a plugin uses to hook a command it did not register,
+# e.g.
+#
+#     knit_command_run_after run my_plugin_collect
+#
+# It is sugar over "knit_extend <cmd>; knit_run_after <fn...>; knit_done": the
+# callback is appended to the command's after-callback list, so an existing
+# callback is kept and the new one runs after it.
+#
+# @param[in] name Command name (hyphens/underscores/colons as the user types it).
+# @param[in] ...  Callback function and its arguments.
+# ------------------------------------------------------------------------------
+knit_command_run_after() {
+    local name="$1"
+    shift
+    local cmd
+    _knit_command_mangle cmd "${name}"
+    if ! _knit_set_find _KNIT_COMMANDS "${cmd}"; then
+        knit_fatal "Cannot add an after-callback to \"${name}\": no command with that name is registered."
+    fi
+    knit_trace "Adding by-name callback to run after ${name}."
+    local cb_list_name="_KNIT_CMD_${cmd}_after_cb"
+    # shellcheck disable=SC2178
+    local -n cb_list_ref="${cb_list_name}"
+    local cb
+    printf -v cb "%q " "$@"
+    cb_list_ref+=("${cb}")
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_push_done_cb()
 #
 # In the context of a knit_register, push a callback to be called at the next
