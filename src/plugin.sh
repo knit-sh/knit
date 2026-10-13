@@ -71,6 +71,76 @@ declare -g _KNIT_PLUGIN_CNF_INSTALLED
 _KNIT_PLUGIN_CNF_INSTALLED="false"
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_PLUGIN_ORDER
+#
+# Canonical ids ("<host>/<org>/<repo>") of the plugins imported this invocation,
+# in first-import order (a dependency, imported transitively from a dependent's
+# plugin.sh, sorts before the dependent's remaining imports but after the
+# dependent's own entry). It drives the lockfile write, the plugins-table rows,
+# and the management commands; a repeated import of the same id is recorded once.
+# ------------------------------------------------------------------------------
+declare -ga _KNIT_PLUGIN_ORDER
+_KNIT_PLUGIN_ORDER=()
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PLUGIN_SPEC
+#
+# Map of canonical id to the import spec exactly as the user wrote it, kept for
+# the plugins-table "spec" column (the intent, next to the resolved commit).
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_PLUGIN_SPEC
+_KNIT_PLUGIN_SPEC=()
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PLUGIN_CHECKSUM
+#
+# Map of canonical id to the fetched tarball's sha256 (empty when the commit came
+# from the cache with no recorded pin). Written to the lockfile and the
+# plugins-table "checksum" column.
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_PLUGIN_CHECKSUM
+_KNIT_PLUGIN_CHECKSUM=()
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PLUGIN_IMPORTED_BY
+#
+# Map of canonical id to the id of the plugin that imported it, or the empty
+# string when the experiment imported it directly. This is the dependency edge
+# recorded in the plugins-table "imported_by" column.
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_PLUGIN_IMPORTED_BY
+_KNIT_PLUGIN_IMPORTED_BY=()
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PLUGIN_IMPORT_STACK
+#
+# Stack of plugin ids currently being sourced, pushed around each "source
+# plugin.sh" so a transitive knit_import done from a plugin's own plugin.sh knows
+# which plugin imported it (the stack top) and records the dependency edge.
+# ------------------------------------------------------------------------------
+declare -ga _KNIT_PLUGIN_IMPORT_STACK
+_KNIT_PLUGIN_IMPORT_STACK=()
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PLUGIN_TABLE
+#
+# Name of the provenance table recording which plugins an experiment imported
+# and at which exact commit. A normal knit table in .knit/knit.db, visible to
+# "knit query" like any other.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_PLUGIN_TABLE
+_KNIT_PLUGIN_TABLE="plugins"
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PLUGIN_TABLE_ENSURED
+#
+# "1" once the plugins table has been ensured this process, so the idempotent
+# create-or-migrate runs at most once per invocation.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_PLUGIN_TABLE_ENSURED
+_KNIT_PLUGIN_TABLE_ENSURED=""
+
+# ------------------------------------------------------------------------------
 # @fn _knit_plugin_lock_get()
 #
 # Look up a plugin's pin in the lockfile. Sets the commit and checksum outputs to
@@ -501,13 +571,221 @@ knit_import() {
         knit_fatal "Plugin \"${id}\": no plugin.sh at ${dir}."
     fi
 
+    # On a cache hit the tarball was not re-downloaded, so its checksum was not
+    # recomputed; recover it from the lockfile pin when one is recorded, so the
+    # provenance row and a rewritten lockfile still carry it.
+    if [[ -z "${checksum}" ]]; then
+        local lcommit lsum
+        if _knit_plugin_lock_get lcommit lsum "${id}" && [[ -n "${lsum}" ]]; then
+            checksum="${lsum}"
+        fi
+    fi
+
     # Freshly resolved a mutable ref (no prior pin): record it so a later run and
     # a fresh checkout resolve to the same commit.
     if [[ "${writeback}" == "true" ]]; then
         _knit_plugin_lock_set "${id}" "${commit}" "${checksum}"
     fi
 
+    # Record this import's provenance (ordered), for the lockfile, the plugins
+    # table, and the management commands. The importer is the plugin currently
+    # being sourced (the import stack top), or the experiment itself when the
+    # stack is empty (recorded as an empty importer).
+    _KNIT_PLUGIN_ORDER+=("${id}")
+    _KNIT_PLUGIN_SPEC["${id}"]="${spec}"
+    _KNIT_PLUGIN_CHECKSUM["${id}"]="${checksum}"
+    local importer=""
+    (( ${#_KNIT_PLUGIN_IMPORT_STACK[@]} > 0 )) \
+        && importer="${_KNIT_PLUGIN_IMPORT_STACK[-1]}"
+    _KNIT_PLUGIN_IMPORTED_BY["${id}"]="${importer}"
+
     knit_trace "Sourcing plugin ${id}@${commit}."
+    # A plugin's plugin.sh may import its own dependencies; push this id so those
+    # nested imports record it as their importer, and pop it once sourced.
+    _KNIT_PLUGIN_IMPORT_STACK+=("${id}")
     # shellcheck disable=SC1091 # plugin path is resolved at runtime
     source "${dir}/plugin.sh"
+    unset "_KNIT_PLUGIN_IMPORT_STACK[$(( ${#_KNIT_PLUGIN_IMPORT_STACK[@]} - 1 ))]"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_plugin_write_lockfile()
+#
+# Write every imported plugin's resolved pin (commit + checksum) to the committed
+# lockfile, so a fresh checkout resolves the same commits before bootstrap. Each
+# entry is upserted (see _knit_plugin_lock_set), leaving an unrelated pin already
+# in the file untouched. A no-op when nothing was imported.
+# ------------------------------------------------------------------------------
+_knit_plugin_write_lockfile() {
+    local id
+    for id in "${_KNIT_PLUGIN_ORDER[@]}"; do
+        _knit_plugin_lock_set "${id}" "${_KNIT_PLUGIN_COMMITS[${id}]:-}" \
+            "${_KNIT_PLUGIN_CHECKSUM[${id}]:-}"
+    done
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_plugin_ensure_table()
+#
+# Ensure the plugins provenance table exists and carries every column, creating
+# or additively migrating it on first use this process (guarded by
+# _KNIT_PLUGIN_TABLE_ENSURED). The schema records, per import: the uuid row id,
+# the spec as written, the resolved host/org/repo, the requested ref, the
+# resolved commit, the tarball checksum, the importing plugin (empty for the
+# experiment), and the epoch second it was recorded.
+# ------------------------------------------------------------------------------
+_knit_plugin_ensure_table() {
+    [[ -n "${_KNIT_PLUGIN_TABLE_ENSURED}" ]] && return 0
+    _knit_db_ensure_table "${_KNIT_PLUGIN_TABLE}" \
+        "id:uuid" "spec:string" "host:string" "org:string" "repo:string" \
+        "ref:string" "commit:string" "checksum:string" "imported_by:string" \
+        "installed_at:integer"
+    _KNIT_PLUGIN_TABLE_ENSURED="1"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_plugin_record_row()
+#
+# Insert one provenance row for an imported plugin into the plugins table. The
+# insert is idempotent across repeated bootstraps: a row for this host/org/repo
+# at this exact commit is written at most once, so re-running bootstrap (or
+# bootstrap update mode) never duplicates an unchanged plugin.
+#
+# @param[in] id Canonical id ("<host>/<org>/<repo>") of a plugin in the order set.
+# ------------------------------------------------------------------------------
+_knit_plugin_record_row() {
+    local id="$1"
+    local host org repo
+    IFS='/' read -r host org repo <<< "${id}"
+    local commit="${_KNIT_PLUGIN_COMMITS[${id}]:-}"
+
+    # Skip when this exact (host/org/repo, commit) is already recorded, so a
+    # re-bootstrap does not add a second identical row.
+    local esc_host esc_org esc_repo esc_commit commit_ident existing
+    _knit_sql_escape esc_host "${host}"
+    _knit_sql_escape esc_org "${org}"
+    _knit_sql_escape esc_repo "${repo}"
+    _knit_sql_escape esc_commit "${commit}"
+    _knit_db_sql_ident commit_ident "commit"
+    existing="$(_knit_sqlite3 "SELECT COUNT(*) FROM ${_KNIT_PLUGIN_TABLE} \
+WHERE host='${esc_host}' AND org='${esc_org}' AND repo='${esc_repo}' \
+AND ${commit_ident}='${esc_commit}';")"
+    [[ "${existing:-0}" -gt 0 ]] && return 0
+
+    local uuid installed_at
+    uuid="$(_knit_uuidv7)"
+    installed_at="$(date +%s)"
+
+    local -a names=(id spec host org repo ref commit checksum imported_by installed_at)
+    local -a values=(
+        "${uuid}"
+        "${_KNIT_PLUGIN_SPEC[${id}]:-}"
+        "${host}"
+        "${org}"
+        "${repo}"
+        "${_KNIT_PLUGIN_REFS[${id}]:-}"
+        "${commit}"
+        "${_KNIT_PLUGIN_CHECKSUM[${id}]:-}"
+        "${_KNIT_PLUGIN_IMPORTED_BY[${id}]:-}"
+        "${installed_at}"
+    )
+
+    local -a cols=() vals=()
+    local i col_ident val_esc
+    for i in "${!names[@]}"; do
+        _knit_db_sql_ident col_ident "${names[i]}"
+        cols+=("${col_ident}")
+        _knit_sql_escape val_esc "${values[i]}"
+        vals+=("'${val_esc}'")
+    done
+
+    local cols_sql vals_sql table_ident
+    cols_sql=$(IFS=', '; printf '%s' "${cols[*]}")
+    vals_sql=$(IFS=', '; printf '%s' "${vals[*]}")
+    _knit_db_sql_ident table_ident "${_KNIT_PLUGIN_TABLE}"
+    _knit_sqlite3_write "INSERT INTO ${table_ident} (${cols_sql}) VALUES (${vals_sql});"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_plugin_materialize()
+#
+# Copy an imported plugin's pinned source tree from the shared content-addressed
+# cache into the experiment's own ".knit/plugins/<host>/<org>/<repo>/", so the
+# experiment directory carries a self-contained copy. The destination is replaced
+# atomically-enough (removed then copied). A no-op when the cache tree is absent
+# (e.g. the import was deferred offline), so bootstrap does not fail on it.
+#
+# @param[in] id Canonical id ("<host>/<org>/<repo>") of a plugin in the order set.
+# ------------------------------------------------------------------------------
+_knit_plugin_materialize() {
+    local id="$1"
+    local commit="${_KNIT_PLUGIN_COMMITS[${id}]:-}"
+    local src="${_KNIT_PLUGIN_CACHE_ROOT}/${id}/${commit}"
+    [[ -d "${src}" ]] || return 0
+    local dest="${_KNIT_PREFIX}/plugins/${id}"
+    mkdir -p "$(dirname "${dest}")"
+    rm -rf "${dest}"
+    cp -R "${src}" "${dest}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_plugin_bootstrap()
+#
+# Bootstrap-time integration for imported plugins, run from _knit_bootstrap (both
+# first bootstrap and update mode). For every plugin imported by the experiment
+# this invocation it writes the committed lockfile, ensures the plugins table,
+# records a provenance row (idempotent), and materializes the pinned tree under
+# .knit for a self-contained experiment directory. A no-op when nothing was
+# imported.
+# ------------------------------------------------------------------------------
+_knit_plugin_bootstrap() {
+    (( ${#_KNIT_PLUGIN_ORDER[@]} > 0 )) || return 0
+    knit_info "Recording ${#_KNIT_PLUGIN_ORDER[@]} imported plugin(s)..."
+    _knit_plugin_write_lockfile
+    _knit_plugin_ensure_table
+    local id
+    for id in "${_KNIT_PLUGIN_ORDER[@]}"; do
+        _knit_plugin_record_row "${id}"
+        _knit_plugin_materialize "${id}"
+    done
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_plugins_lock()
+#
+# Body of "knit plugins lock": (re)write the committed lockfile from the plugins
+# imported this invocation, without a full bootstrap. Useful on a fresh checkout
+# to freeze the resolved commits before anything else. Reports, but does not
+# fail, when no plugin was imported.
+# ------------------------------------------------------------------------------
+_knit_plugins_lock() {
+    if (( ${#_KNIT_PLUGIN_ORDER[@]} == 0 )); then
+        knit_info "No plugins imported; nothing to lock."
+        return 0
+    fi
+    _knit_plugin_write_lockfile
+    knit_info "Wrote ${_KNIT_PLUGIN_LOCKFILE} (${#_KNIT_PLUGIN_ORDER[@]} plugin(s))."
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_plugins_discover()
+#
+# Register the "plugins" subcommands. Called lazily by the framework the first
+# time a plugins subcommand is resolved, listed in "--help", or walked by
+# "describe".
+#
+# @param[in] parent The parent command's display name (unused).
+# ------------------------------------------------------------------------------
+_knit_plugins_discover() {
+    knit_register "plugins:lock" _knit_plugins_lock \
+        "(Re)write knit-plugins.lock from the imported plugins, without a full bootstrap."
+    _knit_is_builtin
+    knit_usable_before_bootstrap
+    knit_done
+}
+
+knit_register "plugins" knit_empty "Inspect and manage the experiment's imported plugins."
+_knit_is_builtin
+knit_usable_before_bootstrap
+knit_with_subcommand_discovery _knit_plugins_discover
+knit_done
