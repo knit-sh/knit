@@ -2093,11 +2093,18 @@ _knit_describe() {
         knit_warning "The --compact flag only applies to --format json; ignoring it."
     fi
     _knit_describe_read_filters "$@"
+    # Preserve the emit's exit status (e.g. an unwritable --output path fails the
+    # redirect) across the footer call, which would otherwise mask it.
+    local rc=0
     if [[ -n "${output}" ]]; then
-        _knit_describe_emit "${format}" "${compact}" "$@" > "${output}"
+        _knit_describe_emit "${format}" "${compact}" "$@" > "${output}" || rc=$?
     else
-        _knit_describe_emit "${format}" "${compact}" "$@"
+        _knit_describe_emit "${format}" "${compact}" "$@" || rc=$?
     fi
+    # Note (on stderr, so no format is corrupted) any plugin that could not be
+    # sourced this invocation, whose commands are therefore absent from the tree.
+    _knit_plugin_print_deferred_footer
+    return "${rc}"
 }
 
 knit_enum "describe_format" \

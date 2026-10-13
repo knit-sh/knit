@@ -13,6 +13,7 @@ setup() {
 
     __TEST_TMPDIR="$(mktemp -d)"
     _KNIT_PLUGIN_CACHE_ROOT="${__TEST_TMPDIR}/cache"
+    _KNIT_PLUGIN_LOCKFILE="${__TEST_TMPDIR}/knit-plugins.lock"
     MARKER="${__TEST_TMPDIR}/sourced.log"
     : > "${MARKER}"
     unset KNIT_OFFLINE
@@ -99,23 +100,25 @@ _stub_fetch() {
 
 @test "resolve_commit returns a full SHA without touching the network" {
     _knit_github_resolve_commit() { echo "SHOULD_NOT_BE_CALLED"; }
-    local c
-    _knit_plugin_resolve_commit c "github.com" "o" "r" "${SHA}"
+    local c wb
+    _knit_plugin_resolve_commit c wb "github.com" "o" "r" "${SHA}"
     [ "${c}" = "${SHA}" ]
+    [ "${wb}" = "false" ]
 }
 
-@test "resolve_commit delegates a non-SHA ref to the host resolver" {
+@test "resolve_commit delegates a non-SHA ref to the host resolver and flags writeback" {
     _knit_github_resolve_commit() { printf 'resolvedsha'; }
-    local c
-    _knit_plugin_resolve_commit c "github.com" "o" "r" "v1.0"
+    local c wb
+    _knit_plugin_resolve_commit c wb "github.com" "o" "r" "v1.0"
     [ "${c}" = "resolvedsha" ]
+    [ "${wb}" = "true" ]
 }
 
-@test "resolve_commit is fatal for a non-SHA ref under KNIT_OFFLINE" {
+@test "resolve_commit returns non-zero (defer) for a non-SHA ref under KNIT_OFFLINE" {
     KNIT_OFFLINE=1
-    run _knit_plugin_resolve_commit c "github.com" "o" "r" "main"
+    local c wb
+    run _knit_plugin_resolve_commit c wb "github.com" "o" "r" "main"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"KNIT_OFFLINE"* ]]
 }
 
 # ---------- cache hit ----------
@@ -212,11 +215,12 @@ _stub_fetch() {
     [ "$(cat "${MARKER}")" = "CACHED" ]
 }
 
-@test "knit_import is fatal for an uncached SHA offline" {
+@test "knit_import defers an uncached SHA offline instead of failing" {
     KNIT_OFFLINE=1
-    run knit_import "demo@${SHA}"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"not cached"* ]]
+    knit_import "demo@${SHA}"
+    [ "${#_KNIT_PLUGIN_DEFERRED[@]}" -eq 1 ]
+    [ -z "$(cat "${MARKER}")" ]
+    [ "${_KNIT_PLUGIN_CNF_INSTALLED}" = "true" ]
 }
 
 # ---------- host validation ----------

@@ -3186,6 +3186,10 @@ _knit_print_command_usage() {
         printf "\n-----\n"
         printf "  %s\n" "${!extra_var}"
     fi
+
+    # Note (on stderr) any plugin deferred this invocation, so a user reading
+    # --help sees that some commands/decorators are missing until it is fetched.
+    _knit_plugin_print_deferred_footer
 }
 
 # ------------------------------------------------------------------------------
