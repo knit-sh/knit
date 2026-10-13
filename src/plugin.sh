@@ -768,6 +768,129 @@ _knit_plugins_lock() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_plugins_table_exists()
+#
+# Return 0 when the plugins provenance table exists in the database, 1 otherwise.
+# The table is created at bootstrap only when the experiment imported at least
+# one plugin, so its absence means "no plugins recorded" rather than an error.
+# ------------------------------------------------------------------------------
+_knit_plugins_table_exists() {
+    local esc_table exists
+    _knit_sql_escape esc_table "${_KNIT_PLUGIN_TABLE}"
+    exists="$(_knit_sqlite3 \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='${esc_table}';")"
+    [[ "${exists}" -gt 0 ]]
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_plugins_list()
+#
+# Body of "knit plugins list": print the plugins recorded in the database, one
+# per line, with the canonical id, the requested ref, the resolved commit (short)
+# and the importer, aligned into columns and ordered chronologically. Reports (and
+# succeeds) when no plugin has been recorded.
+# ------------------------------------------------------------------------------
+_knit_plugins_list() {
+    if ! _knit_plugins_table_exists; then
+        knit_info "No plugins have been imported."
+        return 0
+    fi
+
+    # char(31) (US) is the field delimiter: unlike a tab it is not an IFS
+    # whitespace character, so "read" preserves an empty field (an empty ref or
+    # importer) instead of collapsing it and shifting the columns.
+    local commit_ident
+    _knit_db_sql_ident commit_ident "commit"
+    local rows
+    rows="$(_knit_sqlite3 "SELECT host||'/'||org||'/'||repo||char(31)||ref||char(31)\
+||${commit_ident}||char(31)||imported_by \
+FROM ${_KNIT_PLUGIN_TABLE} ORDER BY installed_at, id;")"
+    if [[ -z "${rows}" ]]; then
+        knit_info "No plugins have been imported."
+        return 0
+    fi
+
+    local -a ids=() refs=() commits=() importers=()
+    local maxid=6 cid ref commit importer
+    while IFS=$'\037' read -r cid ref commit importer; do
+        [[ -z "${ref}" ]] && ref="<default>"
+        [[ -z "${importer}" ]] && importer="(experiment)"
+        ids+=("${cid}")
+        refs+=("${ref}")
+        commits+=("${commit:0:12}")
+        importers+=("${importer}")
+        (( ${#cid} > maxid )) && maxid=${#cid}
+    done <<< "${rows}"
+
+    printf '%-*s  %-10s  %-12s  %s\n' \
+        "${maxid}" "PLUGIN" "REF" "COMMIT" "IMPORTED BY"
+    local i
+    for i in "${!ids[@]}"; do
+        printf '%-*s  %-10s  %-12s  %s\n' \
+            "${maxid}" "${ids[i]}" "${refs[i]}" "${commits[i]}" "${importers[i]}"
+    done
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_plugins_show()
+#
+# Body of "knit plugins show --id <selector>": print the full recorded metadata
+# and provenance of a plugin. The selector matches a plugin's row id, its
+# canonical id ("host/org/repo"), or its repository short name (with or without
+# the "knit-" prefix of the blessed namespace), so "spack", "knit-spack", and
+# "github.com/knit-sh/knit-spack" all select the same plugin. A plugin recorded at
+# more than one commit over the experiment's life prints one block per recording,
+# oldest first. No match is fatal.
+# ------------------------------------------------------------------------------
+_knit_plugins_show() {
+    local sel
+    sel="$(knit_get_parameter "id" "$@")"
+
+    if ! _knit_plugins_table_exists; then
+        knit_fatal "plugins show: no plugin matching \"${sel}\"."
+    fi
+
+    # char(31) field delimiter (see _knit_plugins_list) preserves empty fields.
+    local sel_esc commit_ident
+    _knit_sql_escape sel_esc "${sel}"
+    _knit_db_sql_ident commit_ident "commit"
+    local rows
+    rows="$(_knit_sqlite3 "SELECT id||char(31)||spec||char(31)||host||char(31)||org\
+||char(31)||repo||char(31)||ref||char(31)||${commit_ident}||char(31)||checksum\
+||char(31)||imported_by||char(31)||installed_at \
+FROM ${_KNIT_PLUGIN_TABLE} \
+WHERE id='${sel_esc}' \
+OR host||'/'||org||'/'||repo='${sel_esc}' \
+OR repo='${sel_esc}' OR repo='knit-${sel_esc}' \
+ORDER BY installed_at, id;")"
+    if [[ -z "${rows}" ]]; then
+        knit_fatal "plugins show: no plugin matching \"${sel}\"."
+    fi
+
+    local first=1 rid spec host org repo ref commit checksum importer installed_at when
+    while IFS=$'\037' read -r rid spec host org repo ref commit checksum importer installed_at; do
+        [[ "${first}" -eq 1 ]] || printf '\n'
+        first=0
+        [[ -z "${ref}" ]] && ref="<default branch>"
+        [[ -z "${checksum}" ]] && checksum="<none>"
+        [[ -z "${importer}" ]] && importer="(the experiment)"
+        when="${installed_at}"
+        if [[ "${installed_at}" =~ ^[0-9]+$ ]]; then
+            when="$(date -d "@${installed_at}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null \
+                || printf '%s' "${installed_at}")"
+        fi
+        printf 'Plugin:       %s/%s/%s\n' "${host}" "${org}" "${repo}"
+        printf 'Spec:         %s\n' "${spec}"
+        printf 'Ref:          %s\n' "${ref}"
+        printf 'Commit:       %s\n' "${commit}"
+        printf 'Checksum:     %s\n' "${checksum}"
+        printf 'Imported by:  %s\n' "${importer}"
+        printf 'Installed at: %s\n' "${when}"
+        printf 'Row id:       %s\n' "${rid}"
+    done <<< "${rows}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_plugins_discover()
 #
 # Register the "plugins" subcommands. Called lazily by the framework the first
@@ -777,6 +900,18 @@ _knit_plugins_lock() {
 # @param[in] parent The parent command's display name (unused).
 # ------------------------------------------------------------------------------
 _knit_plugins_discover() {
+    knit_register "plugins:list" _knit_plugins_list \
+        "List the plugins the experiment has imported, with their pins."
+    _knit_is_builtin
+    knit_done
+
+    knit_register "plugins:show" _knit_plugins_show \
+        "Show one plugin's recorded metadata and provenance."
+    _knit_is_builtin
+    knit_with_required "id:string" \
+        "Plugin selector: a row id, a canonical id (host/org/repo), or a repository short name (with or without the \"knit-\" prefix)."
+    knit_done
+
     knit_register "plugins:lock" _knit_plugins_lock \
         "(Re)write knit-plugins.lock from the imported plugins, without a full bootstrap."
     _knit_is_builtin
