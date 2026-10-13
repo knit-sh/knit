@@ -248,4 +248,86 @@ _knit_shorthand_generate() {
     done
 }
 
+# ------------------------------------------------------------------------------
+# @fn _knit_shorthand_opted_out()
+#
+# Return success when a shorthand token is suppressed by KNIT_WITHOUT_SHORTHAND,
+# either because the token is listed or because the special value "all" is
+# present. Surrounding whitespace around each listed token is trimmed, so
+# "job, app" behaves like "job,app". Used by knit_register_shorthand to honour
+# the same opt-out the source-time generator honours.
+#
+# @param[in] token The shorthand token (the part after "@").
+# ------------------------------------------------------------------------------
+_knit_shorthand_opted_out() {
+    local want="$1"
+    local -a tokens=()
+    IFS=',' read -ra tokens <<< "${KNIT_WITHOUT_SHORTHAND:-}"
+    local t
+    for t in "${tokens[@]}"; do
+        t="${t#"${t%%[![:space:]]*}"}"
+        t="${t%"${t##*[![:space:]]}"}"
+        [[ -z "${t}" ]] && continue
+        [[ "${t}" == "all" || "${t}" == "${want}" ]] && return 0
+    done
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_register_shorthand()
+#
+# Define a new "@" shorthand that forwards verbatim to a function. A plugin uses
+# it to give its own decorator an "@" twin, e.g.
+# "knit_register_shorthand with_conda_env knit_with_conda_env" defines
+# "@with_conda_env". Because the source-time generator (_knit_shorthand_generate)
+# runs before any plugin is sourced, a plugin cannot extend the curated map and
+# must declare its shorthand through this seam instead.
+#
+# The shorthand is a pass-through: "@<token>()" forwards "$@" to <fn>. It honours
+# KNIT_WITHOUT_SHORTHAND (the token being opted out, or "all", makes this a
+# no-op) exactly like the built-in shorthands.
+#
+# Fatal when: the token is not a valid identifier; the token names a built-in
+# shorthand (those cannot be redefined); an "@<token>" is already defined (a
+# second registration of the same token); the target name is not a valid
+# identifier; or the target function is not defined.
+#
+# @param[in] token The shorthand token (the part after "@").
+# @param[in] fn    The function the shorthand forwards to.
+# ------------------------------------------------------------------------------
+knit_register_shorthand() {
+    local token="$1"
+    local fn="$2"
+
+    if [[ ! "${token}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        knit_fatal "knit_register_shorthand: invalid shorthand token \"%s\"." "${token}"
+    fi
+    if [[ -n "${_KNIT_SHORTHAND_PASSTHROUGH[${token}]:-}" ]] \
+        || [[ -n "${_KNIT_SHORTHAND_EXTRACTOR[${token}]:-}" ]]; then
+        knit_fatal "knit_register_shorthand: \"@%s\" is a built-in shorthand and cannot be redefined." "${token}"
+    fi
+    if declare -F "@${token}" > /dev/null; then
+        knit_fatal "knit_register_shorthand: \"@%s\" is already defined." "${token}"
+    fi
+
+    # Honour the opt-out before touching the target: a suppressed shorthand is
+    # simply not defined, mirroring the source-time generator.
+    if _knit_shorthand_opted_out "${token}"; then
+        return 0
+    fi
+
+    if [[ ! "${fn}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        knit_fatal "knit_register_shorthand: invalid target function name \"%s\"." "${fn}"
+    fi
+    if ! declare -F "${fn}" > /dev/null; then
+        knit_fatal "knit_register_shorthand: target function \"%s\" is not defined." "${fn}"
+    fi
+
+    # eval is unavoidable: binding a dynamically-computed name to a function body
+    # has no non-eval form (the same rationale as _knit_shorthand_generate). Both
+    # token and fn are validated as identifiers above, so the generated text is
+    # fully controlled.
+    eval "@${token}() { ${fn} \"\$@\"; }"
+}
+
 _knit_shorthand_generate
