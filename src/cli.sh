@@ -413,7 +413,7 @@ _knit_param_check_declaration() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]] && [[ ! -v _KNIT_CURRENT_PARAMETER_SET ]]; then
         knit_fatal "knit_with_${suffix} should be used after a call to \"knit_register\" or \"knit_parameter_set\"."
     fi
-    _knit_wrapper_reject_declaration "knit_with_${suffix}"
+    knit_reject_if_wrapper "knit_with_${suffix}"
 
     # Extract name and type from "name:type" format (flags are implicitly boolean)
     local param_name param_type
@@ -720,7 +720,7 @@ knit_done() {
     fi
     local i
     for (( i=${#_KNIT_DONE_CBS[@]}-1; i>=0; i-- )); do
-        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by _knit_push_done_cb
+        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by knit_push_done_cb
         eval "${_KNIT_DONE_CBS[$i]}"
     done
     unset _KNIT_DONE_CBS
@@ -850,7 +850,7 @@ knit_register_wrapper() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_wrapper_reject_declaration()
+# @fn knit_reject_if_wrapper()
 #
 # Fatal if the command currently being registered is a wrapper. Called by the
 # declaration functions that a wrapper is not allowed to use (parameters,
@@ -859,7 +859,7 @@ knit_register_wrapper() {
 #
 # @param[in] directive Name of the calling directive (for the error message).
 # ------------------------------------------------------------------------------
-_knit_wrapper_reject_declaration() {
+knit_reject_if_wrapper() {
     if [[ -v _KNIT_CURRENT_COMMAND ]] \
         && _knit_command_is_wrapper "${_KNIT_CURRENT_COMMAND}"; then
         knit_fatal "$1 cannot be used with a wrapper command (registered with knit_register_wrapper)."
@@ -957,7 +957,7 @@ knit_usable_before_bootstrap() {
     knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as usable before bootstrap."
     local cmd="${_KNIT_CURRENT_COMMAND}"
     if ! _knit_command_is_usable_before_bootstrap "${cmd}"; then
-        _knit_push_done_cb _knit_usable_before_bootstrap_validate "${cmd}"
+        knit_push_done_cb _knit_usable_before_bootstrap_validate "${cmd}"
     fi
     printf -v "_KNIT_CMD_${cmd}_usable_before_bootstrap" '%s' 'true'
 }
@@ -1436,7 +1436,7 @@ knit_no_record_on_failure() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_no_record_on_failure should be used after a call to \"knit_register\"."
     fi
-    _knit_wrapper_reject_declaration "knit_no_record_on_failure"
+    knit_reject_if_wrapper "knit_no_record_on_failure"
     local cmd="${_KNIT_CURRENT_COMMAND}"
     if _knit_command_is_job "${cmd}"; then
         knit_fatal "knit_no_record_on_failure cannot be used with a job (registered with knit_register_job): a job's row records its state (running / killed / completed), which suppressing a failed job's row would drop."
@@ -1492,7 +1492,7 @@ knit_with_subcommand_discovery() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_subcommand_discovery should be used after a call to \"knit_register\"."
     fi
-    _knit_wrapper_reject_declaration "knit_with_subcommand_discovery"
+    knit_reject_if_wrapper "knit_with_subcommand_discovery"
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local fn="$1"
     if [[ -z "${fn}" ]]; then
@@ -1936,7 +1936,7 @@ knit_with_parameter_set() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_parameter_set should be used after a call to \"knit_register\"."
     fi
-    _knit_wrapper_reject_declaration "knit_with_parameter_set"
+    knit_reject_if_wrapper "knit_with_parameter_set"
     knit_check_arguments "exclude only" "" "${@:2}" \
         || knit_fatal "knit_with_parameter_set takes a set name and an optional --exclude or --only."
     local set_name="$1"
@@ -2072,7 +2072,7 @@ knit_with_output() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_output should be used after a call to \"knit_register\"."
     fi
-    _knit_wrapper_reject_declaration "knit_with_output"
+    knit_reject_if_wrapper "knit_with_output"
     knit_check_arguments "" "no-checksum result" "${@:4}" \
         || knit_fatal "knit_with_output takes an output, a default, a description, and an optional --no-checksum and --result."
     local param_spec="$1"
@@ -2148,7 +2148,7 @@ knit_with_dispatch() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_dispatch should be used after a call to \"knit_register\"."
     fi
-    _knit_wrapper_reject_declaration "knit_with_dispatch"
+    knit_reject_if_wrapper "knit_with_dispatch"
     local cmd="${_KNIT_CURRENT_COMMAND}"
     printf -v "_KNIT_CMD_${cmd}_dispatch" '%s' "$1"
     printf -v "_KNIT_CMD_${cmd}_extra"    '%s' "${2:-$1}"
@@ -2204,11 +2204,11 @@ knit_with_table() {
     local cmd="${_KNIT_CURRENT_COMMAND}"
     printf -v "_KNIT_CMD_${cmd}_table" '%s' "${table_name}"
 
-    _knit_push_done_cb _knit_db_setup_table "${cmd}" "${table_name}"
+    knit_push_done_cb _knit_db_setup_table "${cmd}" "${table_name}"
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_run_before()
+# @fn knit_run_before()
 #
 # In the context of a knit_register, install a callback to run before the
 # command currently being registered.
@@ -2219,9 +2219,9 @@ knit_with_table() {
 # knit_run_before echo "Running before command"
 # ```
 # ------------------------------------------------------------------------------
-_knit_run_before() {
+knit_run_before() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
-        knit_fatal "_knit_run_before should be used after a call to \"knit_register\"."
+        knit_fatal "knit_run_before should be used after a call to \"knit_register\"."
     fi
     knit_trace "Adding callback to run before ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
     local cmd="${_KNIT_CURRENT_COMMAND}"
@@ -2261,7 +2261,7 @@ _knit_execute_before_commands() {
     local -n cb_list_ref="${cb_list_name}"
     local status
     for cb in "${cb_list_ref[@]}"; do
-        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by _knit_run_before
+        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by knit_run_before
         eval "${cb} $*" || {
             status=$?
             knit_trace "Before callback failed for ${demangled_cmd} (status ${status})."
@@ -2272,7 +2272,7 @@ _knit_execute_before_commands() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_run_after()
+# @fn knit_run_after()
 #
 # In the context of a knit_register, install a callback to run after the
 # command currently being registered.
@@ -2283,9 +2283,9 @@ _knit_execute_before_commands() {
 # knit_run_after echo "Running after command"
 # ```
 # ------------------------------------------------------------------------------
-_knit_run_after() {
+knit_run_after() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
-        knit_fatal "_knit_run_after should be used after a call to \"knit_register\"."
+        knit_fatal "knit_run_after should be used after a call to \"knit_register\"."
     fi
     knit_trace "Adding callback to run after ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
     local cmd="${_KNIT_CURRENT_COMMAND}"
@@ -2317,13 +2317,13 @@ _knit_execute_after_commands() {
     # shellcheck disable=SC2178
     local -n cb_list_ref="${cb_list_name}"
     for cb in "${cb_list_ref[@]}"; do
-        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by _knit_run_after
+        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by knit_run_after
         eval "${cb} $*"
     done
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_push_done_cb()
+# @fn knit_push_done_cb()
 #
 # In the context of a knit_register, push a callback to be called at the next
 # call to knit_done. Multiple callbacks may be pushed; they are all called in
@@ -2331,14 +2331,116 @@ _knit_execute_after_commands() {
 #
 # @param[in] ... Callback function and its arguments.
 # ------------------------------------------------------------------------------
-_knit_push_done_cb() {
+knit_push_done_cb() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
-        knit_fatal "_knit_push_done_cb should be used after a call to \"knit_register\"."
+        knit_fatal "knit_push_done_cb should be used after a call to \"knit_register\"."
     fi
     knit_trace "Pushing done callback in ${_KNIT_CURRENT_COMMAND_DEMANGLED}."
     local cb
     printf -v cb "%q " "$@"
     _KNIT_DONE_CBS+=("${cb}")
+}
+
+# ==============================================================================
+# Public decorator-authoring surface
+#
+# The registration-state accessors below let a plugin author its own decorators
+# (functions that manipulate the command currently being registered) using the
+# same machinery the built-in knit_with_* decorators use, without reaching into
+# the _KNIT_CMD_<cmd>_* globals directly. They complement the registration
+# primitives that are themselves part of the public API: knit_run_before,
+# knit_run_after, knit_push_done_cb, and knit_reject_if_wrapper.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# @fn knit_current_command()
+#
+# Print the name of the command currently being registered, in its
+# colon-separated form (hyphens normalized to underscores). A decorator uses it
+# to key per-command state or to build a message. Fatal when no command is being
+# registered.
+# ------------------------------------------------------------------------------
+knit_current_command() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_current_command must be used after a call to \"knit_register\"."
+    fi
+    printf '%s\n' "${_KNIT_CURRENT_COMMAND_DEMANGLED}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_add_command_note()
+#
+# Append a line to the "Requirements" block shown in the command's "--help"
+# output. A decorator uses it to document a precondition it installs (e.g. "Needs
+# a conda environment."). Fatal when no command is being registered.
+#
+# @param[in] text The note line to append.
+# ------------------------------------------------------------------------------
+knit_add_command_note() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_add_command_note must be used after a call to \"knit_register\"."
+    fi
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    # shellcheck disable=SC2178 # nameref to the command's notes array
+    local -n _knit_notes_ref="_KNIT_CMD_${cmd}_notes"
+    _knit_notes_ref+=("$1")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_command_marker_var()
+#
+# Resolve the global variable name backing a per-command marker, storing it in
+# the caller-named variable. Markers live in their own _KNIT_CMD_<cmd>_marker_*
+# namespace so a plugin cannot collide with core per-command state. The marker
+# name is normalized (hyphens to underscores) and validated; a name that is not a
+# valid identifier is fatal.
+#
+# @param[out] __knit_ret Name of the variable to hold the resolved global name.
+# @param[in] name The marker name.
+# ------------------------------------------------------------------------------
+_knit_command_marker_var() {
+    # shellcheck disable=SC2178 # scalar nameref; the array use of __knit_ret is an unrelated earlier function
+    local -n __knit_ret=$1
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "a command marker must be used after a call to \"knit_register\"."
+    fi
+    local normalized
+    _knit_str_hyphens_to_underscores normalized "$2"
+    if [[ ! "${normalized}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        knit_fatal "Invalid command marker name \"$2\"."
+    fi
+    # shellcheck disable=SC2178 # scalar nameref (see above)
+    __knit_ret="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_marker_${normalized}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_command_set_marker()
+#
+# Set a named marker on the command currently being registered. Together with
+# knit_command_has_marker this lets a decorator enforce "at most one" of itself:
+# test the marker, fatal if already set, then set it. Fatal when no command is
+# being registered.
+#
+# @param[in] name The marker name.
+# ------------------------------------------------------------------------------
+knit_command_set_marker() {
+    local marker_var
+    _knit_command_marker_var marker_var "$1"
+    printf -v "${marker_var}" '%s' '1'
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_command_has_marker()
+#
+# Return success when the named marker is set on the command currently being
+# registered, failure otherwise. Fatal when no command is being registered.
+#
+# @param[in] name The marker name.
+# ------------------------------------------------------------------------------
+knit_command_has_marker() {
+    local marker_var
+    _knit_command_marker_var marker_var "$1"
+    [[ -n "${!marker_var:-}" ]]
 }
 
 # ------------------------------------------------------------------------------

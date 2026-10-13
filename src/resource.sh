@@ -767,7 +767,7 @@ knit_register_resource() {
     # Push the method check last so it runs first at knit_done (done callbacks run
     # in reverse order of installation): a type that declared no download method
     # then fatals before the table is set up.
-    _knit_push_done_cb _knit_resource_check_method "${cmd}"
+    knit_push_done_cb _knit_resource_check_method "${cmd}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1031,7 +1031,7 @@ knit_with_resource() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_resource must be called between a knit_register* call and knit_done."
     fi
-    _knit_wrapper_reject_declaration "knit_with_resource"
+    knit_reject_if_wrapper "knit_with_resource"
 
     local spec="$1"
     local description="$2"
@@ -1069,8 +1069,8 @@ knit_with_resource() {
     # All resources are required for now.
     [[ -z "${description}" ]] && description="Resource instance of type \"${type_typed}\"."
     knit_with_required "${param_name}:string" "${description}"
-    _knit_run_before _knit_resource_dep_before_cb "${param}" "${type}"
-    _knit_run_after _knit_resource_dep_after_cb "${param}" "${type}"
+    knit_run_before _knit_resource_dep_before_cb "${param}" "${type}"
+    knit_run_after _knit_resource_dep_after_cb "${param}" "${type}"
 }
 
 # ------------------------------------------------------------------------------

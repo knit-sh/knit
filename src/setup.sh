@@ -524,8 +524,8 @@ knit_register_setup() {
     _knit_name_normalize normalized_name "${name}"
     _KNIT_SETUPS["${normalized_name}"]=1
     printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_type" '%s' 'setup'
-    _knit_run_before _knit_setup_before_cb
-    _knit_run_after  _knit_setup_after_cb
+    knit_run_before _knit_setup_before_cb
+    knit_run_after  _knit_setup_after_cb
 }
 
 # ------------------------------------------------------------------------------
@@ -699,8 +699,8 @@ knit_with_table
 knit_with_output "name:string" "" "The setup instance name (from knit setup --name)."
 knit_with_output "directory:string" "" "The instance's on-disk directory."
 _KNIT_SETUPS["default"]=1
-_knit_run_before _knit_setup_before_cb
-_knit_run_after  _knit_setup_default_after_cb
+knit_run_before _knit_setup_before_cb
+knit_run_after  _knit_setup_default_after_cb
 knit_done
 
 # ------------------------------------------------------------------------------
@@ -903,7 +903,7 @@ knit_with_setup() {
     if [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" == setup:* ]]; then
         knit_fatal "knit_with_setup cannot be used on a setup (setups cannot depend on other setups)."
     fi
-    _knit_wrapper_reject_declaration "knit_with_setup"
+    knit_reject_if_wrapper "knit_with_setup"
     # The required setup type as written (kept for messages) and its canonical
     # (underscore) form, stored in the marker so it matches a setup's recorded
     # .setup.type regardless of the hyphen/underscore spelling on either side.
@@ -945,8 +945,8 @@ knit_with_setup() {
     # before-callback).
     knit_with_optional "setup:string" "" \
         "Name of a setup built by the \"${setup_type}\" setup."
-    _knit_run_before _knit_setup_dep_before_cb "${setup_type}"
-    _knit_run_after  _knit_setup_dep_after_cb "${setup_type}"
+    knit_run_before _knit_setup_dep_before_cb "${setup_type}"
+    knit_run_after  _knit_setup_dep_after_cb "${setup_type}"
 }
 
 # ------------------------------------------------------------------------------
@@ -972,7 +972,7 @@ knit_without_setup() {
     if [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" == setup:* ]]; then
         knit_fatal "knit_without_setup cannot be used on a setup."
     fi
-    _knit_wrapper_reject_declaration "knit_without_setup"
+    knit_reject_if_wrapper "knit_without_setup"
 
     # Only jobs adopt the default setup implicitly, so only jobs have anything to
     # opt out of. For every other command this is a no-op.
@@ -1126,7 +1126,7 @@ knit_with_spack_env() {
     || [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" != setup:* ]]; then
         knit_fatal "knit_with_spack_env is valid only for setups; it must be called between knit_register_setup and knit_done."
     fi
-    _knit_wrapper_reject_declaration "knit_with_spack_env"
+    knit_reject_if_wrapper "knit_with_spack_env"
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local marker_var="_KNIT_CMD_${cmd}_spack_env"
     if [[ -n "${!marker_var:-}" ]]; then
@@ -1141,7 +1141,7 @@ knit_with_spack_env() {
         # The manifest is an input the bundle should carry. Record it verbatim (the
         # user's typed path, not the resolved absolute form, so relative-path
         # handling applies at bundle time); "knit bundle" validates it there.
-        _knit_bundle_auto_require "$1"
+        knit_bundle_auto_require "$1"
     else
         # No path given: the manifest must arrive on stdin (here-doc, here-string,
         # or pipe). If stdin is an interactive terminal there is nothing to read
@@ -1157,8 +1157,8 @@ knit_with_spack_env() {
         fi
     fi
 
-    _knit_run_before _knit_setup_spack_env_before_cb "${mode}" "${source}"
-    _knit_run_after  _knit_setup_spack_env_after_cb
+    knit_run_before _knit_setup_spack_env_before_cb "${mode}" "${source}"
+    knit_run_after  _knit_setup_spack_env_after_cb
 
     knit_with_output "__spack_yaml__:string" "" \
         "gzip+base64 of the environment's concrete spack.yaml manifest."
@@ -1310,7 +1310,7 @@ knit_provides_launcher() {
     fi
     printf -v "${marker_var}" '%s' '1'
 
-    _knit_run_after _knit_setup_provides_launcher_after_cb
+    knit_run_after _knit_setup_provides_launcher_after_cb
 
     knit_with_output "__mpi_launcher__:string" "" \
         "The MPI launcher (openmpi/mpich/pals/flux) this setup detected and froze."

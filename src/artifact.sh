@@ -555,7 +555,7 @@ knit_with_output_artifact() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_output_artifact should be used after a call to \"knit_register\"."
     fi
-    _knit_wrapper_reject_declaration "knit_with_output_artifact"
+    knit_reject_if_wrapper "knit_with_output_artifact"
     knit_check_arguments "" "result" "${@:3}" \
         || knit_fatal "knit_with_output_artifact takes an artifact, a description, and an optional --result."
     local param_spec="$1"
@@ -633,7 +633,7 @@ _knit_artifact_require_table() {
     local guard="_KNIT_CMD_${cmd}_artifact_table_cb"
     [[ -n "${!guard:-}" ]] && return 0
     printf -v "${guard}" '%s' "1"
-    _knit_push_done_cb _knit_artifact_ensure_table_cb "${cmd}"
+    knit_push_done_cb _knit_artifact_ensure_table_cb "${cmd}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1424,7 +1424,7 @@ knit_with_input_artifact() {
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_fatal "knit_with_input_artifact must be called between a knit_register* call and knit_done."
     fi
-    _knit_wrapper_reject_declaration "knit_with_input_artifact"
+    knit_reject_if_wrapper "knit_with_input_artifact"
     knit_check_arguments "" "verify-checksum" "${@:3}" \
         || knit_fatal "knit_with_input_artifact takes an artifact, a description, and an optional --verify-checksum."
 
@@ -1486,6 +1486,6 @@ knit_with_input_artifact() {
     else
         knit_with_required "${param_name}:string" "${description}"
     fi
-    _knit_run_before _knit_input_artifact_before_cb "${param}" "${param_kind}" "${verify}" "${param_quant}"
-    _knit_run_after _knit_input_artifact_after_cb "${param}" "${param_kind}" "${verify}" "${param_quant}"
+    knit_run_before _knit_input_artifact_before_cb "${param}" "${param_kind}" "${verify}" "${param_quant}"
+    knit_run_after _knit_input_artifact_after_cb "${param}" "${param_kind}" "${verify}" "${param_quant}"
 }

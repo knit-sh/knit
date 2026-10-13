@@ -65,17 +65,19 @@ knit_bundle_requires() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_bundle_auto_require()
+# @fn knit_bundle_auto_require()
 #
 # Record a path that Knit adds to the bundle on the experiment's behalf (see
-# _KNIT_BUNDLE_AUTO_REQUIRES). Called by other directives — knit_with_spack_env
-# in its file form — not by the user. Like knit_bundle_requires it stores the
-# string verbatim and MUST NOT touch the filesystem, so it stays safe when the
-# experiment script is re-sourced on a compute node during job re-entry.
+# _KNIT_BUNDLE_AUTO_REQUIRES). Called by a decorator — the built-in
+# knit_with_spack_env in its file form, or a plugin-authored one — rather than
+# directly by the experiment (which uses knit_bundle_requires). Like
+# knit_bundle_requires it stores the string verbatim and MUST NOT touch the
+# filesystem, so it stays safe when the experiment script is re-sourced on a
+# compute node during job re-entry.
 #
 # @param[in] path A file path, meant relative to the experiment script's directory.
 # ------------------------------------------------------------------------------
-_knit_bundle_auto_require() {
+knit_bundle_auto_require() {
     _KNIT_BUNDLE_AUTO_REQUIRES+=("$1")
 }
 

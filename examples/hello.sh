@@ -22,8 +22,8 @@ sum() {
 @with_required "the-name:string" "Name of the person to greet."
 @with_optional "greeting:string" "Hello" "How to greet them."
 @with_flag "prof" "Whether they are a professor."
-_knit_run_before echo "Hello world" Something
-_knit_run_after echo "Good bye" ABD
+knit_run_before echo "Hello world" Something
+knit_run_after echo "Good bye" ABD
 hello() {
     local name=$(knit_get_parameter "the-name" $@)
     local greeting=$(knit_get_parameter "greeting" $@)

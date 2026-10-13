@@ -163,8 +163,8 @@ teardown() {
     after_cb() { echo "after" >> "${BATS_TEST_TMPDIR}/order"; }
     wrap_fn() { echo "fn" >> "${BATS_TEST_TMPDIR}/order"; }
     knit_register_wrapper "wrap" "wrap_fn" "A wrapper."
-    _knit_run_before before_cb
-    _knit_run_after after_cb
+    knit_run_before before_cb
+    knit_run_after after_cb
     knit_done
     _knit_invoke_command "wrap" arg
     [ "$(cat "${BATS_TEST_TMPDIR}/order")" = "$(printf 'before\nfn\nafter')" ]

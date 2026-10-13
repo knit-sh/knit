@@ -770,5 +770,5 @@ knit_register_app() {
     knit_with_table "${normalized_name}"
     _KNIT_APPS["${normalized_name}"]=1
     printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_type" '%s' 'app'
-    _knit_run_before _knit_app_before_cb
+    knit_run_before _knit_app_before_cb
 }

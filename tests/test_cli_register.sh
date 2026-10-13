@@ -61,51 +61,51 @@ teardown() {
     [ "$status" -eq 1 ]
 }
 
-# ---------- _knit_push_done_cb ----------
+# ---------- knit_push_done_cb ----------
 
-@test "_knit_push_done_cb fails outside of knit_register" {
-    run _knit_push_done_cb echo "hello"
+@test "knit_push_done_cb fails outside of knit_register" {
+    run knit_push_done_cb echo "hello"
     [ "$status" -eq 1 ]
 }
 
-@test "_knit_push_done_cb callback is invoked at knit_done" {
+@test "knit_push_done_cb callback is invoked at knit_done" {
     _KNIT_PDC_CALLED=false
     _pdc_mark_called() { _KNIT_PDC_CALLED=true; }
     pdc_fn_a() { :; }
     knit_register "pdc_a" pdc_fn_a "Test."
-    _knit_push_done_cb _pdc_mark_called
+    knit_push_done_cb _pdc_mark_called
     knit_done
     [ "${_KNIT_PDC_CALLED}" = "true" ]
 }
 
-@test "_knit_push_done_cb multiple callbacks run in reverse order" {
+@test "knit_push_done_cb multiple callbacks run in reverse order" {
     declare -ga _KNIT_PDC_ORDER=()
     _pdc_order_append() { _KNIT_PDC_ORDER+=("$1"); }
     pdc_fn_b() { :; }
     knit_register "pdc_b" pdc_fn_b "Test."
-    _knit_push_done_cb _pdc_order_append "first"
-    _knit_push_done_cb _pdc_order_append "second"
-    _knit_push_done_cb _pdc_order_append "third"
+    knit_push_done_cb _pdc_order_append "first"
+    knit_push_done_cb _pdc_order_append "second"
+    knit_push_done_cb _pdc_order_append "third"
     knit_done
     [ "${_KNIT_PDC_ORDER[0]}" = "third" ]
     [ "${_KNIT_PDC_ORDER[1]}" = "second" ]
     [ "${_KNIT_PDC_ORDER[2]}" = "first" ]
 }
 
-@test "_knit_push_done_cb _KNIT_DONE_CBS is unset after knit_done" {
+@test "knit_push_done_cb _KNIT_DONE_CBS is unset after knit_done" {
     pdc_fn_c() { :; }
     knit_register "pdc_c" pdc_fn_c "Test."
-    _knit_push_done_cb echo "cb"
+    knit_push_done_cb echo "cb"
     knit_done
     [[ ! -v _KNIT_DONE_CBS ]]
 }
 
-@test "_knit_push_done_cb callbacks do not carry over to next registration" {
+@test "knit_push_done_cb callbacks do not carry over to next registration" {
     _KNIT_PDC_COUNT=0
     _pdc_increment() { _KNIT_PDC_COUNT=$(( _KNIT_PDC_COUNT + 1 )); }
     pdc_fn_d() { :; }
     knit_register "pdc_d" pdc_fn_d "Test."
-    _knit_push_done_cb _pdc_increment
+    knit_push_done_cb _pdc_increment
     pdc_fn_e() { :; }
     knit_register "pdc_e" pdc_fn_e "Test."
     # implicit knit_done fired for pdc_d: count becomes 1
@@ -239,29 +239,29 @@ teardown() {
     [ "$status" -eq 1 ]
 }
 
-# ---------- _knit_run_before / _knit_run_after ----------
+# ---------- knit_run_before / knit_run_after ----------
 
-@test "_knit_run_before registers a before callback" {
+@test "knit_run_before registers a before callback" {
     knit_register "rb_cmd" knit_empty "Test."
-    _knit_run_before echo "before_output"
+    knit_run_before echo "before_output"
     knit_done
     [ "${#_KNIT_CMD_rb_cmd_before_cb[@]}" -eq 1 ]
 }
 
-@test "_knit_run_before fails outside of knit_register" {
-    run _knit_run_before echo "before"
+@test "knit_run_before fails outside of knit_register" {
+    run knit_run_before echo "before"
     [ "$status" -eq 1 ]
 }
 
-@test "_knit_run_after registers an after callback" {
+@test "knit_run_after registers an after callback" {
     knit_register "ra_cmd" knit_empty "Test."
-    _knit_run_after echo "after_output"
+    knit_run_after echo "after_output"
     knit_done
     [ "${#_KNIT_CMD_ra_cmd_after_cb[@]}" -eq 1 ]
 }
 
-@test "_knit_run_after fails outside of knit_register" {
-    run _knit_run_after echo "after"
+@test "knit_run_after fails outside of knit_register" {
+    run knit_run_after echo "after"
     [ "$status" -eq 1 ]
 }
 
@@ -269,7 +269,7 @@ teardown() {
 
 @test "_knit_execute_before_commands executes registered callbacks" {
     knit_register "eb_cmd" knit_empty "Test."
-    _knit_run_before echo "before_output"
+    knit_run_before echo "before_output"
     knit_done
     local result
     result=$(_knit_execute_before_commands "eb_cmd")
@@ -287,7 +287,7 @@ teardown() {
 @test "_knit_execute_before_commands returns non-zero when a callback fails" {
     _eb_fail() { return 1; }
     knit_register "eb_cmd3" knit_empty "Test."
-    _knit_run_before _eb_fail
+    knit_run_before _eb_fail
     knit_done
     run _knit_execute_before_commands "eb_cmd3"
     [ "$status" -ne 0 ]
@@ -297,8 +297,8 @@ teardown() {
     _eb_fail2() { return 1; }
     _eb_second() { echo "second-ran"; }
     knit_register "eb_cmd4" knit_empty "Test."
-    _knit_run_before _eb_fail2
-    _knit_run_before _eb_second
+    knit_run_before _eb_fail2
+    knit_run_before _eb_second
     knit_done
     run _knit_execute_before_commands "eb_cmd4"
     [ "$status" -ne 0 ]
@@ -307,7 +307,7 @@ teardown() {
 
 @test "_knit_execute_before_commands returns zero when all callbacks succeed" {
     knit_register "eb_cmd5" knit_empty "Test."
-    _knit_run_before echo "ok"
+    knit_run_before echo "ok"
     knit_done
     run _knit_execute_before_commands "eb_cmd5"
     [ "$status" -eq 0 ]
@@ -315,7 +315,7 @@ teardown() {
 
 @test "_knit_execute_after_commands executes registered callbacks" {
     knit_register "ea_cmd" knit_empty "Test."
-    _knit_run_after echo "after_output"
+    knit_run_after echo "after_output"
     knit_done
     local result
     result=$(_knit_execute_after_commands "ea_cmd")
