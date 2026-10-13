@@ -32,6 +32,7 @@ declare -gA _KNIT_SHORTHAND_PASSTHROUGH
 _KNIT_SHORTHAND_PASSTHROUGH=(
     [done]=knit_done
     [empty]=knit_empty
+    [extend]=knit_extend
     [resource]=knit_register_resource
     [artifact]=knit_register_artifact
     [enum]=knit_enum

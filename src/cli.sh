@@ -711,6 +711,12 @@ knit_done() {
         unset _KNIT_CURRENT_PARAMETER_SET
         return 0
     fi
+    # An enum-edit context (opened by knit_extend on an enum) carries no function
+    # to validate and no done-callbacks to run; closing it just clears the state.
+    if [[ -v _KNIT_CURRENT_ENUM ]]; then
+        unset _KNIT_CURRENT_ENUM
+        return 0
+    fi
     if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
         knit_warning "\"knit_done\" called without a matching \"knit_register\"."
     fi
@@ -727,6 +733,70 @@ knit_done() {
     unset _KNIT_CURRENT_FUNCTION
     unset _KNIT_CURRENT_COMMAND
     unset _KNIT_CURRENT_COMMAND_DEMANGLED
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_extend()
+#
+# Reopen the registration context of an already-registered entity so the
+# ordinary decorators apply to it again, then close the block with knit_done.
+# This is the general primitive for growing an entity a plugin (or the core)
+# already defined:
+#
+#   - A command, setup, job, app, or wrapper (all registered through
+#     knit_register and sharing the same _KNIT_CMD_<name>_* state): the command
+#     context (_KNIT_CURRENT_COMMAND / _FUNCTION / _DEMANGLED) is re-established
+#     and _KNIT_DONE_CBS is reset, so subsequent knit_with_* / knit_run_* calls
+#     append to the existing parameter sets and callback arrays. Any done
+#     callbacks pushed in the extend block run at the closing knit_done; they
+#     must be idempotent (knit_with_table's _knit_db_setup_table is — it is
+#     create-or-migrate).
+#   - An enum: an enum-edit context is established (see _KNIT_CURRENT_ENUM) so
+#     knit_enum_value appends values to the existing enum.
+#
+# Example:
+# ```
+# knit_extend "bootstrap"                 # add an option + body hook to a command
+# knit_with_optional "spack:string" "" "Spack ref to provision."
+# knit_run_after _spack_bootstrap_after
+# knit_done
+#
+# knit_extend "__scheduler__"             # add a value to an enum
+# knit_enum_value "flux-nested"
+# knit_done
+# ```
+#
+# A name that resolves to neither a registered enum nor a registered command is
+# a fatal. The enum namespace is consulted first, by the raw name, so an enum
+# name that would be altered by command-name mangling is matched as written.
+#
+# @param[in] name Demangled command name or enum name to reopen.
+# ------------------------------------------------------------------------------
+knit_extend() {
+    local name="$1"
+    if [[ -v _KNIT_CURRENT_COMMAND ]] \
+        || [[ -v _KNIT_CURRENT_ENUM ]] \
+        || [[ -v _KNIT_CURRENT_PARAMETER_SET ]]; then
+        knit_done
+        knit_warning "You forgot to call \"knit_done\" after the previous registration."
+    fi
+    if [[ -v _KNIT_ENUMS["${name}"] ]]; then
+        knit_trace "Reopening enum \"${name}\" for extension."
+        _KNIT_CURRENT_ENUM="${name}"
+        return 0
+    fi
+    local cmd
+    _knit_command_mangle cmd "${name}"
+    if _knit_set_find _KNIT_COMMANDS "${cmd}"; then
+        knit_trace "Reopening command \"${name}\" for extension."
+        _KNIT_DONE_CBS=()
+        local -n _knit_fn_ref="_KNIT_CMD_${cmd}_function"
+        _KNIT_CURRENT_FUNCTION="${_knit_fn_ref}"
+        _KNIT_CURRENT_COMMAND="${cmd}"
+        _KNIT_CURRENT_COMMAND_DEMANGLED="${cmd//__1__/:}"
+        return 0
+    fi
+    knit_fatal "Cannot extend \"${name}\": no command or enum with that name is registered."
 }
 
 # ------------------------------------------------------------------------------
