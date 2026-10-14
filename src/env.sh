@@ -617,7 +617,7 @@ _knit_env_setup_after_cb() {
 # file under a setup instance directory (see _knit_env_setup_before_cb). Used by
 # the update-mode freeze rule: once any environment has been concretized, the
 # manager's version is frozen for reproducibility. A missing setup root reports
-# "none built". Generalizes _knit_bootstrap_spack_env_built.
+# "none built". (Generalizes what was Spack's own env-built check.)
 #
 # @param[in] name Manager name (any spelling).
 # ------------------------------------------------------------------------------
@@ -639,7 +639,8 @@ _knit_env_env_built() {
 # ------------------------------------------------------------------------------
 # @fn _knit_env_update_one()
 #
-# Update-mode handler for one manager, generalizing _knit_bootstrap_update_spack.
+# Update-mode handler for one manager (the generalization of what was Spack's own
+# update-mode handler).
 # The manager's version anchors reproducibility, so it is frozen once an
 # environment is built:
 #

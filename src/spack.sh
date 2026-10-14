@@ -16,16 +16,6 @@ declare -g _KNIT_SPACK_PACKAGES_ROOT
 _KNIT_SPACK_PACKAGES_ROOT="${_KNIT_PREFIX}/spack-packages"
 
 # ------------------------------------------------------------------------------
-# @var _KNIT_SPACK_REQUIRED
-#
-# Set to a non-empty value at registration time (by knit_with_spack_env) when a
-# setup declares a Spack environment, so bootstrap auto-provisions Spack even
-# without an explicit --spack ref. Empty means "not required".
-# ------------------------------------------------------------------------------
-declare -g _KNIT_SPACK_REQUIRED
-_KNIT_SPACK_REQUIRED=""
-
-# ------------------------------------------------------------------------------
 # @var _KNIT_SPACK_ENV_SOURCED
 #
 # Guard so Spack's setup-env.sh is sourced at most once per process. The wrapper
@@ -41,21 +31,6 @@ _KNIT_SPACK_ENV_SOURCED=""
 export SPACK_DISABLE_LOCAL_CONFIG=true
 #export SPACK_USER_CACHE_PATH=/tmp/spack
 export SPACK_USER_CONFIG_PATH="${_KNIT_PREFIX}/.spack"
-
-# ------------------------------------------------------------------------------
-# @fn _knit_bootstrap_need_spack()
-#
-# Decide whether Spack must be provisioned during bootstrap. Spack is needed
-# when the user gave a non-empty --spack or --spack-packages ref, or when a
-# registered setup declared a Spack environment (_KNIT_SPACK_REQUIRED).
-#
-# @param[in] spack_ref Value of the --spack option (may be empty).
-# @param[in] packages_ref Value of the --spack-packages option (may be empty).
-# @return 0 if Spack is needed, 1 otherwise.
-# ------------------------------------------------------------------------------
-_knit_bootstrap_need_spack() {
-    [[ -n "$1" || -n "$2" || -n "${_KNIT_SPACK_REQUIRED}" ]]
-}
 
 # ------------------------------------------------------------------------------
 # @fn _knit_spack_latest_release()
@@ -98,19 +73,30 @@ EOF
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_bootstrap_spack()
+# @fn _knit_spack_provision()
 #
-# Provision a knit-private Spack: resolve refs (latest release when empty) to
-# exact commits, download and extract Spack and spack-packages with curl+tar,
-# write a local-path repos.yaml, and record provenance metadata (requested refs
-# and resolved commits). No git dependency.
+# Provision verb (knit_env_provision) for the Spack environment manager: resolve
+# refs (latest release when empty) to exact commits, download and extract Spack
+# and spack-packages with curl+tar, write a local-path repos.yaml, and record
+# provenance metadata (requested refs and resolved commits). No git dependency.
+#
+# It removes any existing Spack roots first so it is safe to re-run (the generic
+# update dispatcher removes only .knit/spack; spack-packages is this verb's own
+# directory to clean). On first bootstrap both roots are absent and the removal
+# is a no-op.
+#
+# The requested refs are stored under the metadata keys __spack_ref__ /
+# __spack_packages_ref__ (the __<opt>_ref__ convention the generic update
+# dispatcher reads).
 #
 # @param[in] spack_ref Spack ref (tag/branch/commit); empty uses the latest release.
 # @param[in] packages_ref spack-packages ref; empty uses the latest release.
 # ------------------------------------------------------------------------------
-_knit_bootstrap_spack() {
+_knit_spack_provision() {
     local spack_ref="${1:-}"
     local packages_ref="${2:-}"
+
+    rm -rf "${_KNIT_SPACK_ROOT}" "${_KNIT_SPACK_PACKAGES_ROOT}"
 
     if [[ -z "${spack_ref}" ]]; then
         knit_trace "Resolving latest spack release..."
@@ -144,128 +130,6 @@ _knit_bootstrap_spack() {
     knit metadata store --key "__spack_commit__"         --value "${spack_commit}"
     knit metadata store --key "__spack_packages_ref__"   --value "${packages_ref}"
     knit metadata store --key "__spack_packages_commit__" --value "${packages_commit}"
-}
-
-# ------------------------------------------------------------------------------
-# @fn _knit_bootstrap_spack_env_built()
-#
-# Return 0 when at least one setup instance has a built Spack environment,
-# non-zero otherwise. A built environment is a "spack-env/spack.lock" lockfile
-# under a setup instance directory (see _knit_setup_spack_env_before_cb). Used by
-# update-mode Spack handling to freeze the Spack version once any environment has
-# been concretized, for reproducibility. A missing setup root reports "none
-# built".
-# ------------------------------------------------------------------------------
-_knit_bootstrap_spack_env_built() {
-    local root
-    _knit_setup_root root
-    [[ -d "${root}" ]] || return 1
-    local entry
-    for entry in "${root}"/*/; do
-        [[ -f "${entry}spack-env/spack.lock" ]] && return 0
-    done
-    return 1
-}
-
-# ------------------------------------------------------------------------------
-# @fn _knit_bootstrap_update_spack()
-#
-# Update-mode handler for the Spack options (--spack, --spack-packages). Spack
-# anchors reproducibility, so its version is frozen once an environment is built:
-#
-#   - Spack not provisioned yet: provision it now when a ref was typed or a
-#     Spack-requiring setup is registered (the first-bootstrap condition). This
-#     adds Spack that the first bootstrap did not.
-#   - Spack already provisioned and a typed ref differs from the stored ref:
-#       * no Spack environment is built anywhere -> re-provision at the new
-#         ref(s) and update the stored ref/commit metadata;
-#       * a Spack environment is built -> fatal, for reproducibility.
-#   - A typed ref equal to the stored ref (or no ref typed) is a no-op.
-#
-# An untyped ref keeps its stored value across a re-provision, so changing only
-# --spack does not silently move spack-packages to the latest release.
-#
-# @param[in] spack_ref    Value typed for --spack (may be empty).
-# @param[in] packages_ref Value typed for --spack-packages (may be empty).
-# @param[in] ...          Raw argument tokens of this invocation (see
-#                     _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option
-#                     from a defaulted one.
-# @return 0 when Spack was provisioned or re-provisioned, 1 when nothing changed.
-# ------------------------------------------------------------------------------
-_knit_bootstrap_update_spack() {
-    local spack_ref="$1"
-    local packages_ref="$2"
-    shift 2
-
-    # Not provisioned yet: provision now under the same condition as first
-    # bootstrap (a typed ref, or a registered Spack-requiring setup).
-    if [[ ! -d "${_KNIT_SPACK_ROOT}" ]]; then
-        _knit_bootstrap_need_spack "${spack_ref}" "${packages_ref}" || return 1
-        knit_info "Bootstrapping spack..."
-        _knit_bootstrap_spack "${spack_ref}" "${packages_ref}"
-        return 0
-    fi
-
-    # Already provisioned: only a typed ref can change anything.
-    local spack_typed="false" packages_typed="false"
-    _knit_arg_was_provided "spack" "$@" && spack_typed="true"
-    _knit_arg_was_provided "spack-packages" "$@" && packages_typed="true"
-    [[ "${spack_typed}" == "false" && "${packages_typed}" == "false" ]] && return 1
-
-    local stored_spack stored_packages
-    _knit_metadata_get stored_spack "__spack_ref__"
-    _knit_metadata_get stored_packages "__spack_packages_ref__"
-
-    # Effective refs: a typed ref replaces the stored one; an untyped ref keeps
-    # the stored value so a re-provision does not move an untouched repo to the
-    # latest release.
-    local eff_spack="${stored_spack}" eff_packages="${stored_packages}"
-    local differs="false"
-    if [[ "${spack_typed}" == "true" && "${spack_ref}" != "${stored_spack}" ]]; then
-        eff_spack="${spack_ref}"
-        differs="true"
-    fi
-    if [[ "${packages_typed}" == "true" && "${packages_ref}" != "${stored_packages}" ]]; then
-        eff_packages="${packages_ref}"
-        differs="true"
-    fi
-
-    # A typed ref equal to the stored ref is a no-op.
-    [[ "${differs}" == "false" ]] && return 1
-
-    # A different ref is refused once any setup has concretized an environment.
-    if _knit_bootstrap_spack_env_built; then
-        knit_fatal "Cannot change the Spack version: a Spack environment is already built under a setup.\nThe Spack version is frozen for reproducibility once an environment exists."
-    fi
-
-    knit_info "Re-provisioning spack..."
-    rm -rf "${_KNIT_SPACK_ROOT}" "${_KNIT_SPACK_PACKAGES_ROOT}"
-    _knit_bootstrap_spack "${eff_spack}" "${eff_packages}"
-    return 0
-}
-
-# ------------------------------------------------------------------------------
-# @fn _knit_spack_ensure_provisioned()
-#
-# Ensure the knit-private Spack is present, provisioning it on demand when it is
-# absent. Bootstrap provisions Spack only when a Spack-backed setup was declared
-# at bootstrap time (or --spack was given). A setup that gains a knit_with_spack*
-# directive *after* bootstrap would otherwise find no Spack and, since bootstrap
-# cannot be re-run, force the user to delete and recreate .knit by hand. Instead
-# this downloads Spack at first use — the latest release, as an empty --spack
-# would — announced with a knit_info line so the one-time delay is not a mystery.
-#
-# A no-op when Spack is already provisioned. Fatal when the experiment is not
-# bootstrapped: there is no .knit to provision into, and _knit_bootstrap_spack's
-# provenance writes need the metadata table.
-# ------------------------------------------------------------------------------
-_knit_spack_ensure_provisioned() {
-    [[ -d "${_KNIT_SPACK_ROOT}" ]] && return 0
-    if ! _knit_is_bootstrapped; then
-        knit_fatal "Spack is required but the experiment is not bootstrapped. Run 'bootstrap' first."
-    fi
-    knit_info "Spack is required but not provisioned; downloading it now (one-time setup)..."
-    _knit_bootstrap_spack "" ""
 }
 
 # ------------------------------------------------------------------------------
@@ -316,7 +180,7 @@ _knit_spack_exec() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_spack_env_install()
+# @fn _knit_spack_install_env()
 #
 # Create and install a Spack environment from a manifest. The environment is
 # created as a directory ("anonymous") environment at <env-dir> from the given
@@ -342,7 +206,7 @@ _knit_spack_exec() {
 # @param[in] yaml    Path to the spack.yaml manifest describing the environment.
 # @return 0 if the environment was created and installed, non-zero otherwise.
 # ------------------------------------------------------------------------------
-_knit_spack_env_install() {
+_knit_spack_install_env() {
     local env_dir="$1"
     local yaml="$2"
     if ! _knit_spack_exec env create -d "${env_dir}" "${yaml}"; then
@@ -363,6 +227,59 @@ _knit_spack_env_install() {
         return 1
     fi
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_spack_activation()
+#
+# Activate verb (knit_env_activate) for the Spack environment manager: print the
+# shell lines that re-enter the Spack environment at <env_dir> — source Spack's
+# setup-env.sh (which defines the "spack" shell function) and activate the
+# directory environment. The generic layer both eval-s these in the setup's
+# build shell and appends them to the setup's .activate.sh for dependent jobs.
+#
+# @param[in] env_dir Directory of the built Spack environment.
+# ------------------------------------------------------------------------------
+_knit_spack_activation() {
+    local env_dir="$1"
+    printf 'source %q\n' "${_KNIT_SPACK_ROOT}/share/spack/setup-env.sh"
+    printf 'spack env activate -d %q\n' "${env_dir}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_spack_specs_to_manifest()
+#
+# Specs verb (knit_env_specs) for the Spack environment manager: synthesize a
+# minimal spack.yaml (the given specs plus "view: true") from a spec list, for
+# the knit_with_spack_specs sugar. Printed to stdout; the generic layer feeds it
+# to knit_with_spack_env.
+#
+# @param[in] ... One or more Spack specs.
+# ------------------------------------------------------------------------------
+_knit_spack_specs_to_manifest() {
+    local yaml spec
+    yaml=$'spack:\n  specs:\n'
+    for spec in "$@"; do
+        yaml+="    - ${spec}"$'\n'
+    done
+    yaml+=$'  view: true\n'
+    printf '%s' "${yaml}"
+}
+
+# ------------------------------------------------------------------------------
+# Register Spack as an environment manager (src/env.sh). This generates the
+# knit_with_spack_env / knit_with_spack_specs setup directives, declares the
+# --spack / --spack-packages bootstrap options (via knit_extend bootstrap), and
+# routes provisioning, update-mode re-provisioning, the freeze-on-built rule, and
+# manifest/lockfile provenance through the generic layer.
+# ------------------------------------------------------------------------------
+knit_register_env_manager "spack" "Spack environments."
+knit_env_provision _knit_spack_provision --options "spack:string,spack-packages:string"
+knit_env_install   _knit_spack_install_env
+knit_env_activate  _knit_spack_activation
+knit_env_specs     _knit_spack_specs_to_manifest
+knit_env_manifest  "spack.yaml"
+knit_env_lockfile  "spack.lock"
+knit_env_done
 
 # ------------------------------------------------------------------------------
 # Register the "knit spack" wrapper: forwards every argument verbatim to the

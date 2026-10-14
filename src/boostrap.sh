@@ -314,9 +314,10 @@ _knit_bootstrap_update_profile() {
 # AI provider options (--ai-*), each written per key so one AI field can change
 # without clearing the rest, and the path-root options (--setup-path, --job-path,
 # --resource-path), which relocate only when the current root is empty of its
-# kind. It also handles the constrained options: --spack/--spack-packages (add
-# Spack when absent, or re-provision on a changed ref only while no environment
-# is built) and --profile (a changed profile is out of scope and fatals), and the
+# kind. It also handles the environment-manager options (--spack/--spack-packages
+# and any plugin's, via _knit_env_update_all: add a manager when absent, or
+# re-provision on a changed ref only while no environment is built) and --profile
+# (a changed profile is out of scope and fatals), and the
 # tooling options: --ignore-system-sqlite/--ignore-system-jq (rebuild a
 # system-symlinked tool from source) and
 # --knit-cypher-to-sql-version/--knit-cypher-to-sql-url (re-provision
@@ -343,7 +344,7 @@ _knit_bootstrap_update() {
     local project platform account default_walltime default_queue_flag cpus_flag
     local default_nodefile scheduler launcher
     local setup_path_opt job_path_opt resource_path_opt
-    local spack_ref spack_packages_ref profile
+    local profile
     local cypher_to_sql_version cypher_to_sql_url
     local ai_api_key_env ai_base_url_env ai_model_env ai_base_url ai_model
     project="$(knit_get_parameter "project" "$@")"
@@ -358,8 +359,6 @@ _knit_bootstrap_update() {
     setup_path_opt="$(knit_get_parameter "setup-path" "$@")"
     job_path_opt="$(knit_get_parameter "job-path" "$@")"
     resource_path_opt="$(knit_get_parameter "resource-path" "$@")"
-    spack_ref="$(knit_get_parameter "spack" "$@")"
-    spack_packages_ref="$(knit_get_parameter "spack-packages" "$@")"
     profile="$(knit_get_parameter "profile" "$@")"
     cypher_to_sql_version="$(knit_get_parameter "knit-cypher-to-sql-version" "$@")"
     cypher_to_sql_url="$(knit_get_parameter "knit-cypher-to-sql-url" "$@")"
@@ -432,13 +431,9 @@ _knit_bootstrap_update() {
     _knit_bootstrap_relocate_path "job"      "${job_path_opt}"      "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_relocate_path "resource" "${resource_path_opt}" "${__knit_raw[@]}" && updated="true"
 
-    # Spack: add it when absent, or re-provision on a changed ref only while no
+    # Environment managers (Spack, and later plugins; see src/env.sh): add a
+    # manager when absent, or re-provision on a changed ref only while no
     # environment is built (a built environment freezes the version, and fatals).
-    _knit_bootstrap_update_spack "${spack_ref}" "${spack_packages_ref}" "${__knit_raw[@]}" && updated="true"
-
-    # Update-mode handling for any registered environment managers (see
-    # src/env.sh): add a manager when absent, or re-provision on a changed ref
-    # only while no environment is built. A no-op until a manager is registered.
     _knit_env_update_all "${__knit_raw_name}" && updated="true"
 
     # Tooling: rebuild sqlite / re-download jq when a typed --ignore-system-*
@@ -473,10 +468,9 @@ knit_register "bootstrap" _knit_bootstrap "Bootstrap the Knit framework."
 _knit_is_builtin
 knit_usable_before_bootstrap
 knit_highlight_if _knit_highlight_if_not_bootstrapped
-knit_with_optional "spack:string" "" \
-    "Spack git ref (tag, branch, or commit) to provision. Empty uses the latest release. Provisioning also happens automatically when a setup declares a Spack environment."
-knit_with_optional "spack-packages:string" "" \
-    "spack-packages git ref (tag, branch, or commit) to provision. Empty uses the latest release."
+# The --spack / --spack-packages options are declared by the Spack environment
+# manager (src/spack.sh, via knit_register_env_manager -> knit_extend bootstrap),
+# not here.
 knit_with_optional "project:string" "" "Name of the project to use when submitting jobs."
 knit_with_optional "setup-path:string" "setups" \
     "Root directory under which setups live. Relative values resolve against the experiment root (portable); an absolute path is used as-is. Default: setups."
@@ -543,8 +537,6 @@ _knit_bootstrap() {
     local setup_path_opt
     local job_path_opt
     local resource_path_opt
-    local spack_ref
-    local spack_packages_ref
     local profile
     local platform
     local scheduler
@@ -567,8 +559,6 @@ _knit_bootstrap() {
     setup_path_opt="$(knit_get_parameter "setup-path" "$@")"
     job_path_opt="$(knit_get_parameter "job-path" "$@")"
     resource_path_opt="$(knit_get_parameter "resource-path" "$@")"
-    spack_ref="$(knit_get_parameter "spack" "$@")"
-    spack_packages_ref="$(knit_get_parameter "spack-packages" "$@")"
     profile="$(knit_get_parameter "profile" "$@")"
     platform="$(knit_get_parameter "platform" "$@")"
     scheduler="$(knit_get_parameter "scheduler" "$@")"
@@ -638,18 +628,11 @@ _knit_bootstrap() {
     knit_info "Bootstrapping knit-cypher-to-sql..."
     _knit_bootstrap_cypher_to_sql "${cypher_to_sql_version}" "${cypher_to_sql_url}"
 
-    # Provision Spack after sqlite/jq: resolving the latest release needs jq, and
-    # recording provenance metadata needs the (sqlite-backed) metadata table.
-    if _knit_bootstrap_need_spack "${spack_ref}" "${spack_packages_ref}"; then
-        knit_info "Bootstrapping spack..."
-        _knit_bootstrap_spack "${spack_ref}" "${spack_packages_ref}"
-    fi
-
-    # Provision any registered environment managers (see src/env.sh) that are
-    # needed, driven from the body so provisioning runs before bootstrap is
-    # marked complete (a failure then triggers the cleanup trap) and after
-    # sqlite/jq (latest-release resolution and provenance metadata need them).
-    # A no-op until a manager is registered.
+    # Provision any registered environment managers (Spack, and later plugins;
+    # see src/env.sh) that are needed. Driven from the body so provisioning runs
+    # before bootstrap is marked complete (a failure then triggers the cleanup
+    # trap) and after sqlite/jq (latest-release resolution and provenance
+    # metadata need them).
     _knit_env_provision_all "$@"
 
     # Load profile defaults (jq is now available). The profile is resolved and

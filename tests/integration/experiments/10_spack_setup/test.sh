@@ -11,7 +11,7 @@
 #   - knit_with_spack_specs builds + activates a Spack env as the setup's first
 #     step
 #   - .activate.sh carries a `spack env activate` block
-#   - the setup DB row captures __spack_yaml__/__spack_lock__ provenance
+#   - the setup DB row captures __spack_manifest__/__spack_lock__ provenance
 #   - the `knit spack` wrapper works and sees the installed zlib
 #   - a job requiring the setup re-hydrates the Spack env and sees zlib
 #
@@ -56,9 +56,9 @@ check_grep "spack env activate" "setups/zenv/.activate.sh" \
 # Provenance: the setup row captured the concrete manifest + lockfile. The table
 # name contains a colon, so it is bracket-quoted for SQLite.
 check_sqlite ".knit/knit.db" \
-    "SELECT LENGTH(__spack_yaml__) > 0 FROM [setup:zlibenv];" \
+    "SELECT LENGTH(__spack_manifest__) > 0 FROM [setup:zlibenv];" \
     "1" \
-    "setup row captured __spack_yaml__ provenance"
+    "setup row captured __spack_manifest__ provenance"
 check_sqlite ".knit/knit.db" \
     "SELECT LENGTH(__spack_lock__) > 0 FROM [setup:zlibenv];" \
     "1" \
