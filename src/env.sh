@@ -608,3 +608,131 @@ _knit_env_setup_after_cb() {
         knit_output "__${nm}_lock__" "$(gzip -c "${env_dir}/${lockfile}" | base64 -w0)"
     fi
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_env_env_built()
+#
+# Return 0 when at least one setup instance has a built environment for the given
+# manager, non-zero otherwise. A built environment is a "<nm>-env/<lockfile>"
+# file under a setup instance directory (see _knit_env_setup_before_cb). Used by
+# the update-mode freeze rule: once any environment has been concretized, the
+# manager's version is frozen for reproducibility. A missing setup root reports
+# "none built". Generalizes _knit_bootstrap_spack_env_built.
+#
+# @param[in] name Manager name (any spelling).
+# ------------------------------------------------------------------------------
+_knit_env_env_built() {
+    local nm
+    _knit_name_normalize nm "$1"
+    local lockfile_var="_KNIT_ENV_${nm}_lockfile"
+    local lockfile="${!lockfile_var}"
+    local root
+    _knit_setup_root root
+    [[ -d "${root}" ]] || return 1
+    local entry
+    for entry in "${root}"/*/; do
+        [[ -f "${entry}${nm}-env/${lockfile}" ]] && return 0
+    done
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_env_update_one()
+#
+# Update-mode handler for one manager, generalizing _knit_bootstrap_update_spack.
+# The manager's version anchors reproducibility, so it is frozen once an
+# environment is built:
+#
+#   - Tool not provisioned yet: provision now when a ref was typed or the manager
+#     is required (the first-bootstrap condition).
+#   - Already provisioned and a typed ref differs from the stored ref:
+#       * no environment built anywhere -> re-provision at the effective ref(s)
+#         (a typed ref replaces its stored value; an untyped one keeps the stored
+#         value, so changing one knob does not move another to latest);
+#       * an environment is built -> fatal, for reproducibility.
+#   - A typed ref equal to the stored ref, or no typed ref -> no-op.
+#
+# Typed-ness is read from the raw invocation arguments (an option's value, when
+# typed, is present there); the stored value of each option <opt> is the metadata
+# key __<opt>_ref__ (normalized), which the provision verb must write. The
+# re-provision removes .knit/<name> first; a manager owning extra directories
+# cleans them in its own provision verb.
+#
+# @param[in] nm       Normalized (underscore) manager name.
+# @param[in] raw_name Name of the array holding the raw invocation arguments.
+# @return 0 when the manager was provisioned or re-provisioned, 1 when nothing
+#         changed.
+# ------------------------------------------------------------------------------
+_knit_env_update_one() {
+    local nm="$1"
+    # shellcheck disable=SC2178 # nameref to the caller's raw-args array
+    local -n __knit_raw="$2"
+    local display_var="_KNIT_ENV_${nm}_display"
+    local display="${!display_var}"
+    local root="${_KNIT_PREFIX}/${display}"
+    local provision="_KNIT_ENV_${nm}_provision"
+
+    local names=()
+    _knit_env_option_names names "${nm}"
+    local name
+
+    # Not provisioned yet: provision now under the same condition as first
+    # bootstrap (a typed ref, or a required manager).
+    if [[ ! -d "${root}" ]]; then
+        local refs=()
+        for name in "${names[@]}"; do
+            refs+=("$(knit_get_parameter "${name}" "${__knit_raw[@]}" || true)")
+        done
+        _knit_env_need_provision "${nm}" "${refs[@]}" || return 1
+        knit_info "Bootstrapping %s..." "${display}"
+        "${!provision}" "${refs[@]}"
+        return 0
+    fi
+
+    # Already provisioned: only a typed ref that differs changes anything. Build
+    # the effective ref list (typed-and-different overrides, else keep stored).
+    local eff=() differs="false" keyname typed_val stored
+    for name in "${names[@]}"; do
+        _knit_name_normalize keyname "${name}"
+        _knit_metadata_get stored "__${keyname}_ref__"
+        if _knit_arg_was_provided "${name}" "${__knit_raw[@]}"; then
+            typed_val="$(knit_get_parameter "${name}" "${__knit_raw[@]}" || true)"
+            if [[ "${typed_val}" != "${stored}" ]]; then
+                eff+=("${typed_val}")
+                differs="true"
+                continue
+            fi
+        fi
+        eff+=("${stored}")
+    done
+    [[ "${differs}" == "false" ]] && return 1
+
+    # A changed ref is refused once any setup has concretized an environment.
+    if _knit_env_env_built "${nm}"; then
+        knit_fatal "Cannot change the %s version: an environment is already built under a setup.\nThe version is frozen for reproducibility once an environment exists." \
+            "${display}"
+    fi
+
+    knit_info "Re-provisioning %s..." "${display}"
+    rm -rf "${root}"
+    "${!provision}" "${eff[@]}"
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_env_update_all()
+#
+# Update-mode dispatcher: run _knit_env_update_one for every registered manager,
+# in registration order. Called from the bootstrap update body. Returns 0 when
+# any manager was provisioned or re-provisioned, 1 when none changed.
+#
+# @param[in] raw_name Name of the array holding the raw invocation arguments.
+# ------------------------------------------------------------------------------
+_knit_env_update_all() {
+    local raw_name="$1"
+    local nm changed=1
+    for nm in "${_KNIT_ENV_MANAGERS[@]}"; do
+        _knit_env_update_one "${nm}" "${raw_name}" && changed=0
+    done
+    return "${changed}"
+}

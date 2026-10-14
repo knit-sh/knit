@@ -330,6 +330,9 @@ _knit_bootstrap_update_profile() {
 # ------------------------------------------------------------------------------
 _knit_bootstrap_update() {
     local -n __knit_raw=$1
+    # Keep the raw-args array name so it can be threaded to the generic
+    # environment-manager update dispatcher (which namerefs it itself).
+    local __knit_raw_name="$1"
     shift
 
     if [[ ! -f "${_KNIT_DATABASE}" ]]; then
@@ -432,6 +435,11 @@ _knit_bootstrap_update() {
     # Spack: add it when absent, or re-provision on a changed ref only while no
     # environment is built (a built environment freezes the version, and fatals).
     _knit_bootstrap_update_spack "${spack_ref}" "${spack_packages_ref}" "${__knit_raw[@]}" && updated="true"
+
+    # Update-mode handling for any registered environment managers (see
+    # src/env.sh): add a manager when absent, or re-provision on a changed ref
+    # only while no environment is built. A no-op until a manager is registered.
+    _knit_env_update_all "${__knit_raw_name}" && updated="true"
 
     # Tooling: rebuild sqlite / re-download jq when a typed --ignore-system-*
     # flag turns a system symlink into a private install, and re-provision
