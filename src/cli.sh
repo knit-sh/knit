@@ -79,6 +79,30 @@ declare -g _KNIT_INVOCATION_EXIT_STATUS=""
 declare -ga _KNIT_INVOCATION_RAW_ARGS=()
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_INVOCATION_ARGS
+#
+# The editable, EXPANDED argument list (defaults and flag values spliced in) of
+# the command whose before-callbacks are currently running. The invoker publishes
+# it just before the before-callback phase of a normal command and reads any edit
+# back into the args it then passes to the body (and records), so a before-callback
+# can edit what the body sees via knit_set_invocation_args / knit_set_parameter.
+# Saved and restored around every invocation so a nested command does not corrupt
+# an enclosing edit; empty outside a before-callback. Distinct from
+# _KNIT_INVOCATION_RAW_ARGS (the raw, pre-expansion, read-only tokens).
+# ------------------------------------------------------------------------------
+declare -ga _KNIT_INVOCATION_ARGS=()
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_INVOCATION_CMD
+#
+# The mangled name of the command whose before-callbacks are currently running,
+# published alongside _KNIT_INVOCATION_ARGS. knit_set_parameter reads it to
+# validate that a name is a declared parameter of that command. Empty outside a
+# (non-wrapper) command's before-callback phase.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_INVOCATION_CMD=""
+
+# ------------------------------------------------------------------------------
 # Stack of call-site aliases, parallel to _KNIT_EXECUTING_COMMAND: entry i holds
 # the alias knit_as named frame i's invocation with, or empty for a plain call.
 # Captured when the frame is pushed (from _KNIT_CALL_ALIAS, which knit_as sets
@@ -2627,6 +2651,103 @@ knit_rename_function() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_get_invocation_args()
+#
+# Copy the current command's pending (expanded) argument list into the caller's
+# array. Meant for a before-callback: it returns exactly the invocation args,
+# with no offset to track (unlike the callback's own "$@", which is prefixed by
+# the arguments the callback was registered with), and it reflects edits a
+# previous before-callback made. Returns an empty list outside a before-callback.
+#
+# @param[out] args_out Name of the array to fill with the invocation args.
+# ------------------------------------------------------------------------------
+knit_get_invocation_args() {
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n __knit_ret=$1
+    __knit_ret=("${_KNIT_INVOCATION_ARGS[@]}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_set_invocation_args()
+#
+# Replace the pending (expanded) argument list of the command whose
+# before-callbacks are running; the body and the recorded row then see the new
+# list. The power-user escape hatch behind knit_set_parameter — the caller owns
+# the whole list and it is NOT re-validated (edits land after the argument and
+# --when checks). Fatal when there is no invocation in progress (i.e. not called
+# from a non-wrapper command's before-callback).
+#
+# @param[in] ... The new argument tokens.
+# ------------------------------------------------------------------------------
+knit_set_invocation_args() {
+    if [[ -z "${_KNIT_INVOCATION_CMD}" ]]; then
+        knit_fatal "knit_set_invocation_args must be called from a command's before-callback."
+    fi
+    _KNIT_INVOCATION_ARGS=("$@")
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_set_parameter()
+#
+# Set (or override) one declared parameter of the command whose before-callbacks
+# are running, editing the pending argument list in place: the body and the
+# recorded row then see the new value. This is the ergonomic way to inject a
+# value — e.g. a plugin filling a parameter from its own source. The name must be
+# a declared required/optional parameter or flag of the command (fatal otherwise)
+# and the value must match its type (checked with the standard type validator).
+# An existing occurrence is replaced; an absent one is appended. Fatal outside a
+# command's before-callback.
+#
+# Note: like knit_set_invocation_args, the injection happens AFTER the required-
+# argument and --when checks, so an injected value is not re-checked against those
+# (only its type is).
+#
+# @param[in] name  Parameter name (hyphens and underscores interchangeable).
+# @param[in] value Value to set.
+# ------------------------------------------------------------------------------
+knit_set_parameter() {
+    if [[ -z "${_KNIT_INVOCATION_CMD}" ]]; then
+        knit_fatal "knit_set_parameter must be called from a command's before-callback."
+    fi
+    local cmd="${_KNIT_INVOCATION_CMD}"
+    local name
+    _knit_name_normalize name "$1"
+    local value="$2"
+
+    local demangled
+    _knit_command_display demangled "${cmd}"
+    if ! _knit_set_find "_KNIT_CMD_${cmd}_required" "${name}" \
+        && ! _knit_set_find "_KNIT_CMD_${cmd}_optional" "${name}" \
+        && ! _knit_set_find "_KNIT_CMD_${cmd}_flags" "${name}"; then
+        knit_fatal "knit_set_parameter: \"%s\" is not a parameter of \"%s\"." \
+            "${name}" "${demangled}"
+    fi
+    # Reject a type mismatch with the standard message (a flag or an untyped
+    # parameter has no recorded type and is left unchecked).
+    _knit_check_argument_type "${cmd}" "${demangled}" "${name}" "${value}"
+
+    # Replace the value after an existing "--<name>" (matched on the normalized
+    # name, so a hyphen/underscore or "--name=value" spelling still matches);
+    # otherwise append a fresh "--<name> <value>" pair.
+    local i found=0
+    for (( i = 0; i < ${#_KNIT_INVOCATION_ARGS[@]}; i++ )); do
+        local tok="${_KNIT_INVOCATION_ARGS[i]}"
+        [[ "${tok}" == --* ]] || continue
+        [[ "$(_knit_arg_name "${tok}")" == "${name}" ]] || continue
+        if [[ "${tok}" == --*=* ]]; then
+            _KNIT_INVOCATION_ARGS[i]="--${name}=${value}"
+        else
+            _KNIT_INVOCATION_ARGS[i+1]="${value}"
+        fi
+        found=1
+        break
+    done
+    if (( ! found )); then
+        _KNIT_INVOCATION_ARGS+=("--${name}" "${value}")
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_check_argument_type()
 #
 # Validate that the value provided for a parameter conforms to the parameter's
@@ -3860,7 +3981,19 @@ _knit_invoke_command() {
         fi
         # A failing before-callback is an unmet precondition: skip the body and the
         # recording entirely and propagate the failure (see the normal path below).
-        if ! _knit_execute_before_commands "${cmd}" "$@"; then
+        # A wrapper forwards its arguments verbatim and declares no parameters, so
+        # there is nothing to edit: clear the invocation-args publication (saving
+        # any enclosing one) so a wrapper before-callback cannot edit an enclosing
+        # command's args, and restore it afterwards.
+        local -a _knit_saved_inv_args=("${_KNIT_INVOCATION_ARGS[@]}")
+        local _knit_saved_inv_cmd="${_KNIT_INVOCATION_CMD}"
+        _KNIT_INVOCATION_ARGS=()
+        _KNIT_INVOCATION_CMD=""
+        local _knit_before_status=0
+        _knit_execute_before_commands "${cmd}" "$@" || _knit_before_status=$?
+        _KNIT_INVOCATION_ARGS=("${_knit_saved_inv_args[@]}")
+        _KNIT_INVOCATION_CMD="${_knit_saved_inv_cmd}"
+        if (( _knit_before_status != 0 )); then
             return 1
         fi
         declare -gA "_KNIT_CMD_${cmd}_output_value=()"
@@ -3919,8 +4052,22 @@ _knit_invoke_command() {
     # (e.g. a setup's Spack environment must build first); if one fails, do not
     # run the body or record a row, and propagate the failure so a caller such as
     # the setup dispatcher can remove the half-built instance.
-    if ! _knit_execute_before_commands "${cmd}" "${args[@]}"; then
-        return 1
+    #
+    # Publish the expanded args (and the command) so a before-callback may edit
+    # what the body sees (knit_set_invocation_args / knit_set_parameter), reading
+    # the edits back afterwards. Any enclosing invocation's publication is saved
+    # and restored around this phase so a nested command cannot corrupt the edit.
+    local -a _knit_saved_inv_args=("${_KNIT_INVOCATION_ARGS[@]}")
+    local _knit_saved_inv_cmd="${_KNIT_INVOCATION_CMD}"
+    _KNIT_INVOCATION_ARGS=("${args[@]}")
+    _KNIT_INVOCATION_CMD="${cmd}"
+    local _knit_before_status=0
+    _knit_execute_before_commands "${cmd}" "${args[@]}" || _knit_before_status=$?
+    args=("${_KNIT_INVOCATION_ARGS[@]}")
+    _KNIT_INVOCATION_ARGS=("${_knit_saved_inv_args[@]}")
+    _KNIT_INVOCATION_CMD="${_knit_saved_inv_cmd}"
+    if (( _knit_before_status != 0 )); then
+        return "${_knit_before_status}"
     fi
     # Start each invocation with a clean recording slate (outputs + row id) so a
     # previous invocation in the same process cannot leak stale values. The

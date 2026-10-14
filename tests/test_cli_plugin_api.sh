@@ -162,3 +162,123 @@ teardown() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"is not a defined function"* ]]
 }
+
+# ---------- invocation-args editing ----------
+
+@test "knit_set_parameter injects a value the body sees" {
+    _ia_inject() { knit_set_parameter who Zoe; }
+    _ia_body() { printf 'who=%s\n' "$(knit_get_parameter who "$@")"; }
+    knit_register ia1 _ia_body "demo"
+    knit_with_optional "who:string" "default" "who"
+    knit_run_before _ia_inject
+    knit_done
+    run knit ia1
+    [ "$output" = "who=Zoe" ]
+}
+
+@test "knit_set_parameter replaces an explicitly provided value" {
+    _ia_inject() { knit_set_parameter who Zoe; }
+    _ia_body() { printf 'who=%s\n' "$(knit_get_parameter who "$@")"; }
+    knit_register ia2 _ia_body "demo"
+    knit_with_optional "who:string" "default" "who"
+    knit_run_before _ia_inject
+    knit_done
+    run knit ia2 --who Ada
+    [ "$output" = "who=Zoe" ]
+}
+
+@test "a value injected by knit_set_parameter is recorded in the row" {
+    _ia_inject() { knit_set_parameter who Zoe; }
+    _ia_body() { :; }
+    knit_register ia3 _ia_body "demo"
+    knit_with_optional "who:string" "default" "who"
+    knit_with_table
+    knit_run_before _ia_inject
+    knit_done
+    knit ia3 --who Ada
+    local stored
+    stored="$(_knit_sqlite3 "SELECT who FROM ia3;")"
+    [ "${stored}" = "Zoe" ]
+}
+
+@test "knit_get_invocation_args returns only the invocation args, no fixed-arg offset" {
+    _ia_seen=""
+    _ia_check() {
+        # Registered with two fixed args; the accessor still returns just the args.
+        local -a argv
+        knit_get_invocation_args argv
+        _ia_seen="${argv[*]}"
+    }
+    _ia_body() { :; }
+    knit_register ia4 _ia_body "demo"
+    knit_with_optional "who:string" "x" "who"
+    knit_run_before _ia_check one two
+    knit_done
+    knit ia4 --who Bob
+    [ "${_ia_seen}" = "--who Bob" ]
+}
+
+@test "knit_set_invocation_args replaces the whole argument list" {
+    _ia_replace() { knit_set_invocation_args --who Zoe --extra injected; }
+    _ia_body() { printf 'who=%s extra=%s\n' \
+        "$(knit_get_parameter who "$@")" "$(knit_get_parameter extra "$@")"; }
+    knit_register ia5 _ia_body "demo"
+    knit_with_optional "who:string" "x" "who"
+    knit_with_optional "extra:string" "none" "extra"
+    knit_run_before _ia_replace
+    knit_done
+    run knit ia5 --who Ada
+    [ "$output" = "who=Zoe extra=injected" ]
+}
+
+@test "a nested command does not corrupt an in-progress edit" {
+    _ia_body() { printf 'who=%s\n' "$(knit_get_parameter who "$@")"; }
+    knit_register ia_inner _ia_body "inner"
+    knit_with_optional "who:string" "x" "who"
+    knit_done
+
+    _ia_nest_then_edit() {
+        knit ia_inner --who inner > /dev/null    # nested invocation mid-callback
+        knit_set_parameter who Outer
+    }
+    knit_register ia_outer _ia_body "outer"
+    knit_with_optional "who:string" "x" "who"
+    knit_run_before _ia_nest_then_edit
+    knit_done
+
+    run knit ia_outer --who orig
+    [ "$output" = "who=Outer" ]
+}
+
+@test "knit_set_parameter is fatal for an undeclared parameter" {
+    _ia_bad() { knit_set_parameter nope 1; }
+    _ia_body() { :; }
+    knit_register ia6 _ia_body "demo"
+    knit_with_optional "who:string" "x" "who"
+    knit_run_before _ia_bad
+    knit_done
+    run knit ia6
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'"nope" is not a parameter'* ]]
+}
+
+@test "knit_set_parameter is fatal on a type mismatch" {
+    _ia_badtype() { knit_set_parameter n notanumber; }
+    _ia_body() { :; }
+    knit_register ia7 _ia_body "demo"
+    knit_with_optional "n:integer" "0" "count"
+    knit_run_before _ia_badtype
+    knit_done
+    run knit ia7
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'type "integer"'* ]]
+}
+
+@test "the editing accessors are fatal outside a before-callback" {
+    run knit_set_parameter who x
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"before-callback"* ]]
+    run knit_set_invocation_args --who x
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"before-callback"* ]]
+}
