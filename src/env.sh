@@ -242,6 +242,17 @@ knit_env_done() {
 
     _KNIT_ENV_MANAGERS+=("${nm}")
 
+    # Generate the per-manager setup directives knit_with_<nm>_env and
+    # knit_with_<nm>_specs as thin wrappers over the generic implementations.
+    # eval is required to define functions whose names carry the manager name;
+    # <nm> is a validated identifier (from _knit_name_is_valid) so the generated
+    # text is safe. A hyphenated manager name yields underscore-named functions
+    # (knit_with_my_tool_env), matching Knit's hyphen/underscore interchange.
+    # shellcheck disable=SC2155 # simple generated definitions, no command substitution
+    eval "knit_with_${nm}_env()   { _knit_env_with_env   ${nm} \"\$@\"; }"
+    # shellcheck disable=SC2155
+    eval "knit_with_${nm}_specs() { _knit_env_with_specs ${nm} \"\$@\"; }"
+
     # shellcheck disable=SC2178 # nameref to the manager's options array
     local -n _knit_opts_ref="_KNIT_ENV_${nm}_options"
     if [[ ${#_knit_opts_ref[@]} -gt 0 ]]; then
@@ -389,4 +400,211 @@ knit_env_ensure_provisioned() {
     done
     local provision="_KNIT_ENV_${nm}_provision"
     "${!provision}" "${empties[@]}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_env_with_env()
+#
+# Generic implementation of knit_with_<nm>_env: declare that the setup currently
+# being registered needs a <nm> environment, built as the setup's first step and
+# inherited by jobs via re-activation. Valid only inside a setup registration
+# (fatal otherwise), at most once per manager per setup (a shared marker also
+# makes it mutually exclusive with knit_with_<nm>_specs, which funnels through
+# here).
+#
+# The environment is described by a manifest file (non-empty first argument,
+# resolved absolute at registration and recorded with knit_bundle_auto_require)
+# or, with no argument, by a here-doc / stdin manifest consumed at registration.
+# The stdin form fails fast on an interactive terminal (nothing to read) and
+# rejects an empty manifest. It installs the build/activation callbacks, declares
+# the __<nm>_manifest__ / __<nm>_lock__ provenance outputs, advertises the
+# requirement in --help, and flags the manager required so bootstrap provisions
+# it.
+#
+# @param[in] nm   Normalized (underscore) manager name (bound by the wrapper).
+# @param[in] file Optional manifest path; if omitted, read from stdin.
+# ------------------------------------------------------------------------------
+_knit_env_with_env() {
+    local nm="$1"
+    shift
+    local display_var="_KNIT_ENV_${nm}_display"
+    local display="${!display_var}"
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]] \
+    || [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" != setup:* ]]; then
+        knit_fatal "knit_with_%s_env is valid only for setups; it must be called between knit_register_setup and knit_done." "${nm}"
+    fi
+    knit_reject_if_wrapper "knit_with_${nm}_env"
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local marker_var="_KNIT_CMD_${cmd}_env_${nm}"
+    if [[ -n "${!marker_var:-}" ]]; then
+        knit_fatal "Setup \"%s\" may declare at most one %s environment (knit_with_%s_env / knit_with_%s_specs)." \
+            "${_KNIT_CURRENT_COMMAND_DEMANGLED}" "${display}" "${nm}" "${nm}"
+    fi
+    printf -v "${marker_var}" '%s' '1'
+
+    local mode source
+    if [[ -n "$1" ]]; then
+        mode="file"
+        source="$(realpath -m "$1" 2>/dev/null || printf '%s' "$1")"
+        # The manifest is an input the bundle should carry. Record it verbatim
+        # (the user's typed path); "knit bundle" validates it there.
+        knit_bundle_auto_require "$1"
+    else
+        # No path given: the manifest must arrive on stdin. If stdin is an
+        # interactive terminal there is nothing to read and "cat" would block
+        # forever, so fail fast with guidance rather than hang.
+        if _knit_stdin_is_terminal; then
+            knit_fatal "knit_with_%s_env: no manifest provided. Give a manifest path, feed one on stdin (here-doc/here-string/pipe), or use knit_with_%s_specs." "${nm}" "${nm}"
+        fi
+        mode="stdin"
+        source="$(cat)"
+        if [[ -z "${source//[[:space:]]/}" ]]; then
+            knit_fatal "knit_with_%s_env: the manifest read from stdin is empty." "${nm}"
+        fi
+    fi
+
+    knit_run_before _knit_env_setup_before_cb "${nm}" "${mode}" "${source}"
+    knit_run_after  _knit_env_setup_after_cb  "${nm}"
+
+    knit_with_output "__${nm}_manifest__:string" "" \
+        "gzip+base64 of the environment's concrete manifest."
+    knit_with_output "__${nm}_lock__:string" "" \
+        "gzip+base64 of the environment's lockfile."
+
+    # shellcheck disable=SC2178 # nameref to the command's notes array
+    local -n _notes_ref="_KNIT_CMD_${cmd}_notes"
+    _notes_ref+=("Builds a ${display} environment before the setup body runs.")
+
+    printf -v "_KNIT_ENV_${nm}_required" '%s' '1'
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_env_with_specs()
+#
+# Generic implementation of knit_with_<nm>_specs: lightweight sugar over
+# knit_with_<nm>_env for the common "just install these specs" case. It calls the
+# manager's specs verb to synthesize a manifest from the given spec list and
+# feeds it to _knit_env_with_env via a here-string, so provenance capture,
+# activation, and auto-provisioning all apply identically. Valid only inside a
+# setup registration, and mutually exclusive with knit_with_<nm>_env on one setup
+# (shared marker).
+#
+# @param[in] nm  Normalized (underscore) manager name (bound by the wrapper).
+# @param[in] ... One or more specs.
+# ------------------------------------------------------------------------------
+_knit_env_with_specs() {
+    local nm="$1"
+    shift
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]] \
+    || [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" != setup:* ]]; then
+        knit_fatal "knit_with_%s_specs is valid only for setups; it must be called between knit_register_setup and knit_done." "${nm}"
+    fi
+    if [[ $# -eq 0 ]]; then
+        knit_fatal "knit_with_%s_specs requires at least one spec." "${nm}"
+    fi
+    local specs_fn="_KNIT_ENV_${nm}_specs"
+    local manifest
+    manifest="$("${!specs_fn}" "$@")"
+    _knit_env_with_env "${nm}" <<< "${manifest}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_env_setup_before_cb()
+#
+# Before-callback installed by _knit_env_with_env. Runs as the setup's first step
+# (before-cbs execute in the setup's own shell, so the activated environment
+# persists into the setup body and the after-callbacks). It sources the platform,
+# provisions the manager on demand, materializes the manifest to
+# ${KNIT_SETUP_PREFIX}/<manifest>, builds the environment into
+# ${KNIT_SETUP_PREFIX}/<nm>-env via the install verb, and activates it in the
+# current shell (by eval-ing the activate verb's lines) so the body builds
+# against the installed packages.
+#
+# On an install failure it returns non-zero WITHOUT activating: the non-zero
+# status propagates so the setup body never runs and the setup dispatcher removes
+# the half-built directory.
+#
+# @param[in] nm     Normalized (underscore) manager name.
+# @param[in] mode   "file" (source is a path to copy) or "stdin" (source is the
+#                literal manifest content captured at registration).
+# @param[in] source Manifest path (mode=file) or content (mode=stdin). Trailing
+#                arguments are the setup's runtime arguments and are ignored.
+# ------------------------------------------------------------------------------
+_knit_env_setup_before_cb() {
+    local nm="$1"
+    local mode="$2"
+    local source="$3"
+    local display_var="_KNIT_ENV_${nm}_display"
+    local display="${!display_var}"
+    local manifest_var="_KNIT_ENV_${nm}_manifest"
+    local manifest="${!manifest_var}"
+    local install_var="_KNIT_ENV_${nm}_install"
+    local activate_var="_KNIT_ENV_${nm}_activate"
+    local manifest_path="${KNIT_SETUP_PREFIX}/${manifest}"
+    local env_dir="${KNIT_SETUP_PREFIX}/${nm}-env"
+    # Source the platform first so the environment builds against platform
+    # modules/environment. Idempotent with the generic setup before-callback.
+    _knit_setup_source_platform
+    # Provision on demand: a setup may have gained this directive after the
+    # experiment was bootstrapped without the manager, and bootstrap cannot be
+    # re-run.
+    knit_env_ensure_provisioned "${display}"
+    if [[ "${mode}" == "file" ]]; then
+        cp "${source}" "${manifest_path}"
+    else
+        printf '%s\n' "${source}" > "${manifest_path}"
+    fi
+    # Abort the setup if the environment did not install: do not activate a
+    # broken environment.
+    if ! "${!install_var}" "${env_dir}" "${manifest_path}"; then
+        knit_error "Failed to build the %s environment at %s." "${display}" "${env_dir}"
+        return 1
+    fi
+    # Activate in the setup's own shell so the body sees the environment. The
+    # activate verb prints the lines; eval applies them here.
+    eval "$("${!activate_var}" "${env_dir}")"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_env_setup_after_cb()
+#
+# After-callback installed by _knit_env_with_env, registered AFTER the generic
+# _knit_setup_after_cb so it runs last and its appended block is authoritative
+# when a job sources .activate.sh. It (1) appends the activate verb's lines to
+# .activate.sh so a dependent job re-enters the exact environment, and (2)
+# records the concrete manifest and lockfile as provenance outputs, gzip+base64.
+#
+# The provenance is emitted with knit_output: after-callbacks run while the
+# command is still on the executing-command stack, so knit_output resolves and
+# type-checks the outputs normally.
+#
+# The manifest is captured from <nm>-env/<manifest> (the install-placed copy,
+# like Spack's concretized spack.yaml) and falls back to the materialized
+# ${KNIT_SETUP_PREFIX}/<manifest>; the lockfile from <nm>-env/<lockfile>.
+#
+# @param[in] nm Normalized (underscore) manager name. Trailing arguments are the
+#            setup's runtime arguments and are ignored.
+# ------------------------------------------------------------------------------
+_knit_env_setup_after_cb() {
+    local nm="$1"
+    local activate_var="_KNIT_ENV_${nm}_activate"
+    local manifest_var="_KNIT_ENV_${nm}_manifest"
+    local manifest="${!manifest_var}"
+    local lockfile_var="_KNIT_ENV_${nm}_lockfile"
+    local lockfile="${!lockfile_var}"
+    local env_dir="${KNIT_SETUP_PREFIX}/${nm}-env"
+    local activate="${KNIT_SETUP_PREFIX}/.activate.sh"
+    {
+        printf '\n# %s environment re-activation (added by knit_with_%s_env)\n' \
+            "${nm}" "${nm}"
+        "${!activate_var}" "${env_dir}"
+    } >> "${activate}"
+    local manifest_src="${env_dir}/${manifest}"
+    [[ -f "${manifest_src}" ]] || manifest_src="${KNIT_SETUP_PREFIX}/${manifest}"
+    if [[ -f "${manifest_src}" ]]; then
+        knit_output "__${nm}_manifest__" "$(gzip -c "${manifest_src}" | base64 -w0)"
+    fi
+    if [[ -f "${env_dir}/${lockfile}" ]]; then
+        knit_output "__${nm}_lock__" "$(gzip -c "${env_dir}/${lockfile}" | base64 -w0)"
+    fi
 }
