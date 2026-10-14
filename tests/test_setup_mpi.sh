@@ -101,7 +101,7 @@ teardown() {
 
 # Register a real setup so __mpi_launcher__ is a declared output, then simulate
 # the mid-invocation state knit_output needs (the command on the executing stack
-# with an output-value map). Mirrors the spack after-callback tests.
+# with an output-value map). Mirrors the environment-manager after-callback tests.
 _arm_cmd() {
     knit_register_setup "mpienv" "_test_setup_fn" "Build MPI."
     knit_provides_launcher

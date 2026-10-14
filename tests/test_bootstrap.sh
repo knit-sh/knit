@@ -264,7 +264,7 @@ _setup_cypher_to_sql_decision() {
     eval '_knit_bootstrap_sqlite() { printf "sqlite:%s\n" "$*" >> "'"${calls}"'"; }'
     eval '_knit_bootstrap_jq() { printf "jq:%s\n" "$*" >> "'"${calls}"'"; }'
     eval '_knit_bootstrap_cypher_to_sql() { printf "cypher:%s\n" "$*" >> "'"${calls}"'"; }'
-    eval '_knit_bootstrap_need_spack() { return 1; }'
+    eval '_knit_env_provision_all() { :; }'
     eval '_knit_detect_job_manager() { printf "local"; }'
     eval '_knit_detect_launcher() { printf "openmpi"; }'
     eval '_knit_detect_node_ncpus() { printf "1"; }'
@@ -291,7 +291,7 @@ _bootstrap_launcher_stubs() {
     eval '_knit_bootstrap_sqlite() { :; }'
     eval '_knit_bootstrap_jq() { :; }'
     eval '_knit_bootstrap_cypher_to_sql() { :; }'
-    eval '_knit_bootstrap_need_spack() { return 1; }'
+    eval '_knit_env_provision_all() { :; }'
     eval '_knit_detect_job_manager() { printf "local"; }'
     eval '_knit_detect_node_ncpus() { printf "1"; }'
     # Fail loudly if detection is consulted for an explicit launcher choice.
