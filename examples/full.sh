@@ -603,7 +603,7 @@
 # spack.yaml and spack.lock are captured into the setup's DB row as provenance:
 #
 #   ./full.sh query sql --format column --header --exec \
-#       'SELECT id, __spack_yaml__, __spack_lock__ FROM "setup:mclib"'
+#       'SELECT id, __spack_manifest__, __spack_lock__ FROM "setup:mclib"'
 #
 # The activation is baked into setups/libenv/.activate.sh (a `spack env activate`
 # block),
