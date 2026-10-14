@@ -25,6 +25,20 @@ setup() {
     printf '#!/bin/bash\nsource knit.sh\n' > "${BUNDLE_ROOT}/experiment.sh"
     printf '# knit framework (test stub)\n'  > "${BUNDLE_ROOT}/knit.sh"
     _knit_create_metadata_table
+
+    # A fake environment manager, so the bundle's generic manifest/lock selection
+    # (it iterates _KNIT_ENV_MANAGERS) is exercised without depending on Spack.
+    # Its manifest basename is "fake.yaml", its lockfile "fake.lock", and its
+    # built environment directory "fake-env".
+    _fake_env_fn() { :; }
+    knit_register_env_manager "fake" "A fake manager."
+    knit_env_provision _fake_env_fn
+    knit_env_install   _fake_env_fn
+    knit_env_activate  _fake_env_fn
+    knit_env_specs     _fake_env_fn
+    knit_env_manifest  "fake.yaml"
+    knit_env_lockfile  "fake.lock"
+    knit_env_done
 }
 
 teardown() {
@@ -211,20 +225,20 @@ _collect_has() {
     return 1
 }
 
-# Build a full experiment tree under BUNDLE_ROOT: a Spack setup (with a built
-# spack-env that must be pruned), one job directory (logs, scripts, submit
-# metadata, and user content), an artifact, a fetched resource with its sidecar
-# marker, and the provisioned tools under .knit that must never be packed.
+# Build a full experiment tree under BUNDLE_ROOT: a setup with a built
+# environment (fake-env) that must be pruned, one job directory (logs, scripts,
+# submit metadata, and user content), an artifact, a fetched resource with its
+# sidecar marker, and the provisioned tools under .knit that must never be packed.
 _populate_tree() {
-    mkdir -p "${BUNDLE_ROOT}/setups/mclib/spack-env/deep"
+    mkdir -p "${BUNDLE_ROOT}/setups/mclib/fake-env/deep"
     : > "${BUNDLE_ROOT}/setups/mclib/.activate.sh"
     printf 'setup\n'   > "${BUNDLE_ROOT}/setups/mclib/.setup.type"
     printf 'sid\n'     > "${BUNDLE_ROOT}/setups/mclib/.setup.id"
-    printf 'spack:\n'  > "${BUNDLE_ROOT}/setups/mclib/spack.yaml"
-    # The concretized lock lives inside the built environment (spack-env/), the
+    printf 'fake:\n'   > "${BUNDLE_ROOT}/setups/mclib/fake.yaml"
+    # The concretized lock lives inside the built environment (fake-env/), the
     # one file carved out of the otherwise-pruned tree.
-    printf 'lock\n'    > "${BUNDLE_ROOT}/setups/mclib/spack-env/spack.lock"
-    printf 'binary\n'  > "${BUNDLE_ROOT}/setups/mclib/spack-env/deep/lib.so"
+    printf 'lock\n'    > "${BUNDLE_ROOT}/setups/mclib/fake-env/fake.lock"
+    printf 'binary\n'  > "${BUNDLE_ROOT}/setups/mclib/fake-env/deep/lib.so"
 
     mkdir -p "${BUNDLE_ROOT}/jobs/job1"
     printf 'out\n'     > "${BUNDLE_ROOT}/jobs/job1/.stdout"
@@ -241,9 +255,9 @@ _populate_tree() {
     printf 'data\n'    > "${BUNDLE_ROOT}/resources/dataset/file.dat"
     printf 'image\n'   > "${BUNDLE_ROOT}/resources/.dataset.resource.type"
 
-    mkdir -p "${BUNDLE_ROOT}/.knit/spack" "${BUNDLE_ROOT}/.knit/sqlite" \
+    mkdir -p "${BUNDLE_ROOT}/.knit/fake" "${BUNDLE_ROOT}/.knit/sqlite" \
              "${BUNDLE_ROOT}/.knit/jq"
-    printf 'x\n'       > "${BUNDLE_ROOT}/.knit/spack/foo"
+    printf 'x\n'       > "${BUNDLE_ROOT}/.knit/fake/foo"
 }
 
 @test "collect includes setup manifests, job logs and scripts, and artifacts by default" {
@@ -254,10 +268,10 @@ _populate_tree() {
     run _collect_has "setups/mclib/.activate.sh" "${out[@]}"; [ "${status}" -eq 0 ]
     run _collect_has "setups/mclib/.setup.type"  "${out[@]}"; [ "${status}" -eq 0 ]
     run _collect_has "setups/mclib/.setup.id"    "${out[@]}"; [ "${status}" -eq 0 ]
-    run _collect_has "setups/mclib/spack.yaml"   "${out[@]}"; [ "${status}" -eq 0 ]
-    run _collect_has "setups/mclib/spack-env/spack.lock" "${out[@]}"; [ "${status}" -eq 0 ]
-    # The lock lives only under spack-env; there is no top-level spack.lock.
-    run _collect_has "setups/mclib/spack.lock"   "${out[@]}"; [ "${status}" -ne 0 ]
+    run _collect_has "setups/mclib/fake.yaml"    "${out[@]}"; [ "${status}" -eq 0 ]
+    run _collect_has "setups/mclib/fake-env/fake.lock" "${out[@]}"; [ "${status}" -eq 0 ]
+    # The lock lives only under fake-env; there is no top-level fake.lock.
+    run _collect_has "setups/mclib/fake.lock"    "${out[@]}"; [ "${status}" -ne 0 ]
     run _collect_has "jobs/job1/.stdout"         "${out[@]}"; [ "${status}" -eq 0 ]
     run _collect_has "jobs/job1/.stderr"         "${out[@]}"; [ "${status}" -eq 0 ]
     run _collect_has "jobs/job1/.job.sh"         "${out[@]}"; [ "${status}" -eq 0 ]
@@ -265,17 +279,17 @@ _populate_tree() {
     run _collect_has "artifacts"                 "${out[@]}"; [ "${status}" -eq 0 ]
 }
 
-@test "collect prunes a setup's built spack-env tree except the lock" {
+@test "collect prunes a setup's built env tree except the lock" {
     _populate_tree
     local -A opts=()
     local -a out=()
     _knit_bundle_collect out opts "${BUNDLE_ROOT}"
-    run _collect_has "setups/mclib/spack-env" "${out[@]}"
+    run _collect_has "setups/mclib/fake-env" "${out[@]}"
     [ "${status}" -ne 0 ]
-    run _collect_has "setups/mclib/spack-env/deep/lib.so" "${out[@]}"
+    run _collect_has "setups/mclib/fake-env/deep/lib.so" "${out[@]}"
     [ "${status}" -ne 0 ]
     # The concretized lock is the single carve-out from the pruned tree.
-    run _collect_has "setups/mclib/spack-env/spack.lock" "${out[@]}"
+    run _collect_has "setups/mclib/fake-env/fake.lock" "${out[@]}"
     [ "${status}" -eq 0 ]
 }
 
@@ -289,7 +303,7 @@ _populate_tree() {
     local e bad=""
     for e in "${out[@]}"; do
         case "${e}" in
-            .knit/spack*|.knit/sqlite*|.knit/jq*) bad="${e}" ;;
+            .knit/fake*|.knit/sqlite*|.knit/jq*) bad="${e}" ;;
         esac
     done
     [ -z "${bad}" ]
@@ -451,9 +465,9 @@ _populate_tree() {
     done <<< "${output}"
     [[ "${output}" == *"experiment.sh"* ]]
     [[ "${output}" == *"setups/mclib/.activate.sh"* ]]
-    [[ "${output}" == *"setups/mclib/spack-env/spack.lock"* ]]
-    # The rest of the built spack-env tree is not listed.
-    [[ "${output}" != *"spack-env/deep"* ]]
+    [[ "${output}" == *"setups/mclib/fake-env/fake.lock"* ]]
+    # The rest of the built fake-env tree is not listed.
+    [[ "${output}" != *"fake-env/deep"* ]]
     [[ "${output}" == *"artifacts"* ]]
 }
 
@@ -598,24 +612,24 @@ _populate_tree() {
     [[ "${output}" != *"local resource"* ]]
 }
 
-# ---------- knit_with_spack_env auto-require (M5) ----------
+# ---------- knit_with_<nm>_env auto-require ----------
 
-@test "knit_with_spack_env file form records a bundle auto-require" {
+@test "knit_with_<nm>_env file form records a bundle auto-require" {
     _KNIT_BUNDLE_AUTO_REQUIRES=()
-    _spack_setup_fn() { :; }
-    knit_register_setup "libs" "_spack_setup_fn" "Build deps."
-    knit_with_spack_env "envs/mclib.yaml"
+    _fake_setup_fn() { :; }
+    knit_register_setup "libs" "_fake_setup_fn" "Build deps."
+    knit_with_fake_env "envs/mclib.yaml"
     knit_done
     run _collect_has "envs/mclib.yaml" "${_KNIT_BUNDLE_AUTO_REQUIRES[@]}"
     [ "${status}" -eq 0 ]
 }
 
-@test "knit_with_spack_env stdin form records no bundle auto-require" {
+@test "knit_with_<nm>_env stdin form records no bundle auto-require" {
     _KNIT_BUNDLE_AUTO_REQUIRES=()
-    _spack_setup_fn() { :; }
-    knit_register_setup "libs" "_spack_setup_fn" "Build deps."
-    knit_with_spack_env <<'EOF'
-spack:
+    _fake_setup_fn() { :; }
+    knit_register_setup "libs" "_fake_setup_fn" "Build deps."
+    knit_with_fake_env <<'EOF'
+fake:
   specs:
     - zlib
 EOF
@@ -623,9 +637,9 @@ EOF
     [ "${#_KNIT_BUNDLE_AUTO_REQUIRES[@]}" -eq 0 ]
 }
 
-@test "an auto-required spack manifest is packed into the bundle" {
+@test "an auto-required manifest is packed into the bundle" {
     mkdir -p "${BUNDLE_ROOT}/envs"
-    printf 'spack:\n' > "${BUNDLE_ROOT}/envs/mclib.yaml"
+    printf 'fake:\n' > "${BUNDLE_ROOT}/envs/mclib.yaml"
     _KNIT_BUNDLE_AUTO_REQUIRES=("envs/mclib.yaml")
     local out="${BUNDLE_ROOT}/out.tar.gz"
     _knit_bundle --output "${out}"
