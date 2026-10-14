@@ -537,9 +537,6 @@ _bootstrap_launcher_stubs() {
 # File capturing the (stubbed) "knit metadata store" calls of an update.
 __update_meta=""
 
-# File capturing the (stubbed) _knit_bootstrap_spack calls of an update.
-__spack_calls=""
-
 # Prepare a valid, already-bootstrapped experiment for an update-mode call: a
 # .knit/ directory with a (fake) database, the prerequisite check satisfied, and
 # a knit() stub that records only the metadata-store writes.
@@ -887,103 +884,6 @@ _setup_relocate_mode() {
     [ ! -s "${__update_meta}" ]
     [[ "$output" == *"nothing to update"* ]]
     [ -d "${__TEST_TMPDIR}/setups/default" ]
-}
-
-# ---------- update mode: spack (add / re-provision / freeze) ----------
-
-# Prepare an already-bootstrapped experiment for the Spack update handler: a real
-# metadata table seeded with a setup root and stored spack refs, private spack
-# root paths under the temp dir, and a stub recording _knit_bootstrap_spack. The
-# spack roots are left absent so a test decides "provisioned" by creating them.
-_setup_spack_update() {
-    knit_test_require_sqlite
-    _KNIT_SQLITE_EXE="sqlite3"
-    _KNIT_DATABASE="${__TEST_TMPDIR}/spack.db"
-    _KNIT_IS_BOOTSTRAPPED="1"
-    _knit_create_metadata_table
-    knit metadata store --key __setup_path__         --value "${__TEST_TMPDIR}/setups"
-    knit metadata store --key __spack_ref__          --value v1
-    knit metadata store --key __spack_packages_ref__ --value p1
-    _KNIT_SPACK_ROOT="${__TEST_TMPDIR}/spack"
-    _KNIT_SPACK_PACKAGES_ROOT="${__TEST_TMPDIR}/spack-packages"
-    _KNIT_SPACK_REQUIRED=""
-    __spack_calls="${__TEST_TMPDIR}/spack-calls"; : > "${__spack_calls}"
-    eval '_knit_bootstrap_spack() { printf "%s\n" "$*" >> "'"${__spack_calls}"'"; }'
-}
-
-@test "spack-env-built is false with no setup root or no lockfile, true with one" {
-    knit_test_require_sqlite
-    _KNIT_SQLITE_EXE="sqlite3"
-    _KNIT_DATABASE="${__TEST_TMPDIR}/eb.db"
-    _KNIT_IS_BOOTSTRAPPED="1"
-    _knit_create_metadata_table
-    knit metadata store --key __setup_path__ --value "${__TEST_TMPDIR}/setups"
-
-    run _knit_bootstrap_spack_env_built            # no setup root yet
-    [ "$status" -ne 0 ]
-    mkdir -p "${__TEST_TMPDIR}/setups/default"     # a setup but no environment
-    run _knit_bootstrap_spack_env_built
-    [ "$status" -ne 0 ]
-    mkdir -p "${__TEST_TMPDIR}/setups/lib/spack-env"
-    : > "${__TEST_TMPDIR}/setups/lib/spack-env/spack.lock"
-    run _knit_bootstrap_spack_env_built            # a built environment
-    [ "$status" -eq 0 ]
-}
-
-@test "update mode provisions spack when absent and a ref is typed" {
-    _setup_spack_update                            # spack root left absent
-
-    run _knit_bootstrap_update_spack "v2" "" --spack v2
-    [ "$status" -eq 0 ]
-    grep -q "v2" "${__spack_calls}"
-}
-
-@test "update mode provisions spack when absent and a spack-requiring setup is registered" {
-    _setup_spack_update
-    _KNIT_SPACK_REQUIRED="1"                       # a setup declared a spack env
-
-    run _knit_bootstrap_update_spack "" ""
-    [ "$status" -eq 0 ]
-    [ -s "${__spack_calls}" ]
-}
-
-@test "update mode does not provision spack when absent, untyped and not required" {
-    _setup_spack_update
-
-    run _knit_bootstrap_update_spack "" ""
-    [ "$status" -eq 1 ]
-    [ ! -s "${__spack_calls}" ]
-}
-
-@test "update mode re-provisions spack when the ref changes and no environment is built" {
-    _setup_spack_update
-    mkdir -p "${_KNIT_SPACK_ROOT}"                 # already provisioned
-
-    run _knit_bootstrap_update_spack "v2" "" --spack v2
-    [ "$status" -eq 0 ]
-    # Re-provision uses the new spack ref and keeps the stored (untyped) packages ref.
-    grep -q "v2 p1" "${__spack_calls}"
-}
-
-@test "update mode fatals changing the spack ref when an environment is built" {
-    _setup_spack_update
-    mkdir -p "${_KNIT_SPACK_ROOT}"
-    mkdir -p "${__TEST_TMPDIR}/setups/lib/spack-env"
-    : > "${__TEST_TMPDIR}/setups/lib/spack-env/spack.lock"
-
-    run _knit_bootstrap_update_spack "v2" "" --spack v2
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"Spack version is frozen"* ]]
-    [ ! -s "${__spack_calls}" ]
-}
-
-@test "a typed spack ref equal to the stored one is a no-op" {
-    _setup_spack_update
-    mkdir -p "${_KNIT_SPACK_ROOT}"
-
-    run _knit_bootstrap_update_spack "v1" "" --spack v1
-    [ "$status" -eq 1 ]
-    [ ! -s "${__spack_calls}" ]
 }
 
 # ---------- update mode: profile (not updatable yet) ----------

@@ -10,39 +10,17 @@ setup() {
     mkdir -p "${_KNIT_PREFIX}"
     _KNIT_SPACK_ROOT="${_KNIT_PREFIX}/spack"
     _KNIT_SPACK_PACKAGES_ROOT="${_KNIT_PREFIX}/spack-packages"
-    _KNIT_SPACK_REQUIRED=""
     # The provisioning helpers assume a bootstrapped experiment (metadata store).
     _KNIT_IS_BOOTSTRAPPED="1"
 }
 
 teardown() {
     rm -rf "${__TEST_TMPDIR}"
-    _KNIT_SPACK_REQUIRED=""
     _KNIT_IS_BOOTSTRAPPED=""
 }
 
-# ---------- _knit_bootstrap_need_spack (trigger matrix) ----------
-
-@test "need_spack is false with empty refs and no declared spack env" {
-    run _knit_bootstrap_need_spack "" ""
-    [ "$status" -ne 0 ]
-}
-
-@test "need_spack is true when --spack ref is given" {
-    run _knit_bootstrap_need_spack "v1.0.0" ""
-    [ "$status" -eq 0 ]
-}
-
-@test "need_spack is true when --spack-packages ref is given" {
-    run _knit_bootstrap_need_spack "" "v1.0.0"
-    [ "$status" -eq 0 ]
-}
-
-@test "need_spack is true when a setup declared a spack env" {
-    _KNIT_SPACK_REQUIRED="1"
-    run _knit_bootstrap_need_spack "" ""
-    [ "$status" -eq 0 ]
-}
+# (The provision trigger decision is the generic layer's _knit_env_need_provision,
+# covered in test_env.sh.)
 
 # ---------- _knit_spack_latest_release ----------
 
@@ -79,7 +57,7 @@ teardown() {
     ! grep -q "commit:" "${f}"
 }
 
-# ---------- _knit_bootstrap_spack (provenance + latest resolution) ----------
+# ---------- _knit_spack_provision (provenance + latest resolution) ----------
 
 # Stub out downloading/repos.yaml and capture the metadata that gets stored.
 _stub_provisioning() {
@@ -118,7 +96,7 @@ _stub_provisioning() {
         esac
     }
 
-    _knit_bootstrap_spack "" ""
+    _knit_spack_provision "" ""
 
     grep -q "__spack_ref__=v9.9.9" "${METALOG}"
     grep -q "__spack_commit__=spacksha" "${METALOG}"
@@ -130,27 +108,27 @@ _stub_provisioning() {
     _stub_provisioning
     _knit_spack_latest_release() { printf 'SHOULD_NOT_BE_CALLED'; }
 
-    _knit_bootstrap_spack "myref" "mypkgref"
+    _knit_spack_provision "myref" "mypkgref"
 
     grep -q "__spack_ref__=myref" "${METALOG}"
     grep -q "__spack_packages_ref__=mypkgref" "${METALOG}"
     ! grep -q "SHOULD_NOT_BE_CALLED" "${METALOG}"
 }
 
-# ---------- _knit_spack_ensure_provisioned (on-demand provisioning) ----------
+# ---------- knit_env_ensure_provisioned spack (on-demand provisioning) ----------
 
 @test "ensure_provisioned is a no-op when spack is already present" {
     mkdir -p "${_KNIT_SPACK_ROOT}"
-    _knit_bootstrap_spack() { printf 'PROVISIONED\n'; }
-    run _knit_spack_ensure_provisioned
+    _knit_spack_provision() { printf 'PROVISIONED\n'; }
+    run knit_env_ensure_provisioned spack
     [ "$status" -eq 0 ]
     [[ "$output" != *"PROVISIONED"* ]]
 }
 
 @test "ensure_provisioned provisions the latest release on demand when missing" {
     # setup() leaves _KNIT_SPACK_ROOT pointing at a non-existent directory.
-    _knit_bootstrap_spack() { printf 'PROVISIONED %s|%s\n' "$1" "$2"; }
-    run _knit_spack_ensure_provisioned
+    _knit_spack_provision() { printf 'PROVISIONED %s|%s\n' "$1" "$2"; }
+    run knit_env_ensure_provisioned spack
     [ "$status" -eq 0 ]
     [[ "$output" == *"downloading it now"* ]]
     # Called with empty refs, i.e. the latest release, like an empty --spack.
@@ -159,8 +137,8 @@ _stub_provisioning() {
 
 @test "ensure_provisioned is fatal (does not provision) when not bootstrapped" {
     _knit_is_bootstrapped() { return 1; }
-    _knit_bootstrap_spack() { printf 'SHOULD_NOT_RUN\n'; }
-    run _knit_spack_ensure_provisioned
+    _knit_spack_provision() { printf 'SHOULD_NOT_RUN\n'; }
+    run knit_env_ensure_provisioned spack
     [ "$status" -ne 0 ]
     [[ "$output" == *"not bootstrapped"* ]]
     [[ "$output" != *"SHOULD_NOT_RUN"* ]]
@@ -218,13 +196,13 @@ EOF
     [ "${_KNIT_SPACK_ENV_SOURCED}" = "1" ]
 }
 
-# ---------- _knit_spack_env_install ----------
+# ---------- _knit_spack_install_env ----------
 
 @test "spack_env_install creates the env then installs its specs" {
     # Install runs directly through _knit_spack_exec (no frame), so the whole
     # env-install writes straight to the terminal.
     _knit_spack_exec() { printf 'exec:%s\n' "$*"; }
-    run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
+    run _knit_spack_install_env "/tmp/envdir" "/tmp/spack.yaml"
     [ "$status" -eq 0 ]
     [[ "$output" == *"exec:env create -d /tmp/envdir /tmp/spack.yaml"* ]]
     [[ "$output" == *"exec:-e /tmp/envdir install"* ]]
@@ -233,7 +211,7 @@ EOF
 @test "spack_env_install adds spack-config.json before install when present" {
     _knit_spack_exec() { printf 'exec:%s\n' "$*"; }
     printf '{"spack":{"packages":{}}}\n' > "${_KNIT_PREFIX}/spack-config.json"
-    run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
+    run _knit_spack_install_env "/tmp/envdir" "/tmp/spack.yaml"
     [ "$status" -eq 0 ]
     [[ "$output" == *"exec:-e /tmp/envdir config add -f ${_KNIT_PREFIX}/spack-config.json"* ]]
     # config add must precede install.
@@ -245,7 +223,7 @@ EOF
 
 @test "spack_env_install skips config injection when absent" {
     _knit_spack_exec() { printf 'exec:%s\n' "$*"; }
-    run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
+    run _knit_spack_install_env "/tmp/envdir" "/tmp/spack.yaml"
     [ "$status" -eq 0 ]
     [[ "$output" != *"config add -f"* ]]
 }
@@ -256,7 +234,7 @@ EOF
         [[ "$*" == *"config add -f"* ]] && return 4
         printf 'exec:%s\n' "$*"
     }
-    run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
+    run _knit_spack_install_env "/tmp/envdir" "/tmp/spack.yaml"
     [ "$status" -ne 0 ]
     # It must not proceed to install after a failed config add.
     [[ "$output" != *"install"* ]]
@@ -268,7 +246,7 @@ EOF
         [[ "$1" == "env" && "$2" == "create" ]] && return 3
         printf 'exec:%s\n' "$*"
     }
-    run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
+    run _knit_spack_install_env "/tmp/envdir" "/tmp/spack.yaml"
     [ "$status" -ne 0 ]
     # It must not proceed to install after a failed create.
     [[ "$output" != *"install"* ]]
@@ -281,7 +259,7 @@ EOF
         fi
         printf 'exec:%s\n' "$*"
     }
-    run _knit_spack_env_install "/tmp/envdir" "/tmp/spack.yaml"
+    run _knit_spack_install_env "/tmp/envdir" "/tmp/spack.yaml"
     [ "$status" -ne 0 ]
     # The env was still created before the install failure.
     [[ "$output" == *"exec:env create -d /tmp/envdir /tmp/spack.yaml"* ]]
