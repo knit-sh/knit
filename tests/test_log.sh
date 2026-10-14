@@ -55,6 +55,21 @@ setup() {
     [[ "$output" == *"hello world"* ]]
 }
 
+@test "_knit_log prints a message whose format begins with a dash literally" {
+    local output
+    output=$(_knit_log error "--count must be >= %s (got %s)." 5 3 2>&1)
+    [[ "$output" == *"[knit:error]"* ]]
+    [[ "$output" == *"--count must be >= 5 (got 3)."* ]]
+    [[ "$output" != *"invalid option"* ]]
+}
+
+@test "knit_fatal prints a dash-leading message instead of a printf option error" {
+    run knit_fatal "--lower-bound must be set."
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"--lower-bound must be set."* ]]
+    [[ "$output" != *"invalid option"* ]]
+}
+
 # --- knit_trace ---
 
 @test "knit_trace prints at trace level" {

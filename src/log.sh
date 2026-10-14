@@ -105,8 +105,11 @@ _knit_log() {
     local level="$1";
     shift
     printf "[knit:%s] " "$level" 1>&2
+    # "--" ends printf's own option parsing, so a message whose format begins
+    # with "-" (e.g. "--count must be >= 5") prints literally instead of being
+    # mistaken for a printf option. The format is still printf-style otherwise.
     # shellcheck disable=SC2059 # forwarding arguments to printf
-    printf "${@}" 1>&2
+    printf -- "${@}" 1>&2
     printf "\n" 1>&2
 }
 
