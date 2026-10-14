@@ -57,8 +57,6 @@ _KNIT_SHORTHAND_PASSTHROUGH=(
     [with_resource]=knit_with_resource
     [with_setup]=knit_with_setup
     [without_setup]=knit_without_setup
-    [with_spack_env]=knit_with_spack_env
-    [with_spack_specs]=knit_with_spack_specs
     [with_subcommand_title]=knit_with_subcommand_title
     [with_subcommand_discovery]=knit_with_subcommand_discovery
     [hidden]=knit_hidden
@@ -208,9 +206,12 @@ _knit_shorthand_generate() {
     done
 
     # Warn about opt-out tokens that name no real shorthand (typically a typo).
+    # A registered environment manager's "with_<nm>_env"/"with_<nm>_specs"
+    # shorthands count as real even though they are not in the curated maps.
     for token in "${!opted_out[@]}"; do
         if [[ -z "${_KNIT_SHORTHAND_PASSTHROUGH[${token}]:-}" ]] \
-            && [[ -z "${_KNIT_SHORTHAND_EXTRACTOR[${token}]:-}" ]]; then
+            && [[ -z "${_KNIT_SHORTHAND_EXTRACTOR[${token}]:-}" ]] \
+            && ! _knit_env_is_manager_shorthand "${token}"; then
             knit_warning \
                 "KNIT_WITHOUT_SHORTHAND: unknown shorthand token '%s'; ignoring" \
                 "${token}"
@@ -246,6 +247,21 @@ _knit_shorthand_generate() {
     _knit_shorthand_find_function fn \"\${file}\" \"\${line}\"
     ${target} \"\$1\" \"\${fn}\" \"\${@:2}\"
 }"
+    done
+
+    # Register the shorthands of environment managers declared before this file
+    # loaded (the built-in managers, e.g. Spack). A token is registered only when
+    # not already defined, so re-running the generator stays idempotent like the
+    # loops above (knit_register_shorthand is fatal on a redefine);
+    # knit_register_shorthand still honours the opt-out. A plugin's manager is
+    # declared after knit.sh is sourced and registers its own through
+    # knit_env_done.
+    local nm sh
+    for nm in "${_KNIT_ENV_MANAGERS[@]}"; do
+        for sh in "with_${nm}_env" "with_${nm}_specs"; do
+            declare -F "@${sh}" >/dev/null 2>&1 && continue
+            knit_register_shorthand "${sh}" "knit_${sh}"
+        done
     done
 }
 

@@ -40,6 +40,13 @@ teardown() {
     declare -F knit_with_spack_specs
 }
 
+@test "the spack setup shorthands are generated" {
+    # Spack is a core manager (src/spack.sh loads before src/shorthand.sh), so
+    # its shorthands come from the source-time generator, not knit_env_done.
+    declare -F @with_spack_env
+    declare -F @with_spack_specs
+}
+
 @test "a Spack setup declares __spack_manifest__ and __spack_lock__ columns" {
     knit_register_setup "libs" "_test_setup_fn" "Build deps."
     knit_with_spack_env "spack.yaml"

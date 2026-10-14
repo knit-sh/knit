@@ -56,6 +56,20 @@ teardown() {
     declare -F knit_with_fake_specs
 }
 
+@test "the env/specs shorthands are generated for a late-registered manager" {
+    # The fake manager is registered in setup(), after knit.sh is sourced, so
+    # knit_env_done takes the plugin path and registers the shorthands directly.
+    declare -F @with_fake_env
+    declare -F @with_fake_specs
+}
+
+@test "the env shorthand forwards to its directive" {
+    knit_with_fake_env() { printf 'env:%s' "$*"; }
+    run @with_fake_env "x.yaml"
+    [ "$status" -eq 0 ]
+    [ "$output" = "env:x.yaml" ]
+}
+
 @test "knit_with_fake_env flags the manager required" {
     _KNIT_ENV_fake_required=""
     knit_register_setup "libs" "_test_setup_fn" "Build deps."

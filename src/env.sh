@@ -253,6 +253,15 @@ knit_env_done() {
     # shellcheck disable=SC2155
     eval "knit_with_${nm}_specs() { _knit_env_with_specs ${nm} \"\$@\"; }"
 
+    # Give the directives their "@" shorthands. A plugin declares its manager
+    # after knit.sh is fully sourced, so the shorthand layer already exists:
+    # register now. A core manager's source file loads before src/shorthand.sh,
+    # so knit_register_shorthand does not exist yet; the source-time generator
+    # picks the manager up from the registry and registers them instead.
+    if declare -F knit_register_shorthand >/dev/null 2>&1; then
+        _knit_env_register_shorthands "${nm}"
+    fi
+
     # shellcheck disable=SC2178 # nameref to the manager's options array
     local -n _knit_opts_ref="_KNIT_ENV_${nm}_options"
     if [[ ${#_knit_opts_ref[@]} -gt 0 ]]; then
@@ -267,6 +276,44 @@ knit_env_done() {
     fi
 
     unset _KNIT_ENV_CURRENT
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_env_register_shorthands()
+#
+# Register the "@with_<nm>_env" and "@with_<nm>_specs" shorthands for a manager,
+# each forwarding to the directive knit_env_done generated. KNIT_WITHOUT_SHORTHAND
+# and collision rejection are handled by knit_register_shorthand. Called from
+# knit_env_done for a plugin's manager (declared after the shorthand layer
+# exists) and from the source-time shorthand generator for a core manager
+# (declared before it).
+#
+# @param[in] nm Normalized (underscore) manager name.
+# ------------------------------------------------------------------------------
+_knit_env_register_shorthands() {
+    local nm="$1"
+    knit_register_shorthand "with_${nm}_env"   "knit_with_${nm}_env"
+    knit_register_shorthand "with_${nm}_specs" "knit_with_${nm}_specs"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_env_is_manager_shorthand()
+#
+# Return 0 when the token is the "with_<nm>_env" or "with_<nm>_specs" shorthand
+# of a registered environment manager. The source-time shorthand generator uses
+# it so a KNIT_WITHOUT_SHORTHAND opt-out of such a token is recognised rather
+# than warned about as an unknown token.
+#
+# @param[in] token Shorthand token (the part after "@").
+# ------------------------------------------------------------------------------
+_knit_env_is_manager_shorthand() {
+    local token="$1"
+    local nm
+    for nm in "${_KNIT_ENV_MANAGERS[@]}"; do
+        [[ "${token}" == "with_${nm}_env" || "${token}" == "with_${nm}_specs" ]] \
+            && return 0
+    done
+    return 1
 }
 
 # ------------------------------------------------------------------------------
