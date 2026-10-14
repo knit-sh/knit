@@ -286,18 +286,8 @@ knit_env_done
 # knit-private Spack. Declaring a table logs each invocation's full command line
 # (schema id, args) for provenance.
 # ------------------------------------------------------------------------------
-knit_register_wrapper "spack" "_knit_spack" \
+knit_register_wrapper "spack" "_knit_spack_exec" \
     "Run the knit-private Spack, forwarding all arguments verbatim."
 _knit_is_builtin
 knit_with_table
-# ------------------------------------------------------------------------------
-# @fn _knit_spack()
-#
-# Body of the "knit spack" wrapper command.
-#
-# @param[in] ... Arguments forwarded verbatim to spack.
-# ------------------------------------------------------------------------------
-_knit_spack() {
-    _knit_spack_exec "$@"
-}
 knit_done
