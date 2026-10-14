@@ -637,6 +637,13 @@ _knit_bootstrap() {
         _knit_bootstrap_spack "${spack_ref}" "${spack_packages_ref}"
     fi
 
+    # Provision any registered environment managers (see src/env.sh) that are
+    # needed, driven from the body so provisioning runs before bootstrap is
+    # marked complete (a failure then triggers the cleanup trap) and after
+    # sqlite/jq (latest-release resolution and provenance metadata need them).
+    # A no-op until a manager is registered.
+    _knit_env_provision_all "$@"
+
     # Load profile defaults (jq is now available). The profile is resolved and
     # downloaded here (URL / local file / /etc/knit / GitHub shorthand) and frozen
     # into metadata so nothing at run time re-opens the source.
