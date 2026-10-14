@@ -2582,6 +2582,51 @@ knit_command_has_marker() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_copy_function()
+#
+# Define a function <new> with the same body as an existing function <old>,
+# leaving <old> in place. This is the canonical way for a plugin to preserve a
+# function before overriding it — e.g. to save a built-in decorator under a new
+# name, then redefine the original to wrap it:
+#
+#     knit_copy_function knit_with_optional knit_orig_with_optional
+#     knit_with_optional() { ...; knit_orig_with_optional "$@"; ...; }
+#
+# Fatal when <old> is not a defined function. An existing <new> is overwritten.
+#
+# @param[in] old Name of the function to copy from (must be defined).
+# @param[in] new Name of the function to define.
+# ------------------------------------------------------------------------------
+knit_copy_function() {
+    local old="$1"
+    local new="$2"
+    if ! declare -F "${old}" > /dev/null; then
+        knit_fatal "knit_copy_function: \"%s\" is not a defined function." "${old}"
+    fi
+    # "declare -f" prints the definition as "<old> ()\n{ ... }"; dropping the
+    # first line leaves just the body, which is re-attached to <new>. eval is
+    # required to define a function whose name is only known at run time; the
+    # body comes from the shell's own declaration, so it is already well-formed.
+    # shellcheck disable=SC2086 # the body is a single eval'd compound command
+    eval "${new}() $(declare -f "${old}" | tail -n +2)"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_rename_function()
+#
+# Copy an existing function <old> to <new>, then remove <old>. Like
+# knit_copy_function but moves the function out of the way entirely rather than
+# leaving a second copy behind. Fatal when <old> is not a defined function.
+#
+# @param[in] old Name of the function to rename (must be defined).
+# @param[in] new New name for the function.
+# ------------------------------------------------------------------------------
+knit_rename_function() {
+    knit_copy_function "$1" "$2"
+    unset -f "$1"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_check_argument_type()
 #
 # Validate that the value provided for a parameter conforms to the parameter's
