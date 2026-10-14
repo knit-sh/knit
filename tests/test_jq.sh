@@ -20,22 +20,22 @@ teardown() {
     _KNIT_IS_BOOTSTRAPPED=""
 }
 
-# ---------- _knit_jq ----------
+# ---------- knit_jq ----------
 
-@test "_knit_jq evaluates a simple arithmetic expression" {
-    run _knit_jq -n '1 + 1'
+@test "knit_jq evaluates a simple arithmetic expression" {
+    run knit_jq -n '1 + 1'
     [ "$status" -eq 0 ]
     [ "$output" = "2" ]
 }
 
-@test "_knit_jq evaluates a boolean expression" {
-    run _knit_jq -n '3 > 2'
+@test "knit_jq evaluates a boolean expression" {
+    run knit_jq -n '3 > 2'
     [ "$status" -eq 0 ]
     [ "$output" = "true" ]
 }
 
-@test "_knit_jq returns non-zero on invalid jq expression" {
-    run _knit_jq -n 'not_valid::jq'
+@test "knit_jq returns non-zero on invalid jq expression" {
+    run knit_jq -n 'not_valid::jq'
     [ "$status" -ne 0 ]
 }
 

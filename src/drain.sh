@@ -85,7 +85,7 @@ _knit_drain_report() {
 # @fn _knit_drain_emit_json()
 #
 # Print the end-of-run summary as a single JSON object to stdout, built with
-# _knit_jq so it is always well-formed and correctly typed: released is a number,
+# knit_jq so it is always well-formed and correctly typed: released is a number,
 # completed / failed are numbers in waiting modes and null in no-limit mode,
 # drained / stopped / dry_run are booleans. dry_run is always false here (the
 # dry-run path emits its own summary).
@@ -105,7 +105,7 @@ _knit_drain_emit_json() {
         failed_json="null"
     fi
     # shellcheck disable=SC2016 # $released etc. are jq variables, not shell
-    _knit_jq -nc \
+    knit_jq -nc \
         --argjson released "${released}" \
         --argjson completed "${completed_json}" \
         --argjson failed "${failed_json}" \
@@ -296,7 +296,7 @@ _knit_drain_pool() {
 #
 # Print the dry-run peek as a JSON object to stdout: {dry_run, count, jobs}, where
 # jobs is the array sqlite emits in -json mode (id / job / group per row). An
-# empty result set yields an empty array. Built with _knit_jq so the wrapper
+# empty result set yields an empty array. Built with knit_jq so the wrapper
 # object is well-formed.
 #
 # @param[in] sql The read-only SELECT to run in sqlite -json mode.
@@ -307,7 +307,7 @@ _knit_drain_dry_run_json() {
     rows="$(_knit_sqlite3 -json "${sql}")"
     [[ -z "${rows}" ]] && rows="[]"
     # shellcheck disable=SC2016 # $jobs is a jq variable, not shell
-    _knit_jq -nc --argjson jobs "${rows}" \
+    knit_jq -nc --argjson jobs "${rows}" \
         '{dry_run: true, count: ($jobs | length), jobs: $jobs}'
 }
 

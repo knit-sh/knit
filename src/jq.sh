@@ -131,12 +131,13 @@ _knit_download_jq() {
 
 # shellcheck disable=SC2120
 # ------------------------------------------------------------------------------
-# @fn _knit_jq()
+# @fn knit_jq()
 #
-# Invoke Knit's jq installation.
+# Invoke the jq that knit provisions. Public so a plugin runs the same pinned
+# jq that the rest of knit uses rather than a jq on PATH.
 #
 # @param[in] ... Parameters to forward to the jq command.
 # ------------------------------------------------------------------------------
-_knit_jq() {
+knit_jq() {
     "${_KNIT_JQ_EXE}" "$@"
 }

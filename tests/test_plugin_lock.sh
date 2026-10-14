@@ -98,10 +98,10 @@ _seed_cache() {
 
 @test "knit_import writes a resolved mutable ref back to the lockfile" {
     _knit_github_resolve_commit_light() { local -n __o=$1; __o="${SHA}"; }
-    _knit_github_download() {
+    knit_github_download() {
         local -n __out=$1; shift
-        mkdir -p "$4"
-        printf 'printf "%%s\\n" TOFU >> %q\n' "${MARKER}" > "$4/plugin.sh"
+        mkdir -p "$3"
+        printf 'printf "%%s\\n" TOFU >> %q\n' "${MARKER}" > "$3/plugin.sh"
         __out="fetchsum"
     }
     knit_import "demo@main"
@@ -113,10 +113,10 @@ _seed_cache() {
 }
 
 @test "a SHA-pinned import does not write the lockfile" {
-    _knit_github_download() {
+    knit_github_download() {
         local -n __out=$1; shift
-        mkdir -p "$4"
-        printf 'printf "%%s\\n" X >> %q\n' "${MARKER}" > "$4/plugin.sh"
+        mkdir -p "$3"
+        printf 'printf "%%s\\n" X >> %q\n' "${MARKER}" > "$3/plugin.sh"
         __out="s"
     }
     knit_import "demo@${SHA}"

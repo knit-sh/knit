@@ -474,7 +474,7 @@ def expand_matrix($i; $block):
                else [$e] end ]
            | add // [] )
 '
-    printf '%s' "${plan}" | _knit_jq -c "${prog}"
+    printf '%s' "${plan}" | knit_jq -c "${prog}"
 }
 
 # ------------------------------------------------------------------------------
@@ -516,25 +516,25 @@ _knit_prepare_from_file() {
 
     # Reject a plan that is not valid JSON up front, so later jq passes can assume
     # a parseable document.
-    if ! printf '%s' "${plan}" | _knit_jq -e . >/dev/null 2>&1; then
+    if ! printf '%s' "${plan}" | knit_jq -e . >/dev/null 2>&1; then
         knit_fatal "prepare from: the plan is not valid JSON."
     fi
     # The plan must be an object with a "jobs" array; "defaults"/"group", when
     # present, must be an object/string. These give clearer messages than a jq
     # type error deep in rendering.
-    if ! printf '%s' "${plan}" | _knit_jq -e 'type=="object"' >/dev/null 2>&1; then
+    if ! printf '%s' "${plan}" | knit_jq -e 'type=="object"' >/dev/null 2>&1; then
         knit_fatal "prepare from: the plan must be a JSON object."
     fi
-    if ! printf '%s' "${plan}" | _knit_jq -e '.jobs|type=="array"' >/dev/null 2>&1; then
+    if ! printf '%s' "${plan}" | knit_jq -e '.jobs|type=="array"' >/dev/null 2>&1; then
         knit_fatal "prepare from: the plan must have a \"jobs\" array."
     fi
     if ! printf '%s' "${plan}" \
-        | _knit_jq -e '(.defaults==null) or (.defaults|type=="object")' \
+        | knit_jq -e '(.defaults==null) or (.defaults|type=="object")' \
             >/dev/null 2>&1; then
         knit_fatal "prepare from: \"defaults\" must be an object."
     fi
     if ! printf '%s' "${plan}" \
-        | _knit_jq -e '(.group==null) or (.group|type=="string")' \
+        | knit_jq -e '(.group==null) or (.group|type=="string")' \
             >/dev/null 2>&1; then
         knit_fatal "prepare from: \"group\" must be a string."
     fi
@@ -555,7 +555,7 @@ _knit_prepare_from_file() {
     if [[ -n "${group_override}" ]]; then
         top_group="${group_override}"
     else
-        top_group="$(printf '%s' "${plan}" | _knit_jq -r '.group // ""')"
+        top_group="$(printf '%s' "${plan}" | knit_jq -r '.group // ""')"
     fi
 
     # Render every entry to a compact JSON object { job, subkeys, tokens }:
@@ -618,7 +618,7 @@ def merge_under($lo; $hi):
 '
     local rendered
     if ! rendered="$(printf '%s' "${plan}" \
-        | _knit_jq -c --arg top_group "${top_group}" "${prog}" 2>&1)"; then
+        | knit_jq -c --arg top_group "${top_group}" "${prog}" 2>&1)"; then
         # jq's message (from error(), or a type error) is the most specific
         # explanation available; surface it verbatim after our own prefix.
         knit_fatal "prepare from: invalid plan: ${rendered}"
@@ -640,7 +640,7 @@ def merge_under($lo; $hi):
         if ! _knit_set_find _KNIT_CMD_prepare_optional "${norm}"; then
             knit_fatal "prepare from: unknown key \"${key}\" in plan (not a \"prepare\"/\"submit\" option)."
         fi
-    done < <(printf '%s' "${rendered}" | _knit_jq -r '.subkeys[]')
+    done < <(printf '%s' "${rendered}" | knit_jq -r '.subkeys[]')
 
     local job job_norm
     while IFS= read -r job; do
@@ -652,14 +652,14 @@ def merge_under($lo; $hi):
         if [[ ! -v _KNIT_JOBS["${job_norm}"] ]]; then
             knit_fatal "prepare from: unknown job \"${job}\" in plan."
         fi
-    done < <(printf '%s' "${rendered}" | _knit_jq -r '.job')
+    done < <(printf '%s' "${rendered}" | knit_jq -r '.job')
 
     # Validated: prepare each entry in plan order.
     local line
     while IFS= read -r line; do
         [[ -z "${line}" ]] && continue
         local -a toks=()
-        mapfile -t toks < <(printf '%s' "${line}" | _knit_jq -r '.tokens[]')
+        mapfile -t toks < <(printf '%s' "${line}" | knit_jq -r '.tokens[]')
         # Output variable names must not clash with _knit_prepare_build's internal
         # locals (uuid/jobdir/alias_link/job_name); see nameref-shadow-collision.
         # shellcheck disable=SC2034 # out_jobdir/out_alias/out_jobname are nameref

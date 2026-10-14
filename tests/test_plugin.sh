@@ -3,7 +3,7 @@
 # Tests for the plugin import machinery (src/plugin.sh): spec parsing, ref->commit
 # resolution, the content-addressed cache (hit/miss), sourcing plugin.sh, dedup,
 # version conflict, transitive imports, the --sha256 hard pin, and KNIT_OFFLINE.
-# The network seam (_knit_github_resolve_commit / _knit_github_download) is stubbed
+# The network seam (knit_github_resolve_commit / knit_github_download) is stubbed
 # so the whole file is offline and deterministic.
 
 source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
@@ -37,18 +37,18 @@ _seed_cache() {
 }
 
 # Stub the fetch seam to materialize a plugin.sh into the destination (as the
-# real _knit_github_download would after extracting a tarball) and return a fixed
+# real knit_github_download would after extracting a tarball) and return a fixed
 # sha256 through the output nameref.
 _stub_fetch() {
     # Globals (not locals): the stubbed function reads them at call time, long
     # after this helper has returned, so its locals would be gone.
     _STUB_TAG="${1:-FETCHED}"
     _STUB_DIGEST="${2:-feedface}"
-    _knit_github_download() {
+    knit_github_download() {
         local -n __out=$1
         shift
-        # args: framed_run org repo dest commit
-        local dest="$4"
+        # args: org repo dest commit
+        local dest="$3"
         mkdir -p "${dest}"
         printf 'printf "%%s\\n" %q >> %q\n' "${_STUB_TAG}" "${MARKER}" > "${dest}/plugin.sh"
         __out="${_STUB_DIGEST}"
@@ -125,7 +125,7 @@ _stub_fetch() {
 
 @test "knit_import sources plugin.sh from the cache on a hit (no fetch)" {
     _seed_cache "github.com" "knit-sh" "knit-demo" "${SHA}" "DEMO"
-    _knit_github_download() { echo "FETCH_SHOULD_NOT_RUN"; return 1; }
+    knit_github_download() { echo "FETCH_SHOULD_NOT_RUN"; return 1; }
 
     knit_import "demo@${SHA}"
     [ "$(cat "${MARKER}")" = "DEMO" ]
@@ -210,7 +210,7 @@ _stub_fetch() {
 @test "knit_import sources a cached SHA offline" {
     _seed_cache "github.com" "knit-sh" "knit-demo" "${SHA}" "CACHED"
     KNIT_OFFLINE=1
-    _knit_github_download() { echo "FETCH_SHOULD_NOT_RUN"; return 1; }
+    knit_github_download() { echo "FETCH_SHOULD_NOT_RUN"; return 1; }
     knit_import "demo@${SHA}"
     [ "$(cat "${MARKER}")" = "CACHED" ]
 }

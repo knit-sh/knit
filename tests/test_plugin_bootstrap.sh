@@ -178,9 +178,9 @@ _seed_import() {
         # $1=out $2=org $3=repo $4=ref -> a deterministic per-repo commit.
         local -n __o=$1; __o="commit_$3"
     }
-    _knit_github_download() {
+    knit_github_download() {
         local -n __out=$1; shift
-        local repo="$3" dest="$4"
+        local repo="$2" dest="$3"
         if [[ "${repo}" == "knit-parent" ]]; then
             # The parent's plugin.sh imports its child dependency.
             printf 'knit_import "child"\n' > "${dest}/plugin.sh"

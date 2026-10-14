@@ -460,7 +460,7 @@ _knit_plugin_fetch() {
     local tmp
     tmp="$(mktemp -d)"
     local sha256
-    _knit_github_download sha256 _knit_framed_run "${org}" "${repo}" "${tmp}" "${commit}"
+    knit_github_download sha256 "${org}" "${repo}" "${tmp}" "${commit}"
     if [[ -n "${expected}" && "${sha256}" != "${expected}" ]]; then
         rm -rf "${tmp}"
         knit_fatal "Plugin ${host}/${org}/${repo}@${commit}: sha256 mismatch \

@@ -27,7 +27,7 @@ teardown() {
 @test "latest release resolves the tag from the GitHub releases/latest API" {
     command -v jq >/dev/null 2>&1 || skip "jq not available"
     curl() { printf '%s' '{"tag_name":"v1.2.0"}'; }
-    _knit_jq() { jq "$@"; }
+    knit_jq() { jq "$@"; }
 
     run _knit_spack_latest_release spack
     [ "$status" -eq 0 ]
@@ -37,7 +37,7 @@ teardown() {
 @test "latest release is fatal when the API returns no release" {
     command -v jq >/dev/null 2>&1 || skip "jq not available"
     curl() { printf '%s' '{}'; }
-    _knit_jq() { jq "$@"; }
+    knit_jq() { jq "$@"; }
 
     run _knit_spack_latest_release spack
     [ "$status" -ne 0 ]
@@ -61,10 +61,10 @@ teardown() {
 
 # Stub out downloading/repos.yaml and capture the metadata that gets stored.
 _stub_provisioning() {
-    _knit_github_download() { :; }
+    knit_github_download() { :; }
     _knit_spack_write_repos_yaml() { :; }
-    # _knit_github_resolve_commit <org> <repo> <ref>  ->  a per-repo fake commit.
-    _knit_github_resolve_commit() {
+    # knit_github_resolve_commit <org> <repo> <ref>  ->  a per-repo fake commit.
+    knit_github_resolve_commit() {
         case "$2" in
             spack-packages) printf 'pkgsha' ;;
             *)              printf 'spacksha' ;;

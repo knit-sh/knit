@@ -85,7 +85,7 @@ _knit_profile_http_get() {
 _knit_profile_latest_ref() {
     local url="https://api.github.com/repos/${_KNIT_PROFILE_REPO}/releases/latest"
     local tag
-    tag="$(curl -s "${url}" | _knit_jq -r '.tag_name // empty')"
+    tag="$(curl -s "${url}" | knit_jq -r '.tag_name // empty')"
     if [[ -z "${tag}" ]]; then
         knit_fatal "Could not resolve the latest knit release from ${url}."
     fi
@@ -401,7 +401,7 @@ knit_get_profile_field() {
     local json
     _knit_metadata_get json "__profile_json__"
     [[ -z "${json}" ]] && return 0
-    printf '%s' "${json}" | _knit_jq -r "${jq_path} // empty"
+    printf '%s' "${json}" | knit_jq -r "${jq_path} // empty"
 }
 
 # ------------------------------------------------------------------------------
@@ -443,23 +443,23 @@ _knit_load_profile() {
     local json="$1"
 
     _KNIT_PROFILE_SCHEDULER_TYPE=$(printf '%s' "${json}" \
-        | _knit_jq -r '.scheduler.type // empty')
+        | knit_jq -r '.scheduler.type // empty')
     _KNIT_PROFILE_SCHEDULER_COMMAND=$(printf '%s' "${json}" \
-        | _knit_jq -r '.scheduler.command // empty')
+        | knit_jq -r '.scheduler.command // empty')
     _KNIT_PROFILE_SCHEDULER_DEFAULT_QUEUE=$(printf '%s' "${json}" \
-        | _knit_jq -r '.scheduler.default_queue // empty')
+        | knit_jq -r '.scheduler.default_queue // empty')
     _KNIT_PROFILE_SCHEDULER_DEFAULT_ARGS=$(printf '%s' "${json}" \
-        | _knit_jq -r '(.scheduler.default_args // []) | join(" ")')
+        | knit_jq -r '(.scheduler.default_args // []) | join(" ")')
     _KNIT_PROFILE_LAUNCHER_TYPE=$(printf '%s' "${json}" \
-        | _knit_jq -r '.launcher.type // empty')
+        | knit_jq -r '.launcher.type // empty')
     _KNIT_PROFILE_LAUNCHER_COMMAND=$(printf '%s' "${json}" \
-        | _knit_jq -r '.launcher.command // empty')
+        | knit_jq -r '.launcher.command // empty')
     _KNIT_PROFILE_LAUNCHER_DEFAULT_ARGS=$(printf '%s' "${json}" \
-        | _knit_jq -r '(.launcher.default_args // []) | join(" ")')
+        | knit_jq -r '(.launcher.default_args // []) | join(" ")')
     _KNIT_PROFILE_CORES_PER_NODE=$(printf '%s' "${json}" \
-        | _knit_jq -r '.hardware.cores_per_node // empty')
+        | knit_jq -r '.hardware.cores_per_node // empty')
     _KNIT_PROFILE_GPUS_PER_NODE=$(printf '%s' "${json}" \
-        | _knit_jq -r '.hardware.gpus_per_node // empty')
+        | knit_jq -r '.hardware.gpus_per_node // empty')
 
     knit_trace "Loaded profile: scheduler=${_KNIT_PROFILE_SCHEDULER_TYPE}" \
         "launcher=${_KNIT_PROFILE_LAUNCHER_TYPE}" \
@@ -485,7 +485,7 @@ _knit_resolve_module_init() {
     local json="$2"
 
     local override
-    override="$(printf '%s' "${json}" | _knit_jq -r '.module_init // empty')"
+    override="$(printf '%s' "${json}" | knit_jq -r '.module_init // empty')"
     if [[ -n "${override}" ]]; then
         __knit_ret1="${override}"
         return 0
@@ -531,8 +531,8 @@ _knit_render_platform_sh() {
     local outfile="$2"
 
     local modules has_env
-    modules="$(printf '%s' "${json}" | _knit_jq -r '(.modules // []) | join(" ")')"
-    has_env="$(printf '%s' "${json}" | _knit_jq -r '(.environment // {}) | length')"
+    modules="$(printf '%s' "${json}" | knit_jq -r '(.modules // []) | join(" ")')"
+    has_env="$(printf '%s' "${json}" | knit_jq -r '(.environment // {}) | length')"
 
     # Nothing to render -> leave the file absent so consumers treat it as a no-op.
     if [[ -z "${modules}" && "${has_env}" == "0" ]]; then
@@ -549,7 +549,7 @@ _knit_render_platform_sh() {
             knit_fatal "%s" "profile lists modules (${modules}) but no 'module' init script was found; set \"module_init\" in the profile."
         fi
         [[ -n "${init}" ]] && lines+=("source ${init}")
-        purge="$(printf '%s' "${json}" | _knit_jq -r '.module_purge // false')"
+        purge="$(printf '%s' "${json}" | knit_jq -r '.module_purge // false')"
         [[ "${purge}" == "true" ]] && lines+=("module purge")
         # `module use` prepends extra module trees (e.g. a site path like
         # /soft/modulefiles) to MODULEPATH so the following `module load` can
@@ -557,7 +557,7 @@ _knit_render_platform_sh() {
         # listed order, after purge and before load.
         while IFS= read -r use_path; do
             [[ -n "${use_path}" ]] && lines+=("module use ${use_path}")
-        done < <(printf '%s' "${json}" | _knit_jq -r '(.module_use // [])[]')
+        done < <(printf '%s' "${json}" | knit_jq -r '(.module_use // [])[]')
         lines+=("module load ${modules}")
     fi
 
@@ -569,7 +569,7 @@ _knit_render_platform_sh() {
             printf -v line 'export %s=%q' "${key}" "${val}"
             lines+=("${line}")
         done < <(printf '%s' "${json}" \
-            | _knit_jq -r '.environment | to_entries[] | .key + "\t" + (.value|tostring)')
+            | knit_jq -r '.environment | to_entries[] | .key + "\t" + (.value|tostring)')
     fi
 
     printf '%s\n' "${lines[@]}" > "${outfile}"
@@ -598,10 +598,10 @@ _knit_render_spack_config() {
     local outfile="$2"
 
     local count
-    count="$(printf '%s' "${json}" | _knit_jq -r '(.spack // {}) | length')"
+    count="$(printf '%s' "${json}" | knit_jq -r '(.spack // {}) | length')"
     [[ "${count}" == "0" ]] && return 0
 
-    printf '%s' "${json}" | _knit_jq '{ spack: .spack }' > "${outfile}"
+    printf '%s' "${json}" | knit_jq '{ spack: .spack }' > "${outfile}"
 }
 
 # ------------------------------------------------------------------------------
@@ -661,7 +661,7 @@ _knit_profile_show() {
         if [[ -z "${json}" ]]; then
             knit_fatal "This experiment was bootstrapped without a profile."
         fi
-        printf '%s' "${json}" | _knit_jq .
+        printf '%s' "${json}" | knit_jq .
         return 0
     fi
 

@@ -45,7 +45,7 @@ _knit_spack_latest_release() {
     local repo="$1"
     local url="https://api.github.com/repos/spack/${repo}/releases/latest"
     local tag
-    tag="$(_knit_github_api "${url}" | _knit_jq -r '.tag_name // empty')"
+    tag="$(knit_github_api "${url}" | knit_jq -r '.tag_name // empty')"
     if [[ -z "${tag}" ]]; then
         knit_fatal "Could not resolve the latest ${repo} release from ${url}." \
             "If this is a rate-limited environment, set GITHUB_TOKEN."
@@ -111,16 +111,16 @@ _knit_spack_provision() {
     # provisioning stays reproducible even after the ref moves, and the archive
     # URL (which takes a SHA) has a single code path for every ref kind.
     local spack_commit packages_commit
-    spack_commit="$(_knit_github_resolve_commit spack spack "${spack_ref}")"
-    packages_commit="$(_knit_github_resolve_commit spack spack-packages "${packages_ref}")"
+    spack_commit="$(knit_github_resolve_commit spack spack "${spack_ref}")"
+    packages_commit="$(knit_github_resolve_commit spack spack-packages "${packages_ref}")"
 
     # The tarball sha256 is unused here (Spack provenance tracks the commit, not
-    # the archive checksum); _knit_github_download requires the output nameref.
-    # shellcheck disable=SC2034 # required-but-unused nameref outputs of _knit_github_download
+    # the archive checksum); knit_github_download requires the output nameref.
+    # shellcheck disable=SC2034 # required-but-unused nameref outputs of knit_github_download
     local spack_sha256 packages_sha256
-    _knit_github_download spack_sha256 _knit_framed_run \
+    knit_github_download spack_sha256 \
         spack spack "${_KNIT_SPACK_ROOT}" "${spack_commit}"
-    _knit_github_download packages_sha256 _knit_framed_run \
+    knit_github_download packages_sha256 \
         spack spack-packages "${_KNIT_SPACK_PACKAGES_ROOT}" "${packages_commit}"
 
     _knit_spack_write_repos_yaml
@@ -146,7 +146,7 @@ _knit_spack_install() {
         local spec
         for spec in "$@"; do
             knit_info "Installing package ${spec}..."
-            _knit_framed_run "spack: install ${spec}" spack install "${spec}"
+            knit_framed_run "spack: install ${spec}" spack install "${spec}"
         done
     )
 }

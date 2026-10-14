@@ -655,7 +655,7 @@ _knit_bootstrap() {
         # Platform name defaults to the profile's own "name" field when the user
         # did not pass --platform, so a profile-based experiment self-identifies.
         if [[ -z "${platform}" ]]; then
-            platform="$(printf '%s' "${profile_json}" | _knit_jq -r '.name // empty')"
+            platform="$(printf '%s' "${profile_json}" | knit_jq -r '.name // empty')"
         fi
         default_queue="${_KNIT_PROFILE_SCHEDULER_DEFAULT_QUEUE}"
         default_scheduler_args="${_KNIT_PROFILE_SCHEDULER_DEFAULT_ARGS}"

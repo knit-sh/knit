@@ -493,7 +493,7 @@ _knit_job_show() {
             [[ -z "${param_json}" ]] && param_json="[]"
         fi
         # shellcheck disable=SC2016 # $submission/$parameters are jq variables, not shell
-        _knit_jq -n \
+        knit_jq -n \
             --argjson submission "${sub_json}" \
             --argjson parameters "${param_json}" \
             '{submission: ($submission[0] // null), parameters: ($parameters[0] // null)}'
