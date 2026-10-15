@@ -682,7 +682,7 @@ _knit_resource_require_registration() {
 # resource type's per-command marker (_KNIT_CMD_<cmd>_fetch_method), enforcing the
 # "exactly one download decorator per resource type" rule: a second call (whether
 # the same decorator twice or two different backends) is fatal. Mirrors the
-# _KNIT_CMD_<cmd>_spack_env at-most-once marker pattern.
+# _KNIT_CMD_<cmd>_env_<nm> at-most-once marker pattern.
 #
 # @param[in] method The backend name ("git", "url", or "local").
 # ------------------------------------------------------------------------------

@@ -79,8 +79,8 @@ _knit_profile_http_get() {
 # ------------------------------------------------------------------------------
 # @fn _knit_profile_latest_ref()
 #
-# Resolve the latest knit release tag via the GitHub API (mirrors
-# _knit_spack_latest_release). Prints the tag; fatal if none can be resolved.
+# Resolve the latest knit release tag via the GitHub API. Prints the tag; fatal
+# if none can be resolved.
 # ------------------------------------------------------------------------------
 _knit_profile_latest_ref() {
     local url="https://api.github.com/repos/${_KNIT_PROFILE_REPO}/releases/latest"

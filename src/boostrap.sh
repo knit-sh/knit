@@ -314,9 +314,10 @@ _knit_bootstrap_update_profile() {
 # AI provider options (--ai-*), each written per key so one AI field can change
 # without clearing the rest, and the path-root options (--setup-path, --job-path,
 # --resource-path), which relocate only when the current root is empty of its
-# kind. It also handles the environment-manager options (--spack/--spack-packages
-# and any plugin's, via _knit_env_update_all: add a manager when absent, or
-# re-provision on a changed ref only while no environment is built) and --profile
+# kind. It also handles the environment-manager options (any imported manager's,
+# e.g. the spack plugin's --spack/--spack-packages, via _knit_env_update_all: add
+# a manager when absent, or re-provision on a changed ref only while no
+# environment is built) and --profile
 # (a changed profile is out of scope and fatals), and the
 # tooling options: --ignore-system-sqlite/--ignore-system-jq (rebuild a
 # system-symlinked tool from source) and
@@ -468,9 +469,9 @@ knit_register "bootstrap" _knit_bootstrap "Bootstrap the Knit framework."
 _knit_is_builtin
 knit_usable_before_bootstrap
 knit_highlight_if _knit_highlight_if_not_bootstrapped
-# The --spack / --spack-packages options are declared by the Spack environment
-# manager (src/spack.sh, via knit_register_env_manager -> knit_extend bootstrap),
-# not here.
+# Environment-manager options (e.g. the spack plugin's --spack / --spack-packages)
+# are declared by each manager via knit_register_env_manager -> knit_extend
+# bootstrap when it is imported, not here.
 knit_with_optional "project:string" "" "Name of the project to use when submitting jobs."
 knit_with_optional "setup-path:string" "setups" \
     "Root directory under which setups live. Relative values resolve against the experiment root (portable); an absolute path is used as-is. Default: setups."

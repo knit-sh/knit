@@ -324,7 +324,8 @@ knit_with_optional "group:string" "" \
 # or from stdin when --file is omitted) and prepares each job it describes, as if
 # each had been passed to `prepare … -- <job> …` individually. Reading from an
 # interactive terminal (nothing to read) or reading an empty plan is fatal rather
-# than a silent hang, mirroring the no-argument form of knit_with_spack_env. The
+# than a silent hang, mirroring the no-argument form of a knit_with_<nm>_env
+# environment directive. The
 # whole plan is validated before any job is prepared, so a bad plan leaves nothing
 # half-prepared. Prints one prepared job UUID per line, in plan order.
 #

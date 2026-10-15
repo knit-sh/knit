@@ -1049,7 +1049,7 @@ _knit_setup_provides_launcher_after_cb() {
         local machine
         _knit_metadata_get machine "__launcher__"
         if [[ -z "${machine}" || "${machine}" == "<unknown>" || "${machine}" == "none" ]]; then
-            knit_fatal "knit_provides_launcher: no MPI launcher found on PATH after the setup built. Ensure the setup installs an MPI whose mpirun/mpiexec is on PATH (e.g. knit_with_spack_specs \"mpi\")."
+            knit_fatal "knit_provides_launcher: no MPI launcher found on PATH after the setup built. Ensure the setup installs an MPI whose mpirun/mpiexec is on PATH (e.g. with the spack plugin: knit_with_spack_specs \"mpi\")."
         fi
         knit_debug "knit_provides_launcher: no launcher found on PATH after the setup built; the machine's \"%s\" launcher will be used instead." "${machine}"
         knit_output "__mpi_launcher__" "<unknown>"
