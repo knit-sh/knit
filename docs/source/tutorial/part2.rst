@@ -699,8 +699,9 @@ derivable:
 - **Embedded by default:** the code (``exp.sh`` and ``knit.sh``), the provenance
   database (a pruned ``.knit/knit.db`` --- just the database, not the provisioned
   tooling around it), the job logs and scripts, the setup manifests
-  (``.activate.sh`` and the ``spack.yaml`` / ``spack.lock`` that pin the
-  environment), and the declared artifacts (``inside.csv`` and the images).
+  (``.activate.sh`` and, from the setup's environment manager, the ``spack.yaml``
+  / ``spack.lock`` the Spack plugin wrote to pin the environment), and the
+  declared artifacts (``inside.csv`` and the images).
 - **Referenced, not embedded:** the built Spack environment and the provisioned
   ``.knit/spack``, ``.knit/sqlite``, ``.knit/jq`` toolchain (gigabytes,
   regenerable), and the fetched ``julia_code`` git resource (re-fetchable from the
