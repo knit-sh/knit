@@ -5,10 +5,14 @@
    description: Provision a specific Spack (and package repo) git ref at bootstrap.
    apis: bootstrap
 
-Knit provisions a private Spack **automatically** the first time a setup declares
-a Spack environment, defaulting to the latest Spack release. Pass ``--spack`` to
-pin a specific Spack git ref (a tag, branch, or commit) instead, and
-``--spack-packages`` to pin the package repository ref:
+``--spack`` and ``--spack-packages`` are added to ``bootstrap`` by the Spack
+**plugin**, so they appear once the experiment imports it with ``knit_import
+spack`` (just after ``source knit.sh``).
+
+The plugin provisions a private Spack **automatically** the first time a setup
+declares a Spack environment, defaulting to the latest Spack release. Pass
+``--spack`` to pin a specific Spack git ref (a tag, branch, or commit) instead,
+and ``--spack-packages`` to pin the package repository ref:
 
 .. code-block:: console
 

@@ -5,10 +5,10 @@
    description: Knit's Spack ignores ~/.spack and site config so the environment stays reproducible.
    apis: spack
 
-The Spack that knit provisions is deliberately walled off from your personal and
-site-wide Spack configuration, so an experiment concretizes the same way no matter
-whose machine or account it runs on. Knit exports two environment variables for
-its Spack:
+The Spack the plugin provisions (after ``knit_import spack``) is deliberately
+walled off from your personal and site-wide Spack configuration, so an experiment
+concretizes the same way no matter whose machine or account it runs on. The plugin
+exports two environment variables for its Spack:
 
 - ``SPACK_DISABLE_LOCAL_CONFIG=true`` --- Spack ignores both the system scope and
   your ``~/.spack`` user scope.
