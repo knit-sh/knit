@@ -12,6 +12,10 @@ setup() {
     knit_test_source_knit
 
     __TEST_TMPDIR="$(mktemp -d)"
+    # A prefix that does not exist: these tests exercise the pre-bootstrap path,
+    # where knit_import sources from the cache. Setting it isolates the result
+    # from the real repo .knit (it must not depend on the working directory).
+    _KNIT_PREFIX="${__TEST_TMPDIR}/.knit"
     _KNIT_PLUGIN_CACHE_ROOT="${__TEST_TMPDIR}/cache"
     _KNIT_PLUGIN_LOCKFILE="${__TEST_TMPDIR}/knit-plugins.lock"
     MARKER="${__TEST_TMPDIR}/sourced.log"
