@@ -1,8 +1,9 @@
 #!/usr/bin/env bats
 
-# Tests for the public GitHub tarball-download helpers (src/github.sh):
-# knit_github_api, knit_github_resolve_commit, and knit_github_download. These
-# are parameterized on the repository owner (org) so they are reused by Spack
+# Tests for the public GitHub download helpers (src/github.sh): knit_github_api,
+# knit_github_resolve_commit, knit_github_download (source archive by commit),
+# and knit_github_download_asset (a published release asset). These are
+# parameterized on the repository owner (org) so they are reused by Spack
 # provisioning, by plugin imports, and by env-manager plugins.
 
 source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
@@ -153,4 +154,51 @@ teardown() {
     run knit_github_download sha256 myorg myrepo "${DEST}" "abc123"
     [ "$status" -ne 0 ]
     [[ "$output" == *"Could not download"* ]]
+}
+
+# ---------- knit_github_download_asset ----------
+
+@test "download_asset curls the release-asset URL and returns the sha256" {
+    local -a cmds=()
+    local content="uv-release-binary-bytes"
+    local dest="${DEST}/uv.tar.gz"
+    # Stub the framed runner: record the command and write known bytes to the
+    # "-o" target so the sha256 is deterministic.
+    knit_framed_run() {
+        shift   # drop the title
+        cmds+=("$*")
+        if [[ "$1" == curl ]]; then
+            local out="" prev=""
+            for a in "$@"; do
+                [[ "${prev}" == "-o" ]] && out="${a}"
+                prev="${a}"
+            done
+            [[ -n "${out}" ]] && printf '%s' "${content}" > "${out}"
+        fi
+        return 0
+    }
+
+    local sha256
+    knit_github_download_asset sha256 \
+        astral-sh uv "0.5.0" "uv-x86_64-unknown-linux-gnu.tar.gz" "${dest}"
+
+    # It downloads releases/download/<tag>/<asset> from the owner/repo.
+    [[ "${cmds[0]}" == "curl -fL -o "*"https://github.com/astral-sh/uv/releases/download/0.5.0/uv-x86_64-unknown-linux-gnu.tar.gz" ]]
+    # The destination directory is created and the asset written there verbatim.
+    [ -f "${dest}" ]
+    [ "$(cat "${dest}")" = "${content}" ]
+    # The returned sha256 is the digest of the downloaded bytes.
+    local expected
+    expected="$(printf '%s' "${content}" | sha256sum)"
+    expected="${expected%% *}"
+    [ "${sha256}" = "${expected}" ]
+}
+
+@test "download_asset is fatal when the download fails" {
+    knit_framed_run() { return 1; }
+    local sha256
+    run knit_github_download_asset sha256 \
+        astral-sh uv "0.5.0" "uv-x86_64-unknown-linux-gnu.tar.gz" "${DEST}/uv.tar.gz"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Could not download asset"* ]]
 }

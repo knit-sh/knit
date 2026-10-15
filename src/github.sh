@@ -143,3 +143,51 @@ knit_github_download() {
     fi
     rm -f "${tarball}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn knit_github_download_asset()
+#
+# Download one published asset of a GitHub release to a destination file,
+# compute its sha256, and return the digest by nameref. The stable release-asset
+# URL (releases/download/<tag>/<asset>) is built directly, so no API call is
+# needed once the tag and asset name are known. Uses curl (as the other GitHub
+# helpers do) so knit needs no git, and frames the transfer with knit_framed_run
+# (shown live at trace level). Release assets are public, so no token is sent.
+#
+# This complements knit_github_download, which fetches a repository *source*
+# archive by commit. A tool shipped as a prebuilt per-platform release binary
+# (for example uv) is fetched with this function instead. The destination is a
+# file (the asset verbatim); the caller unpacks it as the asset format requires,
+# since a release asset may be a tarball, a zip, or a raw binary. The tag should
+# name an immutable published release so the download is reproducible; pair the
+# returned digest with a recorded checksum to pin the asset.
+#
+# @param[out] sha256_out Nameref that receives the asset's sha256 hex digest.
+# @param[in] org Repository owner (organization or user).
+# @param[in] repo Repository name under that owner.
+# @param[in] tag Release tag the asset belongs to (e.g. "0.5.0").
+# @param[in] asset Asset filename (e.g. "uv-x86_64-unknown-linux-gnu.tar.gz").
+# @param[in] dest Destination file path for the downloaded asset.
+# ------------------------------------------------------------------------------
+knit_github_download_asset() {
+    local -n __knit_ret=$1
+    shift
+    local org="$1"
+    local repo="$2"
+    local tag="$3"
+    local asset="$4"
+    local dest="$5"
+    local url="https://github.com/${org}/${repo}/releases/download/${tag}/${asset}"
+    _knit_ensure_trace_file
+    knit_trace "Downloading ${org}/${repo} asset ${asset} (${tag})..."
+    mkdir -p "$(dirname "${dest}")"
+    if ! knit_framed_run "download ${asset}" \
+            curl -fL -o "${dest}" "${url}"; then
+        rm -f "${dest}"
+        knit_fatal "Could not download asset ${asset} from ${url}." \
+            "See ${_KNIT_TRACE_FILE} for more information."
+    fi
+    local digest
+    digest="$(sha256sum "${dest}")"
+    __knit_ret="${digest%% *}"
+}
