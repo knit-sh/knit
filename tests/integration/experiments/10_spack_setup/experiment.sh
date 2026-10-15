@@ -15,6 +15,9 @@
 
 source knit.sh
 
+# Spack is a plugin; import it for the Spack environment manager and "knit spack".
+knit_import spack@v1.0.0
+
 knit_set_program_description "Spack-backed setup integration test experiment."
 
 knit_register_setup "zlibenv" __zlibenv_setup "Build a Spack environment with zlib."

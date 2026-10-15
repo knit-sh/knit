@@ -1234,6 +1234,11 @@
 # directory so this bare form resolves even though the body runs elsewhere.
 source knit.sh
 
+# Spack ships as a plugin. Importing it adds the Spack environment manager used
+# by the `mclib` setup below (knit_with_spack_specs / @with_spack_specs), the
+# --spack bootstrap options, and the `knit spack` wrapper.
+knit_import spack@v1.0.0
+
 knit_set_program_description \
     "A guided tour of knit: estimate pi with Monte-Carlo, locally or as a job."
 
