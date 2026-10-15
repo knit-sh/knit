@@ -43,7 +43,7 @@ summary = "Fetching input artifacts (datasets, source code) and declaring them a
 [[category]]
 slug = "spack"
 title = "Spack"
-summary = "Working with Spack environments and package specs."
+summary = "Working with Spack environments and package specs, via the Spack environment-manager plugin (knit_import spack)."
 
 [[category]]
 slug = "jobs"

@@ -161,7 +161,7 @@ _knit_ai_chat_request() {
 
     local body
     # shellcheck disable=SC2016 # $model/$messages/$tools are jq variables, not shell
-    if ! body=$(_knit_jq -n \
+    if ! body=$(knit_jq -n \
             --arg model "${model}" \
             --argjson messages "${messages_json}" \
             --argjson tools "${tools_json:-null}" \
@@ -210,10 +210,10 @@ _knit_ai_chat_request() {
 
     # A structured provider error gets its own message regardless of status code.
     local err
-    err=$(printf '%s' "${resp}" | _knit_jq -r '.error.message // empty' 2>/dev/null)
+    err=$(printf '%s' "${resp}" | knit_jq -r '.error.message // empty' 2>/dev/null)
     if [[ -n "${err}" ]]; then
         local etype
-        etype=$(printf '%s' "${resp}" | _knit_jq -r '.error.type // "error"' 2>/dev/null)
+        etype=$(printf '%s' "${resp}" | knit_jq -r '.error.type // "error"' 2>/dev/null)
         knit_fatal "AI provider error (%s): %s" "${etype}" "${err}"
     fi
 
@@ -390,7 +390,7 @@ _knit_ai_tool_job_output() {
 # inspect the experiment but cannot run experiment commands or mutate anything.
 # ------------------------------------------------------------------------------
 _knit_ai_tools_schema() {
-    _knit_jq -n '
+    knit_jq -n '
     [
       { "type": "function", "function": {
           "name": "knit_describe",
@@ -430,7 +430,7 @@ _knit_ai_tools_schema() {
 #
 # Route a model-requested tool call to its handler and print the (truncated)
 # result. Tool arguments arrive as a JSON object string and are parsed with
-# _knit_jq -r. Only allowlisted tools run; an unknown name yields an error
+# knit_jq -r. Only allowlisted tools run; an unknown name yields an error
 # string. Handler output (including any fatal from the underlying knit surface,
 # e.g. an unknown job id) is captured so it becomes the tool result rather than
 # aborting the agentic loop.
@@ -456,13 +456,13 @@ _knit_ai_dispatch_tool() {
     case "${name}" in
         knit_describe)
             local only recursive
-            only=$(printf '%s' "${args_json}" | _knit_jq -r '.only // ""')
-            recursive=$(printf '%s' "${args_json}" | _knit_jq -r '.recursive // false')
+            only=$(printf '%s' "${args_json}" | knit_jq -r '.only // ""')
+            recursive=$(printf '%s' "${args_json}" | knit_jq -r '.recursive // false')
             out=$(_knit_ai_tool_describe "${only}" "${recursive}" 2>&1)
             ;;
         knit_help)
             local command
-            command=$(printf '%s' "${args_json}" | _knit_jq -r '.command // ""')
+            command=$(printf '%s' "${args_json}" | knit_jq -r '.command // ""')
             out=$(_knit_ai_tool_help "${command}" 2>&1)
             ;;
         knit_metadata_show)
@@ -470,13 +470,13 @@ _knit_ai_dispatch_tool() {
             ;;
         knit_db_query)
             local sql
-            sql=$(printf '%s' "${args_json}" | _knit_jq -r '.sql // ""')
+            sql=$(printf '%s' "${args_json}" | knit_jq -r '.sql // ""')
             out=$(_knit_ai_tool_db_query "${sql}" 2>&1)
             ;;
         knit_job_output)
             local id stream
-            id=$(printf '%s' "${args_json}" | _knit_jq -r '.id // ""')
-            stream=$(printf '%s' "${args_json}" | _knit_jq -r '.stream // "stdout"')
+            id=$(printf '%s' "${args_json}" | knit_jq -r '.id // ""')
+            stream=$(printf '%s' "${args_json}" | knit_jq -r '.stream // "stdout"')
             out=$(_knit_ai_tool_job_output "${id}" "${stream}" 2>&1)
             ;;
         *)
@@ -499,7 +499,7 @@ _knit_ai_dispatch_tool() {
 _knit_ai_describe_summary() {
     local json
     json=$(knit describe --format json --compact 2>/dev/null) || return 0
-    printf '%s' "${json}" | _knit_jq -r '
+    printf '%s' "${json}" | knit_jq -r '
         def walk: .[]? | "- \(.path | join(" ")): \(.description // "")",
                          (.subcommands | walk);
         .commands | walk' 2>/dev/null
@@ -544,7 +544,7 @@ EOF
 # the assistant message is appended; if it carries no tool calls it is the final
 # answer (printed and the loop returns); otherwise every requested tool is
 # dispatched and its result appended as a tool-role message before the next turn.
-# The message array is grown with `_knit_jq --argjson` so JSON types stay intact.
+# The message array is grown with `knit_jq --argjson` so JSON types stay intact.
 #
 # Stops after max_iterations rounds with a warning if no final answer is reached.
 #
@@ -573,7 +573,7 @@ _knit_ai_loop() {
 
     local messages
     # shellcheck disable=SC2016 # $system/$question are jq variables, not shell
-    messages=$(_knit_jq -n \
+    messages=$(knit_jq -n \
         --arg system "${system_prompt}" \
         --arg question "${question}" \
         '[{role: "system", content: $system}, {role: "user", content: $question}]')
@@ -584,7 +584,7 @@ _knit_ai_loop() {
         resp=$(_knit_ai_chat_request "${base_url}" "${api_key}" "${model}" \
             "${messages}" "${tools}") || return 1
 
-        message=$(printf '%s' "${resp}" | _knit_jq -c '.choices[0].message')
+        message=$(printf '%s' "${resp}" | knit_jq -c '.choices[0].message')
         if [[ -z "${message}" || "${message}" == "null" ]]; then
             knit_fatal "AI response contained no message. Response: %s" \
                 "${resp:0:500}"
@@ -593,25 +593,25 @@ _knit_ai_loop() {
         # Append the assistant message (keeps any tool_calls intact for the
         # follow-up tool-role messages the API requires).
         # shellcheck disable=SC2016 # $m/$msg are jq variables, not shell
-        messages=$(_knit_jq -n \
+        messages=$(knit_jq -n \
             --argjson m "${messages}" \
             --argjson msg "${message}" \
             '$m + [$msg]')
 
-        n_tools=$(printf '%s' "${message}" | _knit_jq -r '(.tool_calls // []) | length')
+        n_tools=$(printf '%s' "${message}" | knit_jq -r '(.tool_calls // []) | length')
         if (( n_tools == 0 )); then
             if [[ "${raw}" == "true" ]]; then
                 printf '%s\n' "${message}"
             else
-                printf '%s' "${message}" | _knit_jq -r '.content // ""'
+                printf '%s' "${message}" | knit_jq -r '.content // ""'
             fi
             return 0
         fi
 
         for (( j = 0; j < n_tools; j++ )); do
-            tc_id=$(printf '%s' "${message}" | _knit_jq -r ".tool_calls[${j}].id")
-            tc_name=$(printf '%s' "${message}" | _knit_jq -r ".tool_calls[${j}].function.name")
-            tc_args=$(printf '%s' "${message}" | _knit_jq -r ".tool_calls[${j}].function.arguments")
+            tc_id=$(printf '%s' "${message}" | knit_jq -r ".tool_calls[${j}].id")
+            tc_name=$(printf '%s' "${message}" | knit_jq -r ".tool_calls[${j}].function.name")
+            tc_args=$(printf '%s' "${message}" | knit_jq -r ".tool_calls[${j}].function.arguments")
 
             [[ "${verbose}" == "true" ]] && \
                 printf 'ai: tool call %s(%s)\n' "${tc_name}" "${tc_args}" >&2
@@ -623,7 +623,7 @@ _knit_ai_loop() {
 
             # Append the tool result as a tool-role message keyed by call id.
             # shellcheck disable=SC2016 # $m/$id/$content are jq variables, not shell
-            messages=$(_knit_jq -n \
+            messages=$(knit_jq -n \
                 --argjson m "${messages}" \
                 --arg id "${tc_id}" \
                 --arg content "${result}" \
@@ -972,7 +972,7 @@ _knit_ai_query_loop() {
 
     local messages
     # shellcheck disable=SC2016 # $system/$question are jq variables, not shell
-    messages=$(_knit_jq -n \
+    messages=$(knit_jq -n \
         --arg system "${system_prompt}" \
         --arg question "${question}" \
         '[{role: "system", content: $system}, {role: "user", content: $question}]')
@@ -1010,19 +1010,19 @@ _knit_ai_query_loop() {
         resp=$(_knit_ai_chat_request "${base_url}" "${api_key}" "${model}" \
             "${messages}") || return 1
 
-        message=$(printf '%s' "${resp}" | _knit_jq -c '.choices[0].message')
+        message=$(printf '%s' "${resp}" | knit_jq -c '.choices[0].message')
         if [[ -z "${message}" || "${message}" == "null" ]]; then
             knit_fatal "AI response contained no message. Response: %s" \
                 "${resp:0:500}"
         fi
 
         # shellcheck disable=SC2016 # $m/$msg are jq variables, not shell
-        messages=$(_knit_jq -n \
+        messages=$(knit_jq -n \
             --argjson m "${messages}" \
             --argjson msg "${message}" \
             '$m + [$msg]')
 
-        sql=$(printf '%s' "${message}" | _knit_jq -r '.content // ""')
+        sql=$(printf '%s' "${message}" | knit_jq -r '.content // ""')
         _knit_ai_extract_query lang sql "${sql}"
         # A pinned --lang (anything but "auto") overrides per-statement detection.
         [[ "${lang_pinned}" != "auto" ]] && lang="${lang_pinned}"
@@ -1061,7 +1061,7 @@ _knit_ai_query_loop() {
                 [[ "${verbose}" == "true" ]] && \
                     printf 'ai: transpile error:\n%s\n' "${last_err}" >&2
                 # shellcheck disable=SC2016 # $m/$e are jq variables, not shell
-                messages=$(_knit_jq -n \
+                messages=$(knit_jq -n \
                     --argjson m "${messages}" \
                     --arg e "${last_err}" \
                     '$m + [{role: "user", content: ("Translating that Cypher to SQL failed with this error:\n" + $e + "\nReturn a corrected single read-only Cypher query only.")}]')
@@ -1083,7 +1083,7 @@ _knit_ai_query_loop() {
             [[ "${verbose}" == "true" ]] && \
                 printf 'ai: sqlite error (from the transpiled Cypher):\n%s\n' "${last_err}" >&2
             # shellcheck disable=SC2016 # $m/$e are jq variables, not shell
-            messages=$(_knit_jq -n \
+            messages=$(knit_jq -n \
                 --argjson m "${messages}" \
                 --arg e "${last_err}" \
                 '$m + [{role: "user", content: ("Running the SQL translated from that Cypher failed with this error:\n" + $e + "\nReturn a corrected single read-only Cypher query only.")}]')
@@ -1094,7 +1094,7 @@ _knit_ai_query_loop() {
             last_err="query rejected: only read-only statements are allowed (leading SELECT/WITH/EXPLAIN/PRAGMA, no write keywords)."
             [[ "${verbose}" == "true" ]] && printf 'ai: %s\n' "${last_err}" >&2
             # shellcheck disable=SC2016 # $m/$e are jq variables, not shell
-            messages=$(_knit_jq -n \
+            messages=$(knit_jq -n \
                 --argjson m "${messages}" \
                 --arg e "${last_err}" \
                 '$m + [{role: "user", content: ("That SQL was rejected: " + $e + " Return a single read-only statement only.")}]')
@@ -1120,7 +1120,7 @@ _knit_ai_query_loop() {
         [[ "${verbose}" == "true" ]] && \
             printf 'ai: sqlite error:\n%s\n' "${last_err}" >&2
         # shellcheck disable=SC2016 # $m/$e are jq variables, not shell
-        messages=$(_knit_jq -n \
+        messages=$(knit_jq -n \
             --argjson m "${messages}" \
             --arg e "${last_err}" \
             '$m + [{role: "user", content: ("Running that SQL failed with this sqlite error:\n" + $e + "\nReturn a corrected single read-only SQL statement only.")}]')

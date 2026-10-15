@@ -16,10 +16,13 @@
 #
 # Because a registered setup declares a Spack environment, bootstrap
 # auto-provisions the knit-private Spack (the M4 -> M2 wiring) even without an
-# explicit --spack. The profile's externals reach the env because
-# _knit_spack_install_env merges .knit/spack-config.json before concretization.
+# explicit --spack. The profile's externals reach the env because the spack
+# plugin's install verb merges .knit/spack-config.json before concretization.
 
 source knit.sh
+
+# Spack is a plugin; import it for the Spack environment manager and "knit spack".
+knit_import spack@v1.0.0
 
 knit_set_program_description \
     "Profile-provided Spack externals integration test experiment."

@@ -5,6 +5,10 @@
    description: Ask Spack for an MPI provider in a setup and expose it as the run launcher.
    apis: knit_register_setup, knit_with_spack_specs, knit_provides_launcher
 
+``knit_with_spack_specs`` comes from the Spack **plugin** --- ``knit_import
+spack`` just after ``source knit.sh`` makes it available; ``knit_provides_launcher``
+is part of Knit's core.
+
 Add ``mpi`` (or a concrete provider like ``mpich`` or ``openmpi``) to a setup's
 ``knit_with_spack_specs`` so Spack provisions an MPI implementation as part of the
 environment. Calling ``knit_provides_launcher`` then advertises that Spack-built

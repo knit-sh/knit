@@ -143,7 +143,7 @@ _knit_sched_pick_queue() {
     jq_prog+=' (.value.min_walltime // ""), (.value.max_walltime // "") ]'
     jq_prog+=' | map(tostring) | join("\u001f")'
     local rows
-    rows="$(printf '%s' "${json}" | _knit_jq -r "${jq_prog}" 2>/dev/null)"
+    rows="$(printf '%s' "${json}" | knit_jq -r "${jq_prog}" 2>/dev/null)"
 
     # No queues declared: nothing to select from (D9). The caller submits with no
     # queue directive and lets the scheduler apply its own default.

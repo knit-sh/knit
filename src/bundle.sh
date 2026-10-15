@@ -18,8 +18,9 @@ _KNIT_BUNDLE_REQUIRES=()
 # @var _KNIT_BUNDLE_AUTO_REQUIRES
 #
 # Extra files Knit itself knows the experiment needs and adds without the user
-# asking — currently the spack.yaml a setup names through knit_with_spack_env in
-# its file form. Each entry is a path string recorded verbatim, in declaration
+# asking — the manifest a setup names through a knit_with_<nm>_env directive (for
+# example knit_with_spack_env) in its file form. Each entry is a path string
+# recorded verbatim, in declaration
 # order. Unlike _KNIT_BUNDLE_REQUIRES (the user's own list, validated strictly),
 # these are handled leniently at bundle time: a path outside the tree draws a
 # warning and is normalized rather than a fatal, since the user did not type it.
@@ -68,8 +69,9 @@ knit_bundle_requires() {
 # @fn knit_bundle_auto_require()
 #
 # Record a path that Knit adds to the bundle on the experiment's behalf (see
-# _KNIT_BUNDLE_AUTO_REQUIRES). Called by a decorator — the built-in
-# knit_with_spack_env in its file form, or a plugin-authored one — rather than
+# _KNIT_BUNDLE_AUTO_REQUIRES). Called by a decorator — a generated
+# knit_with_<nm>_env directive in its file form (e.g. the built-in
+# knit_with_spack_env), or a plugin-authored one — rather than
 # directly by the experiment (which uses knit_bundle_requires). Like
 # knit_bundle_requires it stores the string verbatim and MUST NOT touch the
 # filesystem, so it stays safe when the experiment script is re-sourced on a
@@ -321,8 +323,8 @@ _knit_bundle_expand_requires() {
 # files are added unconditionally, so a later prune step can warn about a missing
 # one. Every framework-enumerated path (setup, job, artifact, resource) is added
 # only when it exists on disk (a regular path or a symlink, even a broken one), so
-# an absent optional manifest — a non-Spack setup has no spack.yaml, say — is
-# skipped silently rather than warned about. Glob expansion of the required
+# an absent optional manifest — a setup that declares no environment has no
+# manifest, say — is skipped silently rather than warned about. Glob expansion of the required
 # entries and the portability validations come in a later milestone.
 #
 # @param[out] __knit_ret Name of the array to fill with relative paths.
@@ -352,7 +354,7 @@ _knit_bundle_collect() {
 
     # The extra files the user declared, validated and glob-expanded. The user's
     # own list is strict (a bad path is fatal); the list Knit auto-required on the
-    # experiment's behalf (spack.yaml files) is lenient (a bad path warns).
+    # experiment's behalf (environment manifest files) is lenient (a bad path warns).
     local -a expanded_reqs=()
     _knit_bundle_expand_requires expanded_reqs "${root}" "true" \
         "${_KNIT_BUNDLE_REQUIRES[@]}"
@@ -367,29 +369,40 @@ _knit_bundle_collect() {
     done
 
     # Setup manifests: the small identifying files under each setup instance —
-    # enough to rebuild the environment — plus the concretized Spack lock, but
-    # never the rest of the built spack-env tree.
+    # enough to rebuild the environment — plus each environment manager's
+    # concretized lock, but never the rest of the built <nm>-env tree.
     local setup_root setup_rel
     _knit_setup_root setup_root
     if [[ -d "${setup_root}" ]]; then
         _knit_bundle_relpath setup_rel "${root}" "${setup_root}" "setups"
-        local d name f abs
+        local d name f abs nm manifest_var manifest lockfile_var lockfile envlock
         for d in "${setup_root}"/*/; do
             [[ -d "${d}" ]] || continue
             name="${d%/}"; name="${name##*/}"
-            for f in .activate.sh .setup.type .setup.id spack.yaml; do
+            # The small identifying files every setup instance carries.
+            for f in .activate.sh .setup.type .setup.id; do
                 abs="${d}${f}"
                 [[ -e "${abs}" || -L "${abs}" ]] \
                     && __knit_ret+=("${setup_rel}/${name}/${f}")
             done
-            # The concretized lock lives under the built environment, at
-            # spack-env/spack.lock (knit writes it there). Include just that one
-            # file so the environment can be re-concretized identically, without
-            # pulling in the rest of the spack-env tree (view symlinks and store
-            # links), which bootstrap re-provisions.
-            abs="${d}spack-env/spack.lock"
-            [[ -e "${abs}" || -L "${abs}" ]] \
-                && __knit_ret+=("${setup_rel}/${name}/spack-env/spack.lock")
+            # Each registered environment manager's manifest (at the instance
+            # root) and its concretized lock under the built env directory
+            # (<nm>-env/<lockfile>). Including just those two files per manager
+            # lets the environment be re-concretized identically, without pulling
+            # in the rest of the <nm>-env tree (view symlinks and store links),
+            # which bootstrap re-provisions. A manager a setup did not use leaves
+            # both absent, so the existence test skips them silently.
+            for nm in "${_KNIT_ENV_MANAGERS[@]}"; do
+                manifest_var="_KNIT_ENV_${nm}_manifest"; manifest="${!manifest_var}"
+                lockfile_var="_KNIT_ENV_${nm}_lockfile"; lockfile="${!lockfile_var}"
+                abs="${d}${manifest}"
+                [[ -e "${abs}" || -L "${abs}" ]] \
+                    && __knit_ret+=("${setup_rel}/${name}/${manifest}")
+                envlock="${nm}-env/${lockfile}"
+                abs="${d}${envlock}"
+                [[ -e "${abs}" || -L "${abs}" ]] \
+                    && __knit_ret+=("${setup_rel}/${name}/${envlock}")
+            done
         done
     fi
 

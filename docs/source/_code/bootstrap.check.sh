@@ -2,8 +2,8 @@
 # Driver for bootstrap.sh (not shown in the documentation). Verifies that every
 # bootstrap flag mentioned in the Bootstrap stitch recipes still exists, then runs
 # a single bootstrap exercising the offline-safe ones and confirms the chosen
-# configuration was recorded. Kept to the local backend and offline (no --spack,
-# no --profile, no --ignore-system-*, no --knit-cypher-to-sql-*) so it runs on any CI
+# configuration was recorded. Kept to the local backend and offline (no
+# --profile, no --ignore-system-*, no --knit-cypher-to-sql-*) so it runs on any CI
 # runner; those flags are validated for existence via --help only.
 set -uo pipefail
 # shellcheck source=maint/doc-check-lib.sh
@@ -17,7 +17,6 @@ for flag in \
     --scheduler --default-nodefile \
     --launcher \
     --default-walltime --default-cpus-per-node \
-    --spack --spack-packages \
     --ignore-system-sqlite --ignore-system-jq \
     --knit-cypher-to-sql-version --knit-cypher-to-sql-url; do
     check_contains "${help}" "${flag}" "bootstrap --help lists ${flag}"

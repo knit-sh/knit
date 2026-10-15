@@ -136,11 +136,47 @@ _seed_import() {
 
 # ---------- materialization ----------
 
-@test "bootstrap materializes the pinned tree under .knit/plugins" {
+@test "bootstrap materializes the pinned tree under .knit/plugins/<id>/<commit>" {
     _seed_import "github.com/knit-sh/knit-demo" "demo@main" "main" \
         "${COMMIT}" "sum123" ""
     _knit_plugin_bootstrap
-    [ -f "${_KNIT_PREFIX}/plugins/github.com/knit-sh/knit-demo/plugin.sh" ]
+    [ -f "${_KNIT_PREFIX}/plugins/github.com/knit-sh/knit-demo/${COMMIT}/plugin.sh" ]
+}
+
+@test "a bootstrapped import sources the materialized .knit tree offline" {
+    local id="github.com/knit-sh/knit-demo"
+    local kdir="${_KNIT_PREFIX}/plugins/${id}/${COMMIT}"
+    mkdir -p "${kdir}"
+    printf 'printf sourced >> %q\n' "${MARKER}" > "${kdir}/plugin.sh"
+    # No cache tree, and any network attempt fails: the import must use .knit.
+    _knit_github_resolve_commit_light() { return 1; }
+    knit_github_download() { return 1; }
+
+    # A 40-hex SHA ref resolves to itself offline, so no resolver is needed.
+    knit_import "demo@${COMMIT}"
+
+    [ "$(cat "${MARKER}")" = "sourced" ]
+    # The personal cache was never populated.
+    [ ! -e "${_KNIT_PLUGIN_CACHE_ROOT}/${id}/${COMMIT}" ]
+}
+
+@test "a bootstrapped import fetches to cache, copies under .knit, and sources it" {
+    local id="github.com/knit-sh/knit-demo"
+    _knit_github_resolve_commit_light() { local -n __o=$1; __o="${COMMIT}"; }
+    knit_github_download() {
+        local -n __out=$1; shift
+        local dest="$3"            # args after shift: org repo dest commit
+        mkdir -p "${dest}"
+        printf 'printf sourced >> %q\n' "${MARKER}" > "${dest}/plugin.sh"
+        __out="deadbeef"
+    }
+
+    knit_import "demo@main"
+
+    [ "$(cat "${MARKER}")" = "sourced" ]
+    # Fetched into the shared cache and copied under .knit.
+    [ -f "${_KNIT_PLUGIN_CACHE_ROOT}/${id}/${COMMIT}/plugin.sh" ]
+    [ -f "${_KNIT_PREFIX}/plugins/${id}/${COMMIT}/plugin.sh" ]
 }
 
 @test "materialization is a no-op when the cache tree is absent" {
@@ -178,9 +214,9 @@ _seed_import() {
         # $1=out $2=org $3=repo $4=ref -> a deterministic per-repo commit.
         local -n __o=$1; __o="commit_$3"
     }
-    _knit_github_download() {
+    knit_github_download() {
         local -n __out=$1; shift
-        local repo="$3" dest="$4"
+        local repo="$2" dest="$3"
         if [[ "${repo}" == "knit-parent" ]]; then
             # The parent's plugin.sh imports its child dependency.
             printf 'knit_import "child"\n' > "${dest}/plugin.sh"

@@ -59,7 +59,7 @@ _stub_curl_seq() {
 
 # Shorthand: an assistant reply whose content is the given SQL text.
 _sql_resp() {
-    _knit_jq -n --arg sql "$1" '{choices:[{message:{role:"assistant",content:$sql}}]}'
+    knit_jq -n --arg sql "$1" '{choices:[{message:{role:"assistant",content:$sql}}]}'
 }
 
 # ---------- _knit_ai_query_mode_args ----------

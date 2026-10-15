@@ -460,7 +460,7 @@ _knit_plugin_fetch() {
     local tmp
     tmp="$(mktemp -d)"
     local sha256
-    _knit_github_download sha256 _knit_framed_run "${org}" "${repo}" "${tmp}" "${commit}"
+    knit_github_download sha256 "${org}" "${repo}" "${tmp}" "${commit}"
     if [[ -n "${expected}" && "${sha256}" != "${expected}" ]]; then
         rm -rf "${tmp}"
         knit_fatal "Plugin ${host}/${org}/${repo}@${commit}: sha256 mismatch \
@@ -481,10 +481,16 @@ no plugin.sh at the repository root."
 # @fn knit_import()
 #
 # Import a plugin: resolve its spec to an exact commit, ensure that commit's code
-# is present in the content-addressed cache (sourcing from cache when present,
-# fetching it otherwise), and source its plugin.sh so its commands and decorators
-# become available. Call it at the top of the experiment, after "source knit.sh"
-# and before any use of what the plugin provides.
+# is available, and source its plugin.sh so its commands and decorators become
+# available. Call it at the top of the experiment, after "source knit.sh" and
+# before any use of what the plugin provides.
+#
+# Once the experiment is bootstrapped the code is sourced from the pinned tree
+# under ".knit/plugins/<id>/<commit>/" --- so a re-run, and a submitted job that
+# re-enters the experiment on a compute node sharing .knit, need no network and
+# no personal cache. Only when that tree is absent is the commit fetched into the
+# shared "$HOME/.cache" staging area and (when bootstrapped) copied under .knit;
+# before bootstrap, with no .knit yet, the import is sourced from the cache.
 #
 # A plugin is sourced once per canonical id ("<host>/<org>/<repo>"); a repeated
 # import of the same id dedups. Importing the same id at two different explicit
@@ -564,19 +570,41 @@ knit_import() {
     fi
     _KNIT_PLUGIN_COMMITS["${id}"]="${commit}"
 
-    local dir="${_KNIT_PLUGIN_CACHE_ROOT}/${host}/${org}/${repo}/${commit}"
+    # Decide where to source the plugin from. Once the experiment is
+    # bootstrapped, the pinned tree lives under ".knit/plugins/<id>/<commit>/" ---
+    # a location that is carried across the scheduler boundary, so a submitted
+    # job on a compute node that shares .knit sources the plugin with no cache and
+    # no network. The shared "$HOME/.cache" tree is only the download/dedup
+    # staging area: a commit is fetched into it once, then copied under .knit and
+    # sourced from there. Before bootstrap there is no .knit yet, so the import is
+    # sourced straight from the cache (and bootstrap later materializes it).
+    local knit_dir="${_KNIT_PREFIX}/plugins/${id}/${commit}"
+    local cache_dir="${_KNIT_PLUGIN_CACHE_ROOT}/${id}/${commit}"
     local checksum=""
-    if [[ ! -f "${dir}/plugin.sh" ]]; then
-        # The commit is known but not cached; offline we cannot fetch it. Defer.
-        if [[ "${KNIT_OFFLINE:-}" == "1" ]]; then
-            _knit_plugin_defer "${id}" "${ref}"
-            return 0
+    local src_dir=""
+    if _knit_is_bootstrapped && [[ -f "${knit_dir}/plugin.sh" ]]; then
+        src_dir="${knit_dir}"
+    else
+        if [[ ! -f "${cache_dir}/plugin.sh" ]]; then
+            # The commit is known but not cached; offline we cannot fetch it.
+            if [[ "${KNIT_OFFLINE:-}" == "1" ]]; then
+                _knit_plugin_defer "${id}" "${ref}"
+                return 0
+            fi
+            _knit_plugin_fetch checksum "${host}" "${org}" "${repo}" "${commit}" \
+                "${cache_dir}" "${expected_sha256}"
         fi
-        _knit_plugin_fetch checksum "${host}" "${org}" "${repo}" "${commit}" \
-            "${dir}" "${expected_sha256}"
-    fi
-    if [[ ! -f "${dir}/plugin.sh" ]]; then
-        knit_fatal "Plugin \"${id}\": no plugin.sh at ${dir}."
+        if [[ ! -f "${cache_dir}/plugin.sh" ]]; then
+            knit_fatal "Plugin \"${id}\": no plugin.sh at ${cache_dir}."
+        fi
+        # When bootstrapped, copy the commit under .knit and source that copy, so
+        # a later run (or a compute-node job sharing .knit) needs no network.
+        if _knit_is_bootstrapped; then
+            _knit_plugin_materialize "${id}"
+            src_dir="${knit_dir}"
+        else
+            src_dir="${cache_dir}"
+        fi
     fi
 
     # On a cache hit the tarball was not re-downloaded, so its checksum was not
@@ -612,7 +640,7 @@ knit_import() {
     # nested imports record it as their importer, and pop it once sourced.
     _KNIT_PLUGIN_IMPORT_STACK+=("${id}")
     # shellcheck disable=SC1091 # plugin path is resolved at runtime
-    source "${dir}/plugin.sh"
+    source "${src_dir}/plugin.sh"
     unset "_KNIT_PLUGIN_IMPORT_STACK[$(( ${#_KNIT_PLUGIN_IMPORT_STACK[@]} - 1 ))]"
 }
 
@@ -718,10 +746,13 @@ AND ${commit_ident}='${esc_commit}';")"
 # @fn _knit_plugin_materialize()
 #
 # Copy an imported plugin's pinned source tree from the shared content-addressed
-# cache into the experiment's own ".knit/plugins/<host>/<org>/<repo>/", so the
-# experiment directory carries a self-contained copy. The destination is replaced
-# atomically-enough (removed then copied). A no-op when the cache tree is absent
-# (e.g. the import was deferred offline), so bootstrap does not fail on it.
+# cache into the experiment's own ".knit/plugins/<host>/<org>/<repo>/<commit>/",
+# so the experiment directory carries a self-contained, offline copy that
+# knit_import sources once the experiment is bootstrapped. The destination is
+# keyed by commit (mirroring the cache), so changing a plugin's pin materializes
+# the new commit beside the old instead of silently reusing it. A no-op when the
+# destination already holds this commit, and a no-op when the cache tree is
+# absent (e.g. the import was deferred offline), so bootstrap does not fail on it.
 #
 # @param[in] id Canonical id ("<host>/<org>/<repo>") of a plugin in the order set.
 # ------------------------------------------------------------------------------
@@ -730,7 +761,8 @@ _knit_plugin_materialize() {
     local commit="${_KNIT_PLUGIN_COMMITS[${id}]:-}"
     local src="${_KNIT_PLUGIN_CACHE_ROOT}/${id}/${commit}"
     [[ -d "${src}" ]] || return 0
-    local dest="${_KNIT_PREFIX}/plugins/${id}"
+    local dest="${_KNIT_PREFIX}/plugins/${id}/${commit}"
+    [[ -f "${dest}/plugin.sh" ]] && return 0
     mkdir -p "$(dirname "${dest}")"
     rm -rf "${dest}"
     cp -R "${src}" "${dest}"

@@ -849,7 +849,7 @@ knit_job_hostnames() {
 
     if (( as_json )); then
         # shellcheck disable=SC2016 # $ARGS is jq syntax, not a shell variable.
-        _knit_jq -nc '$ARGS.positional' --args "${hosts[@]}"
+        knit_jq -nc '$ARGS.positional' --args "${hosts[@]}"
     else
         (( ${#hosts[@]} == 0 )) && return 0
         local out="${hosts[0]}" i

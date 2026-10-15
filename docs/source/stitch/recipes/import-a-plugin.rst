@@ -20,3 +20,8 @@ as a branch resolves to a commit on the first bootstrap and is frozen in
 ``knit-plugins.lock``, so a later run and a fresh checkout use the same code.
 Bootstrap also records each plugin in the ``plugins`` table and materializes its
 pinned tree under ``.knit/plugins/`` for a self-contained experiment directory.
+
+The worked example throughout this guide is the Spack **environment manager**,
+imported with ``knit_import spack``: it adds the ``knit_with_spack_*`` setup
+directives, the ``spack`` command, and the ``--spack`` bootstrap options. See the
+*Spack* category for what it provides.

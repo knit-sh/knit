@@ -160,6 +160,11 @@
 # directory so this bare form resolves even though the body runs elsewhere.
 source knit.sh
 
+# Spack ships as a plugin. Importing it adds the Spack environment manager used
+# by the `juliaenv` setup below (@with_spack_specs), the --spack bootstrap
+# options, and the `knit spack` wrapper.
+knit_import spack@v1.0.0
+
 knit_set_program_description \
     "A knit demo: render a Julia-set fractal with real MPI, then query the results."
 

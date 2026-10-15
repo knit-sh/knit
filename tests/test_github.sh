@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 
-# Tests for the shared GitHub tarball-download helpers (src/github.sh):
-# _knit_github_api, _knit_github_resolve_commit, and _knit_github_download. These
-# are parameterized on the repository owner (org) and take the framing callback
-# as an argument, so they are reused by Spack provisioning and by plugin imports.
+# Tests for the public GitHub tarball-download helpers (src/github.sh):
+# knit_github_api, knit_github_resolve_commit, and knit_github_download. These
+# are parameterized on the repository owner (org) so they are reused by Spack
+# provisioning, by plugin imports, and by env-manager plugins.
 
 source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
 
@@ -22,13 +22,13 @@ teardown() {
     _KNIT_IS_BOOTSTRAPPED=""
 }
 
-# ---------- _knit_github_api ----------
+# ---------- knit_github_api ----------
 
 @test "github_api sends no Authorization header when no token is set" {
     local GITHUB_TOKEN="" GH_TOKEN=""
     curl() { printf '%s\n' "$*"; }
 
-    run _knit_github_api "https://api.github.com/x"
+    run knit_github_api "https://api.github.com/x"
     [ "$status" -eq 0 ]
     [[ "$output" != *"Authorization"* ]]
     [[ "$output" == *"https://api.github.com/x"* ]]
@@ -38,7 +38,7 @@ teardown() {
     local GITHUB_TOKEN="tok123" GH_TOKEN=""
     curl() { printf '%s\n' "$*"; }
 
-    run _knit_github_api "https://api.github.com/x"
+    run knit_github_api "https://api.github.com/x"
     [ "$status" -eq 0 ]
     [[ "$output" == *"Authorization: Bearer tok123"* ]]
 }
@@ -47,29 +47,29 @@ teardown() {
     local GITHUB_TOKEN="" GH_TOKEN="ghtok"
     curl() { printf '%s\n' "$*"; }
 
-    run _knit_github_api "https://api.github.com/x"
+    run knit_github_api "https://api.github.com/x"
     [ "$status" -eq 0 ]
     [[ "$output" == *"Authorization: Bearer ghtok"* ]]
 }
 
-# ---------- _knit_github_resolve_commit ----------
+# ---------- knit_github_resolve_commit ----------
 
 @test "resolve_commit returns the sha from the GitHub commits API" {
     command -v jq >/dev/null 2>&1 || skip "jq not available"
     curl() { printf '%s' '{"sha":"deadbeef"}'; }
-    _knit_jq() { jq "$@"; }
+    knit_jq() { jq "$@"; }
 
-    run _knit_github_resolve_commit myorg myrepo "v1.0"
+    run knit_github_resolve_commit myorg myrepo "v1.0"
     [ "$status" -eq 0 ]
     [ "$output" = "deadbeef" ]
 }
 
 @test "resolve_commit targets the owner/repo/ref in the API URL" {
     # Echo the requested URL straight through so we can assert its shape.
-    _knit_github_api() { printf '%s' "$1"; }
-    _knit_jq() { cat; }
+    knit_github_api() { printf '%s' "$1"; }
+    knit_jq() { cat; }
 
-    run _knit_github_resolve_commit myorg myrepo myref
+    run knit_github_resolve_commit myorg myrepo myref
     [ "$status" -eq 0 ]
     [ "$output" = "https://api.github.com/repos/myorg/myrepo/commits/myref" ]
 }
@@ -77,9 +77,9 @@ teardown() {
 @test "resolve_commit is fatal when the API returns no sha" {
     command -v jq >/dev/null 2>&1 || skip "jq not available"
     curl() { printf '%s' '{}'; }
-    _knit_jq() { jq "$@"; }
+    knit_jq() { jq "$@"; }
 
-    run _knit_github_resolve_commit myorg myrepo "nope"
+    run knit_github_resolve_commit myorg myrepo "nope"
     [ "$status" -ne 0 ]
     [[ "$output" == *"Could not resolve"* ]]
 }
@@ -87,8 +87,8 @@ teardown() {
 # ---------- _knit_github_resolve_commit_light ----------
 
 @test "resolve_commit_light extracts the sha from the API without jq" {
-    # No _knit_jq stub: the light resolver must not depend on jq.
-    _knit_github_api() {
+    # No knit_jq stub: the light resolver must not depend on jq.
+    knit_github_api() {
         printf '%s' '{"sha": "0123456789abcdef0123456789abcdef01234567", "node_id": "x"}'
     }
     local sha
@@ -97,27 +97,27 @@ teardown() {
 }
 
 @test "resolve_commit_light returns non-zero when the API returns no sha" {
-    _knit_github_api() { printf '%s' '{"message":"Not Found"}'; }
+    knit_github_api() { printf '%s' '{"message":"Not Found"}'; }
     local sha="unset"
     run _knit_github_resolve_commit_light sha myorg myrepo "nope"
     [ "$status" -ne 0 ]
 }
 
 @test "resolve_commit_light returns non-zero when the API call fails" {
-    _knit_github_api() { return 22; }
+    knit_github_api() { return 22; }
     local sha="unset"
     run _knit_github_resolve_commit_light sha myorg myrepo "v1.0"
     [ "$status" -ne 0 ]
 }
 
-# ---------- _knit_github_download ----------
+# ---------- knit_github_download ----------
 
 @test "download curls the archive, extracts stripping one level, and returns the sha256" {
     local -a cmds=()
     local content="knit-plugin-tarball-bytes"
-    # Framing callback: record each command and, for the download, write known
-    # bytes to the "-o" target so the sha256 is deterministic.
-    fake_framed() {
+    # Stub the framed runner: record each framed command and, for the download,
+    # write known bytes to the "-o" target so the sha256 is deterministic.
+    knit_framed_run() {
         shift   # drop the title
         cmds+=("$*")
         if [[ "$1" == curl ]]; then
@@ -132,7 +132,7 @@ teardown() {
     }
 
     local sha256
-    _knit_github_download sha256 fake_framed myorg myrepo "${DEST}" "abc123"
+    knit_github_download sha256 myorg myrepo "${DEST}" "abc123"
 
     # First call downloads archive/<sha>.tar.gz from the owner/repo.
     [[ "${cmds[0]}" == "curl -L -o "*"https://github.com/myorg/myrepo/archive/abc123.tar.gz" ]]
@@ -148,9 +148,9 @@ teardown() {
 }
 
 @test "download is fatal when the download fails" {
-    fail_framed() { return 1; }
+    knit_framed_run() { return 1; }
     local sha256
-    run _knit_github_download sha256 fail_framed myorg myrepo "${DEST}" "abc123"
+    run knit_github_download sha256 myorg myrepo "${DEST}" "abc123"
     [ "$status" -ne 0 ]
     [[ "$output" == *"Could not download"* ]]
 }

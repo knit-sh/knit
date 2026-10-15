@@ -40,9 +40,11 @@ teardown() {
 }
 
 @test "resolve_subcommand resolves a wrapper to itself without consuming its args" {
+    knit_register_wrapper "mywrap" knit_empty "A wrapper."
+    knit_done
     local cmd consumed
-    knit_resolve_subcommand cmd consumed spack install zlib
-    [ "${cmd}" = "spack" ]
+    knit_resolve_subcommand cmd consumed mywrap install zlib
+    [ "${cmd}" = "mywrap" ]
     [ "${consumed}" -eq 1 ]
 }
 
@@ -98,7 +100,9 @@ teardown() {
 }
 
 @test "check_subcommand_args short-circuits a wrapper target" {
-    knit_check_subcommand_args spack install zlib
+    knit_register_wrapper "mywrap" knit_empty "A wrapper."
+    knit_done
+    knit_check_subcommand_args mywrap install zlib
 }
 
 @test "check_subcommand_args short-circuits a --help request" {

@@ -15,6 +15,9 @@
 
 source knit.sh
 
+# Spack is provided by a plugin. Import it before using its setup directives.
+knit_import spack
+
 knit_set_program_description "Render a Julia-set fractal."
 
 # The setup is exactly the one from Step 2: it builds and installs julia-fractal.

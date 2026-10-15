@@ -13,6 +13,9 @@
 
 source knit.sh
 
+# Spack is provided by a plugin. Import it before using its setup directives.
+knit_import spack
+
 # START setup
 # Ask Spack for MPICH and expose it as the launcher. Activating the Spack
 # environment (which knit does before the body runs) puts mpicc / mpirun on PATH,

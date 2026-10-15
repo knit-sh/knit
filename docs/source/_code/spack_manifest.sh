@@ -12,6 +12,9 @@
 
 source knit.sh
 
+# Spack is provided by a plugin. Import it before using its setup directives.
+knit_import spack
+
 # START env-file
 # Point @with_spack_env at a spack.yaml checked in next to the experiment.
 # The manifest gives full control (versions, variants, compilers, views).

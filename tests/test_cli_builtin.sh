@@ -32,8 +32,11 @@ teardown() {
     _knit_command_is_builtin "${cmd}"
 }
 
-@test "the spack wrapper is marked builtin" {
-    _knit_command_is_builtin "spack"
+@test "a wrapper marked builtin reports builtin" {
+    knit_register_wrapper "mywrap" knit_empty "A wrapper."
+    _knit_is_builtin
+    knit_done
+    _knit_command_is_builtin "mywrap"
 }
 
 # ---------- user commands are not builtin ----------

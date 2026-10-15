@@ -5,13 +5,17 @@
    description: List the Spack packages a setup needs and let knit build them.
    apis: knit_with_spack_specs, knit_register_setup, KNIT_SETUP_PREFIX
 
+Spack is a Knit **plugin**: import it once with ``knit_import spack`` just after
+``source knit.sh``, and the ``knit_with_spack_*`` setup directives become
+available.
+
 For the common "just install these packages" case, list the Spack specs a setup
 needs with ``knit_with_spack_specs``. Knit synthesizes a minimal ``spack.yaml``
 and, before the setup body runs, installs the specs into a Spack environment and
 activates it --- so the tools are on ``PATH`` / ``LD_LIBRARY_PATH`` when you build
-into ``KNIT_SETUP_PREFIX``. The Spack it uses is knit's own, installed under
-``.knit/`` and isolated from any Spack you have on the machine (see *Run Spack
-directly* and *Isolate Spack from your personal config*); declaring a
+into ``KNIT_SETUP_PREFIX``. The Spack the plugin uses is Knit's own, installed
+under ``.knit/`` and isolated from any Spack you have on the machine (see *Run
+Spack directly* and *Isolate Spack from your personal config*); declaring a
 Spack-backed setup makes ``bootstrap`` provision that Spack automatically:
 
 .. knit-code:: /_code/julia_setup.sh

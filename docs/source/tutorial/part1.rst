@@ -128,8 +128,25 @@ command:
    :start-after: # START setup
    :end-before: # END setup
 
+``@with_spack_specs`` is your first encounter with two Knit ideas. Spack is an
+**environment manager** --- a tool Knit drives to build and activate a software
+environment for a setup --- and in Knit it ships as a **plugin**: a small,
+versioned add-on rather than part of the core. You pull a plugin in near the top
+of the experiment, right after ``source knit.sh``:
+
+.. code-block:: bash
+
+   source knit.sh
+   knit_import spack     # the Spack environment-manager plugin
+
+That single line is what makes the ``@with_spack_*`` directives --- and a
+``spack`` command you meet in Step 8 --- available. Importing it unpinned is fine
+for the tutorial; ``bootstrap`` freezes the exact version in
+``knit-plugins.lock``. Other environment managers can be imported the same way;
+this tutorial uses Spack as the worked example.
+
 Two things make this reproducible. ``@with_spack_specs`` declares a
-`Spack <https://spack.io/>`_ environment: Knit will use Spack to build
+`Spack <https://spack.io/>`_ environment: Knit uses the Spack plugin to build
 ``cmake`` and ``libpng`` and activates them *before* the body runs, so
 the body finds them regardless of what the host has installed.
 And ``KNIT_SETUP_PREFIX`` is a private directory
@@ -142,8 +159,9 @@ overwriting it. This is similar to how environment-modules or lmod work.
 
 .. note::
 
-   Because a Spack-backed setup is now declared, the next time
-   ``exp.sh`` is executed, Knit will download Spack.
+   Because a Spack-backed setup is now declared, Knit provisions Spack the next
+   time ``exp.sh`` runs: the Spack plugin installs Knit's own copy of Spack under
+   ``.knit``, isolated from any Spack already on the machine.
 
 We can now instanciate our setup:
 
@@ -796,9 +814,9 @@ can read it too. Use ``--force`` with ``metadata store`` to overwrite an existin
 key.
 
 **Inspect the Spack environment, with** ``spack``. The setup provisioned its
-dependencies with Spack; the ``spack`` wrapper runs any Spack command inside that
-same provisioned environment, so you can confirm what got built or examine a
-concrete spec:
+dependencies with Spack; the ``spack`` wrapper --- provided by the Spack plugin
+you imported in Step 2 --- runs any Spack command inside that same provisioned
+environment, so you can confirm what got built or examine a concrete spec:
 
 .. code-block:: console
 
@@ -867,9 +885,9 @@ and a ``spack`` block carrying Spack configuration. Typically that is a
 ``packages`` section naming vendor packages (the system MPI, for instance) as
 non-buildable externals and requiring the ``mpi`` virtual to resolve to them, so
 a setup's Spack environment reuses the vendor build instead of recompiling it.
-The ``spack`` block is handed to Spack verbatim, so it may hold any Spack config
-section (``packages``, ``mirrors`` for an air-gapped mirror, ``concretizer``,
-...). A profile spec can also be a URL or a path to a local JSON file, so a site
+Knit records the ``spack`` block as-is and the Spack plugin's environment ingests
+it verbatim, so it may hold any Spack config section (``packages``, ``mirrors``
+for an air-gapped mirror, ``concretizer``, ...). A profile spec can also be a URL or a path to a local JSON file, so a site
 or a collaborator can hand you one that is not in the Knit repository.
 
 **Bootstrap under the profile.** On the cluster, bootstrap the experiment and

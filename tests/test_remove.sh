@@ -38,7 +38,7 @@ _seed_remove_db() {
         CREATE TABLE \"resource:data\" (id TEXT, name TEXT, directory TEXT);
         CREATE TABLE julia (id TEXT);
         CREATE TABLE foo (id TEXT);
-        CREATE TABLE spack (id TEXT, args TEXT);
+        CREATE TABLE mywrap (id TEXT, args TEXT);
         CREATE TABLE render (id TEXT, metrics TEXT, frame TEXT, input_data TEXT);
         CREATE TABLE __provenance__ (source_id TEXT, source_name TEXT,
             target_id TEXT, target_name TEXT, edge_type TEXT,
@@ -57,7 +57,7 @@ _seed_remove_db() {
         INSERT INTO \"resource:data\" VALUES ('D1','mydata','resources/mydata');
         INSERT INTO julia VALUES ('A1');
         INSERT INTO foo VALUES ('F1');
-        INSERT INTO spack VALUES ('W1','install zlib');
+        INSERT INTO mywrap VALUES ('W1','install zlib');
         INSERT INTO render VALUES
             ('R1','/data/metrics.json','frame.png','/in/data'),
             ('R2','','','');
@@ -77,13 +77,13 @@ _seed_remove_db() {
     _KNIT_DB_REGISTERED_TABLES["resource:data"]="fetch:data"
     _KNIT_DB_REGISTERED_TABLES[julia]="run:julia"
     _KNIT_DB_REGISTERED_TABLES[foo]="foo"
-    _KNIT_DB_REGISTERED_TABLES[spack]="spack"
+    _KNIT_DB_REGISTERED_TABLES[mywrap]="mywrap"
     _KNIT_DB_REGISTERED_TABLES[render]="submit:render"
     printf -v "_KNIT_CMD_setup__1__juliaenv_type" '%s' setup
     printf -v "_KNIT_CMD_fetch__1__data_type" '%s' resource
     printf -v "_KNIT_CMD_run__1__julia_type" '%s' app
     printf -v "_KNIT_CMD_foo_type" '%s' command
-    printf -v "_KNIT_CMD_spack_type" '%s' wrapper
+    printf -v "_KNIT_CMD_mywrap_type" '%s' wrapper
     printf -v "_KNIT_CMD_submit__1__render_type" '%s' job
     # File-parameter markers for the render job body (owner of the "render"
     # table): a plain file output "metrics", an artifact output "frame", and an
@@ -503,7 +503,7 @@ _fs_fixture() {
 
 @test "resolve command --type covers a wrapper table" {
     local -a ids=()
-    _knit_remove_resolve_selection ids command --type spack
+    _knit_remove_resolve_selection ids command --type mywrap
     [ "${#ids[@]}" -eq 1 ]
     [ "${ids[0]}" = "W1" ]
 }
@@ -577,7 +577,7 @@ _fs_fixture() {
     _knit_remove_table_kind k "resource:data";    [ "${k}" = "resource" ]
     _knit_remove_table_kind k julia;              [ "${k}" = "app" ]
     _knit_remove_table_kind k foo;                [ "${k}" = "command" ]
-    _knit_remove_table_kind k spack;              [ "${k}" = "command" ]
+    _knit_remove_table_kind k mywrap;              [ "${k}" = "command" ]
     _knit_remove_table_kind k unregistered;       [ -z "${k}" ]
 }
 
@@ -777,7 +777,7 @@ _fs_fixture() {
     [ "${id_table[U1]}" = "runs" ];           [ "${id_kind[U1]}" = "run" ]
     [ "${id_table[A1]}" = "julia" ];          [ "${id_kind[A1]}" = "app" ]
     [ "${id_table[F1]}" = "foo" ];            [ "${id_kind[F1]}" = "command" ]
-    [ "${id_table[W1]}" = "spack" ];          [ "${id_kind[W1]}" = "command" ]
+    [ "${id_table[W1]}" = "mywrap" ];          [ "${id_kind[W1]}" = "command" ]
     [ "${id_table[P1]}" = "artifacts" ];      [ "${id_kind[P1]}" = "artifact" ]
 }
 

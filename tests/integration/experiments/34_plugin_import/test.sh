@@ -6,7 +6,7 @@
 #     host API, tarball download, checksum verify, cache, source)
 #   - bootstrap recording the plugin: the committed knit-plugins.lock, the
 #     "plugins" provenance table row, and the materialized tree under
-#     .knit/plugins/<host>/<org>/<repo>/
+#     .knit/plugins/<host>/<org>/<repo>/<commit>/
 #   - running a command the plugin defines (template hello), including its
 #     decorator banner and its write under the .knit directory
 #
@@ -71,12 +71,16 @@ check_sqlite ".knit/knit.db" \
 
 # --------------------------------------------------------------------------
 # The pinned tree is materialized under .knit for a self-contained directory.
+# The destination is keyed by commit (.knit/plugins/<id>/<commit>/), so resolve
+# the recorded commit and check that exact path.
 # --------------------------------------------------------------------------
-check_file ".knit/plugins/${PLUGIN_ID}/plugin.sh" \
-    "plugin tree materialized under .knit/plugins"
+PLUGIN_COMMIT="$("${__ASSERT_SQLITE3}" ".knit/knit.db" \
+    "SELECT \"commit\" FROM plugins WHERE repo='knit-template-plugin';")"
+check_file ".knit/plugins/${PLUGIN_ID}/${PLUGIN_COMMIT}/plugin.sh" \
+    "plugin tree materialized under .knit/plugins/<id>/<commit>"
 
 # --------------------------------------------------------------------------
-# A command the plugin defines runs (cache hit; no network this time).
+# A command the plugin defines runs (sourced from .knit; no network this time).
 # --------------------------------------------------------------------------
 HELLO_OUT=$(./experiment.sh template hello --name Grace)
 check_grep "Hello, Grace!" <(printf '%s\n' "${HELLO_OUT}") \

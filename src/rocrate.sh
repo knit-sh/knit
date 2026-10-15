@@ -72,7 +72,7 @@ _knit_rocrate_outputs_json() {
         return 0
     fi
     # shellcheck disable=SC2016 # $ARGS is a jq variable, not a shell one
-    _knit_jq -nc '$ARGS.positional' --args "${names[@]}"
+    knit_jq -nc '$ARGS.positional' --args "${names[@]}"
 }
 
 # ------------------------------------------------------------------------------
@@ -119,7 +119,7 @@ _knit_rocrate_rows_json() {
         rows_json="$(_knit_sqlite3 -json "SELECT * FROM ${tbl_ident};")"
         [[ -z "${rows_json}" ]] && rows_json="[]"
         # shellcheck disable=SC2016 # $rows etc. are jq variables, not shell ones
-        parts+=("$(_knit_jq --argjson rows "${rows_json}" --arg table "${table}" \
+        parts+=("$(knit_jq --argjson rows "${rows_json}" --arg table "${table}" \
             --arg command "${cmd}" --argjson outputs "${outputs_json}" -n \
             '$rows | map({id: (.id // ""), table: $table, command: $command, outputs: $outputs, cols: .})')")
     done
@@ -127,7 +127,7 @@ _knit_rocrate_rows_json() {
         printf '[]\n'
         return 0
     fi
-    printf '%s\n' "${parts[@]}" | _knit_jq -s 'add // []'
+    printf '%s\n' "${parts[@]}" | knit_jq -s 'add // []'
 }
 
 # ------------------------------------------------------------------------------
@@ -161,7 +161,7 @@ _knit_rocrate_files_json() {
         stream+="${rel}${us}${name}${us}${dir}${us}${fmt}${nl}"
     done
     # shellcheck disable=SC2016 # $script_rel etc. are jq variables, not shell ones
-    printf '%s' "${stream}" | _knit_jq -R -s \
+    printf '%s' "${stream}" | knit_jq -R -s \
         --arg script_rel "${script_rel}" --arg job_rel "${job_rel}" '
         split("\n") | map(select(length > 0)) | map(split("\u001f"))
         | map({ path: .[0], name: .[1], dir: (.[2] == "1"),
@@ -300,7 +300,7 @@ _knit_bundle_rocrate_generate() {
               + $apps + $data_entities + $pv_entities + $actions ) }'
 
     local manifest
-    manifest="$(_knit_jq -n \
+    manifest="$(knit_jq -n \
         --argjson edges "${edges_json}" \
         --argjson rows "${rows_json}" \
         --argjson files "${files_json}" \

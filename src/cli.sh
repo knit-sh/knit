@@ -3402,7 +3402,7 @@ _knit_build_constraint_json() {
             *)                    jq_args+=("--arg"      "${key}" "${val}") ;;
         esac
     done
-    _knit_jq "${jq_args[@]}" "\$ARGS.named"
+    knit_jq "${jq_args[@]}" "\$ARGS.named"
 }
 
 # ------------------------------------------------------------------------------
@@ -3448,7 +3448,7 @@ _knit_check_constraints() {
             when_var="_KNIT_CMD_${cmd}_2_${param}_when"
             [[ ! -v "${when_var}" ]] && continue
             when_expr="${!when_var}"
-            cond_result=$(_knit_jq -n --argjson _obj "${json}" "\$_obj | ${when_expr}")
+            cond_result=$(knit_jq -n --argjson _obj "${json}" "\$_obj | ${when_expr}")
             if [[ "${cond_result}" != "true" && "${cond_result}" != "false" ]]; then
                 knit_fatal "Constraint expression for --${param} in \"${demangled_cmd}\" did not evaluate to a boolean."
             fi
