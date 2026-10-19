@@ -118,3 +118,238 @@ _knit_bootstrap_pilotd() {
     knit metadata store --key "__knit_pilotd_version__" --value "${version}"
     knit metadata store --key "__knit_pilotd_url__"     --value "${url}"
 }
+
+# ------------------------------------------------------------------------------
+# @var KNIT_PILOT
+#
+# Public environment variable exported into a pilot job body (and inherited by
+# every command it runs) to signal that an in-allocation knit-pilotd daemon is
+# active. Its presence lifts the nested-submit guard (see
+# _knit_pilot_reject_nested_submit) and retargets `knit submit` to the pilot
+# scheduler. A sub-job launched by the daemon has it unset, so a sub-job cannot
+# itself act as a pilot (no nested pilots).
+# ------------------------------------------------------------------------------
+declare -gx KNIT_PILOT
+
+# ------------------------------------------------------------------------------
+# @var KNIT_PILOT_SOCK
+#
+# Public environment variable exported alongside KNIT_PILOT: the path of the
+# knit-pilotd control socket the pilot job's body (and its `knit submit` calls)
+# use to talk to the daemon.
+# ------------------------------------------------------------------------------
+declare -gx KNIT_PILOT_SOCK
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PILOT_DAEMON_PID
+#
+# PID of the knit-pilotd daemon the pilot before-callback started, kept so the
+# after-callback can reap it. Lives only within the pilot job body's process.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_PILOT_DAEMON_PID
+
+# ------------------------------------------------------------------------------
+# @fn _knit_pilot_reject_nested_submit()
+#
+# The nested-submit guard. `knit submit` is allowed on the login node and, inside
+# a pilot job, retargeted to the in-allocation daemon; everywhere else inside a
+# job body it is rejected. Returns 0 (allow) when not inside a job body
+# (KNIT_JOB_PREFIX unset — the ordinary login-side submission) or when a pilot is
+# active (KNIT_PILOT set); otherwise it is a nested submission from a non-pilot
+# job body and fatals, naming knit_with_pilot. Called at the top of _knit_submit,
+# which only the real `submit -- <job>` dispatch reaches — the compute-side body
+# re-entry runs `submit <job>` (no --) straight into the job function, so this
+# never blocks a job from starting.
+# ------------------------------------------------------------------------------
+_knit_pilot_reject_nested_submit() {
+    [[ -v KNIT_JOB_PREFIX ]] || return 0
+    [[ -n "${KNIT_PILOT:-}" ]] && return 0
+    knit_fatal "\"knit submit\" cannot be called from inside a job body.\nTo run sub-jobs on the job's own allocation, declare the job a pilot with knit_with_pilot."
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_pilot_build_nodelist()
+#
+# Print the comma-separated node list for the pilot daemon's resource pool: the
+# deduplicated hostnames the pilot job was allocated (knit_job_hostnames). When
+# exclude_launch_host is non-empty, the daemon's own host is dropped from the
+# pool if present — compared on the short (pre-dot) name so it matches whether
+# the allocation reports short names or FQDNs. The drop is a no-op when the host
+# is not in the pool (a separate launch/service node). Prints the empty string
+# when no node remains.
+#
+# @param[in] exclude_launch_host Non-empty to drop the local host from the pool.
+# ------------------------------------------------------------------------------
+_knit_pilot_build_nodelist() {
+    local exclude_launch_host="$1"
+    local -a hosts=()
+    mapfile -t hosts < <(knit_job_hostnames)
+    if [[ -n "${exclude_launch_host}" ]]; then
+        local self short
+        self="$(hostname)"
+        short="${self%%.*}"
+        local -a kept=()
+        local h
+        for h in "${hosts[@]}"; do
+            [[ "${h%%.*}" == "${short}" ]] && continue
+            kept+=("${h}")
+        done
+        hosts=("${kept[@]}")
+    fi
+    local out="" h
+    for h in "${hosts[@]}"; do
+        out+="${out:+,}${h}"
+    done
+    printf '%s\n' "${out}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_pilot_before_cb()
+#
+# Before-callback installed by knit_with_pilot, run after the generic job
+# before-callback (so the allocation's hostnames are already discoverable). It
+# builds the resource inventory — the node pool (knit_job_hostnames, less the
+# launch host when --exclude-launch-host) plus the per-node core/GPU counts from
+# bootstrap metadata — starts knit-pilotd on a control socket under the job
+# directory, waits for the socket to appear, and exports KNIT_PILOT /
+# KNIT_PILOT_SOCK so the body's `knit submit` calls reach the daemon. The node
+# pool is built before KNIT_PILOT is exported so host discovery still resolves
+# the real scheduler backend. Daemon output goes to <jobdir>/pilot.log.
+#
+# @param[in] exclude_launch_host Non-empty to drop the local host from the pool.
+# @param[in] ... The job's own runtime arguments (ignored).
+# ------------------------------------------------------------------------------
+_knit_pilot_before_cb() {
+    local exclude_launch_host="$1"
+    local sock="${KNIT_JOB_PREFIX}/pilot.sock"
+
+    local nodes
+    nodes="$(_knit_pilot_build_nodelist "${exclude_launch_host}")"
+    if [[ -z "${nodes}" ]]; then
+        knit_fatal "Pilot job has no nodes to schedule onto (empty allocation after --exclude-launch-host?)."
+    fi
+
+    local cores gpus
+    _knit_metadata_get cores "__node_ncpus__"
+    _knit_metadata_get gpus "__node_ngpus__"
+    local -a daemon_args=(daemon --socket "${sock}" --nodes "${nodes}")
+    [[ -n "${cores}" ]] && daemon_args+=(--cores-per-node "${cores}")
+    [[ -n "${gpus}" ]] && daemon_args+=(--gpus-per-node "${gpus}")
+
+    "${_KNIT_PILOTD_EXE}" "${daemon_args[@]}" \
+        >> "${KNIT_JOB_PREFIX}/pilot.log" 2>&1 &
+    _KNIT_PILOT_DAEMON_PID=$!
+
+    # Wait (bounded) for the daemon to bind its control socket, bailing out early
+    # if it dies before it does.
+    local i
+    for (( i = 0; i < 100; i++ )); do
+        [[ -S "${sock}" ]] && break
+        kill -0 "${_KNIT_PILOT_DAEMON_PID}" 2>/dev/null || break
+        sleep 0.05
+    done
+    if [[ ! -S "${sock}" ]]; then
+        knit_fatal "knit-pilotd did not create its control socket at \"${sock}\". See ${KNIT_JOB_PREFIX}/pilot.log for details."
+    fi
+
+    export KNIT_PILOT=1
+    export KNIT_PILOT_SOCK="${sock}"
+    knit_trace "Started knit-pilotd (pid ${_KNIT_PILOT_DAEMON_PID}) over nodes: ${nodes}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_pilot_after_cb()
+#
+# After-callback installed by knit_with_pilot. Ask the daemon to shut down over
+# its control socket and reap it, so the daemon never outlives the pilot job. A
+# no-op when no daemon was started (KNIT_PILOT_SOCK unset).
+# ------------------------------------------------------------------------------
+_knit_pilot_after_cb() {
+    [[ -n "${KNIT_PILOT_SOCK:-}" ]] || return 0
+    "${_KNIT_PILOTD_EXE}" shutdown --socket "${KNIT_PILOT_SOCK}" \
+        >> "${KNIT_JOB_PREFIX}/pilot.log" 2>&1 || true
+    if [[ -n "${_KNIT_PILOT_DAEMON_PID:-}" ]]; then
+        wait "${_KNIT_PILOT_DAEMON_PID}" 2>/dev/null || true
+    fi
+    unset KNIT_PILOT KNIT_PILOT_SOCK
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_with_pilot()
+#
+# Declare that the job currently being registered is a pilot job: one that may
+# call `knit submit` in its body to schedule sub-jobs onto its own allocation,
+# through an in-allocation knit-pilotd daemon instead of the machine scheduler.
+# Must be called between knit_register_job and knit_done, at most once per job.
+#
+# Valid only for jobs. Setups, wrappers, apps, and plain commands are rejected
+# with a clear fatal (only a job has an allocation to schedule onto).
+#
+# Options (flags to the decorator, stored on the command's pilot markers):
+#   --exclude-launch-host  Drop the daemon's own host from the node pool when it
+#                          is part of the allocation (for systems where the job
+#                          script shares the first compute node). A no-op on
+#                          separate launch/service-node systems.
+#   --kill-on-exit         When the body returns with sub-jobs still outstanding,
+#                          kill them instead of draining (the default).
+#
+# It installs a before-callback that starts the daemon and exports KNIT_PILOT /
+# KNIT_PILOT_SOCK, and an after-callback that stops it.
+#
+# Example:
+# ```
+# knit_register_job "campaign" _campaign "Run many sub-jobs in one allocation."
+# knit_with_pilot
+# _campaign() {
+#     local ids=""
+#     local seed
+#     for seed in 1 2 3; do
+#         ids+="${ids:+,}$(knit submit --nodes 2 -- simulate --seed "${seed}")"
+#     done
+#     knit job wait --id "${ids}"
+# }
+# knit_done
+# ```
+# ------------------------------------------------------------------------------
+knit_with_pilot() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_pilot must be called between a knit_register_job call and knit_done."
+    fi
+    # Pilot is a job-only decorator. The submit:* gate also rejects setups,
+    # wrappers, apps, and plain commands (none mangle to submit:*), each with a
+    # clear fatal.
+    if [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" != submit:* ]]; then
+        knit_fatal "knit_with_pilot is valid only for jobs; it must be called between knit_register_job and knit_done."
+    fi
+
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local marker_var="_KNIT_CMD_${cmd}_pilot"
+    if [[ -n "${!marker_var:-}" ]]; then
+        knit_fatal "knit_with_pilot may be called at most once per job."
+    fi
+
+    local exclude_launch_host="" kill_on_exit=""
+    while (( $# )); do
+        case "$1" in
+            --exclude-launch-host) exclude_launch_host=1; shift ;;
+            --kill-on-exit)        kill_on_exit=1; shift ;;
+            *) knit_fatal "knit_with_pilot: unknown option \"$1\"." ;;
+        esac
+    done
+
+    printf -v "${marker_var}" '%s' '1'
+    [[ -n "${exclude_launch_host}" ]] \
+        && printf -v "_KNIT_CMD_${cmd}_pilot_exclude_launch_host" '%s' '1'
+    [[ -n "${kill_on_exit}" ]] \
+        && printf -v "_KNIT_CMD_${cmd}_pilot_kill_on_exit" '%s' '1'
+    knit_trace "Job \"${_KNIT_CURRENT_COMMAND_DEMANGLED}\" is a pilot job."
+
+    # Advertise the pilot in the command's `--help` (see the "Requirements"
+    # section rendered by _knit_print_command_usage).
+    # shellcheck disable=SC2178 # nameref to the command's notes array
+    local -n _notes_ref="_KNIT_CMD_${cmd}_notes"
+    _notes_ref+=("Pilot job: may call \"knit submit\" in its body to run sub-jobs on its own allocation.")
+
+    knit_run_before _knit_pilot_before_cb "${exclude_launch_host}"
+    knit_run_after  _knit_pilot_after_cb
+}
