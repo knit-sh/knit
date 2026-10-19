@@ -254,20 +254,124 @@ _knit_pilot_before_cb() {
 
     export KNIT_PILOT=1
     export KNIT_PILOT_SOCK="${sock}"
+
+    # A kill of the pilot job must tear the daemon down too, so override the
+    # generic job kill-trap (installed by _knit_job_before_cb, which ran first)
+    # with the pilot-aware one: it kills every sub-job and reconciles their rows
+    # before the pilot records itself killed.
+    trap '_knit_pilot_killed_trap' HUP TERM USR1
+
     knit_trace "Started knit-pilotd (pid ${_KNIT_PILOT_DAEMON_PID}) over nodes: ${nodes}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_pilot_record_subjob()
+#
+# Record a sub-job UUID the pilot submitted, one per line, in a tracking file
+# under the pilot job directory. Teardown reads this list to reconcile sub-jobs
+# the daemon killed or dropped: a running sub-job records its own "killed" when
+# signalled, but a still-queued sub-job never started a knit process and would
+# otherwise stay "submitted", so the pilot marks it killed from this list. A
+# no-op when not inside a pilot job directory (e.g. under unit tests).
+#
+# @param[in] id The sub-job UUID just queued with the daemon.
+# ------------------------------------------------------------------------------
+_knit_pilot_record_subjob() {
+    local id="$1"
+    [[ -n "${KNIT_JOB_PREFIX:-}" && -d "${KNIT_JOB_PREFIX}" ]] || return 0
+    printf '%s\n' "${id}" >> "${KNIT_JOB_PREFIX}/.pilot.subjobs"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_pilot_mark_outstanding_killed()
+#
+# Mark every sub-job the pilot submitted that is not already in a terminal state
+# as "killed" in the jobs table. Called from the kill paths (a killed pilot, or
+# --kill-on-exit) after the daemon has been told to kill/drop outstanding
+# sub-jobs: it closes the gap for queued sub-jobs that never started a process of
+# their own (and so never recorded a terminal state) and is a harmless idempotent
+# re-write for running sub-jobs whose own kill-trap already recorded "killed".
+# Best-effort and gated on bootstrap; a sub-job with no row (unknown state) is
+# skipped. Reads the tracking file written by _knit_pilot_record_subjob.
+# ------------------------------------------------------------------------------
+_knit_pilot_mark_outstanding_killed() {
+    _knit_is_bootstrapped || return 0
+    local file="${KNIT_JOB_PREFIX:-}/.pilot.subjobs"
+    [[ -r "${file}" ]] || return 0
+    local id esc state
+    while IFS= read -r id || [[ -n "${id}" ]]; do
+        [[ -z "${id}" ]] && continue
+        _knit_sql_escape esc "${id}"
+        state="$(_knit_sqlite3 \
+            "SELECT state FROM ${_KNIT_JOBS_TABLE} WHERE id='${esc}';" \
+            2>/dev/null)" || state=""
+        case "${state}" in
+            ""|completed|failed|killed) continue ;;
+            *) _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${id}" "state=killed" \
+                   2>/dev/null || true ;;
+        esac
+    done < "${file}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_pilot_teardown_kill()
+#
+# Tear the pilot down the hard way: tell the daemon to kill every running
+# sub-job's process group and drop every queued one (shutdown --kill, which also
+# makes the daemon exit), then reconcile the sub-job rows so none is left
+# "submitted" or "running". Shared by the --kill-on-exit body-exit policy and the
+# pilot's kill-trap. A no-op when no daemon was started (KNIT_PILOT_SOCK unset).
+# ------------------------------------------------------------------------------
+_knit_pilot_teardown_kill() {
+    [[ -n "${KNIT_PILOT_SOCK:-}" ]] || return 0
+    "${_KNIT_PILOTD_EXE}" shutdown --kill --socket "${KNIT_PILOT_SOCK}" \
+        >> "${KNIT_JOB_PREFIX}/pilot.log" 2>&1 || true
+    _knit_pilot_mark_outstanding_killed
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_pilot_killed_trap()
+#
+# Kill-trap for a pilot job, replacing the generic _knit_job_killed_trap on
+# HUP/TERM/USR1 (a cancel, an out-of-time or walltime kill). It first tears the
+# daemon down and marks all outstanding sub-jobs killed, so a killed pilot never
+# leaves a sub-job "running" or lost, then chains to the generic trap to record
+# the pilot itself "killed" and exit. This is also the path a walltime kill
+# arriving mid-drain falls through to: the signal interrupts the blocking drain
+# in the after-callback and runs this instead.
+# ------------------------------------------------------------------------------
+_knit_pilot_killed_trap() {
+    _knit_pilot_teardown_kill
+    _knit_job_killed_trap
 }
 
 # ------------------------------------------------------------------------------
 # @fn _knit_pilot_after_cb()
 #
-# After-callback installed by knit_with_pilot. Ask the daemon to shut down over
-# its control socket and reap it, so the daemon never outlives the pilot job. A
-# no-op when no daemon was started (KNIT_PILOT_SOCK unset).
+# After-callback installed by knit_with_pilot, applying the body-exit policy for
+# sub-jobs still outstanding when the body returns. Default (drain): ask the
+# daemon to run every submitted sub-job to completion, blocking until it has, then
+# exit — the safe "don't lose work" default, so each sub-job records its own
+# terminal state. With --kill-on-exit: instead kill outstanding (running +
+# queued) sub-jobs and mark them killed (_knit_pilot_teardown_kill). Either way
+# the daemon is then reaped. A no-op when no daemon was started (KNIT_PILOT_SOCK
+# unset). A walltime kill mid-drain does not reach here: the kill-trap
+# (_knit_pilot_killed_trap) runs instead.
+#
+# @param[in] kill_on_exit Non-empty to kill outstanding sub-jobs instead of draining.
 # ------------------------------------------------------------------------------
 _knit_pilot_after_cb() {
+    local kill_on_exit="$1"
     [[ -n "${KNIT_PILOT_SOCK:-}" ]] || return 0
-    "${_KNIT_PILOTD_EXE}" shutdown --socket "${KNIT_PILOT_SOCK}" \
-        >> "${KNIT_JOB_PREFIX}/pilot.log" 2>&1 || true
+    if [[ -n "${kill_on_exit}" ]]; then
+        _knit_pilot_teardown_kill
+    else
+        # Drain: block until the daemon has run every submitted sub-job to
+        # completion, then it exits. Each sub-job records its own terminal state,
+        # so no reconciliation is needed on this path.
+        "${_KNIT_PILOTD_EXE}" shutdown --socket "${KNIT_PILOT_SOCK}" \
+            >> "${KNIT_JOB_PREFIX}/pilot.log" 2>&1 || true
+    fi
     if [[ -n "${_KNIT_PILOT_DAEMON_PID:-}" ]]; then
         wait "${_KNIT_PILOT_DAEMON_PID}" 2>/dev/null || true
     fi
@@ -351,7 +455,7 @@ knit_with_pilot() {
     _notes_ref+=("Pilot job: may call \"knit submit\" in its body to run sub-jobs on its own allocation.")
 
     knit_run_before _knit_pilot_before_cb "${exclude_launch_host}"
-    knit_run_after  _knit_pilot_after_cb
+    knit_run_after  _knit_pilot_after_cb "${kill_on_exit}"
 }
 
 # ------------------------------------------------------------------------------
@@ -416,6 +520,9 @@ _knit_sched_pilot_submit() {
         --out "${jobdir}/.stdout" \
         --err "${jobdir}/.stderr" \
         -- bash "${script}" || return $?
+    # Track the sub-job so a kill/--kill-on-exit teardown can reconcile it (a
+    # queued sub-job that never starts records no terminal state of its own).
+    _knit_pilot_record_subjob "${id}"
     printf '%s\n' "${id}"
 }
 

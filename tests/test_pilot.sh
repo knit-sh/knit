@@ -378,3 +378,115 @@ _make_fake_pilotd() {
     [ "${lines[0]}" = "subnodeA" ]
     [ "${lines[1]}" = "subnodeB" ]
 }
+
+# ---------- lifecycle: sub-job tracking + reconciliation ----------
+
+# A real jobs table for the reconciliation tests, plus a pilot job directory.
+_pilot_db_setup() {
+    knit_test_require_sqlite
+    _KNIT_SQLITE_EXE="sqlite3"
+    _KNIT_DATABASE="${__TEST_TMPDIR}/knit.db"
+    _KNIT_IS_BOOTSTRAPPED=1
+    export KNIT_JOB_PREFIX="${__TEST_TMPDIR}/pilotjob"
+    mkdir -p "${KNIT_JOB_PREFIX}"
+    _knit_sqlite3_write "CREATE TABLE ${_KNIT_JOBS_TABLE}(id TEXT, state TEXT);"
+}
+_pilot_state() {
+    _knit_sqlite3 "SELECT state FROM ${_KNIT_JOBS_TABLE} WHERE id='$1';"
+}
+
+@test "record_subjob appends each uuid under the pilot job dir" {
+    export KNIT_JOB_PREFIX="${__TEST_TMPDIR}/pilotjob"
+    mkdir -p "${KNIT_JOB_PREFIX}"
+    _knit_pilot_record_subjob aaa
+    _knit_pilot_record_subjob bbb
+    run cat "${KNIT_JOB_PREFIX}/.pilot.subjobs"
+    [ "${lines[0]}" = "aaa" ]
+    [ "${lines[1]}" = "bbb" ]
+}
+
+@test "record_subjob is a no-op without a pilot job dir" {
+    unset KNIT_JOB_PREFIX
+    run _knit_pilot_record_subjob zzz
+    [ "$status" -eq 0 ]
+}
+
+@test "mark_outstanding_killed kills only the non-terminal sub-jobs" {
+    _pilot_db_setup
+    _knit_sqlite3_write "INSERT INTO ${_KNIT_JOBS_TABLE} VALUES('s1','submitted'),('r1','running'),('c1','completed');"
+    printf '%s\n' s1 r1 c1 x1 > "${KNIT_JOB_PREFIX}/.pilot.subjobs"
+
+    _knit_pilot_mark_outstanding_killed
+
+    [ "$(_pilot_state s1)" = "killed" ]       # queued/submitted -> killed
+    [ "$(_pilot_state r1)" = "killed" ]       # running -> killed
+    [ "$(_pilot_state c1)" = "completed" ]    # already terminal -> untouched
+    [ -z "$(_pilot_state x1)" ]               # no row -> skipped
+}
+
+# ---------- lifecycle: body-exit policy ----------
+
+@test "after-cb default drains (shutdown, no --kill) and does not reconcile" {
+    _pilot_db_setup
+    _make_fake_pilotd 0
+    export KNIT_PILOT_SOCK="${__TEST_TMPDIR}/pilot.sock"
+    _knit_sqlite3_write "INSERT INTO ${_KNIT_JOBS_TABLE} VALUES('s1','submitted');"
+    printf '%s\n' s1 > "${KNIT_JOB_PREFIX}/.pilot.subjobs"
+
+    _knit_pilot_after_cb ""
+
+    local argv; argv="$(cat "${__pilotd_args}")"
+    [[ "${argv}" == *"shutdown"* ]]
+    [[ "${argv}" != *"--kill"* ]]
+    # Drain leaves per-sub-job state to the sub-jobs themselves; no reconcile here.
+    [ "$(_pilot_state s1)" = "submitted" ]
+}
+
+@test "after-cb --kill-on-exit kills outstanding sub-jobs" {
+    _pilot_db_setup
+    _make_fake_pilotd 0
+    export KNIT_PILOT_SOCK="${__TEST_TMPDIR}/pilot.sock"
+    _knit_sqlite3_write "INSERT INTO ${_KNIT_JOBS_TABLE} VALUES('s1','submitted');"
+    printf '%s\n' s1 > "${KNIT_JOB_PREFIX}/.pilot.subjobs"
+
+    _knit_pilot_after_cb 1
+
+    [[ "$(cat "${__pilotd_args}")" == *"shutdown --kill"* ]]
+    [ "$(_pilot_state s1)" = "killed" ]
+}
+
+@test "teardown_kill asks the daemon to kill and reconciles" {
+    _pilot_db_setup
+    _make_fake_pilotd 0
+    export KNIT_PILOT_SOCK="${__TEST_TMPDIR}/pilot.sock"
+    _knit_sqlite3_write "INSERT INTO ${_KNIT_JOBS_TABLE} VALUES('q1','submitted');"
+    printf '%s\n' q1 > "${KNIT_JOB_PREFIX}/.pilot.subjobs"
+
+    _knit_pilot_teardown_kill
+
+    [[ "$(cat "${__pilotd_args}")" == *"shutdown --kill"* ]]
+    [ "$(_pilot_state q1)" = "killed" ]
+}
+
+@test "the pilot kill-trap tears down the daemon and exits 143" {
+    _make_fake_pilotd 0
+    export KNIT_PILOT_SOCK="${__TEST_TMPDIR}/pilot.sock"
+    export KNIT_JOB_PREFIX="${__TEST_TMPDIR}/pilotjob"
+    mkdir -p "${KNIT_JOB_PREFIX}"
+
+    run _knit_pilot_killed_trap
+    [ "$status" -eq 143 ]
+    [[ "$(cat "${__pilotd_args}")" == *"shutdown --kill"* ]]
+}
+
+@test "after-cb binds the kill-on-exit flag onto the callback" {
+    knit_register_job "campaign" _campaign_fn "A pilot campaign."
+    knit_with_pilot --kill-on-exit
+    _campaign_fn() { :; }
+    knit_done
+
+    local mangled
+    _knit_command_mangle mangled "submit:campaign"
+    local -n after="_KNIT_CMD_${mangled}_after_cb"
+    [[ "${after[*]}" == *"_knit_pilot_after_cb 1"* ]]
+}
