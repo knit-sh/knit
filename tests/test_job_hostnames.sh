@@ -226,7 +226,7 @@ teardown() {
 }
 
 @test "nodecount reports 1 outside an allocation (local hostname)" {
-    _knit_sched_backend() { local -n __r=$1; __r='local'; }
+    _knit_sched_real_backend() { local -n __r=$1; __r='local'; }
     run knit_job_nodecount
     [ "${status}" -eq 0 ]
     [ "${output}" = "1" ]
@@ -302,8 +302,11 @@ teardown() {
 
 @test "hostfile dispatcher routes to the resolved backend" {
     # Uses the real _knit_sched_hostfile (the fixture is opt-in), stubbing only
-    # its backend resolution and the per-backend source it should route to.
-    _knit_sched_backend() { local -n __r=$1; __r='pbs'; }
+    # its (real) backend resolution and the per-backend source it should route to.
+    # Host listing always uses the real backend — never "pilot" — so a pilot job
+    # body reports its full allocation; the pilot sub-job case is covered in
+    # test_pilot.sh via KNIT_PILOT_HOSTFILE.
+    _knit_sched_real_backend() { local -n __r=$1; __r='pbs'; }
     _knit_sched_pbs_hostfile() { printf 'ROUTED\n'; }
     run _knit_sched_hostfile
     [ "${status}" -eq 0 ]
@@ -311,7 +314,7 @@ teardown() {
 }
 
 @test "hostfile dispatcher routes to the none backend" {
-    _knit_sched_backend() { local -n __r=$1; __r='none'; }
+    _knit_sched_real_backend() { local -n __r=$1; __r='none'; }
     _knit_sched_none_hostfile() { printf 'NONE-ROUTED\n'; }
     run _knit_sched_hostfile
     [ "${status}" -eq 0 ]

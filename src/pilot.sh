@@ -353,3 +353,144 @@ knit_with_pilot() {
     knit_run_before _knit_pilot_before_cb "${exclude_launch_host}"
     knit_run_after  _knit_pilot_after_cb
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_pilot_require_sock()
+#
+# Fatal unless KNIT_PILOT_SOCK names a control socket to talk to the daemon.
+# Guards the pilot backend's submit/wait/cancel paths, which are only reachable
+# from inside a pilot job body; a missing socket means one of those was reached
+# outside a pilot, which is a programming error worth a clear message.
+# ------------------------------------------------------------------------------
+_knit_pilot_require_sock() {
+    if [[ -z "${KNIT_PILOT_SOCK:-}" ]]; then
+        knit_fatal "The pilot scheduler backend needs a knit-pilotd control socket (KNIT_PILOT_SOCK is unset); it is only usable inside a pilot job body."
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_pilot_directives()
+#
+# Emit the batch directives for the pilot backend. A pilot sub-job is launched by
+# the daemon as a plain process, not by a batch scheduler, so there are no
+# directives and this prints nothing — it exists so every backend honours the
+# same contract.
+#
+# @param[in] arr_name Name of the resolved-options associative array (unused).
+# @param[in] jobdir   Job directory (unused).
+# ------------------------------------------------------------------------------
+_knit_sched_pilot_directives() {
+    :
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_pilot_submit()
+#
+# Submit a built sub-job to the in-allocation knit-pilotd daemon: queue its batch
+# script (run as "bash <script>") with the node count resolved for this
+# submission, keyed by the sub-job UUID (the job directory's basename), with
+# stdout/stderr redirected to the job directory. The request is non-blocking —
+# the daemon queues it and returns at once — matching the dispatcher contract
+# (the optional --wait is a separate _knit_sched_pilot_wait step). On the daemon
+# accepting the request, the sub-job UUID is printed as the backend job id (the
+# daemon tracks the sub-job by it, so wait/cancel reference it); a daemon
+# rejection propagates as a non-zero status, which the dispatcher treats as a
+# scheduler rejection.
+#
+# @param[in] arr_name Name of the resolved-options associative array.
+# @param[in] script   Path to the batch script to queue.
+# @param[in] jobdir   Job directory (its basename is the sub-job UUID).
+# ------------------------------------------------------------------------------
+_knit_sched_pilot_submit() {
+    local -n resolved="$1"
+    local script="$2"
+    local jobdir="$3"
+    _knit_pilot_require_sock
+    local id
+    id="$(basename "${jobdir}")"
+    local nodes="${resolved[nodes]:-1}"
+    "${_KNIT_PILOTD_EXE}" submit \
+        --socket "${KNIT_PILOT_SOCK}" \
+        --id "${id}" \
+        --nodes "${nodes}" \
+        --out "${jobdir}/.stdout" \
+        --err "${jobdir}/.stderr" \
+        -- bash "${script}" || return $?
+    printf '%s\n' "${id}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_pilot_submit_cmdline()
+#
+# Build the pilot backend's submission command into a caller-provided array,
+# passed by name, for recording as the row's native-cmd: the daemon submit with
+# the node count, launching "bash <script>". The socket, sub-job id, and
+# stdout/stderr redirection are knit-managed plumbing (and the id/socket are not
+# available here), so — like the local backend's "bash <script>" — they are
+# omitted from the recorded command, which captures the essential shape.
+#
+# @param[out] argv_name Name of the array to fill with the submission argv.
+# @param[in] arr_name  Name of the resolved-options associative array.
+# @param[in] script    Path to the batch script to queue.
+# ------------------------------------------------------------------------------
+_knit_sched_pilot_submit_cmdline() {
+    # shellcheck disable=SC2178 # nameref to the caller's array
+    local -n _submit_argv="$1"
+    local -n _resolved="$2"
+    local script="$3"
+    _submit_argv=("${_KNIT_PILOTD_EXE}" submit --nodes "${_resolved[nodes]:-1}" \
+        -- bash "${script}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_pilot_wait()
+#
+# Block until a pilot sub-job reaches a terminal state, by asking the daemon to
+# wait on its id. The daemon's client exits 0 when the sub-job completed and
+# non-zero when it failed or was killed, which this returns unchanged — the same
+# contract the other backends' wait functions honour (knit's own terminal state
+# is read from the jobs table afterwards by the caller).
+#
+# @param[in] id The sub-job UUID recorded in its .job.id by _knit_sched_pilot_submit.
+# ------------------------------------------------------------------------------
+_knit_sched_pilot_wait() {
+    local id="$1"
+    _knit_pilot_require_sock
+    "${_KNIT_PILOTD_EXE}" wait --socket "${KNIT_PILOT_SOCK}" --id "${id}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_pilot_cancel()
+#
+# Cancel a pilot sub-job by asking the daemon to terminate it: it kills a running
+# sub-job's process group and drops a still-queued one, marking it killed.
+# Cancelling a sub-job that is already gone is not an error. Knit's terminal state
+# (killed) is recorded by the sub-job's own kill-trap / the daemon.
+#
+# @param[in] id The sub-job UUID recorded in its .job.id.
+# ------------------------------------------------------------------------------
+_knit_sched_pilot_cancel() {
+    local id="$1"
+    _knit_pilot_require_sock
+    "${_KNIT_PILOTD_EXE}" cancel --socket "${KNIT_PILOT_SOCK}" --id "${id}" || true
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_pilot_hostfile()
+#
+# Print the host list for a pilot sub-job: the node subset the daemon assigned it,
+# named in KNIT_PILOT_HOSTFILE (one host per line). This is the "raw" host list
+# per the dispatcher contract — callers such as knit_job_hostnames deduplicate and
+# clean it. Blank lines are dropped. When no readable hostfile is present, warn
+# and fall back to this machine's hostname. Reached from _knit_sched_hostfile
+# whenever KNIT_PILOT_HOSTFILE is set, so a sub-job places its work onto its own
+# subset without needing any pilot environment of its own.
+# ------------------------------------------------------------------------------
+_knit_sched_pilot_hostfile() {
+    if [[ -n "${KNIT_PILOT_HOSTFILE:-}" && -r "${KNIT_PILOT_HOSTFILE}" ]]; then
+        grep -v '^[[:space:]]*$' "${KNIT_PILOT_HOSTFILE}"
+    else
+        knit_warning "Pilot sub-job has no readable KNIT_PILOT_HOSTFILE; reporting the local hostname only."
+        hostname
+    fi
+}

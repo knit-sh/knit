@@ -234,3 +234,147 @@ _pilot_marker() {
     run _knit_pilot_reject_nested_submit
     [ "$status" -eq 0 ]
 }
+
+# ---------- the pilot scheduler backend ----------
+
+# Install a fake knit-pilotd that records its argv to a file and exits with a
+# chosen code. _KNIT_PILOTD_EXE is frozen from _KNIT_PREFIX at source time, so
+# each backend test points it at the fake explicitly.
+__pilotd_args=""
+_make_fake_pilotd() {
+    local rc="${1:-0}"
+    __pilotd_args="${__TEST_TMPDIR}/pilotd-argv"
+    _KNIT_PILOTD_EXE="${__TEST_TMPDIR}/fake-pilotd"
+    {
+        printf '#!/bin/sh\n'
+        printf 'printf "%%s\\n" "$*" > %q\n' "${__pilotd_args}"
+        printf 'exit %s\n' "${rc}"
+    } > "${_KNIT_PILOTD_EXE}"
+    chmod +x "${_KNIT_PILOTD_EXE}"
+}
+
+@test "backend resolves to pilot when KNIT_PILOT is set" {
+    export KNIT_PILOT=1
+    local b
+    _knit_sched_backend b
+    [ "$b" = "pilot" ]
+}
+
+@test "backend ignores the pilot and uses the real backend otherwise" {
+    unset KNIT_PILOT
+    _knit_metadata_get() { local -n __o=$1; __o="slurm"; }
+    local b
+    _knit_sched_backend b
+    [ "$b" = "slurm" ]
+}
+
+@test "real backend ignores an active pilot" {
+    export KNIT_PILOT=1
+    _knit_metadata_get() { local -n __o=$1; __o="pbs"; }
+    local b
+    _knit_sched_real_backend b
+    [ "$b" = "pbs" ]
+}
+
+@test "pilot submit sends the daemon request and returns the sub-job UUID" {
+    _make_fake_pilotd 0
+    export KNIT_PILOT_SOCK="${__TEST_TMPDIR}/pilot.sock"
+    local jobdir="${__TEST_TMPDIR}/jobs/0d1e2f3a"
+    mkdir -p "${jobdir}"
+    declare -A opts=([nodes]=3)
+
+    run _knit_sched_pilot_submit opts "${jobdir}/.job.sh" "${jobdir}"
+    [ "$status" -eq 0 ]
+    # Prints the sub-job UUID (the job directory's basename) as the backend id.
+    [ "$output" = "0d1e2f3a" ]
+
+    # The daemon request carries the id, node count, socket, redirections, and the
+    # "bash <script>" command after --.
+    local argv; argv="$(cat "${__pilotd_args}")"
+    [[ "${argv}" == *"submit"* ]]
+    [[ "${argv}" == *"--socket ${KNIT_PILOT_SOCK}"* ]]
+    [[ "${argv}" == *"--id 0d1e2f3a"* ]]
+    [[ "${argv}" == *"--nodes 3"* ]]
+    [[ "${argv}" == *"--out ${jobdir}/.stdout"* ]]
+    [[ "${argv}" == *"-- bash ${jobdir}/.job.sh"* ]]
+}
+
+@test "pilot submit propagates a daemon rejection as a non-zero status" {
+    _make_fake_pilotd 1
+    export KNIT_PILOT_SOCK="${__TEST_TMPDIR}/pilot.sock"
+    local jobdir="${__TEST_TMPDIR}/jobs/abc"
+    mkdir -p "${jobdir}"
+    declare -A opts=([nodes]=1)
+
+    run _knit_sched_pilot_submit opts "${jobdir}/.job.sh" "${jobdir}"
+    [ "$status" -ne 0 ]
+    # Nothing is printed when the daemon rejects.
+    [ -z "$output" ]
+}
+
+@test "pilot submit cmdline records the essential daemon command" {
+    _KNIT_PILOTD_EXE="/some/where/knit-pilotd"
+    declare -A opts=([nodes]=4)
+    local -a argv=()
+    _knit_sched_pilot_submit_cmdline argv opts "/j/.job.sh"
+    [ "${argv[*]}" = "/some/where/knit-pilotd submit --nodes 4 -- bash /j/.job.sh" ]
+}
+
+@test "pilot wait asks the daemon and returns completed as success" {
+    _make_fake_pilotd 0
+    export KNIT_PILOT_SOCK="${__TEST_TMPDIR}/pilot.sock"
+    run _knit_sched_pilot_wait "myid"
+    [ "$status" -eq 0 ]
+    [[ "$(cat "${__pilotd_args}")" == *"wait --socket ${KNIT_PILOT_SOCK} --id myid"* ]]
+}
+
+@test "pilot wait returns non-zero when the daemon reports failed/killed" {
+    _make_fake_pilotd 1
+    export KNIT_PILOT_SOCK="${__TEST_TMPDIR}/pilot.sock"
+    run _knit_sched_pilot_wait "myid"
+    [ "$status" -ne 0 ]
+}
+
+@test "pilot cancel asks the daemon to kill the sub-job" {
+    _make_fake_pilotd 0
+    export KNIT_PILOT_SOCK="${__TEST_TMPDIR}/pilot.sock"
+    run _knit_sched_pilot_cancel "myid"
+    [ "$status" -eq 0 ]
+    [[ "$(cat "${__pilotd_args}")" == *"cancel --socket ${KNIT_PILOT_SOCK} --id myid"* ]]
+}
+
+@test "pilot submit fatals when no control socket is set" {
+    unset KNIT_PILOT_SOCK
+    declare -A opts=([nodes]=1)
+    run _knit_sched_pilot_submit opts "/j/.job.sh" "/j"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"KNIT_PILOT_SOCK"* ]]
+}
+
+# ---------- pilot sub-job hostfile ----------
+
+@test "pilot hostfile reads the daemon-assigned KNIT_PILOT_HOSTFILE" {
+    export KNIT_PILOT_HOSTFILE="${__TEST_TMPDIR}/hostfile"
+    printf '%s\n' nodeA nodeB > "${KNIT_PILOT_HOSTFILE}"
+    run _knit_sched_pilot_hostfile
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "nodeA" ]
+    [ "${lines[1]}" = "nodeB" ]
+}
+
+@test "pilot hostfile falls back to the local hostname when unset" {
+    unset KNIT_PILOT_HOSTFILE
+    hostname() { printf 'localnode\n'; }
+    run _knit_sched_pilot_hostfile
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"localnode"* ]]
+}
+
+@test "the host dispatcher routes a sub-job to the pilot hostfile" {
+    export KNIT_PILOT_HOSTFILE="${__TEST_TMPDIR}/hostfile"
+    printf '%s\n' subnodeA subnodeB > "${KNIT_PILOT_HOSTFILE}"
+    run _knit_sched_hostfile
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "subnodeA" ]
+    [ "${lines[1]}" = "subnodeB" ]
+}
