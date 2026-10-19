@@ -1214,7 +1214,52 @@
 # knit.db) and are read-only: they record nothing and change no experiment state.
 #
 # -----------------------------------------------------------------------------
-# 22. Clean up
+# 22. Run many jobs in one allocation (pilot jobs)
+# -----------------------------------------------------------------------------
+#   ./full.sh submit --nodes 2 --wait -- campaign --count 4
+#
+# A single `knit submit` buys one allocation from the machine scheduler. To run
+# many smaller jobs *inside* that allocation — a parameter campaign, an ensemble,
+# a many-task workload — mark a job a pilot with `@with_pilot` (knit_with_pilot).
+# When the pilot job starts, knit launches a small in-allocation scheduler (the
+# knit-pilotd daemon, provisioned at bootstrap like the other bundled tools) over
+# the job's own nodes. From then on, a `knit submit` in the pilot's body goes to
+# that daemon instead of to Slurm/PBS: the sub-jobs pack onto the allocation and
+# run concurrently, with no second trip through the batch queue.
+#
+# The `campaign` job above fans out `--count` `worker` sub-jobs, each requesting
+# one node (`knit submit --nodes 1 -- worker ...`), and waits for the whole batch
+# with `knit job wait --id "$ids"` — the canonical "wait for all my sub-jobs"
+# primitive, which takes the comma-separated list of UUIDs the submits returned.
+# Each sub-job is an ordinary knit job: it records its own row in the `worker`
+# table and a provenance `call` edge back to the pilot, so a campaign is queryable
+# as a normal parent/child job graph (guided-tour section 15):
+#
+#   ./full.sh query sql --format column --header --exec \
+#       "SELECT id, seed, pi, state FROM worker"
+#
+# Outside a pilot job, a `knit submit` from within a job body is rejected (it
+# would nest batch submissions); the error names @with_pilot. Two options tune a
+# pilot:
+#
+#   @with_pilot --exclude-launch-host   drop the daemon's own node from the pool
+#                                       (for machines where the job script shares
+#                                       the first compute node; a no-op otherwise)
+#   @with_pilot --kill-on-exit          when the body returns with sub-jobs still
+#                                       outstanding, kill them instead of the
+#                                       default (drain them to completion)
+#
+# Killing the pilot job (scancel/qdel, a walltime kill) tears the whole sub-tree
+# down: every running sub-job is signalled and every queued one dropped, and all
+# are recorded `killed` — a killed pilot never leaves a sub-job running or lost.
+#
+# This runs on a laptop too: with no scheduler the allocation is the single local
+# host, so the sub-jobs run one node's worth at a time. On a cluster, give the
+# pilot more nodes (`--nodes 2` above) and the daemon packs the sub-jobs across
+# them.
+#
+# -----------------------------------------------------------------------------
+# 23. Clean up
 # -----------------------------------------------------------------------------
 #   rm -rf .knit setups jobs artifacts
 #
@@ -1588,6 +1633,60 @@ _mcparallel_job() {
     # omitted, so each rank fills them from the setup environment it inherits
     # (MC_SAMPLES / MC_SEED).
     knit run --procs "${procs}" -- mcrank
+}
+@done
+
+# -----------------------------------------------------------------------------
+# worker — a small, setup-less sub-job used by the `campaign` pilot below.
+#
+# It declares @without_setup so it needs no --setup: it just takes one
+# Monte-Carlo pi estimate and records it. It is an ordinary job — nothing marks
+# it as "for pilots only"; the pilot simply submits many of them.
+# -----------------------------------------------------------------------------
+@job "worker" "A small sub-job: one Monte-Carlo pi estimate."
+@without_setup
+@with_optional "samples:integer" "200000" "Samples for this worker."
+@with_optional "seed:integer"    "1"      "PRNG seed for this worker."
+@with_output   "pi:real" "0"              "This worker's pi estimate."
+_worker_job() {
+    local samples seed pi
+    samples=$(knit_get_parameter "samples" "$@")
+    seed=$(knit_get_parameter "seed" "$@")
+    pi=$(_pi_monte_carlo "${samples}" "${seed}" "decimal")
+    printf 'worker seed %s on %s: pi ~= %s\n' "${seed}" "$(hostname)" "${pi}"
+    knit_output "pi" "${pi}"
+}
+@done
+
+# -----------------------------------------------------------------------------
+# campaign — a pilot job (see guided-tour section 22).
+#
+# @with_pilot marks this job a pilot: inside its body, `knit submit` targets an
+# in-allocation scheduler (the knit-pilotd daemon knit starts over the job's own
+# nodes) instead of the machine scheduler, so the sub-jobs it fires pack onto the
+# allocation and run concurrently. The body fans out `count` `worker` sub-jobs,
+# collecting the UUID each `knit submit` returns, then waits on the whole batch
+# with `knit job wait --id` (which accepts a comma-separated list). Outside a
+# pilot job, a `knit submit` from within a job body is rejected.
+# -----------------------------------------------------------------------------
+@job "campaign" "Run many worker sub-jobs on one allocation (a pilot)."
+@with_pilot
+@with_optional "count:integer" "4" "Number of worker sub-jobs to fan out."
+_campaign_job() {
+    local count seed ids=""
+    count=$(knit_get_parameter "count" "$@")
+
+    # Each `knit submit` queues a sub-job with the pilot daemon and returns at
+    # once with its UUID; --nodes 1 asks the daemon for a one-node slice of the
+    # allocation. Accumulate the UUIDs so we can wait on them as a batch.
+    for (( seed = 1; seed <= count; seed++ )); do
+        ids+="${ids:+,}$(knit submit --nodes 1 -- worker --seed "${seed}")"
+    done
+
+    # Block until every sub-job reaches a terminal state; non-zero if any ended
+    # failed or killed. A body that returns with sub-jobs still outstanding drains
+    # them by default (or, with @with_pilot --kill-on-exit, kills them).
+    knit job wait --id "${ids}"
 }
 @done
 

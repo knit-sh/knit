@@ -57,6 +57,7 @@ _KNIT_SHORTHAND_PASSTHROUGH=(
     [with_resource]=knit_with_resource
     [with_setup]=knit_with_setup
     [without_setup]=knit_without_setup
+    [with_pilot]=knit_with_pilot
     [with_subcommand_title]=knit_with_subcommand_title
     [with_subcommand_discovery]=knit_with_subcommand_discovery
     [hidden]=knit_hidden
