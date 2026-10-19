@@ -165,10 +165,11 @@ _knit_job_dir() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_job_wait()
+# @fn _knit_job_wait_one()
 #
-# Block until a job finishes, then print its terminal lifecycle state; a "killed"
-# state yields a non-zero exit so callers can detect failure.
+# Block until a single job finishes, then print its terminal lifecycle state; a
+# "killed" or "failed" state yields a non-zero exit so callers can detect
+# failure.
 #
 # Rather than busy-polling the database, this blocks on the scheduler itself:
 # once the job's row is not already terminal, it looks up the backend job id
@@ -179,14 +180,11 @@ _knit_job_dir() {
 # a short reconciliation window since it may land a moment after the scheduler
 # reports the job gone. An unknown id is a fatal error rather than an endless
 # wait.
+#
+# @param[in] id  The job UUID to wait for.
 # ------------------------------------------------------------------------------
-_knit_job_wait() {
-    if ! _knit_is_bootstrapped; then
-        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
-        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
-    fi
-    local id
-    id=$(knit_get_parameter "id" "$@")
+_knit_job_wait_one() {
+    local id="$1"
     local escaped
     _knit_sql_escape escaped "${id}"
 
@@ -231,6 +229,36 @@ _knit_job_wait() {
     knit_warning "Job \"${id}\" is no longer running but its recorded state is \"${state}\"."
     printf '%s\n' "${state}"
     return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_job_wait()
+#
+# Block until one or more jobs reach a terminal state, printing each job's
+# terminal lifecycle state (one per line, in the order given).
+#
+# The --id argument accepts a comma-separated list of job UUIDs. Each job is
+# waited for in turn via _knit_job_wait_one. The exit code aggregates the
+# single-job convention: it is non-zero if ANY job ended "failed" or "killed",
+# zero otherwise. A missing/unknown id anywhere in the list is a fatal error. A
+# single id behaves exactly as waiting for that one job.
+# ------------------------------------------------------------------------------
+_knit_job_wait() {
+    if ! _knit_is_bootstrapped; then
+        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
+        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
+    fi
+    local id
+    id=$(knit_get_parameter "id" "$@")
+
+    local ids
+    IFS=',' read -r -a ids <<< "${id}"
+
+    local rc=0 one
+    for one in "${ids[@]}"; do
+        _knit_job_wait_one "${one}" || rc=1
+    done
+    return "${rc}"
 }
 
 # ------------------------------------------------------------------------------
@@ -723,9 +751,9 @@ _knit_job_discover() {
     knit_with_flag "json" "Emit the listing as a JSON array."
     knit_done
 
-    knit_register "job:wait" _knit_job_wait "Wait for a job to reach a terminal state."
+    knit_register "job:wait" _knit_job_wait "Wait for one or more jobs to reach a terminal state."
     _knit_is_builtin
-    knit_with_required "id:string" "Job UUID."
+    knit_with_required "id:string" "Job UUID, or a comma-separated list of job UUIDs to wait for."
     knit_done
 
     knit_register "job:cancel" _knit_job_cancel "Cancel a running job."

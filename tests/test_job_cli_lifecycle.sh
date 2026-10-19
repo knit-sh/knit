@@ -116,6 +116,40 @@ _seed_job() {
     [ "$output" = "failed" ]
 }
 
+@test "job wait accepts a comma-separated list and returns 0 when all completed" {
+    _seed_job "id1" "" "alpha" "completed"
+    _seed_job "id2" "" "beta" "completed"
+    _seed_job "id3" "" "gamma" "completed"
+    run _knit_job_wait --id "id1,id2,id3"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "completed" ]
+    [ "${lines[1]}" = "completed" ]
+    [ "${lines[2]}" = "completed" ]
+}
+
+@test "job wait over a list returns non-zero if any job ended killed" {
+    _seed_job "id1" "" "alpha" "completed"
+    _seed_job "id2" "" "beta" "killed"
+    _seed_job "id3" "" "gamma" "completed"
+    run _knit_job_wait --id "id1,id2,id3"
+    [ "$status" -ne 0 ]
+}
+
+@test "job wait over a list reports each state in the given order" {
+    _seed_job "id1" "" "alpha" "failed"
+    _seed_job "id2" "" "beta" "completed"
+    run _knit_job_wait --id "id2,id1"
+    [ "${lines[0]}" = "completed" ]
+    [ "${lines[1]}" = "failed" ]
+}
+
+@test "job wait over a list is fatal when any id is unknown" {
+    _seed_job "id1" "" "alpha" "completed"
+    run _knit_job_wait --id "id1,does-not-exist"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No job found"* ]]
+}
+
 @test "job wait is a no-op when bootstrapping and not yet bootstrapped" {
     _KNIT_IS_BOOTSTRAPPED=""
     _KNIT_PREFIX="/nonexistent/path"
