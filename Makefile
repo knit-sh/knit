@@ -38,6 +38,7 @@ KNIT_SOURCE = src/global.sh   \
               src/artifact.sh \
               src/job.sh      \
               src/job_cli.sh  \
+              src/pilot.sh    \
               src/prepare.sh  \
               src/drain.sh    \
               src/app.sh      \

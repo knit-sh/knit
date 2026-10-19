@@ -629,6 +629,12 @@ _knit_bootstrap() {
     knit_info "Bootstrapping knit-cypher-to-sql..."
     _knit_bootstrap_cypher_to_sql "${cypher_to_sql_version}" "${cypher_to_sql_url}"
 
+    # knit-pilotd is the in-allocation node scheduler behind pilot jobs. It is a
+    # single dependency-free C file that links nothing, so it is independent of
+    # the sqlite/jq/transpiler provisioning above.
+    knit_info "Bootstrapping knit-pilotd..."
+    _knit_bootstrap_pilotd
+
     # Provision any registered environment managers (Spack, and later plugins;
     # see src/env.sh) that are needed. Driven from the body so provisioning runs
     # before bootstrap is marked complete (a failure then triggers the cleanup

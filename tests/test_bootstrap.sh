@@ -257,13 +257,14 @@ _setup_cypher_to_sql_decision() {
 
 # ---------- bootstrap wiring: sqlite + jq + knit-cypher-to-sql ----------
 
-@test "bootstrap provisions sqlite, jq, and knit-cypher-to-sql" {
+@test "bootstrap provisions sqlite, jq, knit-cypher-to-sql, and knit-pilotd" {
     local calls="${__TEST_TMPDIR}/calls"
     : > "${calls}"
     # Stub the heavy provisioning steps and detection so the wiring can run.
     eval '_knit_bootstrap_sqlite() { printf "sqlite:%s\n" "$*" >> "'"${calls}"'"; }'
     eval '_knit_bootstrap_jq() { printf "jq:%s\n" "$*" >> "'"${calls}"'"; }'
     eval '_knit_bootstrap_cypher_to_sql() { printf "cypher:%s\n" "$*" >> "'"${calls}"'"; }'
+    eval '_knit_bootstrap_pilotd() { printf "pilotd:%s\n" "$*" >> "'"${calls}"'"; }'
     eval '_knit_env_provision_all() { :; }'
     eval '_knit_detect_job_manager() { printf "local"; }'
     eval '_knit_detect_launcher() { printf "openmpi"; }'
@@ -273,11 +274,12 @@ _setup_cypher_to_sql_decision() {
     run _knit_bootstrap
     [ "$status" -eq 0 ]
 
-    # sqlite, jq, and knit-cypher-to-sql are all provisioned. The
+    # sqlite, jq, knit-cypher-to-sql, and knit-pilotd are all provisioned. The
     # from-source-vs-system sqlite decision is left to _knit_bootstrap_sqlite.
     grep -q "^sqlite:" "${calls}"
     grep -q "^jq:" "${calls}"
     grep -q "^cypher:" "${calls}"
+    grep -q "^pilotd:" "${calls}"
 }
 
 # ---------- bootstrap --launcher none (explicit "no launcher", §8.1) ----------
@@ -291,6 +293,7 @@ _bootstrap_launcher_stubs() {
     eval '_knit_bootstrap_sqlite() { :; }'
     eval '_knit_bootstrap_jq() { :; }'
     eval '_knit_bootstrap_cypher_to_sql() { :; }'
+    eval '_knit_bootstrap_pilotd() { :; }'
     eval '_knit_env_provision_all() { :; }'
     eval '_knit_detect_job_manager() { printf "local"; }'
     eval '_knit_detect_node_ncpus() { printf "1"; }'
