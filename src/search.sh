@@ -642,3 +642,81 @@ _knit_search_loop() {
             "${ask_fn}" "${observe_fn}" "${collect_fn}"
     fi
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_search_resolve_fill()
+#
+# Resolve, for one parameter, whether it varies in the campaign and from where.
+# This is the shared "Which parameters vary" rule that both proposers reuse (each
+# sets only its own default --fill); it does NOT read or enumerate a declared
+# domain (how a varying parameter's domain is used -- enumerate or sample -- stays
+# with the proposer, as does the enumerability check). The result is one of:
+#
+#   explicit   the call site carries a concrete value or a set literal for this
+#              parameter, so the proposer uses what the line already says;
+#   sweep      vary this parameter from its declared domain;
+#   default    leave this parameter at its default value.
+#
+# The precedence (highest first): an explicit value/token always wins; then a
+# per-parameter @sweep / @default token; then the --fill policy for an otherwise
+# unspecified parameter. Under --fill sweep an unspecified parameter varies only
+# when it has a declared domain -- a parameter with no declared domain stays at
+# its default under either policy (it is never "the space"). The per-parameter
+# token classification (explicit / sweep / default / unspecified) comes from the
+# proposer's own call-site scan; this helper only applies the precedence.
+#
+# @param[out] __knit_ret The resolution ("explicit", "sweep", or "default").
+# @param[in] fill The --fill policy for an unspecified parameter ("default" or
+#   "sweep").
+# @param[in] token How the call site referenced this parameter: "explicit" (a
+#   concrete value or set literal), "sweep" (@sweep), "default" (@default), or
+#   "unspecified" (nothing).
+# @param[in] has_domain "true" if the parameter has a declared domain, else
+#   "false".
+# ------------------------------------------------------------------------------
+_knit_search_resolve_fill() {
+    local -n __knit_ret=$1
+    local fill="$2" token="$3" has_domain="$4"
+    case "${fill}" in
+        default|sweep) ;;
+        *) knit_fatal "_knit_search_resolve_fill: --fill must be default or sweep (got '%s')." "${fill}" ;;
+    esac
+    case "${token}" in
+        explicit) __knit_ret="explicit" ;;
+        sweep)    __knit_ret="sweep" ;;
+        default)  __knit_ret="default" ;;
+        unspecified)
+            if [[ "${fill}" == "sweep" && "${has_domain}" == "true" ]]; then
+                __knit_ret="sweep"
+            else
+                __knit_ret="default"
+            fi
+            ;;
+        *) knit_fatal "_knit_search_resolve_fill: unknown token classification '%s'." "${token}" ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_search_group_forward()
+#
+# Forward a campaign --group label into one trial's downstream command line, in
+# place, so a job trial lands in the existing jobs.group column (which makes
+# "submit next --group" and "remove --group" operate on the campaign with no new
+# code). The group is a submission field, so it is inserted among the submit
+# options -- right after the leading "submit" token, before its "--". The line is
+# left unchanged when the group is empty or the line is not a submit line (a
+# "run ... -- app" or a bare command has no scheduler, so its group lives only on
+# the parent row and the call edges). The parent row itself records the group
+# automatically, since a proposer declares --group as an ordinary optional
+# parameter.
+#
+# @param[in,out] __knit_argv Name of the array holding the downstream argv.
+# @param[in] group The campaign group label (empty to leave the line unchanged).
+# ------------------------------------------------------------------------------
+_knit_search_group_forward() {
+    local -n __knit_argv=$1
+    local group="$2"
+    [[ -z "${group}" ]] && return 0
+    [[ "${__knit_argv[0]}" == "submit" ]] || return 0
+    __knit_argv=( "submit" "--group" "${group}" "${__knit_argv[@]:1}" )
+}
