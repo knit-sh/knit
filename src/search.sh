@@ -373,3 +373,272 @@ _knit_search_launch() {
     __knit_ret="${_KNIT_LAST_ROW_ID}"
     return "${launch_status}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_search_job_terminal_status()
+#
+# Read a job trial's terminal status from the jobs table, by row id. Returns 0
+# and sets the output to "completed" (the job finished cleanly) or "failed" (the
+# job ended in any other terminal state, "failed" or "killed"); returns 1 and
+# clears the output while the job is not yet terminal (no row, "submitted", or
+# "running"), so the loop keeps polling. The state column is written compute-side
+# by the job before/after callbacks.
+#
+# @param[out] __knit_ret The terminal status ("completed" or "failed").
+# @param[in] uuid The job's row id (its UUID).
+# @return 0 if the job reached a terminal state, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_search_job_terminal_status() {
+    local -n __knit_ret=$1
+    local uuid="$2"
+    local esc
+    _knit_sql_escape esc "${uuid}"
+    local state
+    state="$(_knit_sqlite3 \
+        "SELECT state FROM ${_KNIT_JOBS_TABLE} WHERE id='${esc}';" 2>/dev/null)" \
+        || state=""
+    case "${state}" in
+        completed)     __knit_ret="completed"; return 0 ;;
+        failed|killed) __knit_ret="failed";    return 0 ;;
+        *)             __knit_ret="";          return 1 ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_search_loop_finish()
+#
+# Handle one finished trial: read its objective through the optional collector,
+# then hand the outcome to the proposer's observe callback. The collector runs
+# only when a collector function was given (the proposer wants the objective);
+# the search core owns no reporting surface. The observe callback decides, by its
+# return value, whether the campaign continues (0) or aborts (non-zero), so the
+# failure policy stays proposer-specific (sweep "stop" aborts; sweep "continue"
+# and BO "ignore"/"penalize" continue).
+#
+# @param[in] observe_fn The proposer's observe callback
+#   (observe_fn <tag> <uuid> <status> <objective>).
+# @param[in] collect_fn The optional collector callback (collect_fn <out> <uuid>),
+#   or empty to skip the objective read.
+# @param[in] tag    The proposer's opaque key for this trial (from ask).
+# @param[in] uuid   The trial child's recorded row id.
+# @param[in] status The trial's terminal status ("completed" or "failed").
+# @return 0 to continue the campaign, non-zero to abort it (observe's verdict).
+# ------------------------------------------------------------------------------
+_knit_search_loop_finish() {
+    local observe_fn="$1" collect_fn="$2" tag="$3" uuid="$4" status="$5"
+    local _knit_loop_objective=""
+    if [[ -n "${collect_fn}" ]]; then
+        "${collect_fn}" _knit_loop_objective "${uuid}"
+    fi
+    "${observe_fn}" "${tag}" "${uuid}" "${status}" "${_knit_loop_objective}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_search_loop_job()
+#
+# The job-mode search loop: launch each trial as an ordinary submission and
+# detect completion by polling the jobs table state column. Keeps up to
+# <parallel> trials in flight and launches at most <budget> in total (empty
+# budget means the proposer's ask exhaustion is the only limit). Between polls,
+# when no trial finished, it waits <poll> seconds (through the overridable
+# "sleep", so a test can drive it deterministically).
+#
+# @param[in] parallel   Maximum trials in flight at once (>= 1).
+# @param[in] budget      Maximum trials to launch (empty for unbounded).
+# @param[in] poll        Seconds to wait between polls when nothing finished.
+# @param[in] ask_fn      Proposer ask callback (ask_fn <tag-out> <argv-out>;
+#   returns 1 when exhausted).
+# @param[in] observe_fn  Proposer observe callback (see _knit_search_loop_finish).
+# @param[in] collect_fn  Optional collector callback (empty to skip).
+# @return 0 on a completed campaign, 1 when the proposer aborted it.
+# ------------------------------------------------------------------------------
+_knit_search_loop_job() {
+    local parallel="$1" budget="$2" poll="$3"
+    local ask_fn="$4" observe_fn="$5" collect_fn="$6"
+    local -A inflight=()
+    local launched=0 stop_launching="" aborted=""
+    local _knit_loop_tag
+    local -a _knit_loop_argv
+    local _knit_loop_uuid
+    while true; do
+        local headroom=$(( parallel - ${#inflight[@]} ))
+        while [[ -z "${stop_launching}" && -z "${aborted}" ]] && (( headroom > 0 )); do
+            if [[ -n "${budget}" ]] && (( launched >= budget )); then
+                stop_launching=1; break
+            fi
+            _knit_loop_tag=""; _knit_loop_argv=()
+            if ! "${ask_fn}" _knit_loop_tag _knit_loop_argv; then
+                stop_launching=1; break
+            fi
+            _knit_loop_uuid=""
+            _knit_search_launch _knit_loop_uuid "${_knit_loop_argv[@]}"
+            launched=$(( launched + 1 ))
+            if [[ -n "${_knit_loop_uuid}" ]]; then
+                inflight["${_knit_loop_uuid}"]="${_knit_loop_tag}"
+                headroom=$(( headroom - 1 ))
+            fi
+        done
+        [[ -n "${aborted}" ]] && break
+        # Nothing in flight after a fill means nothing more can be launched.
+        (( ${#inflight[@]} == 0 )) && break
+        local progressed="" u status
+        for u in "${!inflight[@]}"; do
+            if _knit_search_job_terminal_status status "${u}"; then
+                if ! _knit_search_loop_finish "${observe_fn}" "${collect_fn}" \
+                        "${inflight[$u]}" "${u}" "${status}"; then
+                    aborted=1
+                fi
+                unset 'inflight[$u]'
+                progressed=1
+                [[ -n "${aborted}" ]] && break
+            fi
+        done
+        [[ -n "${aborted}" ]] && break
+        [[ -z "${progressed}" ]] && sleep "${poll}"
+    done
+    [[ -n "${aborted}" ]] && return 1
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_search_loop_app()
+#
+# The app-mode search loop: launch each trial's blocking "knit run" in the
+# background and detect completion by reaping the next finished child with
+# "wait -n". Keeps up to <parallel> runs in flight and launches at most <budget>
+# in total (empty budget means the proposer's ask exhaustion is the only limit).
+# Each background child writes its recorded row id to a temporary file and exits
+# with the run's own status, so the loop learns both after the reap.
+#
+# @param[in] parallel   Maximum runs in flight at once (>= 1).
+# @param[in] budget      Maximum trials to launch (empty for unbounded).
+# @param[in] ask_fn      Proposer ask callback (ask_fn <tag-out> <argv-out>;
+#   returns 1 when exhausted).
+# @param[in] observe_fn  Proposer observe callback (see _knit_search_loop_finish).
+# @param[in] collect_fn  Optional collector callback (empty to skip).
+# @return 0 on a completed campaign, 1 when the proposer aborted it.
+# ------------------------------------------------------------------------------
+_knit_search_loop_app() {
+    local parallel="$1" budget="$2"
+    local ask_fn="$3" observe_fn="$4" collect_fn="$5"
+    local -A pid_tag=() pid_file=()
+    local launched=0 stop_launching="" aborted=""
+    local _knit_loop_tag
+    local -a _knit_loop_argv
+    while true; do
+        local headroom=$(( parallel - ${#pid_tag[@]} ))
+        while [[ -z "${stop_launching}" && -z "${aborted}" ]] && (( headroom > 0 )); do
+            if [[ -n "${budget}" ]] && (( launched >= budget )); then
+                stop_launching=1; break
+            fi
+            _knit_loop_tag=""; _knit_loop_argv=()
+            if ! "${ask_fn}" _knit_loop_tag _knit_loop_argv; then
+                stop_launching=1; break
+            fi
+            local tmpf
+            tmpf="$(mktemp)"
+            # Run the blocking launch in a subshell: it writes the child row id to
+            # the temp file and exits with the run's own status, so the reap below
+            # recovers both from the background job.
+            (
+                _knit_loop_child_uuid=""
+                _knit_search_launch _knit_loop_child_uuid "${_knit_loop_argv[@]}"
+                _knit_loop_child_status=$?
+                printf '%s' "${_knit_loop_child_uuid}" > "${tmpf}"
+                exit "${_knit_loop_child_status}"
+            ) &
+            local pid=$!
+            pid_tag["${pid}"]="${_knit_loop_tag}"
+            pid_file["${pid}"]="${tmpf}"
+            launched=$(( launched + 1 ))
+            headroom=$(( headroom - 1 ))
+        done
+        [[ -n "${aborted}" ]] && break
+        (( ${#pid_tag[@]} == 0 )) && break
+        local reaped="" wstat=0
+        wait -n -p reaped "${!pid_tag[@]}"
+        wstat=$?
+        [[ -z "${reaped}" ]] && continue
+        local tag="${pid_tag[$reaped]}" tmpf="${pid_file[$reaped]}"
+        local uuid=""
+        [[ -r "${tmpf}" ]] && IFS= read -r uuid < "${tmpf}"
+        rm -f "${tmpf}"
+        unset 'pid_tag[$reaped]' 'pid_file[$reaped]'
+        local status="completed"
+        (( wstat != 0 )) && status="failed"
+        if ! _knit_search_loop_finish "${observe_fn}" "${collect_fn}" \
+                "${tag}" "${uuid}" "${status}"; then
+            aborted=1
+        fi
+        [[ -n "${aborted}" ]] && break
+    done
+    [[ -n "${aborted}" ]] && return 1
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_search_loop()
+#
+# The shared search loop: drive a proposer over a budget of trials, keeping up to
+# --parallel in flight, launching each through _knit_search_launch and detecting
+# completion by the chosen mode. It owns budget accounting, in-flight tracking,
+# completion detection, and routing a finished trial's outcome to the proposer;
+# the proposer (the ask/observe callbacks) owns which assignment runs next and
+# the failure policy, and an optional collector owns the objective read. Both
+# proposers (the cartesian sweep and the Ax plugin) reuse this one loop.
+#
+# The proposer is two callbacks. ask yields the next trial, returning the
+# proposer's opaque tag and the fully-substituted downstream command line (the
+# argv _knit_search_launch runs); it returns non-zero when it has no more trials.
+# observe is told each finished trial's tag, child row id, terminal status, and
+# objective, and returns non-zero to abort the campaign (how a failure maps to an
+# abort is the proposer's policy). The optional collector reads one finished
+# child's objective; it runs only when given.
+#
+# Completion detection has two modes: "job" polls the jobs table state column
+# (ordinary submissions, possibly many queued at once); "app" reaps backgrounded
+# "knit run" children with "wait -n".
+#
+# @param[in] ... Options: --mode <job|app> (required), --ask <fn> (required),
+#   --observe <fn> (required), --collect <fn> (optional), --parallel <K>
+#   (default 1), --budget <N> (default unbounded), --poll <seconds> (job mode,
+#   default _KNIT_SCHED_POLL_INTERVAL).
+# @return 0 on a completed campaign, 1 when the proposer aborted it.
+# ------------------------------------------------------------------------------
+_knit_search_loop() {
+    local mode="" parallel="1" budget="" poll="${_KNIT_SCHED_POLL_INTERVAL}"
+    local ask_fn="" observe_fn="" collect_fn=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --mode)     mode="$2";       shift 2 ;;
+            --parallel) parallel="$2";   shift 2 ;;
+            --budget)   budget="$2";     shift 2 ;;
+            --poll)     poll="$2";       shift 2 ;;
+            --ask)      ask_fn="$2";     shift 2 ;;
+            --observe)  observe_fn="$2"; shift 2 ;;
+            --collect)  collect_fn="$2"; shift 2 ;;
+            *) knit_fatal "_knit_search_loop: unknown option '%s'." "$1" ;;
+        esac
+    done
+
+    case "${mode}" in
+        job|app) ;;
+        *) knit_fatal "_knit_search_loop requires --mode job|app (got '%s')." "${mode}" ;;
+    esac
+    [[ -n "${ask_fn}" ]] || knit_fatal "_knit_search_loop requires --ask <function>."
+    [[ -n "${observe_fn}" ]] || knit_fatal "_knit_search_loop requires --observe <function>."
+    if ! [[ "${parallel}" =~ ^[0-9]+$ ]] || (( parallel < 1 )); then
+        knit_fatal "_knit_search_loop --parallel must be a positive integer (got '%s')." "${parallel}"
+    fi
+    if [[ -n "${budget}" ]] && ! [[ "${budget}" =~ ^[0-9]+$ ]]; then
+        knit_fatal "_knit_search_loop --budget must be a non-negative integer (got '%s')." "${budget}"
+    fi
+
+    if [[ "${mode}" == "job" ]]; then
+        _knit_search_loop_job "${parallel}" "${budget}" "${poll}" \
+            "${ask_fn}" "${observe_fn}" "${collect_fn}"
+    else
+        _knit_search_loop_app "${parallel}" "${budget}" \
+            "${ask_fn}" "${observe_fn}" "${collect_fn}"
+    fi
+}
