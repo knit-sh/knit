@@ -552,6 +552,54 @@ _knit_param_type() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_parameter_type()
+#
+# Public accessor for the declared type of a command's parameter. The parameter
+# name is normalized (hyphens and underscores are interchangeable). Returns the
+# empty string and status 1 when the command has no such parameter. This is the
+# stable surface the search proposers (and any plugin) use instead of reaching
+# into the _KNIT_CMD_<cmd>_2_<param>_type internals.
+#
+# @param[out] __knit_ret Name of the variable to hold the type.
+# @param[in] cmd Command the parameter belongs to (the mangled/registered name).
+# @param[in] param Parameter name (hyphen or underscore spelling).
+# @return 0 if the parameter exists, 1 otherwise.
+# ------------------------------------------------------------------------------
+knit_parameter_type() {
+    local -n __knit_ret=$1
+    local __knit_param
+    _knit_name_normalize __knit_param "$3"
+    local __var="_KNIT_CMD_${2}_2_${__knit_param}_type"
+    if [[ ! -v "${__var}" ]]; then
+        __knit_ret=""
+        return 1
+    fi
+    __knit_ret="${!__var}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_command_parameters()
+#
+# Public accessor listing a command's parameter names (normalized), in
+# declaration order: required first, then optional, then flags. This is the
+# stable surface the search proposers use to discover which parameters a command
+# has, instead of iterating the _KNIT_CMD_<cmd>_{required,optional,flags} sets.
+#
+# @param[out] __knit_ret Name of the array variable to populate.
+# @param[in] cmd Command to list (the mangled/registered name).
+# ------------------------------------------------------------------------------
+knit_command_parameters() {
+    local -n __knit_ret_params=$1
+    local cmd="$2"
+    __knit_ret_params=()
+    local __knit_tmp category
+    for category in required optional flags; do
+        _knit_set_array __knit_tmp "_KNIT_CMD_${cmd}_${category}"
+        __knit_ret_params+=("${__knit_tmp[@]}")
+    done
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_output_description()
 #
 # This function returns the description of an output for a given command.
@@ -1627,6 +1675,39 @@ _knit_decl_flag_present() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_declare_domain()
+#
+# Record the search domain declared for a parameter by the "--domain <descriptor>"
+# flag (and its companion "--log" scale hint) on knit_with_required /
+# knit_with_optional. The raw descriptor token and the log flag are stored
+# verbatim under the parameter's own namespace (${ns}_2_<param>_domain and
+# _domain_log), beside the description/type/default fields. The descriptor is
+# only parsed and validated against the parameter type later, on demand, by the
+# parameter-space accessors — so registration does not pay to parse every
+# parameter's domain. A cheap shape check rejects a gross typo here; a parameter
+# with no "--domain" stores nothing, and "--log" with no "--domain" is a fatal.
+#
+# @param[in] ns Parameter namespace prefix (e.g. "_KNIT_CMD_<cmd>").
+# @param[in] param Normalized parameter name.
+# @param[in] log "true" when the --log scale hint was given, otherwise "false".
+# @param[in] domain The descriptor token, or empty when --domain was not given.
+# ------------------------------------------------------------------------------
+_knit_declare_domain() {
+    local ns="$1" param="$2" log="$3" domain="$4"
+    if [[ -z "${domain}" ]]; then
+        if [[ "${log}" == "true" ]]; then
+            knit_fatal "--log requires --domain."
+        fi
+        return 0
+    fi
+    if ! _knit_search_is_descriptor "${domain}"; then
+        knit_fatal "'%s' is not a valid domain descriptor ({...}, [lo..hi], @glob:..., or @file:...)." "${domain}"
+    fi
+    printf -v "${ns}_2_${param}_domain"     '%s' "${domain}"
+    printf -v "${ns}_2_${param}_domain_log" '%s' "${log}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_register_fileparam()
 #
 # Record the per-parameter existence/checksum marker for a "file"/"directory"
@@ -1800,11 +1881,18 @@ _knit_register_result() {
 #        expression evaluates to true.
 # @param[in] --no-checksum Optional flag; for a file/directory parameter, disable the
 #        content checksum and its companion column.
+# @param[in] --domain Optional search domain descriptor ("{a,b,c}", "[lo..hi]",
+#        "[lo..hi:step]", "@glob:<pat>", or "@file:<path>"; quote it). Its shape
+#        is checked here and the token is stored verbatim; it is parsed and
+#        validated against the parameter type on demand, when the parameter-sweep
+#        or Bayesian-optimization search proposer reads it.
+# @param[in] --log Optional flag; for a real "--domain [lo..hi]", mark the range
+#        as log-scale (used by the optimization proposer, ignored by the sweep).
 # ------------------------------------------------------------------------------
 knit_with_required() {
     _knit_param_check_declaration "required" "$1" "$2"
-    knit_check_arguments "when" "no-checksum" "${@:3}" \
-        || knit_fatal "knit_with_required takes a parameter, a description, and an optional --when and --no-checksum."
+    knit_check_arguments "when domain" "no-checksum log" "${@:3}" \
+        || knit_fatal "knit_with_required takes a parameter, a description, and an optional --when, --no-checksum, --domain and --log."
     local param_spec="$1"
     local param_name="${param_spec%%:*}"
     local param_type="${param_spec#*:}"
@@ -1822,8 +1910,14 @@ knit_with_required() {
     printf -v "${ns}_2_${param}_description" '%s' "$2"
     printf -v "${ns}_2_${param}_type"        '%s' "${param_type}"
     _knit_set_add "${ns}_required" "${param}"
-    local when_expr
-    when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+    # Only extract --when / --domain values (a command-substitution fork each)
+    # when the option is actually present among the declaration args. A plain
+    # parameter has none, so the common path on the source/registration hot loop
+    # pays no fork here.
+    local when_expr=""
+    if _knit_decl_flag_present "when" "${@:3}"; then
+        when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+    fi
     if [[ -n "${when_expr}" ]]; then
         printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
         printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
@@ -1831,6 +1925,12 @@ knit_with_required() {
     local no_checksum="false"
     _knit_decl_flag_present "no-checksum" "${@:3}" && no_checksum="true"
     _knit_register_checksum "input" "${param_type}" "${param_name}" "${no_checksum}"
+    local domain="" log="false"
+    if _knit_decl_flag_present "domain" "${@:3}"; then
+        domain=$(knit_get_parameter "domain" "$@") || domain=""
+    fi
+    _knit_decl_flag_present "log" "${@:3}" && log="true"
+    _knit_declare_domain "${ns}" "${param}" "${log}" "${domain}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1867,11 +1967,18 @@ knit_with_required() {
 #        expression evaluates to true.
 # @param[in] --no-checksum Optional flag; for a file/directory parameter, disable the
 #        content checksum and its companion column.
+# @param[in] --domain Optional search domain descriptor ("{a,b,c}", "[lo..hi]",
+#        "[lo..hi:step]", "@glob:<pat>", or "@file:<path>"; quote it). Its shape
+#        is checked here and the token is stored verbatim; it is parsed and
+#        validated against the parameter type on demand, when the parameter-sweep
+#        or Bayesian-optimization search proposer reads it.
+# @param[in] --log Optional flag; for a real "--domain [lo..hi]", mark the range
+#        as log-scale (used by the optimization proposer, ignored by the sweep).
 # ------------------------------------------------------------------------------
 knit_with_optional() {
     _knit_param_check_declaration "optional" "$1" "$3"
-    knit_check_arguments "when" "no-checksum" "${@:4}" \
-        || knit_fatal "knit_with_optional takes a parameter, a default, a description, and an optional --when and --no-checksum."
+    knit_check_arguments "when domain" "no-checksum log" "${@:4}" \
+        || knit_fatal "knit_with_optional takes a parameter, a default, a description, and an optional --when, --no-checksum, --domain and --log."
     local param_spec="$1"
     local param_name="${param_spec%%:*}"
     local param_type="${param_spec#*:}"
@@ -1890,8 +1997,14 @@ knit_with_optional() {
     printf -v "${ns}_2_${param}_default"     '%s' "$2"
     printf -v "${ns}_2_${param}_type"        '%s' "${param_type}"
     _knit_set_add "${ns}_optional" "${param}"
-    local when_expr
-    when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+    # Only extract --when / --domain values (a command-substitution fork each)
+    # when the option is actually present among the declaration args. A plain
+    # parameter has none, so the common path on the source/registration hot loop
+    # pays no fork here.
+    local when_expr=""
+    if _knit_decl_flag_present "when" "${@:4}"; then
+        when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+    fi
     if [[ -n "${when_expr}" ]]; then
         printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
         printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
@@ -1899,6 +2012,12 @@ knit_with_optional() {
     local no_checksum="false"
     _knit_decl_flag_present "no-checksum" "${@:4}" && no_checksum="true"
     _knit_register_checksum "input" "${param_type}" "${param_name}" "${no_checksum}"
+    local domain="" log="false"
+    if _knit_decl_flag_present "domain" "${@:4}"; then
+        domain=$(knit_get_parameter "domain" "$@") || domain=""
+    fi
+    _knit_decl_flag_present "log" "${@:4}" && log="true"
+    _knit_declare_domain "${ns}" "${param}" "${log}" "${domain}"
 }
 
 # ------------------------------------------------------------------------------

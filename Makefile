@@ -7,6 +7,7 @@ KNIT_SOURCE = src/global.sh   \
               src/detect.sh   \
               src/local.sh    \
               src/cli.sh      \
+              src/search.sh   \
               src/frame.sh    \
               src/boostrap.sh \
               src/profile.sh  \
