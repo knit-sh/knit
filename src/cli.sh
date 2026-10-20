@@ -1627,6 +1627,39 @@ _knit_decl_flag_present() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_declare_domain()
+#
+# Record the search domain declared for a parameter by the "--domain <descriptor>"
+# flag (and its companion "--log" scale hint) on knit_with_required /
+# knit_with_optional. The raw descriptor token and the log flag are stored
+# verbatim under the parameter's own namespace (${ns}_2_<param>_domain and
+# _domain_log), beside the description/type/default fields. The descriptor is
+# only parsed and validated against the parameter type later, on demand, by the
+# parameter-space accessors — so registration does not pay to parse every
+# parameter's domain. A cheap shape check rejects a gross typo here; a parameter
+# with no "--domain" stores nothing, and "--log" with no "--domain" is a fatal.
+#
+# @param[in] ns Parameter namespace prefix (e.g. "_KNIT_CMD_<cmd>").
+# @param[in] param Normalized parameter name.
+# @param[in] log "true" when the --log scale hint was given, otherwise "false".
+# @param[in] domain The descriptor token, or empty when --domain was not given.
+# ------------------------------------------------------------------------------
+_knit_declare_domain() {
+    local ns="$1" param="$2" log="$3" domain="$4"
+    if [[ -z "${domain}" ]]; then
+        if [[ "${log}" == "true" ]]; then
+            knit_fatal "--log requires --domain."
+        fi
+        return 0
+    fi
+    if ! _knit_search_is_descriptor "${domain}"; then
+        knit_fatal "'%s' is not a valid domain descriptor ({...}, [lo..hi], @glob:..., or @file:...)." "${domain}"
+    fi
+    printf -v "${ns}_2_${param}_domain"     '%s' "${domain}"
+    printf -v "${ns}_2_${param}_domain_log" '%s' "${log}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_register_fileparam()
 #
 # Record the per-parameter existence/checksum marker for a "file"/"directory"
@@ -1800,11 +1833,18 @@ _knit_register_result() {
 #        expression evaluates to true.
 # @param[in] --no-checksum Optional flag; for a file/directory parameter, disable the
 #        content checksum and its companion column.
+# @param[in] --domain Optional search domain descriptor ("{a,b,c}", "[lo..hi]",
+#        "[lo..hi:step]", "@glob:<pat>", or "@file:<path>"; quote it). Its shape
+#        is checked here and the token is stored verbatim; it is parsed and
+#        validated against the parameter type on demand, when the parameter-sweep
+#        or Bayesian-optimization search proposer reads it.
+# @param[in] --log Optional flag; for a real "--domain [lo..hi]", mark the range
+#        as log-scale (used by the optimization proposer, ignored by the sweep).
 # ------------------------------------------------------------------------------
 knit_with_required() {
     _knit_param_check_declaration "required" "$1" "$2"
-    knit_check_arguments "when" "no-checksum" "${@:3}" \
-        || knit_fatal "knit_with_required takes a parameter, a description, and an optional --when and --no-checksum."
+    knit_check_arguments "when domain" "no-checksum log" "${@:3}" \
+        || knit_fatal "knit_with_required takes a parameter, a description, and an optional --when, --no-checksum, --domain and --log."
     local param_spec="$1"
     local param_name="${param_spec%%:*}"
     local param_type="${param_spec#*:}"
@@ -1831,6 +1871,10 @@ knit_with_required() {
     local no_checksum="false"
     _knit_decl_flag_present "no-checksum" "${@:3}" && no_checksum="true"
     _knit_register_checksum "input" "${param_type}" "${param_name}" "${no_checksum}"
+    local domain log="false"
+    domain=$(knit_get_parameter "domain" "$@") || domain=""
+    _knit_decl_flag_present "log" "${@:3}" && log="true"
+    _knit_declare_domain "${ns}" "${param}" "${log}" "${domain}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1867,11 +1911,18 @@ knit_with_required() {
 #        expression evaluates to true.
 # @param[in] --no-checksum Optional flag; for a file/directory parameter, disable the
 #        content checksum and its companion column.
+# @param[in] --domain Optional search domain descriptor ("{a,b,c}", "[lo..hi]",
+#        "[lo..hi:step]", "@glob:<pat>", or "@file:<path>"; quote it). Its shape
+#        is checked here and the token is stored verbatim; it is parsed and
+#        validated against the parameter type on demand, when the parameter-sweep
+#        or Bayesian-optimization search proposer reads it.
+# @param[in] --log Optional flag; for a real "--domain [lo..hi]", mark the range
+#        as log-scale (used by the optimization proposer, ignored by the sweep).
 # ------------------------------------------------------------------------------
 knit_with_optional() {
     _knit_param_check_declaration "optional" "$1" "$3"
-    knit_check_arguments "when" "no-checksum" "${@:4}" \
-        || knit_fatal "knit_with_optional takes a parameter, a default, a description, and an optional --when and --no-checksum."
+    knit_check_arguments "when domain" "no-checksum log" "${@:4}" \
+        || knit_fatal "knit_with_optional takes a parameter, a default, a description, and an optional --when, --no-checksum, --domain and --log."
     local param_spec="$1"
     local param_name="${param_spec%%:*}"
     local param_type="${param_spec#*:}"
@@ -1899,6 +1950,10 @@ knit_with_optional() {
     local no_checksum="false"
     _knit_decl_flag_present "no-checksum" "${@:4}" && no_checksum="true"
     _knit_register_checksum "input" "${param_type}" "${param_name}" "${no_checksum}"
+    local domain log="false"
+    domain=$(knit_get_parameter "domain" "$@") || domain=""
+    _knit_decl_flag_present "log" "${@:4}" && log="true"
+    _knit_declare_domain "${ns}" "${param}" "${log}" "${domain}"
 }
 
 # ------------------------------------------------------------------------------

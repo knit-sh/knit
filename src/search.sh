@@ -14,11 +14,36 @@
 #   @glob:<pattern>  -> kind=glob,  glob=<pattern> (expanded later, at use time)
 #   @file:<path>     -> kind=list,  values=(one value per line of <path>)
 #
-# This file owns only the descriptor: it parses one token into the structured
-# form, and it validates that form against a parameter's declared type (the
-# type x kind rules). Storing a declared descriptor, reading it back, and
-# enumerating or sampling it are later layers.
+# This file owns only the descriptor: a cheap shape check, parsing one token
+# into the structured form, and validating that form against a parameter's
+# declared type (the type x kind rules). A declared "--domain" is stored
+# verbatim and only parsed and validated on demand (when a search proposer or
+# "describe --space" reads it), so registration does not pay to parse every
+# parameter's domain. Storing, reading back, enumerating, and sampling are later
+# layers.
 # ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+# @fn _knit_search_is_descriptor()
+#
+# Cheap shape check: return 0 if a token has the form of a domain descriptor
+# (a non-empty "{...}", "[...]", "@glob:...", or "@file:..."), 1 otherwise. This
+# is the fork-free gate used at declaration time to reject a gross typo without
+# a full parse; it does not check the internal well-formedness of a range or the
+# type x kind rules (those are the parser's and validator's job, on demand).
+#
+# @param[in] token The token to check.
+# @return 0 if the token looks like a descriptor, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_search_is_descriptor() {
+    case "$1" in
+        '{'?*'}')   return 0 ;;
+        '['?*']')   return 0 ;;
+        '@glob:'?*) return 0 ;;
+        '@file:'?*) return 0 ;;
+    esac
+    return 1
+}
 
 # ------------------------------------------------------------------------------
 # @fn _knit_search_parse_literal()
