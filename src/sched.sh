@@ -362,6 +362,7 @@ _knit_sched_directives() {
     case "${backend}" in
         local) _knit_sched_local_directives "${arr_name}" "${jobdir}" ;;
         none)  _knit_sched_none_directives "${arr_name}" "${jobdir}" ;;
+        pilot) _knit_sched_pilot_directives "${arr_name}" "${jobdir}" ;;
         slurm) _knit_sched_slurm_directives "${arr_name}" "${jobdir}" ;;
         pbs)   _knit_sched_pbs_directives "${arr_name}" "${jobdir}" ;;
         flux)  _knit_sched_flux_directives "${arr_name}" "${jobdir}" ;;
@@ -391,6 +392,7 @@ _knit_sched_submit_cmdline() {
     case "${backend}" in
         local) _knit_sched_local_submit_cmdline "${argv_name}" "${arr_name}" "${script}" ;;
         none)  _knit_sched_none_submit_cmdline "${argv_name}" "${arr_name}" "${script}" ;;
+        pilot) _knit_sched_pilot_submit_cmdline "${argv_name}" "${arr_name}" "${script}" ;;
         slurm) _knit_sched_slurm_submit_cmdline "${argv_name}" "${arr_name}" "${script}" ;;
         pbs)   _knit_sched_pbs_submit_cmdline "${argv_name}" "${arr_name}" "${script}" ;;
         flux)  _knit_sched_flux_submit_cmdline "${argv_name}" "${arr_name}" "${script}" ;;
@@ -418,6 +420,7 @@ _knit_sched_submit() {
     case "${backend}" in
         local) _knit_sched_local_submit "${arr_name}" "${script}" "${jobdir}" ;;
         none)  _knit_sched_none_submit "${arr_name}" "${script}" "${jobdir}" ;;
+        pilot) _knit_sched_pilot_submit "${arr_name}" "${script}" "${jobdir}" ;;
         slurm) _knit_sched_slurm_submit "${arr_name}" "${script}" "${jobdir}" ;;
         pbs)   _knit_sched_pbs_submit "${arr_name}" "${script}" "${jobdir}" ;;
         flux)  _knit_sched_flux_submit "${arr_name}" "${script}" "${jobdir}" ;;
@@ -442,6 +445,7 @@ _knit_sched_cancel() {
     case "${backend}" in
         local) _knit_sched_local_cancel "${jobid}" ;;
         none)  _knit_sched_none_cancel "${jobid}" ;;
+        pilot) _knit_sched_pilot_cancel "${jobid}" ;;
         slurm) _knit_sched_slurm_cancel "${jobid}" ;;
         pbs)   _knit_sched_pbs_cancel "${jobid}" ;;
         flux)  _knit_sched_flux_cancel "${jobid}" ;;
@@ -450,24 +454,46 @@ _knit_sched_cancel() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_sched_backend()
+# @fn _knit_sched_real_backend()
 #
-# Resolve which scheduler backend to use: bootstrap metadata (__scheduler__),
-# else live detection. Detection's "<unknown>" (no batch scheduler present) means
-# the workstation case and maps to the local background-process backend. An
-# explicit "none" in metadata is a real, deliberate backend (a user-owned
-# cluster driven without a scheduler) and flows through untouched. Returns one of
-# "local", "none", "slurm", "pbs", "flux".
+# Resolve the machine's real scheduler backend, ignoring any active pilot:
+# bootstrap metadata (__scheduler__), else live detection. Detection's
+# "<unknown>" (no batch scheduler present) means the workstation case and maps to
+# the local background-process backend. An explicit "none" in metadata is a real,
+# deliberate backend (a user-owned cluster driven without a scheduler) and flows
+# through untouched. Returns one of "local", "none", "slurm", "pbs", "flux".
 #
 # @param[out] __knit_ret Name of the variable to hold the resolved backend name.
 # ------------------------------------------------------------------------------
-_knit_sched_backend() {
+_knit_sched_real_backend() {
     local -n __knit_ret=$1
     local __backend
     _knit_metadata_get __backend "__scheduler__"
     [[ -z "${__backend}" ]] && __backend="$(_knit_detect_job_manager)"
     [[ "${__backend}" == "<unknown>" ]] && __backend="local"
     __knit_ret="${__backend}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_backend()
+#
+# Resolve which scheduler backend a submission targets. Inside a pilot job
+# (KNIT_PILOT set) the backend is "pilot": `knit submit` is retargeted to the
+# in-allocation knit-pilotd daemon rather than the machine scheduler. Otherwise
+# it is the machine's real backend (see _knit_sched_real_backend). Returns one of
+# "pilot", "local", "none", "slurm", "pbs", "flux".
+#
+# @param[out] __knit_ret Name of the variable to hold the resolved backend name.
+# ------------------------------------------------------------------------------
+_knit_sched_backend() {
+    local -n __knit_ret=$1
+    if [[ -n "${KNIT_PILOT:-}" ]]; then
+        __knit_ret="pilot"
+        return 0
+    fi
+    local tmp
+    _knit_sched_real_backend tmp
+    __knit_ret="${tmp}"
 }
 
 # ------------------------------------------------------------------------------
@@ -488,6 +514,7 @@ _knit_sched_wait() {
     case "${backend}" in
         local) _knit_sched_local_wait "${jobid}" ;;
         none)  _knit_sched_none_wait "${jobid}" ;;
+        pilot) _knit_sched_pilot_wait "${jobid}" ;;
         slurm) _knit_sched_slurm_wait "${jobid}" ;;
         pbs)   _knit_sched_pbs_wait "${jobid}" ;;
         flux)  _knit_sched_flux_wait "${jobid}" ;;
@@ -508,8 +535,18 @@ _knit_sched_wait() {
 # deduplicated, cleaned list post-process it (see knit_job_hostnames).
 # ------------------------------------------------------------------------------
 _knit_sched_hostfile() {
+    # A pilot sub-job is fork/exec'd by the daemon with its assigned node subset
+    # in KNIT_PILOT_HOSTFILE (and no pilot environment of its own), so read that
+    # directly: placement stays within the sub-job's subset. Otherwise host
+    # listing is always about the machine's real allocation — even inside a pilot
+    # job body, whose own knit_job_hostnames reports its full allocation — so
+    # resolve the real backend rather than "pilot".
+    if [[ -n "${KNIT_PILOT_HOSTFILE:-}" ]]; then
+        _knit_sched_pilot_hostfile
+        return
+    fi
     local backend
-    _knit_sched_backend backend
+    _knit_sched_real_backend backend
     case "${backend}" in
         local) _knit_sched_local_hostfile ;;
         none)  _knit_sched_none_hostfile ;;

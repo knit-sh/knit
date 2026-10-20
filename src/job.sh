@@ -123,6 +123,13 @@ knit_with_output "native-cmd:string" "" \
 # ```
 # ------------------------------------------------------------------------------
 _knit_submit() {
+    # A `knit submit` from inside a non-pilot job body is rejected; inside a pilot
+    # job it is allowed (and retargeted to the in-allocation daemon). Only this
+    # dispatch path (`submit -- <job>`) reaches here — the compute-side body
+    # re-entry runs `submit <job>` straight into the job function — so this never
+    # blocks a job from starting (see _knit_pilot_reject_nested_submit).
+    _knit_pilot_reject_nested_submit
+
     # The output variable names must not clash with _knit_prepare_build's own
     # internal locals (uuid/jobdir/alias_link/job_name), or the nameref outputs
     # would be shadowed (see the nameref-shadow-collision convention).
