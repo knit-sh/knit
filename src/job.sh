@@ -104,6 +104,8 @@ knit_with_output "hostnames:string" "" \
     "Comma-separated deduplicated nodes the job ran on (recorded at start)."
 knit_with_output "native-cmd:string" "" \
     "The resolved scheduler command that was issued to submit the job."
+knit_with_output "retries:integer" "0" \
+    "Number of times this job has been reset (re-queued) for a retry."
 
 # ------------------------------------------------------------------------------
 # @fn _knit_submit()

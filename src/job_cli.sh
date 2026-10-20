@@ -330,6 +330,189 @@ _knit_job_cancel() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_job_reset_validate_states()
+#
+# Check that a comma-separated --state list names only states that `job reset`
+# may re-queue, and abort (knit_fatal) otherwise. The terminal-failed states
+# "killed" and "failed" are always allowed; "completed" is allowed only when the
+# caller passed --force (a deliberate redo). Any other state (including the
+# non-terminal "running"/"submitting"/"prepared"/"submitted", which reset never
+# touches) or an unknown value is rejected, as is an empty list.
+#
+# @param[in] csv   The comma-separated --state list.
+# @param[in] force "true" when --force was given (allows "completed").
+# ------------------------------------------------------------------------------
+_knit_job_reset_validate_states() {
+    local csv="$1" force="$2"
+    local allowed="killed, failed"
+    [[ "${force}" == "true" ]] && allowed="killed, failed, completed"
+    local -a parts
+    IFS=',' read -ra parts <<< "${csv}"
+    local part saw=0
+    for part in "${parts[@]}"; do
+        part="${part//[[:space:]]/}"
+        [[ -z "${part}" ]] && continue
+        saw=1
+        case "${part}" in
+            killed|failed) ;;
+            completed)
+                [[ "${force}" == "true" ]] && continue
+                knit_fatal "job reset: resetting a \"completed\" job needs --force."
+                ;;
+            *)
+                knit_fatal "job reset: invalid --state value \"%s\" (allowed: %s)." \
+                    "${part}" "${allowed}"
+                ;;
+        esac
+    done
+    (( saw )) || knit_fatal "job reset: --state must name at least one state."
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_job_reset_one()
+#
+# Re-queue a single job row for a retry: move it back to state "prepared" and
+# clear the artifacts of its previous run, so the next `submit drain` claims and
+# re-runs it from the same recorded inputs. The durable folder, the batch script,
+# and the recorded arguments are preserved (prepare wrote them and they do not
+# change); only the run-specific fields are cleared, restoring the row to the
+# shape a freshly-prepared job has: "state" -> prepared, "hostnames" and
+# "native-cmd" emptied, and the "retries" counter incremented. The stale backend
+# launcher id (<jobdir>/.job.id) is removed so a re-dispatch records a fresh one.
+# The job keeps its id and its provenance; no new row or edge is created.
+#
+# @param[in] id      The job UUID (its jobs-row id).
+# @param[in] current The job's current "retries" count (NULL coalesced to 0 by
+#                the caller), bumped by one here.
+# ------------------------------------------------------------------------------
+_knit_job_reset_one() {
+    local id="$1" current="$2"
+    local new=$(( current + 1 ))
+    _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${id}" \
+        "state=prepared" "hostnames=" "native-cmd=" "retries=${new}"
+    local jobdir
+    jobdir="$(_knit_job_dir "${id}")"
+    rm -f "${jobdir}/.job.id"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_job_reset_apply()
+#
+# Re-queue every job matching the selectors whose state is in states_csv back to
+# "prepared" for a retry (see _knit_job_reset_one). This is the shared worker
+# behind `job reset` and `submit drain --retry`, so the two surfaces cannot
+# drift. The selectors are AND-ed: states_csv (a validated non-empty list of
+# source states), plus an optional id / group / job-type equality. A job whose
+# "retries" count already reached max_retries is left terminal and warned about,
+# so a poison job cannot be retried without bound; an empty max_retries means no
+# cap. Each re-queued id is printed to stdout (in id order); a one-line count
+# goes to stderr. Resetting nothing is not an error (idempotent): a scope with no
+# matching terminal job simply reports zero.
+#
+# @param[in] states_csv  Comma-separated source states to reset (already validated).
+# @param[in] max_retries Retry cap, or "" for no cap.
+# @param[in] sel_id      Optional job UUID to match (empty means any).
+# @param[in] sel_group   Optional group to match (empty means any).
+# @param[in] sel_type    Optional job type (the "job" column) to match (empty means any).
+# ------------------------------------------------------------------------------
+_knit_job_reset_apply() {
+    local states_csv="$1" max_retries="$2"
+    local sel_id="$3" sel_group="$4" sel_type="$5"
+
+    local jobs_ident id_ident group_ident retries_ident
+    _knit_db_sql_ident jobs_ident "${_KNIT_JOBS_TABLE}"
+    _knit_db_sql_ident id_ident "id"
+    _knit_db_sql_ident group_ident "group"
+    _knit_db_sql_ident retries_ident "retries"
+
+    local -a conds=()
+    local states_in
+    states_in="$(_knit_job_in_clause "state" "${states_csv}")"
+    conds+=("${states_in}")
+    local esc
+    if [[ -n "${sel_id}" ]]; then
+        _knit_sql_escape esc "${sel_id}"
+        conds+=("${id_ident}='${esc}'")
+    fi
+    if [[ -n "${sel_group}" ]]; then
+        _knit_sql_escape esc "${sel_group}"
+        conds+=("${group_ident}='${esc}'")
+    fi
+    if [[ -n "${sel_type}" ]]; then
+        _knit_sql_escape esc "${sel_type}"
+        conds+=("job='${esc}'")
+    fi
+    local where
+    printf -v where '%s AND ' "${conds[@]}"
+    where="${where% AND }"
+
+    local reset_count=0 skipped=0
+    local id state retries
+    while IFS=$'\x1f' read -r id state retries; do
+        [[ -z "${id}" ]] && continue
+        retries="${retries:-0}"
+        if [[ -n "${max_retries}" ]] && (( retries >= max_retries )); then
+            knit_warning "Job \"%s\" has been retried %s time(s) (cap %s); leaving it \"%s\"." \
+                "${id}" "${retries}" "${max_retries}" "${state}"
+            skipped=$(( skipped + 1 ))
+            continue
+        fi
+        _knit_job_reset_one "${id}" "${retries}"
+        printf '%s\n' "${id}"
+        reset_count=$(( reset_count + 1 ))
+    done < <(_knit_sqlite3 -separator $'\x1f' \
+        "SELECT ${id_ident}, state, COALESCE(${retries_ident}, 0) \
+           FROM ${jobs_ident} WHERE ${where} ORDER BY ${id_ident} ASC;")
+
+    if (( skipped > 0 )); then
+        knit_info "Reset %s job(s) to prepared; skipped %s at the retry cap." \
+            "${reset_count}" "${skipped}"
+    else
+        knit_info "Reset %s job(s) to prepared." "${reset_count}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_job_reset()
+#
+# Entry point for the `job reset` CLI command. Re-queue terminal-failed jobs
+# (state "killed" or "failed") back to "prepared" so a later `submit drain`
+# retries them. The source states default to "killed,failed" and are restricted
+# to those two (plus "completed" under --force) by _knit_job_reset_validate_states;
+# the non-terminal "running"/"submitting" are never touched (orphan reclaim is a
+# separate feature). The id / group / type selectors narrow which jobs match (all
+# AND-ed), and --max-retries caps how many times a repeatedly-failing job is
+# retried. The actual re-queue is done by the shared worker _knit_job_reset_apply.
+#
+# Usage:
+# ```
+# ./exp.sh job reset [--id <uuid>] [--group <g>] [--type <job>] \
+#     [--state killed,failed] [--max-retries <n>] [--force]
+# ```
+# ------------------------------------------------------------------------------
+_knit_job_reset() {
+    if ! _knit_is_bootstrapped; then
+        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
+        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
+    fi
+    local id group type states max_retries force
+    id=$(knit_get_parameter "id" "$@") || id=""
+    group=$(knit_get_parameter "group" "$@") || group=""
+    type=$(knit_get_parameter "type" "$@") || type=""
+    states=$(knit_get_parameter "state" "$@") || states="killed,failed"
+    max_retries=$(knit_get_parameter "max-retries" "$@") || max_retries=""
+    force=$(knit_get_parameter "force" "$@") || force="false"
+
+    _knit_job_reset_validate_states "${states}" "${force}"
+
+    if [[ -n "${max_retries}" ]] && (( max_retries < 1 )); then
+        knit_fatal "job reset: --max-retries must be 1 or greater (got \"${max_retries}\")."
+    fi
+
+    _knit_job_reset_apply "${states}" "${max_retries}" "${id}" "${group}" "${type}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_job_reconstruct_args_from_db_row()
 #
 # Append CLI arguments reconstructing a command's recorded parameters from one
@@ -759,6 +942,19 @@ _knit_job_discover() {
     knit_register "job:cancel" _knit_job_cancel "Cancel a running job."
     _knit_is_builtin
     knit_with_required "id:string" "Job UUID."
+    knit_done
+
+    knit_register "job:reset" _knit_job_reset \
+        "Re-queue failed or killed jobs back to prepared for a retry."
+    _knit_is_builtin
+    knit_with_optional "id:string" "" "Reset the job with this UUID."
+    knit_with_optional "group:string" "" "Reset jobs in this group."
+    knit_with_optional "type:string" "" "Reset jobs of this type (the job name)."
+    knit_with_optional "state:string" "killed,failed" \
+        "Comma-separated source states to reset (from killed, failed; completed needs --force)."
+    knit_with_optional "max-retries:integer" "" \
+        "Skip (and warn about) a job whose retries count already reached this value."
+    knit_with_flag "force" "Also allow resetting a completed job (a deliberate redo)."
     knit_done
 
     knit_register "job:resubmit" _knit_job_resubmit "Re-run a job reusing its recorded parameters."
