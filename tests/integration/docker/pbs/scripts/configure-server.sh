@@ -27,6 +27,11 @@ echo "  [configure-server] pbs_server is ready. Applying configuration..."
 # Server attributes
 # ---------------------------------------------------------------------------
 /opt/pbs/bin/qmgr -c "set server scheduling = True"
+# Keep finished jobs in qstat -x output so _knit_sched_pbs_wait sees the "F"
+# (finished) state and returns immediately, rather than burning through the
+# 30-second never-seen grace period for fast-completing jobs.
+/opt/pbs/bin/qmgr -c "set server job_history_enable = True"
+/opt/pbs/bin/qmgr -c "set server job_history_duration = 1:00:00"
 /opt/pbs/bin/qmgr -c "set server log_events = 511"
 /opt/pbs/bin/qmgr -c "set server mail_from = adm"
 /opt/pbs/bin/qmgr -c "set server query_other_jobs = True"
