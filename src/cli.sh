@@ -1910,8 +1910,14 @@ knit_with_required() {
     printf -v "${ns}_2_${param}_description" '%s' "$2"
     printf -v "${ns}_2_${param}_type"        '%s' "${param_type}"
     _knit_set_add "${ns}_required" "${param}"
-    local when_expr
-    when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+    # Only extract --when / --domain values (a command-substitution fork each)
+    # when the option is actually present among the declaration args. A plain
+    # parameter has none, so the common path on the source/registration hot loop
+    # pays no fork here.
+    local when_expr=""
+    if _knit_decl_flag_present "when" "${@:3}"; then
+        when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+    fi
     if [[ -n "${when_expr}" ]]; then
         printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
         printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
@@ -1919,8 +1925,10 @@ knit_with_required() {
     local no_checksum="false"
     _knit_decl_flag_present "no-checksum" "${@:3}" && no_checksum="true"
     _knit_register_checksum "input" "${param_type}" "${param_name}" "${no_checksum}"
-    local domain log="false"
-    domain=$(knit_get_parameter "domain" "$@") || domain=""
+    local domain="" log="false"
+    if _knit_decl_flag_present "domain" "${@:3}"; then
+        domain=$(knit_get_parameter "domain" "$@") || domain=""
+    fi
     _knit_decl_flag_present "log" "${@:3}" && log="true"
     _knit_declare_domain "${ns}" "${param}" "${log}" "${domain}"
 }
@@ -1989,8 +1997,14 @@ knit_with_optional() {
     printf -v "${ns}_2_${param}_default"     '%s' "$2"
     printf -v "${ns}_2_${param}_type"        '%s' "${param_type}"
     _knit_set_add "${ns}_optional" "${param}"
-    local when_expr
-    when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+    # Only extract --when / --domain values (a command-substitution fork each)
+    # when the option is actually present among the declaration args. A plain
+    # parameter has none, so the common path on the source/registration hot loop
+    # pays no fork here.
+    local when_expr=""
+    if _knit_decl_flag_present "when" "${@:4}"; then
+        when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+    fi
     if [[ -n "${when_expr}" ]]; then
         printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
         printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
@@ -1998,8 +2012,10 @@ knit_with_optional() {
     local no_checksum="false"
     _knit_decl_flag_present "no-checksum" "${@:4}" && no_checksum="true"
     _knit_register_checksum "input" "${param_type}" "${param_name}" "${no_checksum}"
-    local domain log="false"
-    domain=$(knit_get_parameter "domain" "$@") || domain=""
+    local domain="" log="false"
+    if _knit_decl_flag_present "domain" "${@:4}"; then
+        domain=$(knit_get_parameter "domain" "$@") || domain=""
+    fi
     _knit_decl_flag_present "log" "${@:4}" && log="true"
     _knit_declare_domain "${ns}" "${param}" "${log}" "${domain}"
 }
