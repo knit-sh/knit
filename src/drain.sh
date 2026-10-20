@@ -11,6 +11,12 @@
 ## Pacing is selected by --max-inflight: 1 (default) releases one job at a time
 ## and waits for each (serial); 0 releases every matching job without waiting
 ## (no limit); values greater than 1 keep several jobs alive at once (throttled).
+##
+## With --retry <states>, the matching terminal-failed jobs (killed and/or
+## failed) in this drain's scope are re-queued to "prepared" once at the start of
+## the pass (via the shared _knit_job_reset_apply worker), so a drain that resumes
+## a killed pilot also retries what the pilot left behind; --max-retries caps the
+## per-job retry count.
 
 # ------------------------------------------------------------------------------
 # @fn _knit_drain_release_next()
@@ -374,6 +380,37 @@ _knit_drain_dry_run() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_drain_validate_retry_states()
+#
+# Check that a --retry list names only states drain may re-queue, and abort
+# (knit_fatal) otherwise. Drain retries only the terminal-failed states "killed"
+# and "failed"; the non-terminal "running"/"submitting" are never reclaimed
+# (orphan detection is a separate feature) and "completed" is never redone from a
+# drain. Any other value, or an empty list, is rejected.
+#
+# @param[in] csv The comma-separated --retry list (non-empty).
+# ------------------------------------------------------------------------------
+_knit_drain_validate_retry_states() {
+    local csv="$1"
+    local -a parts
+    IFS=',' read -ra parts <<< "${csv}"
+    local part saw=0
+    for part in "${parts[@]}"; do
+        part="${part//[[:space:]]/}"
+        [[ -z "${part}" ]] && continue
+        saw=1
+        case "${part}" in
+            killed|failed) ;;
+            *)
+                knit_fatal "submit drain: invalid --retry state \"%s\" (allowed: killed, failed)." \
+                    "${part}"
+                ;;
+        esac
+    done
+    (( saw )) || knit_fatal "submit drain: --retry must name at least one state (killed and/or failed)."
+}
+
+# ------------------------------------------------------------------------------
 # Release prepared jobs in a loop until the queue drains.
 # ------------------------------------------------------------------------------
 knit_register "submit:drain" _knit_submit_drain \
@@ -388,6 +425,10 @@ knit_with_optional "max-inflight:integer" "1" \
     "Maximum jobs kept alive in the scheduler at once (0 = no limit, no waiting; 1 = serial)."
 knit_with_optional "count:integer" "" \
     "Release at most this many jobs this run (default: all matching)."
+knit_with_optional "retry:string" "" \
+    "Re-queue jobs in these states (comma list from killed, failed) to prepared before draining."
+knit_with_optional "max-retries:integer" "" \
+    "With --retry, skip a job whose retries count already reached this value."
 knit_with_flag "stop-on-failure" \
     "Stop releasing new jobs after the first failed job." \
     --when '.max_inflight > 0'
@@ -406,10 +447,20 @@ knit_with_flag "dry-run" \
 # claims nothing. The exit status reflects whether any released job failed
 # (waiting modes).
 #
+# With --retry <states>, every job in those terminal-failed states (killed and/or
+# failed) within this drain's --type/--group scope is re-queued to "prepared"
+# ONCE at the start of the pass (a snapshot, via the shared _knit_job_reset_apply
+# worker), then drained with the prepared backlog. --max-retries caps how many
+# times a repeatedly-failing job is re-queued across invocations. A job that
+# fails again during the same pass is left terminal for the next drain, so one
+# pass cannot spin in an immediate retry loop. The reset is skipped under
+# --dry-run, which mutates nothing.
+#
 # Usage:
 # ```
 # ./exp.sh submit drain [--type <t>] [--group <g>] [--max-inflight <n>] \
-#     [--count <n>] [--stop-on-failure] [--json-summary] [--dry-run]
+#     [--count <n>] [--retry <states>] [--max-retries <n>] \
+#     [--stop-on-failure] [--json-summary] [--dry-run]
 # ```
 # ------------------------------------------------------------------------------
 _knit_submit_drain() {
@@ -418,10 +469,13 @@ _knit_submit_drain() {
         knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
     fi
     local type group max_inflight count stop_on_failure json_summary dry_run
+    local retry max_retries
     type=$(knit_get_parameter "type" "$@") || type=""
     group=$(knit_get_parameter "group" "$@") || group=""
     max_inflight=$(knit_get_parameter "max-inflight" "$@") || max_inflight="1"
     count=$(knit_get_parameter "count" "$@") || count=""
+    retry=$(knit_get_parameter "retry" "$@") || retry=""
+    max_retries=$(knit_get_parameter "max-retries" "$@") || max_retries=""
     stop_on_failure=$(knit_get_parameter "stop-on-failure" "$@") || stop_on_failure="false"
     json_summary=$(knit_get_parameter "json-summary" "$@") || json_summary="false"
     dry_run=$(knit_get_parameter "dry-run" "$@") || dry_run="false"
@@ -433,12 +487,27 @@ _knit_submit_drain() {
     if [[ -n "${count}" ]] && (( count < 1 )); then
         knit_fatal "submit drain: --count must be 1 or greater (got \"${count}\")."
     fi
+    if [[ -n "${retry}" ]]; then
+        _knit_drain_validate_retry_states "${retry}"
+    fi
+    if [[ -n "${max_retries}" ]] && (( max_retries < 1 )); then
+        knit_fatal "submit drain: --max-retries must be 1 or greater (got \"${max_retries}\")."
+    fi
 
-    # A dry run only lists what would be released; it claims nothing and ignores
-    # the pacing options.
+    # A dry run only lists what would be released; it claims nothing, re-queues
+    # nothing, and ignores the pacing options.
     if [[ "${dry_run}" == "true" ]]; then
         _knit_drain_dry_run "${count}" "${json_summary}" "${type}" "${group}"
         return 0
+    fi
+
+    # Retry pass (snapshot): re-queue the matching terminal-failed jobs in this
+    # drain's scope to "prepared" once, before the loop claims anything, so they
+    # join the prepared backlog this pass. Reset ids go to the reset worker's own
+    # stderr count; drop its stdout so only drain's own output reaches the caller.
+    if [[ -n "${retry}" ]]; then
+        _knit_job_reset_apply "${retry}" "${max_retries}" "" "${group}" "${type}" \
+            >/dev/null
     fi
 
     local -a filters=()
