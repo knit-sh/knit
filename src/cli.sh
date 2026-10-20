@@ -552,6 +552,54 @@ _knit_param_type() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_parameter_type()
+#
+# Public accessor for the declared type of a command's parameter. The parameter
+# name is normalized (hyphens and underscores are interchangeable). Returns the
+# empty string and status 1 when the command has no such parameter. This is the
+# stable surface the search proposers (and any plugin) use instead of reaching
+# into the _KNIT_CMD_<cmd>_2_<param>_type internals.
+#
+# @param[out] __knit_ret Name of the variable to hold the type.
+# @param[in] cmd Command the parameter belongs to (the mangled/registered name).
+# @param[in] param Parameter name (hyphen or underscore spelling).
+# @return 0 if the parameter exists, 1 otherwise.
+# ------------------------------------------------------------------------------
+knit_parameter_type() {
+    local -n __knit_ret=$1
+    local __knit_param
+    _knit_name_normalize __knit_param "$3"
+    local __var="_KNIT_CMD_${2}_2_${__knit_param}_type"
+    if [[ ! -v "${__var}" ]]; then
+        __knit_ret=""
+        return 1
+    fi
+    __knit_ret="${!__var}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_command_parameters()
+#
+# Public accessor listing a command's parameter names (normalized), in
+# declaration order: required first, then optional, then flags. This is the
+# stable surface the search proposers use to discover which parameters a command
+# has, instead of iterating the _KNIT_CMD_<cmd>_{required,optional,flags} sets.
+#
+# @param[out] __knit_ret Name of the array variable to populate.
+# @param[in] cmd Command to list (the mangled/registered name).
+# ------------------------------------------------------------------------------
+knit_command_parameters() {
+    local -n __knit_ret_params=$1
+    local cmd="$2"
+    __knit_ret_params=()
+    local __knit_tmp category
+    for category in required optional flags; do
+        _knit_set_array __knit_tmp "_KNIT_CMD_${cmd}_${category}"
+        __knit_ret_params+=("${__knit_tmp[@]}")
+    done
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_output_description()
 #
 # This function returns the description of an output for a given command.

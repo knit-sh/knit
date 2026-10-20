@@ -211,3 +211,121 @@ _knit_search_validate_descriptor() {
         knit_fatal "The --log scale hint applies only to a real range domain."
     fi
 }
+
+# ------------------------------------------------------------------------------
+# @fn knit_parameter_space()
+#
+# Public accessor for a command parameter's declared search domain, returned in
+# structured form. This is the lazy parse+validate point: it reads the raw
+# descriptor stored at declaration (the <ns>_2_<param>_domain token and its
+# _domain_log flag), parses it with the shared grammar, and validates it against
+# the parameter's declared type (so a type x kind error surfaces here, on first
+# read, not at declaration). The parameter name is normalized (hyphen or
+# underscore spelling). Returns status 1 with all outputs cleared when the
+# parameter has no declared domain.
+#
+# The output arguments come first, in the order kind, type, lo, hi, values,
+# step, log, glob; then the command and parameter.
+#
+# @param[out] __knit_ret1 Domain kind ("list", "range", or "glob").
+# @param[out] __knit_ret2 The parameter's declared type.
+# @param[out] __knit_ret3 Range lower bound (empty unless kind=range).
+# @param[out] __knit_ret4 Range upper bound (empty unless kind=range).
+# @param[out] __knit_ret5 Array of list values (empty unless kind=list).
+# @param[out] __knit_ret6 Range step (empty when unset or kind!=range).
+# @param[out] __knit_ret7 Log-scale flag ("true"/"false").
+# @param[out] __knit_ret8 Glob pattern (empty unless kind=glob).
+# @param[in] cmd Command the parameter belongs to (the mangled/registered name).
+# @param[in] param Parameter name (hyphen or underscore spelling).
+# @return 0 if the parameter has a declared domain, 1 otherwise.
+# ------------------------------------------------------------------------------
+knit_parameter_space() {
+    # __knit_ret1/__knit_ret2 are scalar here but the parser above aliases the
+    # same nameref names to arrays; shellcheck's file-global view conflates them.
+    # shellcheck disable=SC2178
+    local -n __knit_ret1=$1
+    # shellcheck disable=SC2178
+    local -n __knit_ret2=$2
+    local -n __knit_ret3=$3
+    local -n __knit_ret4=$4
+    local -n __knit_ret5=$5
+    local -n __knit_ret6=$6
+    local -n __knit_ret7=$7
+    local -n __knit_ret8=$8
+    local cmd="$9" raw_param="${10}"
+
+    # shellcheck disable=SC2178 # scalar here; parser aliases the same names to arrays
+    __knit_ret1=""
+    # shellcheck disable=SC2178
+    __knit_ret2=""
+    __knit_ret3=""; __knit_ret4=""
+    __knit_ret5=(); __knit_ret6=""; __knit_ret7=""; __knit_ret8=""
+
+    local __knit_param
+    _knit_name_normalize __knit_param "${raw_param}"
+
+    local __knit_domain_var="_KNIT_CMD_${cmd}_2_${__knit_param}_domain"
+    if [[ ! -v "${__knit_domain_var}" || -z "${!__knit_domain_var}" ]]; then
+        return 1
+    fi
+    local __knit_raw="${!__knit_domain_var}"
+    local __knit_log="false"
+    local __knit_log_var="_KNIT_CMD_${cmd}_2_${__knit_param}_domain_log"
+    [[ -v "${__knit_log_var}" ]] && __knit_log="${!__knit_log_var}"
+    local __knit_type_var="_KNIT_CMD_${cmd}_2_${__knit_param}_type"
+    local __knit_type="${!__knit_type_var}"
+
+    local -A __knit_space_desc
+    local __knit_space_vals
+    _knit_search_parse_literal __knit_space_desc __knit_space_vals "${__knit_raw}"
+    _knit_search_validate_descriptor __knit_space_desc __knit_space_vals \
+        "${__knit_type}" "${__knit_log}"
+
+    # shellcheck disable=SC2178 # scalar here; parser aliases the same names to arrays
+    __knit_ret1="${__knit_space_desc[kind]}"
+    # shellcheck disable=SC2178
+    __knit_ret2="${__knit_type}"
+    __knit_ret3="${__knit_space_desc[lo]}"
+    __knit_ret4="${__knit_space_desc[hi]}"
+    __knit_ret5=("${__knit_space_vals[@]}")
+    __knit_ret6="${__knit_space_desc[step]}"
+    __knit_ret7="${__knit_log}"
+    __knit_ret8="${__knit_space_desc[glob]}"
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_parameter_space_json()
+#
+# Print a command parameter's declared search domain as a compact JSON object
+# (one fork), or the literal "null" when the parameter has no declared domain.
+# The object has the keys kind, type, lo, hi, step, glob (strings), log
+# (boolean), and values (array of strings). A convenient read for "describe
+# --space" and the Bayesian-optimization plugin. Like knit_parameter_space, it
+# parses and validates on read, so an invalid declared domain is fatal here.
+#
+# @param[in] cmd Command the parameter belongs to (the mangled/registered name).
+# @param[in] param Parameter name (hyphen or underscore spelling).
+# ------------------------------------------------------------------------------
+knit_parameter_space_json() {
+    local cmd="$1" param="$2"
+    local __knit_j_kind __knit_j_type __knit_j_lo __knit_j_hi
+    local __knit_j_values __knit_j_step __knit_j_log __knit_j_glob
+    if ! knit_parameter_space \
+        __knit_j_kind __knit_j_type __knit_j_lo __knit_j_hi __knit_j_values \
+        __knit_j_step __knit_j_log __knit_j_glob "${cmd}" "${param}"; then
+        printf 'null\n'
+        return 0
+    fi
+    # shellcheck disable=SC2016 # $kind etc. are jq variables, not shell expansions
+    knit_jq -cn \
+        --arg kind "${__knit_j_kind}" \
+        --arg type "${__knit_j_type}" \
+        --arg lo   "${__knit_j_lo}" \
+        --arg hi   "${__knit_j_hi}" \
+        --arg step "${__knit_j_step}" \
+        --arg glob "${__knit_j_glob}" \
+        --argjson log "${__knit_j_log:-false}" \
+        '{kind:$kind, type:$type, lo:$lo, hi:$hi, step:$step, glob:$glob, log:$log, values:$ARGS.positional}' \
+        --args "${__knit_j_values[@]}"
+}
