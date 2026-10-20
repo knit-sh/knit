@@ -472,7 +472,57 @@ _knit_describe_json_param() {
         _knit_describe_json_str s "${!when_raw_var}"
         printf -v e '%s"when":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     fi
+    if _knit_describe_filter_on "space" && [[ "${group}" != "flags" ]]; then
+        local space_var="_KNIT_CMD_${cmd}_2_${param}_domain"
+        if [[ -v "${space_var}" && -n "${!space_var}" ]]; then
+            printf -v e '%s"space":%s%s' "${inner}" "${cs}" \
+                "$(_knit_describe_json_space "${cmd}" "${param}" "${inner}")"
+            entries+=("${e}")
+        fi
+    fi
     printf '%s' "${indent}"
+    _knit_describe_emit_object "${indent}" "${entries[@]}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_json_space()
+#
+# Render a parameter's declared search domain as a JSON object (value: no leading
+# indent; the closing brace is printed at the given indent). The object mirrors
+# knit_parameter_space_json's shape — kind, type, lo, hi, step, glob (strings),
+# log (boolean), and values (array of strings) — but is hand-built with the
+# describe JSON helpers so it respects the pretty/compact whitespace and needs no
+# jq. Reads the domain through knit_parameter_space (parse + validate on read).
+#
+# @param[in] cmd    Mangled command name.
+# @param[in] param  Normalized parameter name.
+# @param[in] indent Indentation of the object's closing brace.
+# ------------------------------------------------------------------------------
+_knit_describe_json_space() {
+    local cmd="$1" param="$2" indent="$3"
+    local inner="${indent}${_KNIT_DESCRIBE_JSON_IND}"
+    local cs="${_KNIT_DESCRIBE_JSON_CS}"
+    # shellcheck disable=SC2034 # populated by knit_parameter_space (nameref); kind..glob read via ${!vv}
+    local sp_kind sp_type sp_lo sp_hi sp_step sp_log sp_glob sp_values
+    knit_parameter_space sp_kind sp_type sp_lo sp_hi sp_values sp_step sp_log \
+        sp_glob "${cmd}" "${param}" || return 1
+    local entries=() s e key vv
+    for key in kind type lo hi step glob; do
+        vv="sp_${key}"
+        _knit_describe_json_str s "${!vv}"
+        printf -v e '%s"%s":%s%s' "${inner}" "${key}" "${cs}" "${s}"
+        entries+=("${e}")
+    done
+    printf -v e '%s"log":%s%s' "${inner}" "${cs}" "${sp_log:-false}"
+    entries+=("${e}")
+    local velem="${inner}${_KNIT_DESCRIBE_JSON_IND}" varr=() v
+    for v in "${sp_values[@]}"; do
+        _knit_describe_json_str s "${v}"
+        varr+=("${velem}${s}")
+    done
+    printf -v e '%s"values":%s%s' "${inner}" "${cs}" \
+        "$(_knit_describe_emit_array "${inner}" "${varr[@]}")"
+    entries+=("${e}")
     _knit_describe_emit_object "${indent}" "${entries[@]}"
 }
 
@@ -985,6 +1035,45 @@ _knit_describe_yaml_param() {
         _knit_describe_yaml_scalar sc "${!when_raw_var}" "${cont}"
         printf '%swhen: %s\n' "${key}" "${sc}"
     fi
+    if _knit_describe_filter_on "space" && [[ "${group}" != "flags" ]]; then
+        local space_var="_KNIT_CMD_${cmd}_2_${param}_domain"
+        if [[ -v "${space_var}" && -n "${!space_var}" ]]; then
+            _knit_describe_yaml_space "${cmd}" "${param}" "${key}"
+        fi
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_describe_yaml_space()
+#
+# Render a parameter's declared search domain as a nested YAML "space:" mapping,
+# mirroring the JSON shape (kind, type, lo, hi, step, glob, log, values). The
+# "space:" key is printed at key_indent; its members two spaces deeper. Reads the
+# domain through knit_parameter_space (parse + validate on read).
+#
+# @param[in] cmd        Mangled command name.
+# @param[in] param      Normalized parameter name.
+# @param[in] key_indent Indentation of the "space:" key.
+# ------------------------------------------------------------------------------
+_knit_describe_yaml_space() {
+    local cmd="$1" param="$2" key_indent="$3"
+    local mkey="${key_indent}  "
+    local cont="${mkey}  "
+    # shellcheck disable=SC2034 # populated by knit_parameter_space (nameref); kind..glob read via ${!vv}
+    local sp_kind sp_type sp_lo sp_hi sp_step sp_log sp_glob sp_values
+    knit_parameter_space sp_kind sp_type sp_lo sp_hi sp_values sp_step sp_log \
+        sp_glob "${cmd}" "${param}" || return 1
+    printf '%sspace:\n' "${key_indent}"
+    local sc key vv
+    for key in kind type lo hi step glob; do
+        vv="sp_${key}"
+        _knit_describe_yaml_scalar sc "${!vv}" "${cont}"
+        printf '%s%s: %s\n' "${mkey}" "${key}" "${sc}"
+    done
+    printf '%slog: %s\n' "${mkey}" "${sp_log:-false}"
+    local fs
+    _knit_describe_yaml_flow_seq fs "${sp_values[@]}"
+    printf '%svalues: %s\n' "${mkey}" "${fs}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1334,6 +1423,42 @@ _knit_describe_enum_constraint() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_describe_space_note()
+#
+# Build the compact search-domain note for a parameter in the textual formats:
+# "range [lo,hi]" (plus " step S" and/or " log" when set), "values {a,b,c}", or
+# "glob <pattern>". Returns the empty string when the parameter declares no
+# domain. The declared domain is read through knit_parameter_space, which parses
+# and validates it, so an invalid declared domain is fatal here (on read).
+#
+# @param[out] __knit_ret Name of the variable to hold the note.
+# @param[in] cmd   Mangled command name.
+# @param[in] param Normalized parameter name.
+# ------------------------------------------------------------------------------
+_knit_describe_space_note() {
+    local -n __knit_ret=$1
+    local __cmd="$2" __param="$3"
+    __knit_ret=""
+    local __kind __type __lo __hi __step __log __glob __values
+    knit_parameter_space __kind __type __lo __hi __values __step __log __glob \
+        "${__cmd}" "${__param}" || return 0
+    case "${__kind}" in
+        range)
+            __knit_ret="range [${__lo},${__hi}]"
+            [[ -n "${__step}" ]] && __knit_ret+=" step ${__step}"
+            [[ "${__log}" == "true" ]] && __knit_ret+=" log"
+            ;;
+        list)
+            local IFS=','
+            __knit_ret="values {${__values[*]}}"
+            ;;
+        glob)
+            __knit_ret="glob ${__glob}"
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_describe_default_options()
 #
 # Print a command's "Options" section for the human-readable format, mirroring
@@ -1382,7 +1507,7 @@ _knit_describe_default_options() {
     printf '%s%-*s  %s\n' "${cind}" "${max}" "--help" \
         "Print this help message and exit."
 
-    local desc dflt when_var ann cons rtype akind aquant aphrase
+    local desc dflt when_var ann cons rtype akind aquant aphrase snote
     _knit_set_array __items "${req_var}"
     for opt in "${__items[@]}"; do
         _knit_param_description desc "${cmd}" "${opt}"
@@ -1400,6 +1525,10 @@ _knit_describe_default_options() {
         _knit_artifact_cardinality_phrase aphrase "${aquant}"
         [[ -n "${aphrase}" ]] && ann+=", ${aphrase}"
         [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
+        if _knit_describe_filter_on "space"; then
+            _knit_describe_space_note snote "${cmd}" "${opt}"
+            [[ -n "${snote}" ]] && ann+=", ${snote}"
+        fi
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
     done
     _knit_set_array __items "${opt_var}"
@@ -1420,6 +1549,10 @@ _knit_describe_default_options() {
         _knit_artifact_cardinality_phrase aphrase "${aquant}"
         [[ -n "${aphrase}" ]] && ann+=", ${aphrase}"
         [[ -v "${when_var}" ]] && ann+=", when: ${!when_var}"
+        if _knit_describe_filter_on "space"; then
+            _knit_describe_space_note snote "${cmd}" "${opt}"
+            [[ -n "${snote}" ]] && ann+=", ${snote}"
+        fi
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${opt2}" "${ann}" "${desc}"
     done
     _knit_set_array __items "${flg_var}"
@@ -1729,6 +1862,14 @@ _knit_describe_md_constraints() {
         [[ -n "${acc}" ]] && acc+='; '
         acc+="when: \`${!__when_var}\`"
     fi
+    if _knit_describe_filter_on "space"; then
+        local __snote
+        _knit_describe_space_note __snote "${__cmd}" "${__param}"
+        if [[ -n "${__snote}" ]]; then
+            [[ -n "${acc}" ]] && acc+='; '
+            acc+="space: \`${__snote}\`"
+        fi
+    fi
     __knit_ret="${acc}"
 }
 
@@ -2017,7 +2158,7 @@ _knit_describe_read_filters() {
     _KNIT_DESCRIBE_ONLY=()
     local flag
     for flag in exclude_builtins no_input_params no_output_params \
-                include_hidden recursive include_implementation; do
+                include_hidden recursive include_implementation space; do
         _KNIT_DESCRIBE_FILTERS["${flag}"]=$( \
             knit_get_parameter "${flag//_/-}" "$@" || printf 'false')
     done
@@ -2128,6 +2269,8 @@ knit_with_flag "no-input-params" \
     "Omit each command's input parameters."
 knit_with_flag "no-output-params" \
     "Omit each command's outputs."
+knit_with_flag "space" \
+    "Show each parameter's declared search domain (--domain)."
 knit_with_optional "only:string" "" \
     "Comma-separated commands/subcommands to describe (colon form, e.g. \"a,b:c\")."
 knit_with_flag "recursive" \
