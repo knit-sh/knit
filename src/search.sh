@@ -329,3 +329,47 @@ knit_parameter_space_json() {
         '{kind:$kind, type:$type, lo:$lo, hi:$hi, step:$step, glob:$glob, log:$log, values:$ARGS.positional}' \
         --args "${__knit_j_values[@]}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_search_launch()
+#
+# Launch one tracked trial: invoke a fully-substituted downstream knit command
+# line in-process, through the normal entry path, and return the child's
+# recorded row id by nameref. The downstream line is one of:
+#
+#   submit ... -- <job> ...   a job submission
+#   run ... -- <app> ...      a run
+#   <command> ...             a plain command
+#
+# The engine stays opaque to the line: it forwards every argument verbatim to
+# _knit_invoke_command (the same path knit() uses), so a dispatcher such as
+# submit or run parses its own options and the target its parameters. The
+# invocation runs in-process, inside the calling proposer's frame, so knit's
+# existing recording writes the provenance "call" edge parent -> child by
+# itself; the search core adds no edge type and no provenance hook.
+#
+# The child's row id is read from _KNIT_LAST_ROW_ID, which the recorder sets to
+# each recorded invocation's id. It is empty when the child records no row (the
+# experiment is not bootstrapped, or recording is disabled). The function returns
+# the downstream line's own exit status, so a caller (the search loop) can see a
+# plain command's or an app run's success or failure.
+#
+# @param[out] __knit_ret The child invocation's recorded row id (empty if none).
+# @param[in] ... The downstream knit command line (command and its arguments).
+# @return The exit status of the downstream invocation.
+# ------------------------------------------------------------------------------
+_knit_search_launch() {
+    local -n __knit_ret=$1
+    shift
+    if [[ $# -eq 0 ]]; then
+        knit_fatal "_knit_search_launch requires a downstream command line."
+    fi
+    __knit_ret=""
+    # Clear first so we pick up only an id the child itself recorded (it stays
+    # empty when the experiment is not bootstrapped), mirroring knit setup.
+    _KNIT_LAST_ROW_ID=""
+    local launch_status=0
+    _knit_invoke_command "$@" || launch_status=$?
+    __knit_ret="${_KNIT_LAST_ROW_ID}"
+    return "${launch_status}"
+}
