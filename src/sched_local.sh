@@ -110,6 +110,33 @@ _knit_sched_local_cancel() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sched_local_status()
+#
+# Return the status of a locally-launched job process as a normalized verdict
+# (one of: running, killed, unknown). The launcher id is a PID recorded in the
+# job's .job.id. A non-integer id returns unknown. kill -0 (a liveness probe) is
+# used to check whether the process is still alive: success means running; failure
+# means the process is gone and is reported as killed (there is no exit record for
+# a bare background process, so completed and failed cannot be distinguished).
+#
+# @param[out] __knit_ret Name of the variable to hold the verdict string.
+# @param[in]  pid        Process id recorded in the job's .job.id by the local backend.
+# ------------------------------------------------------------------------------
+_knit_sched_local_status() {
+    local -n __knit_ret=$1; shift
+    local pid="$1"
+    if [[ ! "${pid}" =~ ^[0-9]+$ ]]; then
+        __knit_ret="unknown"
+        return 0
+    fi
+    if kill -0 "${pid}" 2>/dev/null; then
+        __knit_ret="running"
+    else
+        __knit_ret="killed"
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_local_hostfile()
 #
 # Print the host list for the local backend. A local run has no scheduler and no

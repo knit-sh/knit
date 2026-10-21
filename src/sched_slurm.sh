@@ -149,6 +149,62 @@ _knit_sched_slurm_cancel() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sched_slurm_status()
+#
+# Ask Slurm for the true state of a submitted job and return a normalized verdict
+# (one of: running, completed, killed, failed, unknown). sacct is used rather than
+# squeue because sacct retains accounting records after the job finishes, so the
+# result is available after the job exits. When sacct has no record (the accounting
+# database is absent or the job predates it), squeue is tried as a fallback: a
+# non-empty squeue result means the job is still queued/running; an empty result
+# means the job is gone but we cannot determine its outcome (unknown).
+#
+# State mapping from sacct's job state field (first whitespace-separated token,
+# because Slurm emits "CANCELLED by <uid>" for user cancellations):
+#   RUNNING PENDING REQUEUED RESIZING SUSPENDED CONFIGURING COMPLETING -> running
+#   COMPLETED                                                           -> completed
+#   TIMEOUT OUT_OF_MEMORY NODE_FAIL CANCELLED PREEMPTED BOOT_FAIL
+#   DEADLINE                                                            -> killed
+#   FAILED                                                              -> failed
+#
+# @param[out] __knit_ret Name of the variable to hold the verdict string.
+# @param[in]  jobid      Slurm job id (from the job's .job.id).
+# ------------------------------------------------------------------------------
+_knit_sched_slurm_status() {
+    local -n __knit_ret=$1; shift
+    local jobid="$1"
+    local raw
+    raw="$(sacct -j "${jobid}" -n -X -o State 2>/dev/null | head -1)"
+    # Extract the first whitespace-separated token: "CANCELLED by 7" -> "CANCELLED".
+    local state
+    read -r state _ <<< "${raw}"
+    case "${state}" in
+        RUNNING|PENDING|REQUEUED|RESIZING|SUSPENDED|CONFIGURING|COMPLETING)
+            __knit_ret="running"
+            ;;
+        COMPLETED)
+            __knit_ret="completed"
+            ;;
+        TIMEOUT|OUT_OF_MEMORY|NODE_FAIL|CANCELLED|PREEMPTED|BOOT_FAIL|DEADLINE)
+            __knit_ret="killed"
+            ;;
+        FAILED)
+            __knit_ret="failed"
+            ;;
+        *)
+            # sacct has no record for this job (no accounting database, or the job
+            # predates it). Fall back to squeue: a live result means the job is still
+            # active; an empty result means it is gone with no determinable outcome.
+            if squeue -h -j "${jobid}" -o '%T' 2>/dev/null | grep -q .; then
+                __knit_ret="running"
+            else
+                __knit_ret="unknown"
+            fi
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_slurm_hostfile()
 #
 # Print the host list for a Slurm job, one hostname per line. Slurm exposes the

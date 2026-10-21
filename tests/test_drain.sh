@@ -4,6 +4,7 @@ setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
     knit_test_require_sqlite
     knit_test_db_setup
+    _reconcile_tmpdir=""
     # Used by the --json-summary path and the --when guard; harmless when unset
     # (only the JSON tests exercise it, and they skip when jq is unavailable).
     _KNIT_JQ_EXE="jq"
@@ -55,6 +56,7 @@ setup() {
 
 teardown() {
     rm -f "${_DRAIN_FILE}" "${_DRAIN_LOCK}" "${_DRAIN_ACTIVE}" "${_DRAIN_MAX}"
+    [[ -n "${_reconcile_tmpdir}" ]] && rm -rf "${_reconcile_tmpdir}"
     knit_test_db_teardown
 }
 
@@ -331,4 +333,87 @@ _prepared_count() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"j01"* ]]
     [ "$(_prepared_count)" -eq 3 ]
+}
+
+# ---------- --reconcile ----------
+
+# Shared setup for reconcile tests: creates the jobs table, a job directory
+# with a .job.id file, and stubs the scheduler helpers.
+_setup_reconcile() {
+    _reconcile_tmpdir="$(mktemp -d)"
+    _knit_job_dir() { printf '%s/jobs/%s\n' "${_reconcile_tmpdir}" "$1"; }
+    _knit_sched_backend() { local -n __b=$1; __b="local"; }
+    sqlite3 "${_KNIT_DATABASE}" \
+        "CREATE TABLE IF NOT EXISTS jobs
+           (id TEXT, job TEXT, \"group\" TEXT, state TEXT);"
+}
+
+_make_running_job() {
+    local id="$1" grp="${2:-}"
+    sqlite3 "${_KNIT_DATABASE}" \
+        "INSERT INTO jobs VALUES ('${id}','myjob','${grp}','running');"
+    local d="${_reconcile_tmpdir}/jobs/${id}"
+    mkdir -p "${d}"
+    printf 'launcher_%s\n' "${id}" > "${d}/.job.id"
+}
+
+_drain_job_state() {
+    sqlite3 "${_KNIT_DATABASE}" "SELECT state FROM jobs WHERE id='$1';"
+}
+
+@test "--reconcile moves a stuck running row to killed" {
+    _setup_reconcile
+    _make_running_job "r1"
+    _knit_sched_status() { local -n __r=$1; __r="killed"; }
+    _knit_submit_drain --reconcile true --max-inflight 0
+    [ "$(_drain_job_state "r1")" = "killed" ]
+}
+
+@test "without --reconcile a stuck running row is left unchanged" {
+    _setup_reconcile
+    _make_running_job "r1"
+    _knit_sched_status() { local -n __r=$1; __r="killed"; }
+    _knit_submit_drain --max-inflight 0
+    [ "$(_drain_job_state "r1")" = "running" ]
+}
+
+@test "--reconcile --group scopes reconcile to the specified group" {
+    _setup_reconcile
+    _make_running_job "r1" "grpA"
+    _make_running_job "r2" "grpB"
+    _knit_sched_status() { local -n __r=$1; __r="killed"; }
+    _knit_submit_drain --reconcile true --group grpA --max-inflight 0
+    [ "$(_drain_job_state "r1")" = "killed" ]
+    [ "$(_drain_job_state "r2")" = "running" ]
+}
+
+@test "--dry-run skips reconcile" {
+    _seed_jobs
+    _setup_reconcile
+    _make_running_job "r1"
+    _knit_sched_status() { local -n __r=$1; __r="killed"; }
+    run _knit_submit_drain --reconcile true --dry-run true
+    [ "$status" -eq 0 ]
+    [ "$(_drain_job_state "r1")" = "running" ]
+}
+
+@test "--reconcile --retry combined leaves a stuck job in prepared state" {
+    _reconcile_tmpdir="$(mktemp -d)"
+    _knit_job_dir() { printf '%s/jobs/%s\n' "${_reconcile_tmpdir}" "$1"; }
+    _knit_sched_backend() { local -n __b=$1; __b="local"; }
+    _knit_sched_status() { local -n __r=$1; __r="killed"; }
+    # Full table: reset also writes hostnames / native_cmd / retries.
+    sqlite3 "${_KNIT_DATABASE}" \
+        "CREATE TABLE jobs
+           (id TEXT, job TEXT, \"group\" TEXT, state TEXT,
+            retries INTEGER, hostnames TEXT, native_cmd TEXT);"
+    sqlite3 "${_KNIT_DATABASE}" \
+        "INSERT INTO jobs VALUES ('r1','myjob','','running',0,'','');"
+    local d="${_reconcile_tmpdir}/jobs/r1"
+    mkdir -p "${d}"
+    printf 'launcher_r1\n' > "${d}/.job.id"
+    # After reconcile r1 goes killed; after retry it goes prepared. The drain
+    # stub is empty so drain reports nothing released.
+    _knit_submit_drain --reconcile true --retry killed --max-inflight 0
+    [ "$(_drain_job_state "r1")" = "prepared" ]
 }

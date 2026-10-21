@@ -429,6 +429,8 @@ knit_with_optional "retry:string" "" \
     "Re-queue jobs in these states (comma list from killed, failed) to prepared before draining."
 knit_with_optional "max-retries:integer" "" \
     "With --retry, skip a job whose retries count already reached this value."
+knit_with_flag "reconcile" \
+    "Correct stuck running or submitting jobs to their true terminal state before retrying and draining."
 knit_with_flag "stop-on-failure" \
     "Stop releasing new jobs after the first failed job." \
     --when '.max_inflight > 0'
@@ -447,6 +449,13 @@ knit_with_flag "dry-run" \
 # claims nothing. The exit status reflects whether any released job failed
 # (waiting modes).
 #
+# With --reconcile, jobs stuck at running or submitting (for example because a
+# hard SIGKILL prevented the kill trap from recording the terminal state) are
+# first corrected to their true terminal state by querying the scheduler
+# (_knit_job_reconcile_apply), scoped to this drain's --type/--group. This runs
+# before --retry so newly-killed rows are eligible for re-queueing in the same
+# pass. --reconcile is skipped under --dry-run.
+#
 # With --retry <states>, every job in those terminal-failed states (killed and/or
 # failed) within this drain's --type/--group scope is re-queued to "prepared"
 # ONCE at the start of the pass (a snapshot, via the shared _knit_job_reset_apply
@@ -459,7 +468,7 @@ knit_with_flag "dry-run" \
 # Usage:
 # ```
 # ./exp.sh submit drain [--type <t>] [--group <g>] [--max-inflight <n>] \
-#     [--count <n>] [--retry <states>] [--max-retries <n>] \
+#     [--count <n>] [--reconcile] [--retry <states>] [--max-retries <n>] \
 #     [--stop-on-failure] [--json-summary] [--dry-run]
 # ```
 # ------------------------------------------------------------------------------
@@ -469,13 +478,14 @@ _knit_submit_drain() {
         knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
     fi
     local type group max_inflight count stop_on_failure json_summary dry_run
-    local retry max_retries
+    local retry max_retries reconcile
     type=$(knit_get_parameter "type" "$@") || type=""
     group=$(knit_get_parameter "group" "$@") || group=""
     max_inflight=$(knit_get_parameter "max-inflight" "$@") || max_inflight="1"
     count=$(knit_get_parameter "count" "$@") || count=""
     retry=$(knit_get_parameter "retry" "$@") || retry=""
     max_retries=$(knit_get_parameter "max-retries" "$@") || max_retries=""
+    reconcile=$(knit_get_parameter "reconcile" "$@") || reconcile="false"
     stop_on_failure=$(knit_get_parameter "stop-on-failure" "$@") || stop_on_failure="false"
     json_summary=$(knit_get_parameter "json-summary" "$@") || json_summary="false"
     dry_run=$(knit_get_parameter "dry-run" "$@") || dry_run="false"
@@ -499,6 +509,14 @@ _knit_submit_drain() {
     if [[ "${dry_run}" == "true" ]]; then
         _knit_drain_dry_run "${count}" "${json_summary}" "${type}" "${group}"
         return 0
+    fi
+
+    # Reconcile pass: correct jobs stuck at running/submitting to their true
+    # terminal state. Runs first so that newly-killed rows are eligible for
+    # --retry in the same pass. Drop stdout; only drain's own output reaches the
+    # caller.
+    if [[ "${reconcile}" == "true" ]]; then
+        _knit_job_reconcile_apply false "" "${group}" "${type}" >/dev/null
     fi
 
     # Retry pass (snapshot): re-queue the matching terminal-failed jobs in this

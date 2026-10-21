@@ -41,7 +41,9 @@ check_file "setups/env/.activate.sh" "setup produced .activate.sh"
 uuid=$(./experiment.sh submit --setup env -- sleeper)
 jobdir="${WORKDIR}/jobs/${uuid}"
 check_file "${jobdir}/.job.id" "launcher job id recorded"
+# .job.id is tagged "<backend>:<id>"; the scheduler wants the bare id.
 launcher=$(cat "${jobdir}/.job.id")
+launcher="${launcher#*:}"
 
 state_of() {
     "${SQLITE}" ".knit/knit.db" \

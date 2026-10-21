@@ -183,6 +183,66 @@ _knit_sched_pbs_cancel() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sched_pbs_status()
+#
+# Ask PBS for the true state of a submitted job and return a normalized verdict
+# (one of: running, completed, killed, failed, unknown). Uses qstat -x -f to
+# query finished-job history (requires job_history_enable on the server, which
+# the test cluster enables). Parses job_state and Exit_status with the same
+# awk -F'=' style used by _knit_sched_pbs_wait.
+#
+# State mapping from job_state / Exit_status:
+#   R Q H W T S B E                          -> running  (active or queued)
+#   F with Exit_status absent                -> killed   (history truncated or OOM)
+#   F with Exit_status = 0                   -> completed
+#   F with Exit_status >= 128 (signal exit)  -> killed
+#   F with other non-zero Exit_status        -> failed
+#   no record at all                         -> unknown
+#
+# @param[out] __knit_ret Name of the variable to hold the verdict string.
+# @param[in]  jobid      PBS job id (from the job's .job.id).
+# ------------------------------------------------------------------------------
+_knit_sched_pbs_status() {
+    local -n __knit_ret=$1; shift
+    local jobid="$1"
+    local out
+    out="$(qstat -x -f "${jobid}" 2>/dev/null)"
+    if [[ -z "${out}" ]]; then
+        __knit_ret="unknown"
+        return 0
+    fi
+    local pbs_state
+    pbs_state="$(awk -F'=' '/job_state/ { gsub(/ /, "", $2); print $2; exit }' \
+        <<< "${out}")"
+    if [[ -z "${pbs_state}" ]]; then
+        __knit_ret="unknown"
+        return 0
+    fi
+    case "${pbs_state}" in
+        R|Q|H|W|T|S|B|E)
+            __knit_ret="running"
+            ;;
+        F)
+            local exit_status
+            exit_status="$(awk -F'=' '/Exit_status/ { gsub(/ /, "", $2); print $2; exit }' \
+                <<< "${out}")"
+            if [[ -z "${exit_status}" ]]; then
+                __knit_ret="killed"
+            elif [[ "${exit_status}" == "0" ]]; then
+                __knit_ret="completed"
+            elif [[ "${exit_status}" =~ ^[0-9]+$ ]] && (( exit_status >= 128 )); then
+                __knit_ret="killed"
+            else
+                __knit_ret="failed"
+            fi
+            ;;
+        *)
+            __knit_ret="unknown"
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_pbs_hostfile()
 #
 # Print the host list for a PBS job. PBS writes the allocated slots to the file

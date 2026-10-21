@@ -497,6 +497,53 @@ _knit_sched_backend() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_jobid_read()
+#
+# Read a job's recorded launcher id from <jobdir>/.job.id and resolve both the
+# scheduler backend that minted it and the backend-specific id. The file is
+# written tagged as "<backend>:<payload>" (see _knit_job_submit), so the backend
+# travels with the id and every reader routes by the id's true namespace rather
+# than the ambient backend of wherever the command runs. For a pilot sub-job the
+# payload is itself "<parent-uuid>:<sub-job-id>"; this returns it whole and the
+# pilot layer splits it.
+#
+# A file with no recognised "<backend>:" prefix is a legacy raw id (written
+# before tagging): the whole content is the id and the backend falls back to the
+# ambient _knit_sched_backend, preserving the old behaviour. The prefix counts as
+# a tag only when it names a known backend, so a legacy id that happens to carry
+# a colon is not misparsed.
+#
+# The caller is responsible for checking that <jobdir>/.job.id exists; this does
+# not.
+#
+# @param[out] __knit_ret1 Name of the variable to hold the backend name.
+# @param[out] __knit_ret2 Name of the variable to hold the backend-specific id.
+# @param[in]  jobdir      Job directory holding the .job.id file.
+# ------------------------------------------------------------------------------
+_knit_jobid_read() {
+    local -n __knit_ret1=$1
+    local -n __knit_ret2=$2
+    local jobdir="$3"
+    local content prefix
+    IFS= read -r content < "${jobdir}/.job.id"
+    prefix="${content%%:*}"
+    case "${prefix}" in
+        local|none|pilot|slurm|pbs|flux)
+            if [[ "${content}" == *:* ]]; then
+                __knit_ret1="${prefix}"
+                __knit_ret2="${content#*:}"
+                return 0
+            fi
+            ;;
+    esac
+    # Legacy untagged id: resolve the backend from the ambient environment.
+    local __knit_backend
+    _knit_sched_backend __knit_backend
+    __knit_ret1="${__knit_backend}"
+    __knit_ret2="${content}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_wait()
 #
 # Dispatch to the configured backend's blocking wait, which returns once the
@@ -520,6 +567,42 @@ _knit_sched_wait() {
         flux)  _knit_sched_flux_wait "${jobid}" ;;
         *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
     esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sched_status()
+#
+# Dispatch to the configured backend's status query, which asks the scheduler
+# for the true current state of a submitted job and returns a normalized verdict.
+# Used by job reconcile to correct job rows that are stuck at running/submitting
+# because a hard SIGKILL prevented the compute-side kill trap from recording the
+# terminal state (see src/job_cli.sh _knit_job_reconcile_apply).
+#
+# The verdict is one of: running (job is still active), completed (job exited
+# cleanly), killed (job was terminated by a signal or timeout, or the scheduler
+# has no record of it), failed (job exited with a non-signal non-zero exit code).
+# Callers treat "unknown" as "killed" per the agreed policy; backends that cannot
+# determine the outcome return "unknown" directly.
+#
+# @param[out] __knit_ret Name of the variable to hold the verdict string.
+# @param[in]  backend    Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
+# @param[in]  jobid      Backend job id (scheduler id, or a PID for local/none backends).
+# ------------------------------------------------------------------------------
+_knit_sched_status() {
+    local -n __knit_ret=$1; shift
+    local backend="$1"
+    local jobid="$2"
+    local tmp
+    case "${backend}" in
+        local) _knit_sched_local_status tmp "${jobid}" ;;
+        none)  _knit_sched_none_status  tmp "${jobid}" ;;
+        pilot) _knit_sched_pilot_status tmp "${jobid}" ;;
+        slurm) _knit_sched_slurm_status tmp "${jobid}" ;;
+        pbs)   _knit_sched_pbs_status   tmp "${jobid}" ;;
+        flux)  _knit_sched_flux_status  tmp "${jobid}" ;;
+        *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
+    esac
+    __knit_ret="${tmp}"
 }
 
 # ------------------------------------------------------------------------------

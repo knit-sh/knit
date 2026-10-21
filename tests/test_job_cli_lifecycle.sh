@@ -166,6 +166,49 @@ _seed_job() {
     [ "$status" -ne 0 ]
 }
 
+# ---------- backend tag routing (the .job.id tag beats the ambient backend) ----------
+
+@test "job wait routes by the .job.id backend tag, not the ambient backend" {
+    _seed_job "id1" "" "alpha" "running"
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    mkdir -p "${root}/jobs/id1"
+    # Tagged for pbs, while the ambient backend would resolve to local: the wait
+    # must go to the pbs primitive with the untagged id.
+    echo "pbs:12345.server" > "${root}/jobs/id1/.job.id"
+    _KNIT_SCHED_POLL_INTERVAL="0.1"
+    _knit_sched_backend() { local -n __r=$1; __r='local'; }
+    _knit_sched_local_wait() { echo "local" > "${root}/which"; }
+    _knit_sched_pbs_wait() {
+        echo "pbs:$1" > "${root}/which"
+        sqlite3 "${_KNIT_DATABASE}" \
+            "UPDATE jobs SET state = 'completed' WHERE id = 'id1';"
+    }
+    run _knit_job_wait --id "id1"
+    [ "$status" -eq 0 ]
+    [ "$(cat "${root}/which")" = "pbs:12345.server" ]
+}
+
+@test "job cancel routes a pilot-tagged id to the pilot backend, not the ambient one" {
+    _seed_job "id1" "" "alpha" "running"
+    local root
+    root="$(mktemp -d)"
+    _KNIT_PREFIX="${root}/.knit"
+    mkdir -p "${root}/jobs/id1"
+    # Tagged pilot, ambient would be local: cancel must reach the pilot primitive
+    # with the pilot payload, and the local primitive must not fire.
+    echo "pilot:parent-uuid:subjob-uuid" > "${root}/jobs/id1/.job.id"
+    _knit_sched_backend() { local -n __r=$1; __r='local'; }
+    _knit_sched_local_cancel() { echo "local" > "${root}/which"; }
+    _knit_sched_pilot_cancel() { echo "pilot:$1" > "${root}/which"; }
+    run _knit_job_cancel --id "id1"
+    [ "$status" -eq 0 ]
+    [ "$(cat "${root}/which")" = "pilot:parent-uuid:subjob-uuid" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='id1';")" = "killed" ]
+}
+
 # ---------- job cancel ----------
 
 @test "job cancel terminates a running job and marks it killed" {

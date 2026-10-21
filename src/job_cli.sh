@@ -205,9 +205,8 @@ _knit_job_wait_one() {
     if [[ ! -f "${jobdir}/.job.id" ]]; then
         knit_fatal "Job \"${id}\" has no recorded launcher id (${jobdir}/.job.id is missing)."
     fi
-    IFS= read -r jobid < "${jobdir}/.job.id"
     local backend
-    _knit_sched_backend backend
+    _knit_jobid_read backend jobid "${jobdir}"
     _knit_sched_wait "${backend}" "${jobid}"
 
     # The scheduler reports the job gone; give the compute-side terminal-state
@@ -320,10 +319,8 @@ _knit_job_cancel() {
     if [[ ! -f "${jobdir}/.job.id" ]]; then
         knit_fatal "Job \"${id}\" has no recorded launcher id (${jobdir}/.job.id is missing)."
     fi
-    IFS= read -r jobid < "${jobdir}/.job.id"
-
     local backend
-    _knit_sched_backend backend
+    _knit_jobid_read backend jobid "${jobdir}"
     _knit_sched_cancel "${backend}" "${jobid}"
     _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${id}" "state=killed"
     knit_info "Cancelled job \"${id}\"."
@@ -510,6 +507,159 @@ _knit_job_reset() {
     fi
 
     _knit_job_reset_apply "${states}" "${max_retries}" "${id}" "${group}" "${type}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_job_reconcile_set_state()
+#
+# Update a job row to a new state using a conditional SQL UPDATE that only
+# matches rows still in an active state (running or submitting). This guard
+# prevents a reconcile write from overwriting a terminal state that the job's
+# own kill trap wrote a moment earlier: whichever writer runs second finds the
+# row already left active states and makes no change.
+#
+# Route through _knit_sqlite3_write (the flock serializer) so the conditional
+# check and the write are atomic with respect to other concurrent writers.
+#
+# @param[in] id        Job UUID.
+# @param[in] new_state Terminal state to record (completed, failed, or killed).
+# ------------------------------------------------------------------------------
+_knit_job_reconcile_set_state() {
+    local id="$1" new_state="$2"
+    local esc_id esc_state
+    _knit_sql_escape esc_id "${id}"
+    _knit_sql_escape esc_state "${new_state}"
+    _knit_sqlite3_write \
+        "UPDATE jobs SET state = '${esc_state}' WHERE id = '${esc_id}' AND state IN ('running','submitting');"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_job_reconcile_apply()
+#
+# Shared worker behind `job reconcile` and `submit drain --reconcile`. For each
+# job row in state running or submitting that matches the optional selectors,
+# ask the scheduler for the job's true state and move the row to the correct
+# terminal state when the scheduler confirms the job has stopped. A running
+# verdict leaves the row unchanged. An unknown verdict (the scheduler has no
+# record of a job the row calls active) is mapped to killed.
+#
+# The .job.id-less rule: when the job directory has no launcher id file, a
+# submitting row without an explicit --id is skipped with a warning (a live
+# drainer may be mid-dispatch); any other active row without a launcher id
+# (including a running row or a submitting row addressed by explicit --id) is
+# treated as unknown, which maps to killed.
+#
+# Each changed row is printed to stdout as "<id> <new_state>". Under dry-run the
+# same output is produced but no write is made. A summary count goes to stderr.
+# Reconciling nothing is not an error.
+#
+# @param[in] dry_run   "true" to report without writing.
+# @param[in] sel_id    Optional job UUID to match (empty means any).
+# @param[in] sel_group Optional group to match (empty means any).
+# @param[in] sel_type  Optional job type to match (empty means any).
+# ------------------------------------------------------------------------------
+_knit_job_reconcile_apply() {
+    local dry_run="$1" sel_id="$2" sel_group="$3" sel_type="$4"
+
+    local jobs_ident id_ident group_ident
+    _knit_db_sql_ident jobs_ident "${_KNIT_JOBS_TABLE}"
+    _knit_db_sql_ident id_ident "id"
+    _knit_db_sql_ident group_ident "group"
+
+    local -a conds=()
+    conds+=("state IN ('running','submitting')")
+    local esc
+    if [[ -n "${sel_id}" ]]; then
+        _knit_sql_escape esc "${sel_id}"
+        conds+=("${id_ident} = '${esc}'")
+    fi
+    if [[ -n "${sel_group}" ]]; then
+        _knit_sql_escape esc "${sel_group}"
+        conds+=("${group_ident} = '${esc}'")
+    fi
+    if [[ -n "${sel_type}" ]]; then
+        _knit_sql_escape esc "${sel_type}"
+        conds+=("job = '${esc}'")
+    fi
+    local where
+    printf -v where '%s AND ' "${conds[@]}"
+    where="${where% AND }"
+
+    local changed=0 left_running=0
+    local row_id row_state jobdir verdict jobid backend new_state
+    while IFS=$'\x1f' read -r row_id row_state; do
+        [[ -z "${row_id}" ]] && continue
+
+        jobdir="$(_knit_job_dir "${row_id}")"
+        verdict=""
+        new_state=""
+
+        if [[ ! -f "${jobdir}/.job.id" ]]; then
+            if [[ -n "${sel_id}" ]]; then
+                verdict="unknown"
+            elif [[ "${row_state}" == "submitting" ]]; then
+                knit_warning \
+                    "Job \"%s\" is submitting with no launcher id; skipping (a drainer may be mid-dispatch)." \
+                    "${row_id}"
+                continue
+            else
+                verdict="unknown"
+            fi
+        else
+            _knit_jobid_read backend jobid "${jobdir}"
+            _knit_sched_status verdict "${backend}" "${jobid}"
+        fi
+
+        case "${verdict}" in
+            running)
+                left_running=$(( left_running + 1 ))
+                continue
+                ;;
+            completed)      new_state="completed" ;;
+            failed)         new_state="failed" ;;
+            killed|unknown) new_state="killed" ;;
+        esac
+
+        printf '%s %s\n' "${row_id}" "${new_state}"
+        if [[ "${dry_run}" != "true" ]]; then
+            _knit_job_reconcile_set_state "${row_id}" "${new_state}"
+        fi
+        changed=$(( changed + 1 ))
+    done < <(_knit_sqlite3 -separator $'\x1f' \
+        "SELECT ${id_ident}, state FROM ${jobs_ident} WHERE ${where} ORDER BY ${id_ident} ASC;")
+
+    knit_info "Reconciled %s job(s); left %s running." "${changed}" "${left_running}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_job_reconcile()
+#
+# Entry point for the `job reconcile` CLI command. For each job whose row is in
+# state running or submitting, ask the scheduler for its true fate and correct
+# the row to the right terminal state when the scheduler confirms the job has
+# stopped. A job the scheduler still reports as active is left unchanged.
+#
+# With no selectors the command walks all active jobs. The id / group / type
+# selectors AND-ed together narrow the scope. An empty match is a no-op (not an
+# error). With --dry-run each would-be change is reported but no write is made.
+#
+# Usage:
+# ```
+# ./exp.sh job reconcile [--id <uuid>] [--group <g>] [--type <job>] [--dry-run]
+# ```
+# ------------------------------------------------------------------------------
+_knit_job_reconcile() {
+    if ! _knit_is_bootstrapped; then
+        [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
+        knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
+    fi
+    local id group type dry_run
+    id=$(knit_get_parameter "id" "$@") || id=""
+    group=$(knit_get_parameter "group" "$@") || group=""
+    type=$(knit_get_parameter "type" "$@") || type=""
+    dry_run=$(knit_get_parameter "dry-run" "$@") || dry_run="false"
+
+    _knit_job_reconcile_apply "${dry_run}" "${id}" "${group}" "${type}"
 }
 
 # ------------------------------------------------------------------------------
@@ -955,6 +1105,15 @@ _knit_job_discover() {
     knit_with_optional "max-retries:integer" "" \
         "Skip (and warn about) a job whose retries count already reached this value."
     knit_with_flag "force" "Also allow resetting a completed job (a deliberate redo)."
+    knit_done
+
+    knit_register "job:reconcile" _knit_job_reconcile \
+        "Correct stuck running or submitting jobs to their true terminal state by querying the scheduler."
+    _knit_is_builtin
+    knit_with_optional "id:string" "" "Reconcile only the job with this UUID."
+    knit_with_optional "group:string" "" "Reconcile jobs in this group."
+    knit_with_optional "type:string" "" "Reconcile jobs of this type (the job name)."
+    knit_with_flag "dry-run" "Report what each row would become; write nothing."
     knit_done
 
     knit_register "job:resubmit" _knit_job_resubmit "Re-run a job reusing its recorded parameters."

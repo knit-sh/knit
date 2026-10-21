@@ -970,6 +970,100 @@ _use_profile_json() {
     [[ "$output" == *"not implemented"* ]]
 }
 
+# ---------- _knit_sched_status ----------
+
+@test "_knit_sched_status dispatches to the backend status primitive" {
+    _knit_sched_local_status() { local -n __r=$1; shift; __r="local:${1}"; }
+    _knit_sched_none_status()  { local -n __r=$1; shift; __r="none:${1}"; }
+    _knit_sched_slurm_status() { local -n __r=$1; shift; __r="slurm:${1}"; }
+    _knit_sched_pbs_status()   { local -n __r=$1; shift; __r="pbs:${1}"; }
+    _knit_sched_flux_status()  { local -n __r=$1; shift; __r="flux:${1}"; }
+    _knit_sched_pilot_status() { local -n __r=$1; shift; __r="pilot:${1}"; }
+
+    local v
+    _knit_sched_status v local 111;      [ "${v}" = "local:111" ]
+    _knit_sched_status v none 444;       [ "${v}" = "none:444" ]
+    _knit_sched_status v slurm 222;      [ "${v}" = "slurm:222" ]
+    _knit_sched_status v pbs 333;        [ "${v}" = "pbs:333" ]
+    _knit_sched_status v flux fABC;      [ "${v}" = "flux:fABC" ]
+    _knit_sched_status v pilot sub-uuid; [ "${v}" = "pilot:sub-uuid" ]
+}
+
+@test "_knit_sched_status fatals on an unknown backend" {
+    run _knit_sched_status v bogus 111
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not implemented"* ]]
+}
+
+# _knit_sched_pilot_status resolves a sub-job's fate from its parent pilot, whose
+# real backend answers. The payload is "<parent-uuid>:<sub-job-id>".
+_stub_parent_dir() {
+    _knit_job_dir() { printf '%s/jobs/%s\n' "${_KNIT_TEST_TMPDIR}" "$1"; }
+    mkdir -p "${_KNIT_TEST_TMPDIR}/jobs/par1"
+    printf 'pbs:999.server\n' > "${_KNIT_TEST_TMPDIR}/jobs/par1/.job.id"
+}
+
+@test "_knit_sched_pilot_status maps a gone parent pilot to killed" {
+    _stub_parent_dir
+    _knit_sched_pbs_status() { local -n __r=$1; __r="killed"; }
+    local v; _knit_sched_pilot_status v "par1:sub1"
+    [ "${v}" = "killed" ]
+}
+
+@test "_knit_sched_pilot_status leaves a sub-job running when the parent pilot runs" {
+    _stub_parent_dir
+    _knit_sched_pbs_status() { local -n __r=$1; __r="running"; }
+    local v; _knit_sched_pilot_status v "par1:sub1"
+    [ "${v}" = "running" ]
+}
+
+@test "_knit_sched_pilot_status returns killed when the parent .job.id is missing" {
+    _knit_job_dir() { printf '%s/jobs/%s\n' "${_KNIT_TEST_TMPDIR}" "$1"; }
+    local v; _knit_sched_pilot_status v "par1:sub1"
+    [ "${v}" = "killed" ]
+}
+
+@test "_knit_sched_pilot_status returns killed when the payload has no parent" {
+    local v; _knit_sched_pilot_status v ":sub1"
+    [ "${v}" = "killed" ]
+}
+
+# When a live daemon is reachable (KNIT_PILOT_SOCK is an existing socket), the
+# sub-job is queried directly. Bind a real socket so the -S guard passes, and a
+# fake knit-pilotd that prints a scripted state.
+_stub_live_socket() {
+    command -v python3 >/dev/null 2>&1 || skip "python3 needed to create a socket"
+    export KNIT_PILOT_SOCK="${_KNIT_TEST_TMPDIR}/pilot.sock"
+    python3 -c 'import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' \
+        "${KNIT_PILOT_SOCK}"
+}
+_fake_daemon_state() {
+    _KNIT_PILOTD_EXE="${_KNIT_TEST_TMPDIR}/fake-pilotd"
+    { printf '#!/bin/sh\n'; printf 'printf "%%s\\n" "%s"\n' "$1"; } \
+        > "${_KNIT_PILOTD_EXE}"
+    chmod +x "${_KNIT_PILOTD_EXE}"
+}
+
+@test "_knit_sched_pilot_status maps live-daemon states to verdicts" {
+    _stub_live_socket
+    local v
+    _fake_daemon_state running;   _knit_sched_pilot_status v "p:s"; [ "${v}" = "running" ]
+    _fake_daemon_state queued;    _knit_sched_pilot_status v "p:s"; [ "${v}" = "running" ]
+    _fake_daemon_state completed; _knit_sched_pilot_status v "p:s"; [ "${v}" = "completed" ]
+    _fake_daemon_state failed;    _knit_sched_pilot_status v "p:s"; [ "${v}" = "failed" ]
+    _fake_daemon_state killed;    _knit_sched_pilot_status v "p:s"; [ "${v}" = "killed" ]
+    _fake_daemon_state unknown;   _knit_sched_pilot_status v "p:s"; [ "${v}" = "killed" ]
+}
+
+@test "_knit_sched_pilot_status falls back to the parent walk when the daemon gives no answer" {
+    _stub_live_socket
+    _fake_daemon_state ""          # empty answer -> fall through to the parent walk
+    _stub_parent_dir               # parent par1 -> pbs:999.server
+    _knit_sched_pbs_status() { local -n __r=$1; __r="running"; }
+    local v; _knit_sched_pilot_status v "par1:sub1"
+    [ "${v}" = "running" ]         # the pbs parent's verdict, not the empty daemon
+}
+
 # ---------- _knit_sched_submit_cmdline ----------
 
 @test "_knit_sched_submit_cmdline builds each backend's submission argv" {
@@ -1047,4 +1141,72 @@ _use_profile_json() {
     local out
     _knit_sched_backend out
     [ "$out" = "slurm" ]
+}
+
+# ---------- _knit_jobid_read ----------
+
+# Write a .job.id holding $2 under a fresh jobdir and echo the jobdir.
+_jobid_fixture() {
+    local content="$1"
+    local d="${_KNIT_TEST_TMPDIR}/jobs/$2"
+    mkdir -p "${d}"
+    printf '%s\n' "${content}" > "${d}/.job.id"
+    printf '%s\n' "${d}"
+}
+
+@test "_knit_jobid_read splits a tagged id into backend and id" {
+    local d backend jobid
+    d="$(_jobid_fixture 'pbs:12345.server' j1)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "pbs" ]
+    [ "${jobid}" = "12345.server" ]
+}
+
+@test "_knit_jobid_read handles each known backend tag" {
+    local d backend jobid
+    d="$(_jobid_fixture 'slurm:12345.4' j1)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "slurm" ] && [ "${jobid}" = "12345.4" ]
+    d="$(_jobid_fixture 'local:48213' j2)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "local" ] && [ "${jobid}" = "48213" ]
+    d="$(_jobid_fixture 'flux:f58xyz' j3)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "flux" ] && [ "${jobid}" = "f58xyz" ]
+}
+
+@test "_knit_jobid_read passes a pilot payload through whole" {
+    local d backend jobid
+    d="$(_jobid_fixture 'pilot:parent-uuid:subjob-uuid' j1)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "pilot" ]
+    [ "${jobid}" = "parent-uuid:subjob-uuid" ]
+}
+
+@test "_knit_jobid_read keeps colons/dots in the id remainder intact" {
+    local d backend jobid
+    d="$(_jobid_fixture 'slurm:12345.4_3' j1)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "slurm" ]
+    [ "${jobid}" = "12345.4_3" ]
+}
+
+@test "_knit_jobid_read falls back to the ambient backend for a legacy untagged id" {
+    _knit_sched_backend() { local -n __r=$1; __r='pbs'; }
+    local d backend jobid
+    d="$(_jobid_fixture '12345.server' j1)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "pbs" ]
+    [ "${jobid}" = "12345.server" ]
+}
+
+@test "_knit_jobid_read treats an incidental-colon legacy id as legacy, not tagged" {
+    # "pbsx" is not a known backend, so the whole string stays the id and the
+    # backend comes from the ambient resolver.
+    _knit_sched_backend() { local -n __r=$1; __r='local'; }
+    local d backend jobid
+    d="$(_jobid_fixture 'pbsx:weird' j1)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "local" ]
+    [ "${jobid}" = "pbsx:weird" ]
 }
