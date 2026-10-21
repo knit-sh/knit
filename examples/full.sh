@@ -893,6 +893,25 @@
 #   ./full.sh query sql --format column --header --exec \
 #       "SELECT id, job, state, \"group\" FROM jobs WHERE \"group\"='pi-sweep'"
 #
+# When a drain runs inside a pilot job (see section 22), the pilot may be
+# hard-killed (SIGKILL from an OOM event or a node crash) before its in-flight
+# subjobs finish. The compute-side kill trap then has no chance to run, so those
+# rows stay "running" indefinitely. Two tools fix this:
+#
+# `job reset` re-queues a terminal ("killed" or "failed") row back to "prepared"
+# so a later drain retries it. Use `--retry` on drain to fold the reset into the
+# same pass (done once before releasing anything):
+#
+#   ./full.sh submit drain --group pi-sweep --retry killed,failed --max-retries 3
+#
+# `job reconcile` handles the harder case: it walks "running"/"submitting" rows,
+# reads their scheduler job-id from disk, and asks the scheduler for the true
+# fate. A finished PID (or a job the scheduler no longer knows about) is moved
+# to "killed"; a genuinely live job is left alone. Use `--reconcile` on drain to
+# fold reconciliation in before the retry and release steps:
+#
+#   ./full.sh submit drain --group pi-sweep --reconcile --retry killed --max-retries 3
+#
 # -----------------------------------------------------------------------------
 # 17. Results and artifacts
 # -----------------------------------------------------------------------------
