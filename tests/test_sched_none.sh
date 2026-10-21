@@ -37,6 +37,12 @@ teardown() {
     [ "$(< "${_KNIT_TEST_TMPDIR}/o")" = "C:4242" ]
 }
 
+@test "none_status forwards to the local status" {
+    _knit_sched_local_status() { local -n __r=$1; shift; __r="local:${1}"; }
+    local v; _knit_sched_none_status v 4242
+    [ "${v}" = "local:4242" ]
+}
+
 # ---------- _knit_sched_none_hostfile ----------
 
 @test "none_hostfile prints the configured nodefile verbatim (blank lines dropped)" {

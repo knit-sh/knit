@@ -970,6 +970,36 @@ _use_profile_json() {
     [[ "$output" == *"not implemented"* ]]
 }
 
+# ---------- _knit_sched_status ----------
+
+@test "_knit_sched_status dispatches to the backend status primitive" {
+    _knit_sched_local_status() { local -n __r=$1; shift; __r="local:${1}"; }
+    _knit_sched_none_status()  { local -n __r=$1; shift; __r="none:${1}"; }
+    _knit_sched_slurm_status() { local -n __r=$1; shift; __r="slurm:${1}"; }
+    _knit_sched_pbs_status()   { local -n __r=$1; shift; __r="pbs:${1}"; }
+    _knit_sched_flux_status()  { local -n __r=$1; shift; __r="flux:${1}"; }
+    _knit_sched_pilot_status() { local -n __r=$1; shift; __r="pilot:${1}"; }
+
+    local v
+    _knit_sched_status v local 111;      [ "${v}" = "local:111" ]
+    _knit_sched_status v none 444;       [ "${v}" = "none:444" ]
+    _knit_sched_status v slurm 222;      [ "${v}" = "slurm:222" ]
+    _knit_sched_status v pbs 333;        [ "${v}" = "pbs:333" ]
+    _knit_sched_status v flux fABC;      [ "${v}" = "flux:fABC" ]
+    _knit_sched_status v pilot sub-uuid; [ "${v}" = "pilot:sub-uuid" ]
+}
+
+@test "_knit_sched_status fatals on an unknown backend" {
+    run _knit_sched_status v bogus 111
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not implemented"* ]]
+}
+
+@test "_knit_sched_pilot_status always returns running (conservative no-op)" {
+    local v; _knit_sched_pilot_status v any-id
+    [ "${v}" = "running" ]
+}
+
 # ---------- _knit_sched_submit_cmdline ----------
 
 @test "_knit_sched_submit_cmdline builds each backend's submission argv" {

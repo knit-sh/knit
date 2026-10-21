@@ -523,6 +523,42 @@ _knit_sched_wait() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sched_status()
+#
+# Dispatch to the configured backend's status query, which asks the scheduler
+# for the true current state of a submitted job and returns a normalized verdict.
+# Used by job reconcile to correct job rows that are stuck at running/submitting
+# because a hard SIGKILL prevented the compute-side kill trap from recording the
+# terminal state (see src/job_cli.sh _knit_job_reconcile_apply).
+#
+# The verdict is one of: running (job is still active), completed (job exited
+# cleanly), killed (job was terminated by a signal or timeout, or the scheduler
+# has no record of it), failed (job exited with a non-signal non-zero exit code).
+# Callers treat "unknown" as "killed" per the agreed policy; backends that cannot
+# determine the outcome return "unknown" directly.
+#
+# @param[out] __knit_ret Name of the variable to hold the verdict string.
+# @param[in]  backend    Scheduler backend name ("local", "none", "slurm", "pbs", "flux").
+# @param[in]  jobid      Backend job id (scheduler id, or a PID for local/none backends).
+# ------------------------------------------------------------------------------
+_knit_sched_status() {
+    local -n __knit_ret=$1; shift
+    local backend="$1"
+    local jobid="$2"
+    local tmp
+    case "${backend}" in
+        local) _knit_sched_local_status tmp "${jobid}" ;;
+        none)  _knit_sched_none_status  tmp "${jobid}" ;;
+        pilot) _knit_sched_pilot_status tmp "${jobid}" ;;
+        slurm) _knit_sched_slurm_status tmp "${jobid}" ;;
+        pbs)   _knit_sched_pbs_status   tmp "${jobid}" ;;
+        flux)  _knit_sched_flux_status  tmp "${jobid}" ;;
+        *) knit_fatal "Scheduler backend not implemented: ${backend}" ;;
+    esac
+    __knit_ret="${tmp}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_hostfile()
 #
 # Print, one per line, the raw host entries a job is running on, as the current

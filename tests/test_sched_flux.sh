@@ -272,3 +272,67 @@ _mk_opts() {
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"fallback-host"* ]]
 }
+
+# ---------- _knit_sched_flux_status ----------
+
+@test "flux status returns running for an active job (state RUN)" {
+    flux() { printf 'RUN\n'; }
+    local v; _knit_sched_flux_status v fABC
+    [ "${v}" = "running" ]
+}
+
+@test "flux status returns running for state SCHED" {
+    flux() { printf 'SCHED\n'; }
+    local v; _knit_sched_flux_status v fABC
+    [ "${v}" = "running" ]
+}
+
+@test "flux status returns completed for INACTIVE job with result COMPLETED" {
+    flux() {
+        case "$3" in
+            '{state}')  printf 'INACTIVE\n' ;;
+            '{result}') printf 'COMPLETED\n' ;;
+        esac
+    }
+    local v; _knit_sched_flux_status v fABC
+    [ "${v}" = "completed" ]
+}
+
+@test "flux status returns killed for INACTIVE job with result CANCELED" {
+    flux() {
+        case "$3" in
+            '{state}')  printf 'INACTIVE\n' ;;
+            '{result}') printf 'CANCELED\n' ;;
+        esac
+    }
+    local v; _knit_sched_flux_status v fABC
+    [ "${v}" = "killed" ]
+}
+
+@test "flux status returns killed for INACTIVE job with result TIMEOUT" {
+    flux() {
+        case "$3" in
+            '{state}')  printf 'INACTIVE\n' ;;
+            '{result}') printf 'TIMEOUT\n' ;;
+        esac
+    }
+    local v; _knit_sched_flux_status v fABC
+    [ "${v}" = "killed" ]
+}
+
+@test "flux status returns failed for INACTIVE job with result FAILED" {
+    flux() {
+        case "$3" in
+            '{state}')  printf 'INACTIVE\n' ;;
+            '{result}') printf 'FAILED\n' ;;
+        esac
+    }
+    local v; _knit_sched_flux_status v fABC
+    [ "${v}" = "failed" ]
+}
+
+@test "flux status returns unknown when flux jobs finds no record" {
+    flux() { printf ''; return 0; }
+    local v; _knit_sched_flux_status v fABC
+    [ "${v}" = "unknown" ]
+}

@@ -174,6 +174,52 @@ _knit_sched_flux_cancel() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sched_flux_status()
+#
+# Ask Flux for the true state of a submitted job and return a normalized verdict
+# (one of: running, completed, killed, failed, unknown). Two flux-jobs queries are
+# issued: one for the job state and, for an INACTIVE job, one for the result.
+#
+# State / result mapping:
+#   state DEPEND PRIORITY SCHED RUN CLEANUP   -> running
+#   state INACTIVE + result COMPLETED         -> completed
+#   state INACTIVE + result CANCELED or TIMEOUT -> killed
+#   state INACTIVE + result FAILED            -> failed
+#   not found / empty state                   -> unknown
+#
+# @param[out] __knit_ret Name of the variable to hold the verdict string.
+# @param[in]  jobid      Flux job id (from the job's .job.id).
+# ------------------------------------------------------------------------------
+_knit_sched_flux_status() {
+    local -n __knit_ret=$1; shift
+    local jobid="$1"
+    local state
+    state="$(flux jobs -no '{state}' "${jobid}" 2>/dev/null)"
+    if [[ -z "${state}" ]]; then
+        __knit_ret="unknown"
+        return 0
+    fi
+    case "${state}" in
+        DEPEND|PRIORITY|SCHED|RUN|CLEANUP)
+            __knit_ret="running"
+            ;;
+        INACTIVE)
+            local result
+            result="$(flux jobs -no '{result}' "${jobid}" 2>/dev/null)"
+            case "${result}" in
+                COMPLETED)        __knit_ret="completed" ;;
+                CANCELED|TIMEOUT) __knit_ret="killed" ;;
+                FAILED)           __knit_ret="failed" ;;
+                *)                __knit_ret="unknown" ;;
+            esac
+            ;;
+        *)
+            __knit_ret="unknown"
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_flux_hostfile()
 #
 # Print the host list for a Flux job, one hostname per line. `flux hostlist`

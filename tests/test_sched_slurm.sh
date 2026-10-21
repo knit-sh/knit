@@ -193,3 +193,61 @@ _mk_opts() {
     [ "${status}" -eq 0 ]
     [ "$(< "${TMP}/argv")" = "12345" ]
 }
+
+# ---------- _knit_sched_slurm_status ----------
+
+@test "slurm status returns running for RUNNING state" {
+    sacct() { printf '     RUNNING\n'; }
+    local v; _knit_sched_slurm_status v 42
+    [ "${v}" = "running" ]
+}
+
+@test "slurm status returns running for PENDING state" {
+    sacct() { printf ' PENDING\n'; }
+    local v; _knit_sched_slurm_status v 42
+    [ "${v}" = "running" ]
+}
+
+@test "slurm status returns completed for COMPLETED state" {
+    sacct() { printf ' COMPLETED\n'; }
+    local v; _knit_sched_slurm_status v 42
+    [ "${v}" = "completed" ]
+}
+
+@test "slurm status returns killed for TIMEOUT state" {
+    sacct() { printf ' TIMEOUT\n'; }
+    local v; _knit_sched_slurm_status v 42
+    [ "${v}" = "killed" ]
+}
+
+@test "slurm status returns killed for CANCELLED by uid (multi-token state)" {
+    sacct() { printf ' CANCELLED by 7\n'; }
+    local v; _knit_sched_slurm_status v 42
+    [ "${v}" = "killed" ]
+}
+
+@test "slurm status returns killed for NODE_FAIL state" {
+    sacct() { printf ' NODE_FAIL\n'; }
+    local v; _knit_sched_slurm_status v 42
+    [ "${v}" = "killed" ]
+}
+
+@test "slurm status returns failed for FAILED state" {
+    sacct() { printf ' FAILED\n'; }
+    local v; _knit_sched_slurm_status v 42
+    [ "${v}" = "failed" ]
+}
+
+@test "slurm status falls back to running when sacct is empty but squeue has the job" {
+    sacct() { printf ''; }
+    squeue() { printf 'RUNNING\n'; }
+    local v; _knit_sched_slurm_status v 42
+    [ "${v}" = "running" ]
+}
+
+@test "slurm status returns unknown when sacct is empty and squeue has no result" {
+    sacct() { printf ''; }
+    squeue() { printf ''; }
+    local v; _knit_sched_slurm_status v 42
+    [ "${v}" = "unknown" ]
+}

@@ -353,3 +353,26 @@ EOF
     run _knit_sched_local_cancel "notapid"
     [ "$status" -eq 0 ]
 }
+
+# ---------- _knit_sched_local_status ----------
+
+@test "_knit_sched_local_status reports running for a live process" {
+    bash -c 'sleep 5' &
+    local pid=$!
+    local v; _knit_sched_local_status v "${pid}"
+    kill "${pid}" 2>/dev/null || true
+    [ "${v}" = "running" ]
+}
+
+@test "_knit_sched_local_status reports killed for a dead process" {
+    bash -c 'exit 0' &
+    local pid=$!
+    wait "${pid}" 2>/dev/null || true
+    local v; _knit_sched_local_status v "${pid}"
+    [ "${v}" = "killed" ]
+}
+
+@test "_knit_sched_local_status reports unknown for a non-integer id" {
+    local v; _knit_sched_local_status v "not-a-pid"
+    [ "${v}" = "unknown" ]
+}

@@ -84,6 +84,20 @@ _knit_sched_none_cancel() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sched_none_status()
+#
+# Return the status of a none-backend job process. Identical to the local backend
+# (the job is a background process on this host). Delegates to
+# _knit_sched_local_status.
+#
+# @param[out] __knit_ret Name of the variable to hold the verdict string.
+# @param[in]  pid        Process id recorded in the job's .job.id.
+# ------------------------------------------------------------------------------
+_knit_sched_none_status() {
+    _knit_sched_local_status "$@"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_none_hostfile()
 #
 # Print the host list for a none-backend job: the contents of the node file

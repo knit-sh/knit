@@ -583,6 +583,24 @@ _knit_sched_pilot_cancel() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sched_pilot_status()
+#
+# Return the status of a pilot sub-job. The knit-pilotd daemon has no non-blocking
+# status verb — its protocol offers only the blocking WAIT and CANCEL — so a pilot
+# sub-job cannot be positively confirmed dead without waiting for it. Returning
+# 'running' is a conservative no-op: the row is left untouched by reconcile. Adding
+# a STATUS verb to the daemon so pilot sub-jobs can be reconciled too is a separate
+# future change (see features/job-reconcile.md, Deferred section).
+#
+# @param[out] __knit_ret Name of the variable to hold the verdict string.
+# @param[in]  id         Sub-job UUID from .job.id (unused; pilot has no status query).
+# ------------------------------------------------------------------------------
+_knit_sched_pilot_status() {
+    local -n __knit_ret=$1; shift
+    __knit_ret="running"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_pilot_hostfile()
 #
 # Print the host list for a pilot sub-job: the node subset the daemon assigned it,

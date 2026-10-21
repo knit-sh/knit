@@ -189,6 +189,50 @@ _mk_opts() {
     [ "$(< "${TMP}/argv")" = "98765.pbsserver" ]
 }
 
+# ---------- _knit_sched_pbs_status ----------
+
+@test "pbs status returns running for job_state R" {
+    qstat() { printf '    job_state = R\n'; }
+    local v; _knit_sched_pbs_status v 42
+    [ "${v}" = "running" ]
+}
+
+@test "pbs status returns running for job_state Q (queued)" {
+    qstat() { printf '    job_state = Q\n'; }
+    local v; _knit_sched_pbs_status v 42
+    [ "${v}" = "running" ]
+}
+
+@test "pbs status returns completed for job_state F with Exit_status 0" {
+    qstat() { printf '    job_state = F\n    Exit_status = 0\n'; }
+    local v; _knit_sched_pbs_status v 42
+    [ "${v}" = "completed" ]
+}
+
+@test "pbs status returns killed for job_state F with signal exit (Exit_status 137)" {
+    qstat() { printf '    job_state = F\n    Exit_status = 137\n'; }
+    local v; _knit_sched_pbs_status v 42
+    [ "${v}" = "killed" ]
+}
+
+@test "pbs status returns failed for job_state F with non-zero non-signal exit" {
+    qstat() { printf '    job_state = F\n    Exit_status = 1\n'; }
+    local v; _knit_sched_pbs_status v 42
+    [ "${v}" = "failed" ]
+}
+
+@test "pbs status returns killed for job_state F with no Exit_status (history truncated)" {
+    qstat() { printf '    job_state = F\n'; }
+    local v; _knit_sched_pbs_status v 42
+    [ "${v}" = "killed" ]
+}
+
+@test "pbs status returns unknown when qstat has no record" {
+    qstat() { printf ''; return 0; }
+    local v; _knit_sched_pbs_status v 42
+    [ "${v}" = "unknown" ]
+}
+
 # ---------- _knit_sched_pbs_wait (mocked qstat) ----------
 
 # Stub qstat to emit a scripted job_state per call: each argument is one call's
