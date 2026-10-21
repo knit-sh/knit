@@ -5,7 +5,7 @@
 # ------------------------------------------------------------------------------
 # Version of knit-pilotd to provision.
 # ------------------------------------------------------------------------------
-_KNIT_PILOTD_VERSION="0.1.0"
+_KNIT_PILOTD_VERSION="0.1.1"
 
 # ------------------------------------------------------------------------------
 # Path to the knit-pilotd executable.
@@ -597,23 +597,24 @@ _knit_sched_pilot_cancel() {
 # ------------------------------------------------------------------------------
 # @fn _knit_sched_pilot_status()
 #
-# Return the status of a pilot sub-job. The knit-pilotd daemon has no non-blocking
-# status verb, so a sub-job cannot be queried directly. But a pilot sub-job lives
-# and dies with its pilot allocation, and the pilot job is itself an ordinary
-# machine-scheduler job, so its fate is resolved from the parent pilot's true
-# state as the parent's own scheduler reports it. The payload is
-# "<parent-uuid>:<sub-job-id>"; the parent uuid is its first field.
+# Return the status of a pilot sub-job. The payload is "<parent-uuid>:<sub-job-id>".
 #
-# Verdict: the parent still running -> 'running' (the sub-job is left alone); the
+# Precise path: when a live daemon is reachable (KNIT_PILOT_SOCK points at an
+# existing socket, e.g. reconcile run from inside the pilot body), ask it with the
+# non-blocking STATUS verb for the sub-job's actual state and map it: queued or
+# running -> 'running' (left alone); completed -> 'completed'; failed -> 'failed';
+# killed or unknown -> 'killed'. A daemon that cannot be reached (stale socket,
+# non-zero exit, empty/unrecognized answer) falls through to the parent walk.
+#
+# Fallback (no reachable daemon, e.g. reconcile from the login node after a
+# hard-killed pilot): a pilot sub-job lives and dies with its pilot allocation,
+# and the pilot job is itself an ordinary machine-scheduler job, so its fate is
+# resolved from the parent pilot's true state as the parent's own scheduler
+# reports it. Verdict: the parent still running -> 'running' (left alone); the
 # parent terminal/gone, or no parent to ask -> 'killed' (the allocation is gone,
 # so a sub-job stuck non-terminal died with it; same unknown->killed policy as
 # the other backends). The walk is transitive: a parent that is itself a pilot
 # recurses one more hop through _knit_sched_status.
-#
-# A future knit-pilotd STATUS verb could answer per sub-job directly when a live
-# daemon socket is reachable; the parent walk is used in every case until then,
-# and is also correct inside a still-running pilot (the parent reports 'running',
-# so the sub-job is left alone). See features/pilot-reconcile.md, Deferred.
 #
 # @param[out] __knit_ret Name of the variable to hold the verdict string.
 # @param[in]  payload    The pilot payload "<parent-uuid>:<sub-job-id>".
@@ -621,6 +622,20 @@ _knit_sched_pilot_cancel() {
 _knit_sched_pilot_status() {
     local -n __knit_ret=$1; shift
     local payload="$1"
+
+    # Precise path: a reachable daemon answers for the sub-job directly.
+    if [[ -n "${KNIT_PILOT_SOCK:-}" && -S "${KNIT_PILOT_SOCK}" ]]; then
+        local sub="${payload##*:}" dstate=""
+        dstate="$("${_KNIT_PILOTD_EXE}" status --socket "${KNIT_PILOT_SOCK}" \
+            --id "${sub}" 2>/dev/null)" || dstate=""
+        case "${dstate}" in
+            queued|running) __knit_ret="running";   return 0 ;;
+            completed)      __knit_ret="completed"; return 0 ;;
+            failed)         __knit_ret="failed";    return 0 ;;
+            killed|unknown) __knit_ret="killed";    return 0 ;;
+            # Empty/unrecognized: daemon unreachable or older; fall through.
+        esac
+    fi
 
     local parent="${payload%%:*}"
     local parent_jobdir=""

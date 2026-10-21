@@ -1028,6 +1028,42 @@ _stub_parent_dir() {
     [ "${v}" = "killed" ]
 }
 
+# When a live daemon is reachable (KNIT_PILOT_SOCK is an existing socket), the
+# sub-job is queried directly. Bind a real socket so the -S guard passes, and a
+# fake knit-pilotd that prints a scripted state.
+_stub_live_socket() {
+    command -v python3 >/dev/null 2>&1 || skip "python3 needed to create a socket"
+    export KNIT_PILOT_SOCK="${_KNIT_TEST_TMPDIR}/pilot.sock"
+    python3 -c 'import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' \
+        "${KNIT_PILOT_SOCK}"
+}
+_fake_daemon_state() {
+    _KNIT_PILOTD_EXE="${_KNIT_TEST_TMPDIR}/fake-pilotd"
+    { printf '#!/bin/sh\n'; printf 'printf "%%s\\n" "%s"\n' "$1"; } \
+        > "${_KNIT_PILOTD_EXE}"
+    chmod +x "${_KNIT_PILOTD_EXE}"
+}
+
+@test "_knit_sched_pilot_status maps live-daemon states to verdicts" {
+    _stub_live_socket
+    local v
+    _fake_daemon_state running;   _knit_sched_pilot_status v "p:s"; [ "${v}" = "running" ]
+    _fake_daemon_state queued;    _knit_sched_pilot_status v "p:s"; [ "${v}" = "running" ]
+    _fake_daemon_state completed; _knit_sched_pilot_status v "p:s"; [ "${v}" = "completed" ]
+    _fake_daemon_state failed;    _knit_sched_pilot_status v "p:s"; [ "${v}" = "failed" ]
+    _fake_daemon_state killed;    _knit_sched_pilot_status v "p:s"; [ "${v}" = "killed" ]
+    _fake_daemon_state unknown;   _knit_sched_pilot_status v "p:s"; [ "${v}" = "killed" ]
+}
+
+@test "_knit_sched_pilot_status falls back to the parent walk when the daemon gives no answer" {
+    _stub_live_socket
+    _fake_daemon_state ""          # empty answer -> fall through to the parent walk
+    _stub_parent_dir               # parent par1 -> pbs:999.server
+    _knit_sched_pbs_status() { local -n __r=$1; __r="running"; }
+    local v; _knit_sched_pilot_status v "par1:sub1"
+    [ "${v}" = "running" ]         # the pbs parent's verdict, not the empty daemon
+}
+
 # ---------- _knit_sched_submit_cmdline ----------
 
 @test "_knit_sched_submit_cmdline builds each backend's submission argv" {
