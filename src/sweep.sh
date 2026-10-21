@@ -339,6 +339,249 @@ _knit_sweep_scan() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sweep_resolve_target()
+#
+# Resolve the downstream target from the downstream token list: the command whose
+# parameters the sweep introspects to resolve a declared domain (@sweep /
+# --fill sweep), plus the dispatcher and target display names recorded on the
+# sweeps row. The mapping mirrors how the downstream is actually run:
+#
+#   submit|prepare ... -- <job> ...  -> submit:<job>  (prepare reuses submit's jobs)
+#   run ... -- <app> ...             -> run:<app>
+#   <command> ...                    -> the command itself (lazy-discovered, so a
+#                                       colon-nested name like "metadata store"
+#                                       resolves)
+#
+# The mangled command is empty when a submit/prepare/run line carries no job or
+# app after its inner "--" (the downstream dispatcher reports that error when the
+# line is run), so the caller can still record the dispatcher without a target.
+#
+# @param[out] __knit_ret1 Mangled command name to introspect (empty if none).
+# @param[out] __knit_ret2 Dispatcher display name (submit/prepare/run, or the
+#   command name for a bare command).
+# @param[out] __knit_ret3 Target display name (the job/app name, or the command
+#   name for a bare command).
+# @param[in] ... The downstream tokens.
+# ------------------------------------------------------------------------------
+_knit_sweep_resolve_target() {
+    local -n __knit_ret_mangled=$1
+    local -n __knit_ret_disp=$2
+    local -n __knit_ret_tgt=$3
+    shift 3
+    local -a down=("$@")
+    __knit_ret_mangled=""; __knit_ret_disp=""; __knit_ret_tgt=""
+    [[ ${#down[@]} -eq 0 ]] && return 0
+
+    local d0="${down[0]}" d0n
+    _knit_name_normalize d0n "${d0}"
+    case "${d0n}" in
+        submit|prepare|run)
+            __knit_ret_disp="${d0}"
+            local k inner=-1
+            for ((k=1; k<${#down[@]}; k++)); do
+                if [[ "${down[k]}" == "--" ]]; then inner=$((k+1)); break; fi
+            done
+            (( inner < 0 || inner >= ${#down[@]} )) && return 0
+            __knit_ret_tgt="${down[inner]}"
+            local prefix="submit"
+            [[ "${d0n}" == "run" ]] && prefix="run"
+            local mangled
+            _knit_command_mangle mangled "${prefix}" "${down[inner]}"
+            __knit_ret_mangled="${mangled}"
+            ;;
+        *)
+            local mangled
+            # shellcheck disable=SC2034 # the consumed count is unused here
+            local consumed
+            _knit_resolve_command_tokens mangled consumed "${down[@]}"
+            __knit_ret_mangled="${mangled}"
+            local demangled
+            demangled=$(_knit_command_demangle "${mangled}")
+            __knit_ret_disp="${demangled}"
+            __knit_ret_tgt="${demangled}"
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sweep_enumerate_domain()
+#
+# Enumerate a parameter's declared search domain into its concrete value list,
+# applying the enumerability gate the proposer owns. A real range (kind "range",
+# type "real") is bounds-only (a Bayesian-optimization proposer samples it; a
+# sweep cannot enumerate it), so asking to sweep one is a fatal with the fix
+# message. Every other declared domain (a list, a glob, an enum list, or an
+# integer range) enumerates like a call-site literal of the same shape.
+#
+# @param[out] __knit_ret Name of the array to receive the value list.
+# @param[in] mangled The command the parameter belongs to (mangled name).
+# @param[in] param The parameter name (normalized).
+# ------------------------------------------------------------------------------
+_knit_sweep_enumerate_domain() {
+    # shellcheck disable=SC2178 # nameref output assigned as an array
+    local -n __knit_ret=$1
+    local mangled="$2" param="$3"
+    # shellcheck disable=SC2034 # log is an unused slot of knit_parameter_space's output
+    local kind type lo hi step log glob
+    local -a values
+    if ! knit_parameter_space kind type lo hi values step log glob \
+        "${mangled}" "${param}"; then
+        knit_fatal "Internal error: '%s' has no declared domain to enumerate." "${param}"
+    fi
+    if [[ "${kind}" == "range" && "${type}" == "real" ]]; then
+        local raw_var="_KNIT_CMD_${mangled}_2_${param}_domain"
+        knit_fatal "Cannot sweep '%s': its declared --domain '%s' is a real interval (bounds only). Give %s on the command line (--%s <value> or --%s '{...}'), or declare it with a list --domain '{...}' to make it enumerable." \
+            "${param}" "${!raw_var}" "${param}" "${param}" "${param}"
+    fi
+    local -a enumerated
+    case "${kind}" in
+        list) enumerated=("${values[@]}") ;;
+        glob) _knit_sweep_expand_glob enumerated "${glob}" ;;
+        range)
+            local token
+            if [[ -n "${step}" ]]; then token="[${lo}..${hi}:${step}]"; else token="[${lo}..${hi}]"; fi
+            _knit_sweep_range_grid enumerated "${lo}" "${hi}" "${step}" "${token}"
+            ;;
+        *) knit_fatal "Internal error: domain of '%s' has no kind." "${param}" ;;
+    esac
+    __knit_ret=("${enumerated[@]}")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sweep_resolve_domains()
+#
+# Resolve the declared-domain axes (@sweep / @default / --fill) against the
+# downstream target's parameters, splicing the results into the M2 scan. This is
+# the one point where the sweep introspects the target, and it runs only when it
+# must: --fill sweep, or a @sweep/@default marker at the call site. With --fill
+# default and no marker it returns at once, having read nothing.
+#
+# For each target parameter, the call-site classification (explicit / sweep /
+# default / unspecified, from the seen map) and the parameter's declared-domain
+# presence feed the shared _knit_search_resolve_fill precedence rule:
+#   - explicit: left as the M2 scan already has it (a literal axis, or a scalar
+#     that passes through);
+#   - sweep: enumerate the declared domain (via _knit_sweep_enumerate_domain) and
+#     either fill the call-site @sweep marker axis in place, or, for a parameter
+#     left unspecified under --fill sweep, append a new "--param <value>" axis to
+#     the template;
+#   - default: a call-site @default marker is pinned to the resolved default value
+#     in the template (and drops out as an axis); an unspecified parameter keeps
+#     its default, which the downstream fills when the reconstructed line runs.
+# An explicit @sweep on a parameter with no declared domain is a fatal; a @sweep /
+# @default naming a parameter the target does not have is a fatal.
+#
+# @param[in,out] __knit_ret1 Name of the reconstruction template array.
+# @param[in,out] __knit_ret2 Name of the axis-descriptor array.
+# @param[in,out] __knit_ret3 Name of the per-axis value-list array.
+# @param[in] __knit_seen Name of the seen map (option -> classification).
+# @param[in] fill The --fill policy ("default" or "sweep").
+# @param[in] mangled The resolved downstream target (mangled command name).
+# ------------------------------------------------------------------------------
+_knit_sweep_resolve_domains() {
+    # shellcheck disable=SC2178 # nameref outputs used as arrays
+    local -n __knit_ret1=$1
+    # shellcheck disable=SC2178
+    local -n __knit_ret2=$2
+    # shellcheck disable=SC2178
+    local -n __knit_ret3=$3
+    local -n __knit_seen=$4
+    local fill="$5" mangled="$6"
+
+    # Gate: introspect only when there is something to resolve.
+    local need="false" spec
+    [[ "${fill}" == "sweep" ]] && need="true"
+    if [[ "${need}" == "false" ]]; then
+        for spec in "${__knit_ret2[@]}"; do
+            case "${spec}" in "sweep "*|"default "*) need="true"; break ;; esac
+        done
+    fi
+    [[ "${need}" == "false" ]] && return 0
+
+    if ! _knit_set_find _KNIT_COMMANDS "${mangled}"; then
+        knit_fatal "Cannot introspect the downstream target for --fill sweep / @sweep: '%s' is not a known command." "${mangled}"
+    fi
+
+    # Index the call-site @sweep/@default markers by parameter name.
+    local -A marker_idx=() marker_slot=()
+    local i kind slot name
+    for ((i=0; i<${#__knit_ret2[@]}; i++)); do
+        read -r kind slot name <<< "${__knit_ret2[i]}"
+        if [[ "${kind}" == "sweep" || "${kind}" == "default" ]]; then
+            marker_idx["${name}"]="${i}"
+            marker_slot["${name}"]="${slot}"
+        fi
+    done
+
+    local -a params
+    knit_command_parameters params "${mangled}"
+    local -A remove=()
+    local p token has_domain resolved
+    for p in "${params[@]}"; do
+        token="${__knit_seen[${p}]:-unspecified}"
+        has_domain="false"
+        local dvar="_KNIT_CMD_${mangled}_2_${p}_domain"
+        [[ -v "${dvar}" && -n "${!dvar}" ]] && has_domain="true"
+        _knit_search_resolve_fill resolved "${fill}" "${token}" "${has_domain}"
+        case "${resolved}" in
+            explicit) ;;
+            default)
+                if [[ -v marker_idx["${p}"] ]]; then
+                    local raw def
+                    _knit_param_default raw "${mangled}" "${p}"
+                    def=$(_knit_resolve_default "${raw}")
+                    __knit_ret1["${marker_slot[${p}]}"]="${def}"
+                    remove["${marker_idx[${p}]}"]=1
+                fi
+                ;;
+            sweep)
+                if [[ "${has_domain}" != "true" ]]; then
+                    knit_fatal "Cannot @sweep '%s': it has no declared domain. Give it a value on the line, or declare it with --domain '{...}'." "${p}"
+                fi
+                local -a dvals
+                _knit_sweep_enumerate_domain dvals "${mangled}" "${p}"
+                local joined
+                printf -v joined '%s\n' "${dvals[@]}"
+                joined="${joined%$'\n'}"
+                if [[ -v marker_idx["${p}"] ]]; then
+                    local mi="${marker_idx[${p}]}"
+                    __knit_ret2["${mi}"]="literal ${marker_slot[${p}]} ${p}"
+                    __knit_ret3["${mi}"]="${joined}"
+                else
+                    local hyph
+                    _knit_str_underscores_to_hyphens hyph "${p}"
+                    __knit_ret1+=("--${hyph}" "__SWEEP__")
+                    local newslot=$(( ${#__knit_ret1[@]} - 1 ))
+                    __knit_ret2+=("literal ${newslot} ${p}")
+                    __knit_ret3+=("${joined}")
+                fi
+                ;;
+        esac
+    done
+
+    # Drop the @default axes now pinned into the template.
+    if [[ ${#remove[@]} -gt 0 ]]; then
+        local -a kept_axes=() kept_vals=()
+        for ((i=0; i<${#__knit_ret2[@]}; i++)); do
+            [[ -v remove["${i}"] ]] && continue
+            kept_axes+=("${__knit_ret2[i]}")
+            kept_vals+=("${__knit_ret3[i]}")
+        done
+        __knit_ret2=("${kept_axes[@]}")
+        __knit_ret3=("${kept_vals[@]}")
+    fi
+
+    # Any marker left unresolved names a parameter the target does not have.
+    for ((i=0; i<${#__knit_ret2[@]}; i++)); do
+        read -r kind slot name <<< "${__knit_ret2[i]}"
+        if [[ "${kind}" == "sweep" || "${kind}" == "default" ]]; then
+            knit_fatal "@%s references '%s', which is not a parameter of the downstream target '%s'." \
+                "${kind}" "${name}" "${mangled}"
+        fi
+    done
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sweep()
 #
 # Entry point for the `sweep` CLI command. The sweep's own options are parsed and
