@@ -71,6 +71,12 @@ teardown() {
     [ "${line[*]}" = "submit --group demo --nodes 2 -- montecarlo --samples 1000" ]
 }
 
+@test "the group is inserted into a prepare line among the submit options" {
+    local -a line=( prepare --nodes 2 -- montecarlo --samples 1000 )
+    _knit_search_group_forward line demo
+    [ "${line[*]}" = "prepare --group demo --nodes 2 -- montecarlo --samples 1000" ]
+}
+
 @test "a run or bare line is left unchanged (group lives on the parent row only)" {
     local -a runline=( run --procs 4 -- mcrank )
     _knit_search_group_forward runline demo

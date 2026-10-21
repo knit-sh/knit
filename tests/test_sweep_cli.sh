@@ -8,6 +8,13 @@ setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
     knit_test_require_sqlite
     knit_test_db_setup
+
+    # A target command for the invocation tests (the sweep body resolves the
+    # downstream target from M4 on).
+    knit_register "render" _render "A plain command."
+    knit_with_optional "width:integer" "256" "width"
+    _render() { :; }
+    knit_done
 }
 
 teardown() {

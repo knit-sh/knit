@@ -703,12 +703,14 @@ _knit_search_resolve_fill() {
 # place, so a job trial lands in the existing jobs.group column (which makes
 # "submit next --group" and "remove --group" operate on the campaign with no new
 # code). The group is a submission field, so it is inserted among the submit
-# options -- right after the leading "submit" token, before its "--". The line is
-# left unchanged when the group is empty or the line is not a submit line (a
-# "run ... -- app" or a bare command has no scheduler, so its group lives only on
-# the parent row and the call edges). The parent row itself records the group
-# automatically, since a proposer declares --group as an ordinary optional
-# parameter.
+# options -- right after the leading "submit" or "prepare" token, before its
+# "--". Both are job dispatchers that share the submit option surface (and so
+# accept --group); a sweep that prepares a durable product uses the "prepare"
+# form. The line is left unchanged when the group is empty or the line is neither
+# a submit nor a prepare line (a "run ... -- app" or a bare command has no
+# scheduler, so its group lives only on the parent row and the call edges). The
+# parent row itself records the group automatically, since a proposer declares
+# --group as an ordinary optional parameter.
 #
 # @param[in,out] __knit_argv Name of the array holding the downstream argv.
 # @param[in] group The campaign group label (empty to leave the line unchanged).
@@ -717,6 +719,9 @@ _knit_search_group_forward() {
     local -n __knit_argv=$1
     local group="$2"
     [[ -z "${group}" ]] && return 0
-    [[ "${__knit_argv[0]}" == "submit" ]] || return 0
-    __knit_argv=( "submit" "--group" "${group}" "${__knit_argv[@]:1}" )
+    case "${__knit_argv[0]}" in
+        submit|prepare) ;;
+        *) return 0 ;;
+    esac
+    __knit_argv=( "${__knit_argv[0]}" "--group" "${group}" "${__knit_argv[@]:1}" )
 }

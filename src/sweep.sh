@@ -582,6 +582,117 @@ _knit_sweep_resolve_domains() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sweep_plan()
+#
+# Build the odometer plan from the resolved per-axis value lists. Each axis's
+# newline-joined value list is split into the shared "flat" array; its start
+# offset and count let the reconstructor read any axis value by (axis, index)
+# without an array of arrays (which bash lacks). The total is the product of the
+# per-axis counts (1 when there are no axes: the single literal combination).
+#
+# @param[out] __knit_ret1 Name of the array to receive the per-axis value counts.
+# @param[out] __knit_ret2 Name of the array to receive all axis values, flattened.
+# @param[out] __knit_ret3 Name of the array to receive each axis's start offset.
+# @param[out] __knit_ret4 Name of the variable to receive the product total.
+# @param[in] __knit_vals Name of the per-axis value-list array (newline joined).
+# ------------------------------------------------------------------------------
+_knit_sweep_plan() {
+    # shellcheck disable=SC2178 # nameref output used as an array
+    local -n __knit_ret1=$1
+    # shellcheck disable=SC2178
+    local -n __knit_ret2=$2
+    # shellcheck disable=SC2178
+    local -n __knit_ret3=$3
+    local -n __knit_ret_total=$4
+    local -n __knit_vals=$5
+    __knit_ret1=(); __knit_ret2=(); __knit_ret3=()
+    local product=1 i
+    for ((i=0; i<${#__knit_vals[@]}; i++)); do
+        local -a v=()
+        [[ -n "${__knit_vals[i]}" ]] && mapfile -t v <<< "${__knit_vals[i]}"
+        __knit_ret3+=("${#__knit_ret2[@]}")
+        __knit_ret1+=("${#v[@]}")
+        __knit_ret2+=("${v[@]}")
+        product=$(( product * ${#v[@]} ))
+    done
+    __knit_ret_total="${product}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sweep_reconstruct()
+#
+# Rebuild one combination's downstream command line from the template: copy the
+# template, then overwrite each axis's template slot with that axis's value for
+# the given combination index. The index is decoded as a mixed-radix odometer in
+# which the last axis varies fastest (so the product enumerates in a stable,
+# row-major order). The caller applies the --group splice afterwards.
+#
+# @param[out] __knit_ret Name of the array to receive the reconstructed line.
+# @param[in] __knit_tmpl Name of the reconstruction template array.
+# @param[in] __knit_axes Name of the axis-descriptor array.
+# @param[in] __knit_flat Name of the flattened axis-values array.
+# @param[in] __knit_off Name of the per-axis offset array.
+# @param[in] __knit_cnt Name of the per-axis count array.
+# @param[in] idx The combination index (0 <= idx < total).
+# ------------------------------------------------------------------------------
+_knit_sweep_reconstruct() {
+    # shellcheck disable=SC2178 # nameref output used as an array
+    local -n __knit_ret=$1
+    local -n __knit_tmpl=$2
+    local -n __knit_axes=$3
+    local -n __knit_flat=$4
+    local -n __knit_off=$5
+    local -n __knit_cnt=$6
+    local idx="$7"
+    __knit_ret=("${__knit_tmpl[@]}")
+    local rem="${idx}" i kind slot name j
+    for ((i=${#__knit_axes[@]}-1; i>=0; i--)); do
+        read -r kind slot name <<< "${__knit_axes[i]}"
+        local c="${__knit_cnt[i]}"
+        j=$(( rem % c ))
+        rem=$(( rem / c ))
+        __knit_ret["${slot}"]="${__knit_flat[$(( __knit_off[i] + j ))]}"
+    done
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sweep_dimensions_json()
+#
+# Build the campaign's "dimensions" JSON object: one key per axis (its name)
+# mapping to the ordered array of that axis's values, e.g.
+# {"nodes":[1,2,4],"samples":[1000,100000]}. Numeric-looking values are emitted
+# as JSON numbers, others as strings. This is the single JSON column recorded on
+# the sweeps row (so a 1-node command and a 1024-node job produce rows of the
+# same shape).
+#
+# @param[out] __knit_ret Name of the variable to receive the JSON string.
+# @param[in] __knit_axes Name of the axis-descriptor array.
+# @param[in] __knit_flat Name of the flattened axis-values array.
+# @param[in] __knit_off Name of the per-axis offset array.
+# @param[in] __knit_cnt Name of the per-axis count array.
+# ------------------------------------------------------------------------------
+_knit_sweep_dimensions_json() {
+    local -n __knit_ret_json=$1
+    local -n __knit_axes=$2
+    local -n __knit_flat=$3
+    local -n __knit_off=$4
+    local -n __knit_cnt=$5
+    local json='{}' i kind slot name j
+    for ((i=0; i<${#__knit_axes[@]}; i++)); do
+        read -r kind slot name <<< "${__knit_axes[i]}"
+        local -a vv=()
+        for ((j=0; j<__knit_cnt[i]; j++)); do
+            vv+=("${__knit_flat[$(( __knit_off[i] + j ))]}")
+        done
+        # shellcheck disable=SC2016 # $k and $ARGS are jq variables, not shell
+        json=$(knit_jq -c --arg k "${name}" \
+            '.[$k] = ($ARGS.positional | map(tonumber? // .))' \
+            --args "${vv[@]}" <<< "${json}")
+    done
+    __knit_ret_json="${json}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sweep()
 #
 # Entry point for the `sweep` CLI command. The sweep's own options are parsed and
@@ -607,5 +718,50 @@ _knit_sweep() {
     if [[ ${#downstream[@]} -eq 0 ]]; then
         knit_fatal "sweep requires a downstream command after -- (e.g. \"-- submit -- <job>\", \"-- run -- <app>\", or \"-- <command>\")."
     fi
+
+    local group fill passthrough dry_run
+    group=$(knit_get_parameter "group" "${args[@]}") || group=""
+    fill=$(knit_get_parameter "fill" "${args[@]}") || fill="default"
+    passthrough=$(knit_get_parameter "passthrough" "${args[@]}") || passthrough=""
+    dry_run=$(knit_get_parameter "dry-run" "${args[@]}") || dry_run="false"
+
+    # Scan the downstream into axes + a template (M2), then resolve any declared
+    # domains (@sweep / @default / --fill) against the target's parameters (M3).
+    # These locals are populated and consumed through the sweep pipeline by
+    # nameref, which shellcheck cannot see (hence the SC2034 suppressions).
+    # shellcheck disable=SC2034 # populated/consumed by the sweep pipeline via nameref
+    local -a template axes values
+    # shellcheck disable=SC2034 # populated/consumed by the sweep pipeline via nameref
+    local -A seen
+    _knit_sweep_scan template axes values seen "${passthrough}" "${downstream[@]}"
+    # shellcheck disable=SC2034 # dispatcher/target are recorded in M5
+    local mangled dispatcher target
+    _knit_sweep_resolve_target mangled dispatcher target "${downstream[@]}"
+    _knit_sweep_resolve_domains template axes values seen "${fill}" "${mangled}"
+
+    # Build the odometer plan over the resolved axes.
+    # shellcheck disable=SC2034 # consumed by _knit_sweep_reconstruct via nameref
+    local -a counts flat offsets
+    local total
+    _knit_sweep_plan counts flat offsets total values
+
+    # --dry-run prints each reconstructed command line (with the --group splice a
+    # real run would get) and exits without recording or running.
+    if [[ "${dry_run}" == "true" ]]; then
+        local idx
+        for ((idx=0; idx<total; idx++)); do
+            local -a line
+            _knit_sweep_reconstruct line template axes flat offsets counts "${idx}"
+            _knit_search_group_forward line "${group}"
+            _knit_str_render_cmd line
+            printf '\n'
+        done
+        # Suppress the auto-recorded sweeps row: a dry run leaves no trace.
+        _KNIT_RECORDING_SUPPRESSED=1
+        return 0
+    fi
+
+    # Recording the sweeps row (target/dispatcher/dimensions/count) and executing
+    # the product (durable prepare, or the ephemeral loop) are added in M5.
 }
 knit_done
