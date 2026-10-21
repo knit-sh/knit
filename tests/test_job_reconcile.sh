@@ -203,19 +203,6 @@ _make_jobdir() {
 
 # ---------- backend tag routing (.job.id tag drives the status query) ----------
 
-@test "reconcile leaves a pilot-tagged running row untouched (routes to the pilot no-op)" {
-    _seed_job "r1" "running"
-    local d="${_KNIT_TEST_TMPDIR}/jobs/r1"
-    mkdir -p "${d}"
-    printf 'pilot:parent-uuid:r1\n' > "${d}/.job.id"
-    # Do NOT stub _knit_sched_status: the real dispatcher must route the pilot tag
-    # to _knit_sched_pilot_status, which returns "running" (the M1 safe no-op).
-    # Before tagging, this row was queried against the ambient (local) backend and
-    # wrongly killed.
-    _knit_job_reconcile_apply "false" "" "" ""
-    [ "$(_job_state "r1")" = "running" ]
-}
-
 @test "reconcile routes a tagged id to its own backend's status query" {
     _seed_job "r1" "running"
     local d="${_KNIT_TEST_TMPDIR}/jobs/r1"
@@ -231,4 +218,50 @@ _make_jobdir() {
     _knit_job_reconcile_apply "false" "" "" ""
     [ "$(_job_state "r1")" = "killed" ]
     [ "$(cat "${_KNIT_TEST_TMPDIR}/probed")" = "4242" ]
+}
+
+# ---------- pilot sub-job cascade (reconcile via the parent pilot) ----------
+
+# Write a tagged .job.id holding $2 for the job directory of id $1.
+_tag_jobid() {
+    local d="${_KNIT_TEST_TMPDIR}/jobs/$1"
+    mkdir -p "${d}"
+    printf '%s\n' "$2" > "${d}/.job.id"
+}
+
+@test "reconcile marks a pilot sub-job killed when its parent pilot is gone" {
+    _seed_job "sub1" "running"
+    _tag_jobid "sub1" "pilot:par1:sub1"
+    _tag_jobid "par1" "pbs:999.server"
+    # Real dispatch + real pilot walk; stub only the parent's pbs status.
+    _knit_sched_pbs_status() { local -n __r=$1; __r="killed"; }
+    _knit_job_reconcile_apply "false" "" "" ""
+    [ "$(_job_state "sub1")" = "killed" ]
+}
+
+@test "reconcile leaves a pilot sub-job running when its parent pilot still runs" {
+    _seed_job "sub1" "running"
+    _tag_jobid "sub1" "pilot:par1:sub1"
+    _tag_jobid "par1" "pbs:999.server"
+    _knit_sched_pbs_status() { local -n __r=$1; __r="running"; }
+    _knit_job_reconcile_apply "false" "" "" ""
+    [ "$(_job_state "sub1")" = "running" ]
+}
+
+@test "reconcile marks a pilot sub-job killed when the parent .job.id is missing" {
+    _seed_job "sub1" "running"
+    _tag_jobid "sub1" "pilot:par1:sub1"
+    # No par1 directory / .job.id at all.
+    _knit_job_reconcile_apply "false" "" "" ""
+    [ "$(_job_state "sub1")" = "killed" ]
+}
+
+@test "reconcile resolves a nested pilot sub-job through both hops" {
+    _seed_job "sub1" "running"
+    _tag_jobid "sub1" "pilot:par1:sub1"   # parent par1 is itself a pilot ...
+    _tag_jobid "par1" "pilot:gp1:par1"    # ... whose parent gp1 is a pbs job
+    _tag_jobid "gp1"  "pbs:999.server"
+    _knit_sched_pbs_status() { local -n __r=$1; __r="killed"; }
+    _knit_job_reconcile_apply "false" "" "" ""
+    [ "$(_job_state "sub1")" = "killed" ]
 }

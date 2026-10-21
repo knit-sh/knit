@@ -995,9 +995,37 @@ _use_profile_json() {
     [[ "$output" == *"not implemented"* ]]
 }
 
-@test "_knit_sched_pilot_status always returns running (conservative no-op)" {
-    local v; _knit_sched_pilot_status v any-id
+# _knit_sched_pilot_status resolves a sub-job's fate from its parent pilot, whose
+# real backend answers. The payload is "<parent-uuid>:<sub-job-id>".
+_stub_parent_dir() {
+    _knit_job_dir() { printf '%s/jobs/%s\n' "${_KNIT_TEST_TMPDIR}" "$1"; }
+    mkdir -p "${_KNIT_TEST_TMPDIR}/jobs/par1"
+    printf 'pbs:999.server\n' > "${_KNIT_TEST_TMPDIR}/jobs/par1/.job.id"
+}
+
+@test "_knit_sched_pilot_status maps a gone parent pilot to killed" {
+    _stub_parent_dir
+    _knit_sched_pbs_status() { local -n __r=$1; __r="killed"; }
+    local v; _knit_sched_pilot_status v "par1:sub1"
+    [ "${v}" = "killed" ]
+}
+
+@test "_knit_sched_pilot_status leaves a sub-job running when the parent pilot runs" {
+    _stub_parent_dir
+    _knit_sched_pbs_status() { local -n __r=$1; __r="running"; }
+    local v; _knit_sched_pilot_status v "par1:sub1"
     [ "${v}" = "running" ]
+}
+
+@test "_knit_sched_pilot_status returns killed when the parent .job.id is missing" {
+    _knit_job_dir() { printf '%s/jobs/%s\n' "${_KNIT_TEST_TMPDIR}" "$1"; }
+    local v; _knit_sched_pilot_status v "par1:sub1"
+    [ "${v}" = "killed" ]
+}
+
+@test "_knit_sched_pilot_status returns killed when the payload has no parent" {
+    local v; _knit_sched_pilot_status v ":sub1"
+    [ "${v}" = "killed" ]
 }
 
 # ---------- _knit_sched_submit_cmdline ----------

@@ -496,10 +496,12 @@ _knit_sched_pilot_directives() {
 # stdout/stderr redirected to the job directory. The request is non-blocking —
 # the daemon queues it and returns at once — matching the dispatcher contract
 # (the optional --wait is a separate _knit_sched_pilot_wait step). On the daemon
-# accepting the request, the sub-job UUID is printed as the backend job id (the
-# daemon tracks the sub-job by it, so wait/cancel reference it); a daemon
-# rejection propagates as a non-zero status, which the dispatcher treats as a
-# scheduler rejection.
+# accepting the request, "<parent-uuid>:<sub-job-id>" is printed as the backend
+# job id: the daemon tracks the sub-job by <sub-job-id> (wait/cancel strip to it)
+# and <parent-uuid> links the sub-job to the pilot job that submitted it, so
+# reconcile can resolve a stuck sub-job's fate from the parent pilot's state. A
+# daemon rejection propagates as a non-zero status, which the dispatcher treats
+# as a scheduler rejection.
 #
 # @param[in] arr_name Name of the resolved-options associative array.
 # @param[in] script   Path to the batch script to queue.
@@ -510,8 +512,12 @@ _knit_sched_pilot_submit() {
     local script="$2"
     local jobdir="$3"
     _knit_pilot_require_sock
-    local id
+    local id parent
     id="$(basename "${jobdir}")"
+    # The pilot job whose body is submitting this sub-job: its id is the basename
+    # of KNIT_JOB_PREFIX, set for the running pilot body. Carried in the printed
+    # payload so reconcile can walk from a stuck sub-job to its parent pilot.
+    parent="$(basename "${KNIT_JOB_PREFIX:-}")"
     local nodes="${resolved[nodes]:-1}"
     "${_KNIT_PILOTD_EXE}" submit \
         --socket "${KNIT_PILOT_SOCK}" \
@@ -523,7 +529,10 @@ _knit_sched_pilot_submit() {
     # Track the sub-job so a kill/--kill-on-exit teardown can reconcile it (a
     # queued sub-job that never starts records no terminal state of its own).
     _knit_pilot_record_subjob "${id}"
-    printf '%s\n' "${id}"
+    # Print "<parent-uuid>:<sub-job-id>": recorded as .job.id tag
+    # "pilot:<parent-uuid>:<sub-job-id>", it carries both the daemon's sub-job id
+    # (wait/cancel strip to it) and the parent linkage (status walks to it).
+    printf '%s:%s\n' "${parent}" "${id}"
 }
 
 # ------------------------------------------------------------------------------
@@ -558,10 +567,12 @@ _knit_sched_pilot_submit_cmdline() {
 # contract the other backends' wait functions honour (knit's own terminal state
 # is read from the jobs table afterwards by the caller).
 #
-# @param[in] id The sub-job UUID recorded in its .job.id by _knit_sched_pilot_submit.
+# @param[in] payload The pilot payload "<parent-uuid>:<sub-job-id>" (its id field
+#                     is the sub-job id the daemon tracks); a bare id is accepted
+#                     too. Stripped to the sub-job id before the daemon call.
 # ------------------------------------------------------------------------------
 _knit_sched_pilot_wait() {
-    local id="$1"
+    local id="${1##*:}"
     _knit_pilot_require_sock
     "${_KNIT_PILOTD_EXE}" wait --socket "${KNIT_PILOT_SOCK}" --id "${id}"
 }
@@ -574,10 +585,11 @@ _knit_sched_pilot_wait() {
 # Cancelling a sub-job that is already gone is not an error. Knit's terminal state
 # (killed) is recorded by the sub-job's own kill-trap / the daemon.
 #
-# @param[in] id The sub-job UUID recorded in its .job.id.
+# @param[in] payload The pilot payload "<parent-uuid>:<sub-job-id>" (a bare id is
+#                     accepted too). Stripped to the sub-job id for the daemon.
 # ------------------------------------------------------------------------------
 _knit_sched_pilot_cancel() {
-    local id="$1"
+    local id="${1##*:}"
     _knit_pilot_require_sock
     "${_KNIT_PILOTD_EXE}" cancel --socket "${KNIT_PILOT_SOCK}" --id "${id}" || true
 }
@@ -586,18 +598,46 @@ _knit_sched_pilot_cancel() {
 # @fn _knit_sched_pilot_status()
 #
 # Return the status of a pilot sub-job. The knit-pilotd daemon has no non-blocking
-# status verb — its protocol offers only the blocking WAIT and CANCEL — so a pilot
-# sub-job cannot be positively confirmed dead without waiting for it. Returning
-# 'running' is a conservative no-op: the row is left untouched by reconcile. Adding
-# a STATUS verb to the daemon so pilot sub-jobs can be reconciled too is a separate
-# future change (see features/job-reconcile.md, Deferred section).
+# status verb, so a sub-job cannot be queried directly. But a pilot sub-job lives
+# and dies with its pilot allocation, and the pilot job is itself an ordinary
+# machine-scheduler job, so its fate is resolved from the parent pilot's true
+# state as the parent's own scheduler reports it. The payload is
+# "<parent-uuid>:<sub-job-id>"; the parent uuid is its first field.
+#
+# Verdict: the parent still running -> 'running' (the sub-job is left alone); the
+# parent terminal/gone, or no parent to ask -> 'killed' (the allocation is gone,
+# so a sub-job stuck non-terminal died with it; same unknown->killed policy as
+# the other backends). The walk is transitive: a parent that is itself a pilot
+# recurses one more hop through _knit_sched_status.
+#
+# A future knit-pilotd STATUS verb could answer per sub-job directly when a live
+# daemon socket is reachable; the parent walk is used in every case until then,
+# and is also correct inside a still-running pilot (the parent reports 'running',
+# so the sub-job is left alone). See features/pilot-reconcile.md, Deferred.
 #
 # @param[out] __knit_ret Name of the variable to hold the verdict string.
-# @param[in]  id         Sub-job UUID from .job.id (unused; pilot has no status query).
+# @param[in]  payload    The pilot payload "<parent-uuid>:<sub-job-id>".
 # ------------------------------------------------------------------------------
 _knit_sched_pilot_status() {
     local -n __knit_ret=$1; shift
-    __knit_ret="running"
+    local payload="$1"
+
+    local parent="${payload%%:*}"
+    local parent_jobdir=""
+    [[ -n "${parent}" ]] && parent_jobdir="$(_knit_job_dir "${parent}")"
+    if [[ -z "${parent}" || ! -f "${parent_jobdir}/.job.id" ]]; then
+        __knit_ret="killed"
+        return 0
+    fi
+
+    local parent_backend parent_id parent_verdict
+    _knit_jobid_read parent_backend parent_id "${parent_jobdir}"
+    _knit_sched_status parent_verdict "${parent_backend}" "${parent_id}"
+
+    case "${parent_verdict}" in
+        running) __knit_ret="running" ;;
+        *)       __knit_ret="killed" ;;
+    esac
 }
 
 # ------------------------------------------------------------------------------

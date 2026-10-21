@@ -215,8 +215,8 @@ teardown() {
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT state FROM jobs WHERE id='${out}';")" = "submitted" ]
 
-    # .job.id holds the implementation-dependent launcher id.
-    [ "$(cat "${jobdir}/.job.id")" = "9999" ]
+    # .job.id holds the implementation-dependent launcher id, backend-tagged.
+    [ "$(cat "${jobdir}/.job.id")" = "local:9999" ]
     [ -f "${jobdir}/.job.sh" ]
 
     # Generated script re-enters the experiment to run the job.
@@ -326,7 +326,8 @@ EOF
     recorded_cmd="$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT native_cmd FROM jobs WHERE id='abc';")"
     [[ "${recorded_cmd}" == *"fake-submit"* ]]
-    [ "$(cat "${jobdir}/.job.id")" = "1234" ]
+    # .job.id is tagged with the frozen backend that minted the id.
+    [ "$(cat "${jobdir}/.job.id")" = "slurm:1234" ]
 }
 
 # ---------- _knit_sched_local_cancel ----------

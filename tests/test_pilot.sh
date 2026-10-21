@@ -276,20 +276,22 @@ _make_fake_pilotd() {
     [ "$b" = "pbs" ]
 }
 
-@test "pilot submit sends the daemon request and returns the sub-job UUID" {
+@test "pilot submit sends the daemon request and returns <parent>:<sub-job>" {
     _make_fake_pilotd 0
     export KNIT_PILOT_SOCK="${__TEST_TMPDIR}/pilot.sock"
+    # The submitting pilot body: its basename is the parent uuid carried in the id.
+    export KNIT_JOB_PREFIX="${__TEST_TMPDIR}/jobs/pilotparent"
     local jobdir="${__TEST_TMPDIR}/jobs/0d1e2f3a"
     mkdir -p "${jobdir}"
     declare -A opts=([nodes]=3)
 
     run _knit_sched_pilot_submit opts "${jobdir}/.job.sh" "${jobdir}"
     [ "$status" -eq 0 ]
-    # Prints the sub-job UUID (the job directory's basename) as the backend id.
-    [ "$output" = "0d1e2f3a" ]
+    # Prints "<parent-uuid>:<sub-job-id>" as the backend id.
+    [ "$output" = "pilotparent:0d1e2f3a" ]
 
-    # The daemon request carries the id, node count, socket, redirections, and the
-    # "bash <script>" command after --.
+    # The daemon request carries the sub-job id (not the parent), node count,
+    # socket, redirections, and the "bash <script>" command after --.
     local argv; argv="$(cat "${__pilotd_args}")"
     [[ "${argv}" == *"submit"* ]]
     [[ "${argv}" == *"--socket ${KNIT_PILOT_SOCK}"* ]]
@@ -320,10 +322,10 @@ _make_fake_pilotd() {
     [ "${argv[*]}" = "/some/where/knit-pilotd submit --nodes 4 -- bash /j/.job.sh" ]
 }
 
-@test "pilot wait asks the daemon and returns completed as success" {
+@test "pilot wait strips the payload to the sub-job id for the daemon" {
     _make_fake_pilotd 0
     export KNIT_PILOT_SOCK="${__TEST_TMPDIR}/pilot.sock"
-    run _knit_sched_pilot_wait "myid"
+    run _knit_sched_pilot_wait "parent-uuid:myid"
     [ "$status" -eq 0 ]
     [[ "$(cat "${__pilotd_args}")" == *"wait --socket ${KNIT_PILOT_SOCK} --id myid"* ]]
 }
@@ -335,10 +337,10 @@ _make_fake_pilotd() {
     [ "$status" -ne 0 ]
 }
 
-@test "pilot cancel asks the daemon to kill the sub-job" {
+@test "pilot cancel strips the payload to the sub-job id for the daemon" {
     _make_fake_pilotd 0
     export KNIT_PILOT_SOCK="${__TEST_TMPDIR}/pilot.sock"
-    run _knit_sched_pilot_cancel "myid"
+    run _knit_sched_pilot_cancel "parent-uuid:myid"
     [ "$status" -eq 0 ]
     [[ "$(cat "${__pilotd_args}")" == *"cancel --socket ${KNIT_PILOT_SOCK} --id myid"* ]]
 }
