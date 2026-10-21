@@ -56,8 +56,8 @@ r2=$(./experiment.sh prepare --group reconcile -- sim --n 2)
 check_eq "$(state_of "${r1}")" "prepared" "r1 starts prepared"
 check_eq "$(state_of "${r2}")" "prepared" "r2 starts prepared"
 
-# Drain both jobs to completion.
-./experiment.sh submit drain --group reconcile --wait
+# Drain both jobs to completion (--max-inflight 1 releases and waits one at a time).
+./experiment.sh submit drain --group reconcile
 check_eq "$(state_of "${r1}")" "completed" "r1 completed after drain"
 check_eq "$(state_of "${r2}")" "completed" "r2 completed after drain"
 
@@ -83,7 +83,7 @@ check_eq "$(state_of "${r2}")" "completed" "r2 was not touched by reconcile (alr
 # ==========================================================================
 # Prepare a fresh job in a new group.
 s1=$(./experiment.sh prepare --group recover -- sim --n 3)
-./experiment.sh submit drain --group recover --wait
+./experiment.sh submit drain --group recover
 check_eq "$(state_of "${s1}")" "completed" "s1 completed on the first drain"
 
 # Simulate a hard kill.
@@ -94,7 +94,7 @@ check_eq "$(state_of "${s1}")" "running" "s1 state forced to running (simulated 
 #   reconcile:  running -> killed (scheduler reports job gone)
 #   retry:      killed  -> prepared
 #   drain:      prepared -> completed
-./experiment.sh submit drain --group recover --reconcile --retry killed --wait
+./experiment.sh submit drain --group recover --reconcile --retry killed
 check_eq "$(state_of "${s1}")" "completed" \
     "submit drain --reconcile --retry turned stuck-running into completed"
 
