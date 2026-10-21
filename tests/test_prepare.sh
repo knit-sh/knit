@@ -172,10 +172,11 @@ _register_myjob_with_setup() {
 
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT \"group\" FROM jobs WHERE id='${uuid}';")" = "release-a" ]
-    # A direct submit still dispatches: the launcher id is recorded.
+    # A direct submit still dispatches: the launcher id is recorded, tagged with
+    # the backend that minted it.
     local jobdir
     jobdir="$(_knit_job_dir "${uuid}")"
-    [ "$(cat "${jobdir}/.job.id")" = "9999" ]
+    [ "$(cat "${jobdir}/.job.id")" = "local:9999" ]
 }
 
 # ---------- knit_register_job : reserved names ----------
@@ -221,10 +222,10 @@ _stub_dispatch_ok() {
     [ "${released}" = "${uuid}" ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT state FROM jobs WHERE id='${uuid}';")" = "submitted" ]
-    # The launcher id from the successful dispatch is recorded.
+    # The launcher id from the successful dispatch is recorded, backend-tagged.
     local jobdir
     jobdir="$(_knit_job_dir "${uuid}")"
-    [ "$(cat "${jobdir}/.job.id")" = "4242" ]
+    [ "$(cat "${jobdir}/.job.id")" = "local:4242" ]
     # native-cmd is filled at release (empty while prepared).
     [ -n "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT native_cmd FROM jobs WHERE id='${uuid}';")" ]

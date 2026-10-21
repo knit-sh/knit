@@ -205,9 +205,8 @@ _knit_job_wait_one() {
     if [[ ! -f "${jobdir}/.job.id" ]]; then
         knit_fatal "Job \"${id}\" has no recorded launcher id (${jobdir}/.job.id is missing)."
     fi
-    IFS= read -r jobid < "${jobdir}/.job.id"
     local backend
-    _knit_sched_backend backend
+    _knit_jobid_read backend jobid "${jobdir}"
     _knit_sched_wait "${backend}" "${jobid}"
 
     # The scheduler reports the job gone; give the compute-side terminal-state
@@ -320,10 +319,8 @@ _knit_job_cancel() {
     if [[ ! -f "${jobdir}/.job.id" ]]; then
         knit_fatal "Job \"${id}\" has no recorded launcher id (${jobdir}/.job.id is missing)."
     fi
-    IFS= read -r jobid < "${jobdir}/.job.id"
-
     local backend
-    _knit_sched_backend backend
+    _knit_jobid_read backend jobid "${jobdir}"
     _knit_sched_cancel "${backend}" "${jobid}"
     _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${id}" "state=killed"
     knit_info "Cancelled job \"${id}\"."
@@ -609,8 +606,7 @@ _knit_job_reconcile_apply() {
                 verdict="unknown"
             fi
         else
-            IFS= read -r jobid < "${jobdir}/.job.id"
-            _knit_sched_backend backend
+            _knit_jobid_read backend jobid "${jobdir}"
             _knit_sched_status verdict "${backend}" "${jobid}"
         fi
 

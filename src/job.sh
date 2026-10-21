@@ -558,9 +558,11 @@ _knit_submit_dispatch() {
         fi
     fi
 
-    # Record the implementation-dependent launcher id in .job.id. The full
-    # submission record lives in the "jobs" table (see M10/M11 recording).
-    printf '%s\n' "${jobid}" > "${jobdir}/.job.id"
+    # Record the implementation-dependent launcher id in .job.id, tagged with the
+    # backend that minted it ("<backend>:<id>"), so every reader routes the id to
+    # its true scheduler rather than the ambient one (see _knit_jobid_read). The
+    # full submission record lives in the "jobs" table (see M10/M11 recording).
+    printf '%s\n' "${backend}:${jobid}" > "${jobdir}/.job.id"
 
     # Print the job UUID now, before any wait: a --wait release must expose the id
     # before it blocks, so the running job can be inspected (status, stdout, ...)

@@ -200,3 +200,35 @@ _make_jobdir() {
     [ "$status" -eq 0 ]
     [ "$(_job_state "s1")" = "submitting" ]
 }
+
+# ---------- backend tag routing (.job.id tag drives the status query) ----------
+
+@test "reconcile leaves a pilot-tagged running row untouched (routes to the pilot no-op)" {
+    _seed_job "r1" "running"
+    local d="${_KNIT_TEST_TMPDIR}/jobs/r1"
+    mkdir -p "${d}"
+    printf 'pilot:parent-uuid:r1\n' > "${d}/.job.id"
+    # Do NOT stub _knit_sched_status: the real dispatcher must route the pilot tag
+    # to _knit_sched_pilot_status, which returns "running" (the M1 safe no-op).
+    # Before tagging, this row was queried against the ambient (local) backend and
+    # wrongly killed.
+    _knit_job_reconcile_apply "false" "" "" ""
+    [ "$(_job_state "r1")" = "running" ]
+}
+
+@test "reconcile routes a tagged id to its own backend's status query" {
+    _seed_job "r1" "running"
+    local d="${_KNIT_TEST_TMPDIR}/jobs/r1"
+    mkdir -p "${d}"
+    printf 'local:4242\n' > "${d}/.job.id"
+    # Real _knit_sched_status dispatch; stub only the local backend's status and
+    # capture the id it receives (the tag must be stripped before the query).
+    _knit_sched_local_status() {
+        local -n __r=$1; shift
+        printf '%s\n' "$1" > "${_KNIT_TEST_TMPDIR}/probed"
+        __r="killed"
+    }
+    _knit_job_reconcile_apply "false" "" "" ""
+    [ "$(_job_state "r1")" = "killed" ]
+    [ "$(cat "${_KNIT_TEST_TMPDIR}/probed")" = "4242" ]
+}

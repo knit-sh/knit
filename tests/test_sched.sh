@@ -1078,3 +1078,71 @@ _use_profile_json() {
     _knit_sched_backend out
     [ "$out" = "slurm" ]
 }
+
+# ---------- _knit_jobid_read ----------
+
+# Write a .job.id holding $2 under a fresh jobdir and echo the jobdir.
+_jobid_fixture() {
+    local content="$1"
+    local d="${_KNIT_TEST_TMPDIR}/jobs/$2"
+    mkdir -p "${d}"
+    printf '%s\n' "${content}" > "${d}/.job.id"
+    printf '%s\n' "${d}"
+}
+
+@test "_knit_jobid_read splits a tagged id into backend and id" {
+    local d backend jobid
+    d="$(_jobid_fixture 'pbs:12345.server' j1)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "pbs" ]
+    [ "${jobid}" = "12345.server" ]
+}
+
+@test "_knit_jobid_read handles each known backend tag" {
+    local d backend jobid
+    d="$(_jobid_fixture 'slurm:12345.4' j1)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "slurm" ] && [ "${jobid}" = "12345.4" ]
+    d="$(_jobid_fixture 'local:48213' j2)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "local" ] && [ "${jobid}" = "48213" ]
+    d="$(_jobid_fixture 'flux:f58xyz' j3)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "flux" ] && [ "${jobid}" = "f58xyz" ]
+}
+
+@test "_knit_jobid_read passes a pilot payload through whole" {
+    local d backend jobid
+    d="$(_jobid_fixture 'pilot:parent-uuid:subjob-uuid' j1)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "pilot" ]
+    [ "${jobid}" = "parent-uuid:subjob-uuid" ]
+}
+
+@test "_knit_jobid_read keeps colons/dots in the id remainder intact" {
+    local d backend jobid
+    d="$(_jobid_fixture 'slurm:12345.4_3' j1)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "slurm" ]
+    [ "${jobid}" = "12345.4_3" ]
+}
+
+@test "_knit_jobid_read falls back to the ambient backend for a legacy untagged id" {
+    _knit_sched_backend() { local -n __r=$1; __r='pbs'; }
+    local d backend jobid
+    d="$(_jobid_fixture '12345.server' j1)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "pbs" ]
+    [ "${jobid}" = "12345.server" ]
+}
+
+@test "_knit_jobid_read treats an incidental-colon legacy id as legacy, not tagged" {
+    # "pbsx" is not a known backend, so the whole string stays the id and the
+    # backend comes from the ambient resolver.
+    _knit_sched_backend() { local -n __r=$1; __r='local'; }
+    local d backend jobid
+    d="$(_jobid_fixture 'pbsx:weird' j1)"
+    _knit_jobid_read backend jobid "${d}"
+    [ "${backend}" = "local" ]
+    [ "${jobid}" = "pbsx:weird" ]
+}

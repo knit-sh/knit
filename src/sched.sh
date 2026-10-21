@@ -497,6 +497,53 @@ _knit_sched_backend() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_jobid_read()
+#
+# Read a job's recorded launcher id from <jobdir>/.job.id and resolve both the
+# scheduler backend that minted it and the backend-specific id. The file is
+# written tagged as "<backend>:<payload>" (see _knit_job_submit), so the backend
+# travels with the id and every reader routes by the id's true namespace rather
+# than the ambient backend of wherever the command runs. For a pilot sub-job the
+# payload is itself "<parent-uuid>:<sub-job-id>"; this returns it whole and the
+# pilot layer splits it.
+#
+# A file with no recognised "<backend>:" prefix is a legacy raw id (written
+# before tagging): the whole content is the id and the backend falls back to the
+# ambient _knit_sched_backend, preserving the old behaviour. The prefix counts as
+# a tag only when it names a known backend, so a legacy id that happens to carry
+# a colon is not misparsed.
+#
+# The caller is responsible for checking that <jobdir>/.job.id exists; this does
+# not.
+#
+# @param[out] __knit_ret1 Name of the variable to hold the backend name.
+# @param[out] __knit_ret2 Name of the variable to hold the backend-specific id.
+# @param[in]  jobdir      Job directory holding the .job.id file.
+# ------------------------------------------------------------------------------
+_knit_jobid_read() {
+    local -n __knit_ret1=$1
+    local -n __knit_ret2=$2
+    local jobdir="$3"
+    local content prefix
+    IFS= read -r content < "${jobdir}/.job.id"
+    prefix="${content%%:*}"
+    case "${prefix}" in
+        local|none|pilot|slurm|pbs|flux)
+            if [[ "${content}" == *:* ]]; then
+                __knit_ret1="${prefix}"
+                __knit_ret2="${content#*:}"
+                return 0
+            fi
+            ;;
+    esac
+    # Legacy untagged id: resolve the backend from the ambient environment.
+    local __knit_backend
+    _knit_sched_backend __knit_backend
+    __knit_ret1="${__knit_backend}"
+    __knit_ret2="${content}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_wait()
 #
 # Dispatch to the configured backend's blocking wait, which returns once the
