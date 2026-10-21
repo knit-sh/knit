@@ -60,5 +60,15 @@ skipped under ``--dry-run``. Combined with ``--retry``, a single pilot
 submission can recover, re-queue, and complete an entire batch that was
 interrupted mid-flight by a hard scheduler kill.
 
+**Pilot sub-jobs.** A sub-job submitted inside a pilot job runs under the
+in-allocation daemon, not the batch scheduler, so the scheduler cannot answer for
+it directly. ``job reconcile`` handles this by walking from the stuck sub-job to
+its **parent pilot** --- which *is* an ordinary scheduler job --- and asking the
+scheduler for the parent's fate: if the pilot is gone, its orphaned sub-jobs died
+with the allocation and are marked ``killed``; if the pilot is still running, the
+sub-jobs are left alone. So a ``job reconcile`` run from the login node after a
+hard-killed pilot correctly recovers the sub-jobs it left stuck, and running it
+against a live pilot never false-kills a sub-job that is still working.
+
 See *Retry failed or killed jobs* for the retry mechanics and *Run many jobs in
 one allocation (pilot jobs)* for the pilot pattern.

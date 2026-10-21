@@ -912,6 +912,12 @@
 #
 #   ./full.sh submit drain --group pi-sweep --reconcile --retry killed --max-retries 3
 #
+# A pilot sub-job (section 22) runs under the in-allocation daemon, not the batch
+# scheduler, so reconcile resolves it by walking to its parent pilot (a real
+# scheduler job): if the pilot is gone, its orphaned sub-jobs are marked "killed";
+# if the pilot still runs, they are left alone. So reconcile recovers the sub-jobs
+# a hard-killed pilot left stuck without ever false-killing a live one.
+#
 # -----------------------------------------------------------------------------
 # 17. Results and artifacts
 # -----------------------------------------------------------------------------
