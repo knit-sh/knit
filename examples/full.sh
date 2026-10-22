@@ -918,6 +918,33 @@
 # if the pilot still runs, they are left alone. So reconcile recovers the sub-jobs
 # a hard-killed pilot left stuck without ever false-killing a live one.
 #
+# `knit sweep` writes that whole "describe the runs" layer for you. It runs a
+# command, job, or app once per point in the CARTESIAN PRODUCT of a set of values
+# per parameter: you write the single invocation you would run once, and mark any
+# value to vary in sweep-syntax — `{a,b,c}` a list, `[lo..hi[:step]]` a range,
+# `@glob:`/`@file:` a filesystem list. The sweep is opaque to the downstream line;
+# it just re-emits the reconstructed command once per combination. Which
+# dispatcher you write after `--` picks the execution model:
+#
+#   # Ephemeral: launch each point now, <=N in flight (--parallel, default 1):
+#   ./full.sh sweep --group pi-sweep --parallel 4 \
+#       -- submit --setup env --nodes {1,2} -- montecarlo --samples '{20000,50000}'
+#   # --dry-run prints every reconstructed line and runs nothing:
+#   ./full.sh sweep --dry-run -- montecarlo --samples '{20000,50000}'
+#
+# A value may also be drawn from a parameter's declared --domain (see section 5):
+# `--samples @sweep` sweeps that one parameter's domain, `--fill sweep` sweeps
+# every unspecified parameter that has one. Each point records an automatic `call`
+# edge back to the sweep's row, so `knit query` can walk a campaign to its jobs.
+#
+# For a large or resumable campaign, swap `-- submit` for `-- prepare`: the sweep
+# writes the whole product as prepared rows (running nothing), and a separate
+# `submit drain` releases them — the resumable queue from above, on the login node
+# or inside a pilot:
+#
+#   ./full.sh sweep --group pi-sweep -- prepare --setup env -- montecarlo --samples '{20000,50000}'
+#   ./full.sh submit drain --group pi-sweep --max-inflight 4 --reconcile --retry killed,failed
+#
 # -----------------------------------------------------------------------------
 # 17. Results and artifacts
 # -----------------------------------------------------------------------------

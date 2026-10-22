@@ -385,18 +385,22 @@ _knit_sweep_resolve_target() {
             __knit_ret_tgt="${down[inner]}"
             local prefix="submit"
             [[ "${d0n}" == "run" ]] && prefix="run"
-            local mangled
-            _knit_command_mangle mangled "${prefix}" "${down[inner]}"
-            __knit_ret_mangled="${mangled}"
+            # Named resolved_cmd, not mangled: a caller's output variable is often
+            # named "mangled" (e.g. _knit_sweep), and an internal of that name
+            # would shadow the __knit_ret_mangled nameref (nameref-shadow-collision)
+            # so the result would never reach the caller.
+            local resolved_cmd
+            _knit_command_mangle resolved_cmd "${prefix}" "${down[inner]}"
+            __knit_ret_mangled="${resolved_cmd}"
             ;;
         *)
-            local mangled
+            local resolved_cmd
             # shellcheck disable=SC2034 # the consumed count is unused here
             local consumed
-            _knit_resolve_command_tokens mangled consumed "${down[@]}"
-            __knit_ret_mangled="${mangled}"
+            _knit_resolve_command_tokens resolved_cmd consumed "${down[@]}"
+            __knit_ret_mangled="${resolved_cmd}"
             local demangled
-            demangled=$(_knit_command_demangle "${mangled}")
+            demangled=$(_knit_command_demangle "${resolved_cmd}")
             __knit_ret_disp="${demangled}"
             __knit_ret_tgt="${demangled}"
             ;;

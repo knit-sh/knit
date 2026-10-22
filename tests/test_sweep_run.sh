@@ -30,7 +30,7 @@ setup() {
 
     # A job and an app, used by the mode-derivation tests (with a stubbed loop).
     knit_register_job "montecarlo" _mc "A Monte Carlo job."
-    knit_with_optional "samples:integer" "1000" "sample count"
+    knit_with_optional "samples:integer" "1000" "sample count" --domain '{1000,100000}'
     _mc() { :; }
     knit_done
 
@@ -76,6 +76,27 @@ teardown() {
     [ "$(grep -c '^LOOP$' "${LOG}")" -eq 0 ]
     grep -qx 'prepare --group mc -- montecarlo --samples 1000' "${LOG}"
     grep -qx 'prepare --group mc -- montecarlo --samples 100000' "${LOG}"
+}
+
+# ---------- declared-domain resolution through the full command ----------
+
+# Exercises _knit_sweep_resolve_target + _knit_sweep_resolve_domains via the real
+# _knit_sweep body (not the helpers directly), which is where the target-command
+# nameref must reach the body.
+@test "--fill sweep resolves the job's declared domain end to end" {
+    run _knit_invoke_command "sweep" --fill sweep --dry-run -- submit -- montecarlo
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 2 ]
+    [ "${lines[0]}" = "submit -- montecarlo --samples 1000" ]
+    [ "${lines[1]}" = "submit -- montecarlo --samples 100000" ]
+}
+
+@test "@sweep resolves the job's declared domain end to end" {
+    run _knit_invoke_command "sweep" --dry-run -- submit -- montecarlo --samples @sweep
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 2 ]
+    [ "${lines[0]}" = "submit -- montecarlo --samples 1000" ]
+    [ "${lines[1]}" = "submit -- montecarlo --samples 100000" ]
 }
 
 # ---------- mode derivation (stubbed loop) ----------
