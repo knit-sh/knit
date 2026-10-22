@@ -43,6 +43,7 @@ KNIT_SOURCE = src/global.sh   \
               src/prepare.sh  \
               src/drain.sh    \
               src/app.sh      \
+              src/sweep.sh    \
               src/describe.sh \
               src/ai.sh       \
               src/query.sh    \

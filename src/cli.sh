@@ -1708,6 +1708,26 @@ _knit_declare_domain() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_param_is_norecord()
+#
+# Test whether a parameter or flag was declared with "--no-record": parsed,
+# validated, and shown in "--help" as an ordinary option, but kept out of the
+# command's table (no column) and out of every recorded row. This lets a command
+# carry control options the user sets at the call site without widening its
+# table schema. The marker lives in the parameter's own namespace
+# (_KNIT_CMD_<cmd>_2_<param>_norecord), set by knit_with_required /
+# knit_with_optional / knit_with_flag.
+#
+# @param[in] cmd   Mangled command name (as used in _KNIT_CMD_* variables).
+# @param[in] param Normalized (underscored) parameter name.
+# @return 0 if the parameter is marked no-record, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_param_is_norecord() {
+    local marker="_KNIT_CMD_${1}_2_${2}_norecord"
+    [[ "${!marker:-}" == "true" ]]
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_register_fileparam()
 #
 # Record the per-parameter existence/checksum marker for a "file"/"directory"
@@ -1888,11 +1908,15 @@ _knit_register_result() {
 #        or Bayesian-optimization search proposer reads it.
 # @param[in] --log Optional flag; for a real "--domain [lo..hi]", mark the range
 #        as log-scale (used by the optimization proposer, ignored by the sweep).
+# @param[in] --no-record Optional flag; parse, validate, and show the parameter
+#        in "--help" as usual, but keep it out of the command's table (no column)
+#        and out of every recorded row. For a call-site control option that must
+#        not widen the table schema.
 # ------------------------------------------------------------------------------
 knit_with_required() {
     _knit_param_check_declaration "required" "$1" "$2"
-    knit_check_arguments "when domain" "no-checksum log" "${@:3}" \
-        || knit_fatal "knit_with_required takes a parameter, a description, and an optional --when, --no-checksum, --domain and --log."
+    knit_check_arguments "when domain" "no-checksum log no-record" "${@:3}" \
+        || knit_fatal "knit_with_required takes a parameter, a description, and an optional --when, --no-checksum, --domain, --log and --no-record."
     local param_spec="$1"
     local param_name="${param_spec%%:*}"
     local param_type="${param_spec#*:}"
@@ -1931,6 +1955,9 @@ knit_with_required() {
     fi
     _knit_decl_flag_present "log" "${@:3}" && log="true"
     _knit_declare_domain "${ns}" "${param}" "${log}" "${domain}"
+    if _knit_decl_flag_present "no-record" "${@:3}"; then
+        printf -v "${ns}_2_${param}_norecord" '%s' "true"
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -1974,11 +2001,15 @@ knit_with_required() {
 #        or Bayesian-optimization search proposer reads it.
 # @param[in] --log Optional flag; for a real "--domain [lo..hi]", mark the range
 #        as log-scale (used by the optimization proposer, ignored by the sweep).
+# @param[in] --no-record Optional flag; parse, validate, and show the parameter
+#        in "--help" as usual, but keep it out of the command's table (no column)
+#        and out of every recorded row. For a call-site control option that must
+#        not widen the table schema.
 # ------------------------------------------------------------------------------
 knit_with_optional() {
     _knit_param_check_declaration "optional" "$1" "$3"
-    knit_check_arguments "when domain" "no-checksum log" "${@:4}" \
-        || knit_fatal "knit_with_optional takes a parameter, a default, a description, and an optional --when, --no-checksum, --domain and --log."
+    knit_check_arguments "when domain" "no-checksum log no-record" "${@:4}" \
+        || knit_fatal "knit_with_optional takes a parameter, a default, a description, and an optional --when, --no-checksum, --domain, --log and --no-record."
     local param_spec="$1"
     local param_name="${param_spec%%:*}"
     local param_type="${param_spec#*:}"
@@ -2018,6 +2049,9 @@ knit_with_optional() {
     fi
     _knit_decl_flag_present "log" "${@:4}" && log="true"
     _knit_declare_domain "${ns}" "${param}" "${log}" "${domain}"
+    if _knit_decl_flag_present "no-record" "${@:4}"; then
+        printf -v "${ns}_2_${param}_norecord" '%s' "true"
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -2040,11 +2074,15 @@ knit_with_optional() {
 # @param[in] --when Optional boolean constraint expression (jq syntax referring to
 #        the command's other parameters); the parameter only applies when the
 #        expression evaluates to true.
+# @param[in] --no-record Optional flag; parse, validate, and show the flag in
+#        "--help" as usual, but keep it out of the command's table (no column)
+#        and out of every recorded row. For a call-site control flag that must
+#        not widen the table schema.
 # ------------------------------------------------------------------------------
 knit_with_flag() {
     _knit_param_check_declaration "flag" "$1" "$2"
-    knit_check_arguments "when" "" "${@:3}" \
-        || knit_fatal "knit_with_flag takes a flag name, a description, and an optional --when."
+    knit_check_arguments "when" "no-record" "${@:3}" \
+        || knit_fatal "knit_with_flag takes a flag name, a description, and an optional --when and --no-record."
     local param
     _knit_name_normalize param "$1"
     local ns demangled_cmd
@@ -2063,6 +2101,9 @@ knit_with_flag() {
     if [[ -n "${when_expr}" ]]; then
         printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
         printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
+    fi
+    if _knit_decl_flag_present "no-record" "${@:3}"; then
+        printf -v "${ns}_2_${param}_norecord" '%s' "true"
     fi
 }
 

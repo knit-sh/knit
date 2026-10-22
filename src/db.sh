@@ -314,8 +314,11 @@ _knit_db_setup_table() {
         specs+=("__exit_status__:integer")
     fi
 
-    # Required parameters
+    # Required parameters. A parameter declared with "--no-record" is parsed and
+    # validated as an ordinary option but carries no column (see
+    # _knit_param_is_norecord), so skip it here and in the row recorder.
     while IFS= read -r param; do
+        _knit_param_is_norecord "${cmd}" "${param}" && continue
         type_var="_KNIT_CMD_${cmd}_2_${param}_type"
         type="${!type_var}"
         specs+=("${param}:${type}")
@@ -323,6 +326,7 @@ _knit_db_setup_table() {
 
     # Optional parameters
     while IFS= read -r param; do
+        _knit_param_is_norecord "${cmd}" "${param}" && continue
         type_var="_KNIT_CMD_${cmd}_2_${param}_type"
         type="${!type_var}"
         specs+=("${param}:${type}")
@@ -330,6 +334,7 @@ _knit_db_setup_table() {
 
     # Flags (always boolean)
     while IFS= read -r param; do
+        _knit_param_is_norecord "${cmd}" "${param}" && continue
         specs+=("${param}:boolean")
     done < <(_knit_set_iter "_KNIT_CMD_${cmd}_flags" | sort)
 
@@ -451,6 +456,9 @@ _knit_db_record_invocation() {
         for group in required optional flags; do
             while IFS= read -r name; do
                 [[ -z "${name}" ]] && continue
+                # A "--no-record" option carries no column; skip it (matches the
+                # schema built by _knit_db_setup_table).
+                _knit_param_is_norecord "${cmd}" "${name}" && continue
                 value="$(knit_get_parameter "${name}" "${args[@]}")" || value=""
                 _knit_db_sql_ident col_ident "${name}"
                 cols+=("${col_ident}")
