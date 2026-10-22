@@ -600,6 +600,40 @@ knit_command_parameters() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_command_outputs()
+#
+# Public accessor listing a command's declared output names, in declaration
+# order. This is the stable surface plugins use to discover which outputs a
+# command produces instead of reaching into the _KNIT_CMD_<cmd>_outputs set
+# directly.
+#
+# @param[out] __knit_ret Name of the array variable to populate.
+# @param[in] cmd Command to list (the mangled/registered name).
+# ------------------------------------------------------------------------------
+knit_command_outputs() {
+    local -n __knit_ret_outputs=$1
+    __knit_ret_outputs=()
+    _knit_set_array __knit_ret_outputs "_KNIT_CMD_${2}_outputs"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_command_table()
+#
+# Public accessor returning the table name declared for a command via
+# knit_with_table. Returns an empty string when the command declared no table.
+# This is the stable surface plugins use to learn which SQLite table holds a
+# command's recorded rows.
+#
+# @param[out] __knit_ret Name of the variable to hold the table name.
+# @param[in] cmd Command to query (the mangled/registered name).
+# ------------------------------------------------------------------------------
+knit_command_table() {
+    local -n __knit_ret_table=$1
+    local __table_var="_KNIT_CMD_${2}_table"
+    __knit_ret_table="${!__table_var}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_output_description()
 #
 # This function returns the description of an output for a given command.
