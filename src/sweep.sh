@@ -214,40 +214,22 @@ _knit_sweep_enumerate() {
 # ------------------------------------------------------------------------------
 # @fn _knit_sweep_scan()
 #
-# Scan a downstream token list left to right into an ordered list of axes and a
-# reconstruction template, without introspecting the downstream command. A token
-# is sweeper-handled only when it starts with "{", "[", or "@" and its preceding
-# "--option" is not named in --passthrough; every other token is literal and is
-# left in the template verbatim. Each handled token is classified:
-#
-#   - "{...}" / "[...]" / "@glob:..." / "@file:..." -> a literal axis: parsed and
-#     enumerated now into a value list (kind "literal");
-#   - "@sweep" -> a marker to sweep the parameter's declared domain, resolved in
-#     a later milestone (kind "sweep", empty value list here);
-#   - "@default" -> a marker to pin the parameter at its default (kind "default");
-#   - any other "@..." -> a fatal (unknown directive).
-#
-# An axis is named by its preceding "--option" (hyphens folded to underscores);
-# a swept positional token is named "#<index>" by its position in the downstream.
-# The "seen" map records, for every "--option" that carried a value, how the call
-# site referenced it ("explicit", "sweep", or "default"), so declared-domain
-# resolution (a later milestone) knows which parameters were specified. The
-# inline "--opt=value" form is self-contained and never swept (use the separate
-# "--opt {...}" form to sweep a value); it is recorded as "explicit".
-#
-# Output arrays are parallel: axis i is described by __knit_ret2[i] (the string
-# "<kind> <template-index> <name>") and its value list is __knit_ret3[i] (newline
-# joined; empty for a "sweep"/"default" marker). The caller MUST pass a freshly
-# declared associative array for the "seen" map.
+# Thin wrapper around knit_search_scan that adds literal-axis enumeration.
+# Delegates classification to knit_search_scan, then for each axis whose kind
+# is "literal" calls _knit_sweep_enumerate on the raw token and stores the
+# newline-joined value list in __knit_ret3. The output contract is unchanged
+# from before the refactor: __knit_ret3[i] is a newline-joined value list for
+# a "literal" axis and empty for a "sweep"/"default" marker.
 #
 # @param[out] __knit_ret1 Name of the array to receive the reconstruction
-#   template (a copy of the downstream tokens; the odometer overwrites each
-#   axis's template slot with its current value).
+#   template (a copy of the downstream tokens).
 # @param[out] __knit_ret2 Name of the array to receive the axis descriptors.
-# @param[out] __knit_ret3 Name of the array to receive the per-axis value lists.
-# @param[out] __knit_ret4 Name of the associative array to receive the seen map.
-# @param[in] passthrough_csv Comma-separated option names whose values are never
-#   treated as sweep-syntax (may be empty).
+# @param[out] __knit_ret3 Name of the array to receive the per-axis value
+#   lists (newline-joined; empty for "sweep"/"default").
+# @param[out] __knit_ret4 Name of the associative array to receive the seen
+#   map.
+# @param[in] passthrough_csv Comma-separated option names whose values are
+#   never treated as sweep-syntax (may be empty).
 # @param[in] ... The downstream tokens.
 # ------------------------------------------------------------------------------
 _knit_sweep_scan() {
@@ -257,84 +239,31 @@ _knit_sweep_scan() {
     local -n __knit_ret4=$4
     local passthrough_csv="$5"
     shift 5
-    local -a down=("$@")
 
-    __knit_ret1=("${down[@]}")
-    __knit_ret2=()
+    local -a _scan_tmpl _scan_axes _scan_raw
+    local -A _scan_seen
+    knit_search_scan _scan_tmpl _scan_axes _scan_raw _scan_seen \
+        "${passthrough_csv}" "$@"
+
+    __knit_ret1=("${_scan_tmpl[@]}")
+    __knit_ret2=("${_scan_axes[@]}")
     __knit_ret3=()
-
-    # Build the set of protected option names from --passthrough.
-    local -A pass=()
-    if [[ -n "${passthrough_csv}" ]]; then
-        local IFS=',' raw pname
-        for raw in ${passthrough_csv}; do
-            raw="${raw#"${raw%%[![:space:]]*}"}"
-            raw="${raw%"${raw##*[![:space:]]}"}"
-            [[ -z "${raw}" ]] && continue
-            _knit_name_normalize pname "${raw}"
-            pass["${pname}"]=1
-        done
-    fi
-
-    local i token prev_opt=""
-    for ((i=0; i<${#down[@]}; i++)); do
-        token="${down[i]}"
-        # An option token sets the context for the value token that follows it.
-        # The inline "--opt=value" form is self-contained (its value is never
-        # swept), and the bare "--" separator carries no value.
-        if [[ "${token}" == --* ]]; then
-            if [[ "${token}" == *=* ]]; then
-                local inline_opt
-                _knit_name_normalize inline_opt "${token#--}"
-                inline_opt="${inline_opt%%=*}"
-                [[ -n "${inline_opt}" ]] && __knit_ret4["${inline_opt}"]="explicit"
-                prev_opt=""
-            elif [[ "${token}" == "--" ]]; then
-                prev_opt=""
-            else
-                _knit_name_normalize prev_opt "${token#--}"
-            fi
-            continue
-        fi
-
-        # A value (or positional) token. It is swept only when it looks like
-        # sweep-syntax and its option is not protected by --passthrough.
-        local is_candidate="false"
-        case "${token}" in '{'*|'['*|'@'*) is_candidate="true" ;; esac
-        local protected="false"
-        [[ -n "${prev_opt}" && -v pass["${prev_opt}"] ]] && protected="true"
-
-        if [[ "${is_candidate}" == "true" && "${protected}" == "false" ]]; then
-            local akind=""
-            case "${token}" in
-                '@sweep')            akind="sweep" ;;
-                '@default')          akind="default" ;;
-                '@glob:'*|'@file:'*) akind="literal" ;;
-                '@'*)
-                    knit_fatal "Unknown sweep directive '%s' (expected @sweep, @default, @glob:<pattern>, or @file:<path>)." "${token}"
-                    ;;
-                *) akind="literal" ;;  # {...} or [...]
-            esac
-            local aname
-            if [[ -n "${prev_opt}" ]]; then aname="${prev_opt}"; else aname="#${i}"; fi
-            local joined=""
-            if [[ "${akind}" == "literal" ]]; then
-                local -a vlist
-                _knit_sweep_enumerate vlist "${token}"
-                printf -v joined '%s\n' "${vlist[@]}"
-                joined="${joined%$'\n'}"
-            fi
-            __knit_ret2+=("${akind} ${i} ${aname}")
+    local -a vlist
+    local joined i akind
+    for ((i=0; i<${#_scan_axes[@]}; i++)); do
+        akind="${_scan_axes[i]%% *}"
+        if [[ "${akind}" == "literal" ]]; then
+            _knit_sweep_enumerate vlist "${_scan_raw[i]}"
+            printf -v joined '%s\n' "${vlist[@]}"
+            joined="${joined%$'\n'}"
             __knit_ret3+=("${joined}")
-            if [[ -n "${prev_opt}" ]]; then
-                __knit_ret4["${prev_opt}"]="${akind/literal/explicit}"
-            fi
-        elif [[ -n "${prev_opt}" ]]; then
-            # A concrete value (or a protected passthrough value): the option is
-            # specified with an explicit value, so it never varies from a domain.
-            __knit_ret4["${prev_opt}"]="explicit"
+        else
+            __knit_ret3+=("")
         fi
-        prev_opt=""
+    done
+    local k
+    for k in "${!_scan_seen[@]}"; do
+        __knit_ret4["${k}"]="${_scan_seen[${k}]}"
     done
 }
 

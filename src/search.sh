@@ -697,6 +697,124 @@ knit_search_resolve_fill() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_search_scan()
+#
+# Classify a downstream token list left to right into an ordered list of axes
+# and a reconstruction template, without introspecting the downstream command
+# and without enumerating literal axes. A token is handled only when it starts
+# with "{", "[", or "@" and its preceding "--option" is not named in
+# --passthrough; every other token is literal and is placed in the template
+# verbatim. Each handled token is classified:
+#
+#   - "{...}" / "[...]" / "@glob:..." / "@file:..." -> kind "literal";
+#   - "@sweep" -> a marker to sweep the declared domain (kind "sweep");
+#   - "@default" -> a marker to pin at the default (kind "default");
+#   - any other "@..." -> a fatal (unknown directive).
+#
+# An axis is named by its preceding "--option" (hyphens folded to underscores);
+# a swept positional token is named "#<index>" by its position in the
+# downstream. The "seen" map records, for every "--option" that carried a
+# value, how the call site referenced it ("explicit", "sweep", or "default");
+# a literal axis folds to "explicit". The inline "--opt=value" form is
+# self-contained and recorded as "explicit". The caller MUST pass a freshly
+# declared associative array for the "seen" map.
+#
+# Unlike _knit_sweep_scan, this function stores the verbatim token text (not
+# an enumerated value list) in rawtokens-out for literal axes. Callers that
+# need the enumerated list enumerate each raw token themselves.
+#
+# @param[out] __knit_ret1 Name of the array to receive the reconstruction
+#   template (a copy of the downstream tokens).
+# @param[out] __knit_ret2 Name of the array to receive the axis descriptors,
+#   each the string "<kind> <slot> <name>".
+# @param[out] __knit_ret3 Name of the array to receive per-axis raw tokens:
+#   the verbatim token text for a "literal" axis, empty for "sweep"/"default".
+# @param[out] __knit_ret4 Name of the associative array to receive the seen
+#   map (option -> "explicit"|"sweep"|"default").
+# @param[in] passthrough_csv Comma-separated option names whose values are
+#   never treated as sweep-syntax (may be empty).
+# @param[in] ... The downstream tokens.
+# ------------------------------------------------------------------------------
+knit_search_scan() {
+    # shellcheck disable=SC2178 # nameref to an array
+    local -n __knit_ret1=$1
+    # shellcheck disable=SC2178 # nameref to an array
+    local -n __knit_ret2=$2
+    # shellcheck disable=SC2178 # nameref to an array
+    local -n __knit_ret3=$3
+    # shellcheck disable=SC2178 # nameref to an associative array
+    local -n __knit_ret4=$4
+    local passthrough_csv="$5"
+    shift 5
+    local -a down=("$@")
+
+    __knit_ret1=("${down[@]}")
+    __knit_ret2=()
+    __knit_ret3=()
+
+    local -A pass=()
+    if [[ -n "${passthrough_csv}" ]]; then
+        local IFS=',' _pt_entry _pt_norm
+        for _pt_entry in ${passthrough_csv}; do
+            _pt_entry="${_pt_entry#"${_pt_entry%%[![:space:]]*}"}"
+            _pt_entry="${_pt_entry%"${_pt_entry##*[![:space:]]}"}"
+            [[ -z "${_pt_entry}" ]] && continue
+            _knit_name_normalize _pt_norm "${_pt_entry}"
+            pass["${_pt_norm}"]=1
+        done
+    fi
+
+    local _tok _prev_opt="" _akind _aname _rawtoken _inline_opt
+    local _is_candidate _protected
+    local _idx
+    for ((_idx=0; _idx<${#down[@]}; _idx++)); do
+        _tok="${down[_idx]}"
+        if [[ "${_tok}" == --* ]]; then
+            if [[ "${_tok}" == *=* ]]; then
+                _knit_name_normalize _inline_opt "${_tok#--}"
+                _inline_opt="${_inline_opt%%=*}"
+                [[ -n "${_inline_opt}" ]] && __knit_ret4["${_inline_opt}"]="explicit"
+                _prev_opt=""
+            elif [[ "${_tok}" == "--" ]]; then
+                _prev_opt=""
+            else
+                _knit_name_normalize _prev_opt "${_tok#--}"
+            fi
+            continue
+        fi
+
+        _is_candidate="false"
+        case "${_tok}" in '{'*|'['*|'@'*) _is_candidate="true" ;; esac
+        _protected="false"
+        [[ -n "${_prev_opt}" && -v pass["${_prev_opt}"] ]] && _protected="true"
+
+        if [[ "${_is_candidate}" == "true" && "${_protected}" == "false" ]]; then
+            _akind=""
+            case "${_tok}" in
+                '@sweep')            _akind="sweep" ;;
+                '@default')          _akind="default" ;;
+                '@glob:'*|'@file:'*) _akind="literal" ;;
+                '@'*)
+                    knit_fatal "Unknown sweep directive '%s' (expected @sweep, @default, @glob:<pattern>, or @file:<path>)." "${_tok}"
+                    ;;
+                *) _akind="literal" ;;
+            esac
+            if [[ -n "${_prev_opt}" ]]; then _aname="${_prev_opt}"; else _aname="#${_idx}"; fi
+            _rawtoken=""
+            [[ "${_akind}" == "literal" ]] && _rawtoken="${_tok}"
+            __knit_ret2+=("${_akind} ${_idx} ${_aname}")
+            __knit_ret3+=("${_rawtoken}")
+            if [[ -n "${_prev_opt}" ]]; then
+                __knit_ret4["${_prev_opt}"]="${_akind/literal/explicit}"
+            fi
+        elif [[ -n "${_prev_opt}" ]]; then
+            __knit_ret4["${_prev_opt}"]="explicit"
+        fi
+        _prev_opt=""
+    done
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_search_group_forward()
 #
 # Forward a campaign --group label into one trial's downstream command line, in
