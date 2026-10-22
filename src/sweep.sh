@@ -693,6 +693,62 @@ _knit_sweep_dimensions_json() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sweep_ask()
+#
+# The sweep's "ask" callback for _knit_search_loop: yield the next cartesian
+# product combination as a reconstructed downstream command line, then advance
+# the odometer cursor. Like every search proposer (see the fake proposer in
+# tests/test_search_loop.sh), it reads its state from the enclosing dispatcher
+# frame through dynamic scope -- here _knit_sweep's locals: the plan arrays
+# (template/axes/flat/offsets/counts), the product size (total), the campaign
+# group spliced into a submit/prepare line, and the cursor it advances. Returns 1
+# when the product is exhausted.
+#
+# @param[out] __knit_ret_tag  The opaque trial tag (the combination index).
+# @param[out] __knit_ret_argv The reconstructed downstream argv.
+# ------------------------------------------------------------------------------
+_knit_sweep_ask() {
+    local -n __knit_ret_tag=$1
+    # shellcheck disable=SC2178 # nameref output used as an array
+    local -n __knit_ret_argv=$2
+    # cursor/total/group and the plan arrays come from the enclosing _knit_sweep
+    # frame through dynamic scope (the search proposer state contract).
+    # shellcheck disable=SC2154
+    (( cursor >= total )) && return 1
+    local -a reconstructed
+    _knit_sweep_reconstruct reconstructed \
+        template axes flat offsets counts "${cursor}"
+    # shellcheck disable=SC2154
+    _knit_search_group_forward reconstructed "${group}"
+    __knit_ret_tag="${cursor}"
+    __knit_ret_argv=("${reconstructed[@]}")
+    cursor=$(( cursor + 1 ))
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_sweep_observe()
+#
+# The sweep's "observe" callback for _knit_search_loop: apply the --on-failure
+# policy to one finished trial. The sweep reads no objective (it is the no-model
+# proposer), so it uses only the terminal status: under "stop" a failed child
+# aborts the campaign (return non-zero); under "continue" the whole product runs
+# regardless. The policy is read from _knit_sweep's frame (dynamic scope).
+#
+# @param[in] $1 The trial tag (unused).
+# @param[in] $2 The child row id (unused).
+# @param[in] $3 The trial's terminal status ("completed" or "failed").
+# @param[in] $4 The objective (unused; the sweep has no collector).
+# ------------------------------------------------------------------------------
+_knit_sweep_observe() {
+    local status="$3"
+    # on_failure comes from the enclosing _knit_sweep frame (dynamic scope).
+    # shellcheck disable=SC2154
+    [[ "${status}" == "failed" && "${on_failure}" == "stop" ]] && return 1
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sweep()
 #
 # Entry point for the `sweep` CLI command. The sweep's own options are parsed and
@@ -719,11 +775,16 @@ _knit_sweep() {
         knit_fatal "sweep requires a downstream command after -- (e.g. \"-- submit -- <job>\", \"-- run -- <app>\", or \"-- <command>\")."
     fi
 
-    local group fill passthrough dry_run
+    local group fill passthrough dry_run on_failure parallel
     group=$(knit_get_parameter "group" "${args[@]}") || group=""
     fill=$(knit_get_parameter "fill" "${args[@]}") || fill="default"
     passthrough=$(knit_get_parameter "passthrough" "${args[@]}") || passthrough=""
     dry_run=$(knit_get_parameter "dry-run" "${args[@]}") || dry_run="false"
+    # on_failure is read by _knit_sweep_observe through dynamic scope; parallel is
+    # forwarded to the ephemeral loop.
+    # shellcheck disable=SC2034 # on_failure consumed by _knit_sweep_observe via dynamic scope
+    on_failure=$(knit_get_parameter "on-failure" "${args[@]}") || on_failure="continue"
+    parallel=$(knit_get_parameter "parallel" "${args[@]}") || parallel="1"
 
     # Scan the downstream into axes + a template (M2), then resolve any declared
     # domains (@sweep / @default / --fill) against the target's parameters (M3).
@@ -761,7 +822,52 @@ _knit_sweep() {
         return 0
     fi
 
-    # Recording the sweeps row (target/dispatcher/dimensions/count) and executing
-    # the product (durable prepare, or the ephemeral loop) are added in M5.
+    # Record the campaign outputs on the sweeps row. The row itself is written
+    # when this invocation returns; each child launched below runs in-process in
+    # this frame, so knit's recording writes a provenance "call" edge from this
+    # sweeps row to the child by itself (search-core primitive 4).
+    local dims
+    _knit_sweep_dimensions_json dims axes flat offsets counts
+    knit_output "target" "${target}"
+    knit_output "dispatcher" "${dispatcher}"
+    knit_output "dimensions" "${dims}"
+    knit_output "count" "${total}"
+
+    # The cursor is the odometer position advanced by _knit_sweep_ask (dynamic
+    # scope). The plan arrays, total, group and on_failure are read there too.
+    # shellcheck disable=SC2034 # cursor advanced by _knit_sweep_ask via dynamic scope
+    local cursor=0
+
+    local d0n
+    _knit_name_normalize d0n "${downstream[0]}"
+    if [[ "${d0n}" == "prepare" ]]; then
+        # Durable path: prepare each point sequentially. prepare records a
+        # "prepared" jobs row and returns, running nothing, so there is no loop
+        # and no --parallel/--on-failure; resume/retry/concurrency are the user's
+        # later "submit drain" step. Each prepared child gets an automatic "call"
+        # edge to this sweeps row.
+        local idx
+        for ((idx=0; idx<total; idx++)); do
+            local -a line
+            _knit_sweep_reconstruct line template axes flat offsets counts "${idx}"
+            _knit_search_group_forward line "${group}"
+            # shellcheck disable=SC2034 # child row id is unused (prepare runs nothing)
+            local child_id
+            _knit_search_launch child_id "${line[@]}"
+        done
+        return 0
+    fi
+
+    # Ephemeral path: drive the shared search loop over the product, keeping up to
+    # --parallel children in flight. submit is a job (poll jobs.state); run and a
+    # bare command are apps (reap backgrounded children). The loop launches each
+    # reconstructed line in-process through _knit_search_launch, so every child's
+    # "call" edge to this sweeps row is automatic.
+    local mode="app"
+    [[ "${d0n}" == "submit" ]] && mode="job"
+    local loop_status=0
+    _knit_search_loop --mode "${mode}" --parallel "${parallel}" \
+        --ask _knit_sweep_ask --observe _knit_sweep_observe || loop_status=$?
+    return "${loop_status}"
 }
 knit_done

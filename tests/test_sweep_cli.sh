@@ -69,7 +69,9 @@ _columns_of() {
 }
 
 @test "sweep accepts a valid invocation" {
-    run _knit_invoke_command "sweep" "--group" "g" "--parallel" "4" \
+    # --dry-run exercises the parse/scan/resolve/plan pipeline without executing
+    # the downstream (execution is covered end-to-end in test_sweep_run.sh).
+    run _knit_invoke_command "sweep" "--group" "g" "--parallel" "4" "--dry-run" \
         "--" "submit" "--nodes" "2" "--" "montecarlo" "--samples" "10"
     [ "$status" -eq 0 ]
 }
