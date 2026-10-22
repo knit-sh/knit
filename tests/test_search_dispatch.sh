@@ -23,42 +23,42 @@ teardown() {
 
 @test "an explicit value wins over every policy" {
     local r
-    _knit_search_resolve_fill r sweep explicit true;  [ "${r}" = "explicit" ]
-    _knit_search_resolve_fill r default explicit false; [ "${r}" = "explicit" ]
+    knit_search_resolve_fill r sweep explicit true;  [ "${r}" = "explicit" ]
+    knit_search_resolve_fill r default explicit false; [ "${r}" = "explicit" ]
 }
 
 @test "@sweep varies regardless of --fill" {
     local r
-    _knit_search_resolve_fill r default sweep true; [ "${r}" = "sweep" ]
-    _knit_search_resolve_fill r sweep sweep true;   [ "${r}" = "sweep" ]
+    knit_search_resolve_fill r default sweep true; [ "${r}" = "sweep" ]
+    knit_search_resolve_fill r sweep sweep true;   [ "${r}" = "sweep" ]
 }
 
 @test "@default fixes regardless of --fill" {
     local r
-    _knit_search_resolve_fill r sweep default true;   [ "${r}" = "default" ]
-    _knit_search_resolve_fill r default default true;  [ "${r}" = "default" ]
+    knit_search_resolve_fill r sweep default true;   [ "${r}" = "default" ]
+    knit_search_resolve_fill r default default true;  [ "${r}" = "default" ]
 }
 
 @test "an unspecified parameter follows --fill when it has a domain" {
     local r
-    _knit_search_resolve_fill r sweep unspecified true;   [ "${r}" = "sweep" ]
-    _knit_search_resolve_fill r default unspecified true;  [ "${r}" = "default" ]
+    knit_search_resolve_fill r sweep unspecified true;   [ "${r}" = "sweep" ]
+    knit_search_resolve_fill r default unspecified true;  [ "${r}" = "default" ]
 }
 
 @test "a parameter with no declared domain stays at its default under either policy" {
     local r
-    _knit_search_resolve_fill r sweep unspecified false;   [ "${r}" = "default" ]
-    _knit_search_resolve_fill r default unspecified false;  [ "${r}" = "default" ]
+    knit_search_resolve_fill r sweep unspecified false;   [ "${r}" = "default" ]
+    knit_search_resolve_fill r default unspecified false;  [ "${r}" = "default" ]
 }
 
 @test "fill resolution rejects a bad --fill policy" {
-    run _knit_search_resolve_fill r bogus unspecified true
+    run knit_search_resolve_fill r bogus unspecified true
     [ "$status" -eq 1 ]
     [[ "$output" == *"--fill"* ]]
 }
 
 @test "fill resolution rejects an unknown token classification" {
-    run _knit_search_resolve_fill r sweep bogus true
+    run knit_search_resolve_fill r sweep bogus true
     [ "$status" -eq 1 ]
     [[ "$output" == *"token"* ]]
 }
@@ -67,29 +67,29 @@ teardown() {
 
 @test "the group is inserted into a submit line among the submit options" {
     local -a line=( submit --nodes 2 -- montecarlo --samples 1000 )
-    _knit_search_group_forward line demo
+    knit_search_group_forward line demo
     [ "${line[*]}" = "submit --group demo --nodes 2 -- montecarlo --samples 1000" ]
 }
 
 @test "the group is inserted into a prepare line among the submit options" {
     local -a line=( prepare --nodes 2 -- montecarlo --samples 1000 )
-    _knit_search_group_forward line demo
+    knit_search_group_forward line demo
     [ "${line[*]}" = "prepare --group demo --nodes 2 -- montecarlo --samples 1000" ]
 }
 
 @test "a run or bare line is left unchanged (group lives on the parent row only)" {
     local -a runline=( run --procs 4 -- mcrank )
-    _knit_search_group_forward runline demo
+    knit_search_group_forward runline demo
     [ "${runline[*]}" = "run --procs 4 -- mcrank" ]
 
     local -a bare=( montecarlo --samples 1000 )
-    _knit_search_group_forward bare demo
+    knit_search_group_forward bare demo
     [ "${bare[*]}" = "montecarlo --samples 1000" ]
 }
 
 @test "an empty group leaves the submit line unchanged" {
     local -a line=( submit --nodes 2 -- montecarlo )
-    _knit_search_group_forward line ""
+    knit_search_group_forward line ""
     [ "${line[*]}" = "submit --nodes 2 -- montecarlo" ]
 }
 
@@ -106,7 +106,7 @@ _register_campaign() {
         local g
         g=$(knit_get_parameter "group" "$@") || g=""
         local -a trial=( submit --nodes 2 -- montecarlo --samples 1000 )
-        _knit_search_group_forward trial "${g}"
+        knit_search_group_forward trial "${g}"
         # Capture the line that would reach a (stubbed) submit.
         __campaign_line="${trial[*]}"
     }

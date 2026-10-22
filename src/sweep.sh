@@ -36,7 +36,7 @@ knit_register "sweep" _knit_sweep \
 _knit_is_builtin
 # The campaign label is the one recorded option: it becomes the "group" column
 # and is forwarded into a submit/prepare line so the children land in the same
-# jobs.group (see _knit_search_group_forward, extended in a later milestone).
+# jobs.group (see knit_search_group_forward, extended in a later milestone).
 knit_with_optional "group:string" "" \
     "Campaign label; recorded and forwarded into a submit/prepare line."
 # Control options. Each is parsed, type-validated, and shown in "--help", but
@@ -462,7 +462,7 @@ _knit_sweep_enumerate_domain() {
 #
 # For each target parameter, the call-site classification (explicit / sweep /
 # default / unspecified, from the seen map) and the parameter's declared-domain
-# presence feed the shared _knit_search_resolve_fill precedence rule:
+# presence feed the shared knit_search_resolve_fill precedence rule:
 #   - explicit: left as the M2 scan already has it (a literal axis, or a scalar
 #     that passes through);
 #   - sweep: enumerate the declared domain (via _knit_sweep_enumerate_domain) and
@@ -526,7 +526,7 @@ _knit_sweep_resolve_domains() {
         has_domain="false"
         local dvar="_KNIT_CMD_${mangled}_2_${p}_domain"
         [[ -v "${dvar}" && -n "${!dvar}" ]] && has_domain="true"
-        _knit_search_resolve_fill resolved "${fill}" "${token}" "${has_domain}"
+        knit_search_resolve_fill resolved "${fill}" "${token}" "${has_domain}"
         case "${resolved}" in
             explicit) ;;
             default)
@@ -699,7 +699,7 @@ _knit_sweep_dimensions_json() {
 # ------------------------------------------------------------------------------
 # @fn _knit_sweep_ask()
 #
-# The sweep's "ask" callback for _knit_search_loop: yield the next cartesian
+# The sweep's "ask" callback for knit_search_loop: yield the next cartesian
 # product combination as a reconstructed downstream command line, then advance
 # the odometer cursor. Like every search proposer (see the fake proposer in
 # tests/test_search_loop.sh), it reads its state from the enclosing dispatcher
@@ -723,7 +723,7 @@ _knit_sweep_ask() {
     _knit_sweep_reconstruct reconstructed \
         template axes flat offsets counts "${cursor}"
     # shellcheck disable=SC2154
-    _knit_search_group_forward reconstructed "${group}"
+    knit_search_group_forward reconstructed "${group}"
     __knit_ret_tag="${cursor}"
     __knit_ret_argv=("${reconstructed[@]}")
     cursor=$(( cursor + 1 ))
@@ -733,7 +733,7 @@ _knit_sweep_ask() {
 # ------------------------------------------------------------------------------
 # @fn _knit_sweep_observe()
 #
-# The sweep's "observe" callback for _knit_search_loop: apply the --on-failure
+# The sweep's "observe" callback for knit_search_loop: apply the --on-failure
 # policy to one finished trial. The sweep reads no objective (it is the no-model
 # proposer), so it uses only the terminal status: under "stop" a failed child
 # aborts the campaign (return non-zero); under "continue" the whole product runs
@@ -817,7 +817,7 @@ _knit_sweep() {
         for ((idx=0; idx<total; idx++)); do
             local -a line
             _knit_sweep_reconstruct line template axes flat offsets counts "${idx}"
-            _knit_search_group_forward line "${group}"
+            knit_search_group_forward line "${group}"
             _knit_str_render_cmd line
             printf '\n'
         done
@@ -854,10 +854,10 @@ _knit_sweep() {
         for ((idx=0; idx<total; idx++)); do
             local -a line
             _knit_sweep_reconstruct line template axes flat offsets counts "${idx}"
-            _knit_search_group_forward line "${group}"
+            knit_search_group_forward line "${group}"
             # shellcheck disable=SC2034 # child row id is unused (prepare runs nothing)
             local child_id
-            _knit_search_launch child_id "${line[@]}"
+            knit_search_launch child_id "${line[@]}"
         done
         return 0
     fi
@@ -865,12 +865,12 @@ _knit_sweep() {
     # Ephemeral path: drive the shared search loop over the product, keeping up to
     # --parallel children in flight. submit is a job (poll jobs.state); run and a
     # bare command are apps (reap backgrounded children). The loop launches each
-    # reconstructed line in-process through _knit_search_launch, so every child's
+    # reconstructed line in-process through knit_search_launch, so every child's
     # "call" edge to this sweeps row is automatic.
     local mode="app"
     [[ "${d0n}" == "submit" ]] && mode="job"
     local loop_status=0
-    _knit_search_loop --mode "${mode}" --parallel "${parallel}" \
+    knit_search_loop --mode "${mode}" --parallel "${parallel}" \
         --ask _knit_sweep_ask --observe _knit_sweep_observe || loop_status=$?
     return "${loop_status}"
 }

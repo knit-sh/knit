@@ -68,8 +68,8 @@ teardown() {
 
 @test "a prepare sweep launches each point sequentially and runs no loop" {
     # Stub the launcher to log its line; stub the loop to prove it is not used.
-    eval "_knit_search_launch() { local -n _u=\$1; shift; printf '%s\n' \"\$*\" >> '${LOG}'; _u='x'; }"
-    eval "_knit_search_loop() { printf 'LOOP\n' >> '${LOG}'; }"
+    eval "knit_search_launch() { local -n _u=\$1; shift; printf '%s\n' \"\$*\" >> '${LOG}'; _u='x'; }"
+    eval "knit_search_loop() { printf 'LOOP\n' >> '${LOG}'; }"
     _knit_invoke_command "sweep" --group mc -- prepare -- montecarlo --samples '{1000,100000}'
     # Two prepare lines, group spliced, no loop.
     [ "$(grep -c '^prepare ' "${LOG}")" -eq 2 ]
@@ -102,7 +102,7 @@ teardown() {
 # ---------- mode derivation (stubbed loop) ----------
 
 @test "submit derives job mode; run and a bare command derive app mode" {
-    eval "_knit_search_loop() { while [[ \$# -gt 0 ]]; do [[ \$1 == --mode ]] && printf 'mode=%s\n' \"\$2\" >> '${LOG}'; shift; done; }"
+    eval "knit_search_loop() { while [[ \$# -gt 0 ]]; do [[ \$1 == --mode ]] && printf 'mode=%s\n' \"\$2\" >> '${LOG}'; shift; done; }"
     _knit_invoke_command "sweep" -- submit -- montecarlo --samples '{1,2}'
     _knit_invoke_command "sweep" -- run -- stencil --tile '{1,2}'
     _knit_invoke_command "sweep" -- render --width '{1,2}'
@@ -112,7 +112,7 @@ teardown() {
 }
 
 @test "--parallel is forwarded to the loop" {
-    eval "_knit_search_loop() { while [[ \$# -gt 0 ]]; do [[ \$1 == --parallel ]] && printf 'parallel=%s\n' \"\$2\" >> '${LOG}'; shift; done; }"
+    eval "knit_search_loop() { while [[ \$# -gt 0 ]]; do [[ \$1 == --parallel ]] && printf 'parallel=%s\n' \"\$2\" >> '${LOG}'; shift; done; }"
     _knit_invoke_command "sweep" --parallel 4 -- submit -- montecarlo --samples '{1,2}'
     [ "$(cat "${LOG}")" = "parallel=4" ]
 }
@@ -132,7 +132,7 @@ _stub_launch_fail() {
 }
 
 @test "--on-failure stop aborts on the first failed child" {
-    eval "_knit_search_launch() { _stub_launch_fail \"\$@\"; }"
+    eval "knit_search_launch() { _stub_launch_fail \"\$@\"; }"
     run _knit_invoke_command "sweep" --on-failure stop --parallel 1 \
         -- submit -- montecarlo --samples '{1,2,3,4}'
     # The first child fails and aborts the campaign: only one launch.
@@ -141,7 +141,7 @@ _stub_launch_fail() {
 }
 
 @test "--on-failure continue runs the whole product despite failures" {
-    eval "_knit_search_launch() { _stub_launch_fail \"\$@\"; }"
+    eval "knit_search_launch() { _stub_launch_fail \"\$@\"; }"
     _knit_invoke_command "sweep" --on-failure continue --parallel 1 \
         -- submit -- montecarlo --samples '{1,2,3,4}'
     # Every point launches even though each child fails.

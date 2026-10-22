@@ -331,7 +331,7 @@ knit_parameter_space_json() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_search_launch()
+# @fn knit_search_launch()
 #
 # Launch one tracked trial: invoke a fully-substituted downstream knit command
 # line in-process, through the normal entry path, and return the child's
@@ -358,11 +358,11 @@ knit_parameter_space_json() {
 # @param[in] ... The downstream knit command line (command and its arguments).
 # @return The exit status of the downstream invocation.
 # ------------------------------------------------------------------------------
-_knit_search_launch() {
+knit_search_launch() {
     local -n __knit_ret=$1
     shift
     if [[ $# -eq 0 ]]; then
-        knit_fatal "_knit_search_launch requires a downstream command line."
+        knit_fatal "knit_search_launch requires a downstream command line."
     fi
     __knit_ret=""
     # Clear first so we pick up only an id the child itself recorded (it stays
@@ -471,7 +471,7 @@ _knit_search_loop_job() {
                 stop_launching=1; break
             fi
             _knit_loop_uuid=""
-            _knit_search_launch _knit_loop_uuid "${_knit_loop_argv[@]}"
+            knit_search_launch _knit_loop_uuid "${_knit_loop_argv[@]}"
             launched=$(( launched + 1 ))
             if [[ -n "${_knit_loop_uuid}" ]]; then
                 inflight["${_knit_loop_uuid}"]="${_knit_loop_tag}"
@@ -542,7 +542,7 @@ _knit_search_loop_app() {
             # recovers both from the background job.
             (
                 _knit_loop_child_uuid=""
-                _knit_search_launch _knit_loop_child_uuid "${_knit_loop_argv[@]}"
+                knit_search_launch _knit_loop_child_uuid "${_knit_loop_argv[@]}"
                 _knit_loop_child_status=$?
                 printf '%s' "${_knit_loop_child_uuid}" > "${tmpf}"
                 exit "${_knit_loop_child_status}"
@@ -577,10 +577,10 @@ _knit_search_loop_app() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_search_loop()
+# @fn knit_search_loop()
 #
 # The shared search loop: drive a proposer over a budget of trials, keeping up to
-# --parallel in flight, launching each through _knit_search_launch and detecting
+# --parallel in flight, launching each through knit_search_launch and detecting
 # completion by the chosen mode. It owns budget accounting, in-flight tracking,
 # completion detection, and routing a finished trial's outcome to the proposer;
 # the proposer (the ask/observe callbacks) owns which assignment runs next and
@@ -589,7 +589,7 @@ _knit_search_loop_app() {
 #
 # The proposer is two callbacks. ask yields the next trial, returning the
 # proposer's opaque tag and the fully-substituted downstream command line (the
-# argv _knit_search_launch runs); it returns non-zero when it has no more trials.
+# argv knit_search_launch runs); it returns non-zero when it has no more trials.
 # observe is told each finished trial's tag, child row id, terminal status, and
 # objective, and returns non-zero to abort the campaign (how a failure maps to an
 # abort is the proposer's policy). The optional collector reads one finished
@@ -605,7 +605,7 @@ _knit_search_loop_app() {
 #   default _KNIT_SCHED_POLL_INTERVAL).
 # @return 0 on a completed campaign, 1 when the proposer aborted it.
 # ------------------------------------------------------------------------------
-_knit_search_loop() {
+knit_search_loop() {
     local mode="" parallel="1" budget="" poll="${_KNIT_SCHED_POLL_INTERVAL}"
     local ask_fn="" observe_fn="" collect_fn=""
     while [[ $# -gt 0 ]]; do
@@ -617,21 +617,21 @@ _knit_search_loop() {
             --ask)      ask_fn="$2";     shift 2 ;;
             --observe)  observe_fn="$2"; shift 2 ;;
             --collect)  collect_fn="$2"; shift 2 ;;
-            *) knit_fatal "_knit_search_loop: unknown option '%s'." "$1" ;;
+            *) knit_fatal "knit_search_loop: unknown option '%s'." "$1" ;;
         esac
     done
 
     case "${mode}" in
         job|app) ;;
-        *) knit_fatal "_knit_search_loop requires --mode job|app (got '%s')." "${mode}" ;;
+        *) knit_fatal "knit_search_loop requires --mode job|app (got '%s')." "${mode}" ;;
     esac
-    [[ -n "${ask_fn}" ]] || knit_fatal "_knit_search_loop requires --ask <function>."
-    [[ -n "${observe_fn}" ]] || knit_fatal "_knit_search_loop requires --observe <function>."
+    [[ -n "${ask_fn}" ]] || knit_fatal "knit_search_loop requires --ask <function>."
+    [[ -n "${observe_fn}" ]] || knit_fatal "knit_search_loop requires --observe <function>."
     if ! [[ "${parallel}" =~ ^[0-9]+$ ]] || (( parallel < 1 )); then
-        knit_fatal "_knit_search_loop --parallel must be a positive integer (got '%s')." "${parallel}"
+        knit_fatal "knit_search_loop --parallel must be a positive integer (got '%s')." "${parallel}"
     fi
     if [[ -n "${budget}" ]] && ! [[ "${budget}" =~ ^[0-9]+$ ]]; then
-        knit_fatal "_knit_search_loop --budget must be a non-negative integer (got '%s')." "${budget}"
+        knit_fatal "knit_search_loop --budget must be a non-negative integer (got '%s')." "${budget}"
     fi
 
     if [[ "${mode}" == "job" ]]; then
@@ -644,7 +644,7 @@ _knit_search_loop() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_search_resolve_fill()
+# @fn knit_search_resolve_fill()
 #
 # Resolve, for one parameter, whether it varies in the campaign and from where.
 # This is the shared "Which parameters vary" rule that both proposers reuse (each
@@ -674,12 +674,12 @@ _knit_search_loop() {
 # @param[in] has_domain "true" if the parameter has a declared domain, else
 #   "false".
 # ------------------------------------------------------------------------------
-_knit_search_resolve_fill() {
+knit_search_resolve_fill() {
     local -n __knit_ret=$1
     local fill="$2" token="$3" has_domain="$4"
     case "${fill}" in
         default|sweep) ;;
-        *) knit_fatal "_knit_search_resolve_fill: --fill must be default or sweep (got '%s')." "${fill}" ;;
+        *) knit_fatal "knit_search_resolve_fill: --fill must be default or sweep (got '%s')." "${fill}" ;;
     esac
     case "${token}" in
         explicit) __knit_ret="explicit" ;;
@@ -692,12 +692,12 @@ _knit_search_resolve_fill() {
                 __knit_ret="default"
             fi
             ;;
-        *) knit_fatal "_knit_search_resolve_fill: unknown token classification '%s'." "${token}" ;;
+        *) knit_fatal "knit_search_resolve_fill: unknown token classification '%s'." "${token}" ;;
     esac
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_search_group_forward()
+# @fn knit_search_group_forward()
 #
 # Forward a campaign --group label into one trial's downstream command line, in
 # place, so a job trial lands in the existing jobs.group column (which makes
@@ -715,7 +715,7 @@ _knit_search_resolve_fill() {
 # @param[in,out] __knit_argv Name of the array holding the downstream argv.
 # @param[in] group The campaign group label (empty to leave the line unchanged).
 # ------------------------------------------------------------------------------
-_knit_search_group_forward() {
+knit_search_group_forward() {
     local -n __knit_argv=$1
     local group="$2"
     [[ -z "${group}" ]] && return 0
