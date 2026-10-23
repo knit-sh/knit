@@ -409,6 +409,81 @@ knit_search_launch() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_search_read_objective()
+#
+# Read one finished trial's objective value from the database, given the trial's
+# recorded child row id (as returned by knit_search_launch) and the table/column
+# that holds the objective. A trial is a chain of recorded rows linked by
+# "call" edges in the provenance table: the launch id is the outer dispatcher's
+# row (the jobs row for "submit", the runs row for "run"), while the objective is
+# usually written by a descendant (the job body's row, the app's row). This
+# function resolves the objective row by walking "call" edges breadth-first from
+# the child id until it reaches a row that exists in the named table, then reads
+# the named column from that row.
+#
+# The child id itself is tried first, so an objective recorded directly in the
+# dispatcher's own table (no descendant) is read without a walk. The caller owns
+# the policy of which table and column hold the objective (e.g. the Bayesian
+# optimizer's leaf-first chain walk over declared outputs); this function owns
+# only the generic row resolution and point read.
+#
+# A missing objective row (no reachable row in the table) and a NULL/empty
+# objective column (a crashed trial that recorded no value) are both reported as
+# failure: the output is cleared and the return status is non-zero, so the caller
+# can apply its failure policy.
+#
+# @param[out] __knit_ret The objective value (empty on failure).
+# @param[in] child_id The trial's recorded child row id (from knit_search_launch).
+# @param[in] table The table that holds the objective column.
+# @param[in] column The objective column name.
+# @return 0 when a non-empty objective value was read, 1 otherwise.
+# ------------------------------------------------------------------------------
+knit_search_read_objective() {
+    local -n __knit_ret=$1
+    local child_id="$2" table="$3" column="$4"
+    __knit_ret=""
+    [[ -z "${child_id}" || -z "${table}" || -z "${column}" ]] && return 1
+
+    # Breadth-first walk over "call" edges from the child id. The provenance call
+    # edges form a tree (each invocation has one caller), so a visited set and a
+    # depth bound only guard against unexpected shapes.
+    local -a frontier=("${child_id}")
+    local -A visited=()
+    local depth=0 max_depth=64
+    while [[ ${#frontier[@]} -gt 0 && ${depth} -lt ${max_depth} ]]; do
+        local -a next=()
+        local id esc exists targets target
+        for id in "${frontier[@]}"; do
+            [[ -v visited["${id}"] ]] && continue
+            visited["${id}"]=1
+            _knit_sql_escape esc "${id}"
+            # A row with this id in the objective table ends the walk: read the
+            # column (which may itself be NULL -> reported as failure below).
+            exists="$(_knit_sqlite3 \
+                "SELECT 1 FROM ${table} WHERE id='${esc}' LIMIT 1;" 2>/dev/null)" \
+                || exists=""
+            if [[ -n "${exists}" ]]; then
+                __knit_ret="$(_knit_sqlite3 \
+                    "SELECT ${column} FROM ${table} WHERE id='${esc}';" \
+                    2>/dev/null)" || __knit_ret=""
+                [[ -n "${__knit_ret}" ]] && return 0
+                return 1
+            fi
+            # Not in the table: enqueue this id's call-edge targets.
+            targets="$(_knit_sqlite3 \
+                "SELECT target_id FROM ${_KNIT_PROV_TABLE} WHERE source_id='${esc}' AND edge_type='call';" \
+                2>/dev/null)" || targets=""
+            while IFS= read -r target; do
+                [[ -n "${target}" ]] && next+=("${target}")
+            done <<< "${targets}"
+        done
+        frontier=("${next[@]}")
+        depth=$(( depth + 1 ))
+    done
+    return 1
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_search_job_terminal_status()
 #
 # Read a job trial's terminal status from the jobs table, by row id. Returns 0

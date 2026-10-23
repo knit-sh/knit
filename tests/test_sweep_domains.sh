@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # M3 tests for declared-domain resolution: target resolution from the downstream
-# (_knit_sweep_resolve_target) and the --fill / @sweep / @default splicing
+# (knit_search_resolve_target) and the --fill / @sweep / @default splicing
 # (_knit_sweep_resolve_domains, _knit_sweep_enumerate_domain).
 
 setup() {
@@ -44,11 +44,11 @@ _axis_values() {
     done
 }
 
-# ---------- _knit_sweep_resolve_target ----------
+# ---------- knit_search_resolve_target ----------
 
 @test "target resolution: submit -- job maps to submit:<job>" {
     local m d t
-    _knit_sweep_resolve_target m d t submit --nodes 2 -- train --lr 0.01
+    knit_search_resolve_target m d t submit --nodes 2 -- train --lr 0.01
     [ "$m" = "submit__1__train" ]
     [ "$d" = "submit" ]
     [ "$t" = "train" ]
@@ -56,7 +56,7 @@ _axis_values() {
 
 @test "target resolution: prepare reuses the submit job registration" {
     local m d t
-    _knit_sweep_resolve_target m d t prepare -- train
+    knit_search_resolve_target m d t prepare -- train
     [ "$m" = "submit__1__train" ]
     [ "$d" = "prepare" ]
     [ "$t" = "train" ]
@@ -64,7 +64,7 @@ _axis_values() {
 
 @test "target resolution: run -- app maps to run:<app>" {
     local m d t
-    _knit_sweep_resolve_target m d t run --procs 4 -- stencil --tile 64
+    knit_search_resolve_target m d t run --procs 4 -- stencil --tile 64
     [ "$m" = "run__1__stencil" ]
     [ "$d" = "run" ]
     [ "$t" = "stencil" ]
@@ -72,7 +72,7 @@ _axis_values() {
 
 @test "target resolution: a bare command resolves to itself" {
     local m d t
-    _knit_sweep_resolve_target m d t render --width 256
+    knit_search_resolve_target m d t render --width 256
     [ "$m" = "render" ]
     [ "$d" = "render" ]
     [ "$t" = "render" ]
@@ -80,7 +80,7 @@ _axis_values() {
 
 @test "target resolution: a submit line with no job after -- has no target" {
     local m d t
-    _knit_sweep_resolve_target m d t submit --nodes 2
+    knit_search_resolve_target m d t submit --nodes 2
     [ -z "$m" ]
     [ "$d" = "submit" ]
 }

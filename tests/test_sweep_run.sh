@@ -80,7 +80,7 @@ teardown() {
 
 # ---------- declared-domain resolution through the full command ----------
 
-# Exercises _knit_sweep_resolve_target + _knit_sweep_resolve_domains via the real
+# Exercises knit_search_resolve_target + _knit_sweep_resolve_domains via the real
 # _knit_sweep body (not the helpers directly), which is where the target-command
 # nameref must reach the body.
 @test "--fill sweep resolves the job's declared domain end to end" {
