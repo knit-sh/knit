@@ -64,7 +64,7 @@ teardown() {
 
 # ---------- row-id timing (design §5.2) ----------
 
-@test "a nested child sees its parent's explicit _knit_set_row_id as the parent frame id" {
+@test "a nested child sees its parent's explicit knit_set_row_id as the parent frame id" {
     knit_register "probecmd" _p_probe_fn "Probe."
     # The parent frame's resolved id is the entry just below this frame's own.
     _p_probe_fn() { __probed_source_id="${_KNIT_EXECUTING_ROW_ID[-2]}"; }
@@ -73,7 +73,7 @@ teardown() {
     knit_register "topcmd" _p_top_fn "Top."
     knit_with_table "tops"
     _p_top_fn() {
-        _knit_set_row_id "cafe0000-0000-7000-8000-000000000000"
+        knit_set_row_id "cafe0000-0000-7000-8000-000000000000"
         _knit_invoke_command "probecmd"
     }
     knit_done

@@ -329,7 +329,7 @@ _knit_prepare_build() {
 
     # The recorded row's id is the canonical job UUID. Set it on the executing
     # frame so the recording below (and any nested callee) sees it as the row id.
-    _knit_set_row_id "${uuid}"
+    knit_set_row_id "${uuid}"
 
     # The two tracked outputs. knit_output would target the executing frame,
     # which for `prepare` is not `submit`, so write them straight to submit's
@@ -432,7 +432,7 @@ _knit_prepare_build() {
     # rank), so guarding on it avoids updating a row that does not exist.
     local recorded_marker="_KNIT_CMD_${owner}_recorded"
     if [[ -n "${!recorded_marker:-}" ]]; then
-        _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" \
+        knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" \
             "queue=${opts["queue"]}" \
             "walltime=${opts["walltime"]}" \
             "job-name=${opts["job-name"]}" \
@@ -528,7 +528,7 @@ _knit_submit_dispatch() {
     # Record native-cmd and advance the row to "submitted" before dispatching: a
     # blocking --wait job transitions this same row's state as it runs, so the
     # recorded command and state must be in place first.
-    _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" \
+    knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" \
         "native-cmd=${native_cmd}" "state=submitted"
 
     # Log the resolved command before issuing it, then submit.
@@ -689,7 +689,7 @@ _knit_job_set_state() {
     _knit_is_bootstrapped || return 0
     local uuid
     uuid="$(basename "${KNIT_JOB_PREFIX}")"
-    _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" "state=${state}" \
+    knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" "state=${state}" \
         2>/dev/null \
         || knit_warning "Could not update job \"${uuid}\" state to \"${state}\"."
 }
@@ -714,7 +714,7 @@ _knit_job_record_hostnames() {
     # Command substitution strips the trailing newline, leaving a bare
     # comma-separated list (empty if host discovery finds nothing).
     hosts="$(knit_job_hostnames --separator ,)"
-    _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" "hostnames=${hosts}" \
+    knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" "hostnames=${hosts}" \
         2>/dev/null \
         || knit_warning "Could not record hostnames for job \"${uuid}\"."
 }

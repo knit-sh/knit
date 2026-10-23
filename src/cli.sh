@@ -30,7 +30,7 @@ declare -ga _KNIT_EXECUTING_COMMAND=()
 # the id that frame i's invocation will record. The id is resolved when the frame
 # is pushed (so a nested callee can read its caller's id while the caller's body
 # still runs) and read back by _knit_record_invocation, so the id a callee saw as
-# its edge source is exactly the id the caller records. _knit_set_row_id updates
+# its edge source is exactly the id the caller records. knit_set_row_id updates
 # the top entry so an explicit id and the recorded id never diverge.
 # ------------------------------------------------------------------------------
 declare -ga _KNIT_EXECUTING_ROW_ID=()
@@ -4443,20 +4443,24 @@ knit_output() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_set_row_id()
+# @fn knit_set_row_id()
 #
 # Set the "id" value of the row that will be recorded for the currently
-# executing command (see M10 run recording). Use this when a command already
-# owns a canonical identifier — e.g. `knit submit` records the job UUID it
-# generated — instead of letting recording mint a fresh uuid. Must be called
-# from within an executing command function.
+# executing command, instead of letting recording mint a fresh uuid. Use this
+# when a command already owns a canonical identifier — e.g. `knit submit` records
+# the job UUID it generated, and a plugin that re-attaches to an existing row
+# (its campaign/parent row created by an earlier invocation) sets that row's id
+# so its provenance "call" edges to children and its later updates land on that
+# row rather than on an ephemeral one. Also updates the executing-row-id stack so
+# a nested child resolves this id as its parent. Must be called from within an
+# executing command function.
 #
-# @param[in] id The uuid to record as the row's id.
+# @param[in] id The id to record as the row's id.
 # ------------------------------------------------------------------------------
-_knit_set_row_id() {
+knit_set_row_id() {
     local id="$1"
     if [[ ${#_KNIT_EXECUTING_COMMAND[@]} -eq 0 ]]; then
-        knit_fatal "_knit_set_row_id should be called from within a registered command function."
+        knit_fatal "knit_set_row_id should be called from within a registered command function."
     fi
     local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
     printf -v "_KNIT_CMD_${cmd}_row_id" '%s' "${id}"
@@ -4471,7 +4475,7 @@ _knit_set_row_id() {
 #
 # Resolve the row id for an invocation of a command, used when its frame is
 # pushed onto _KNIT_EXECUTING_ROW_ID. The precedence is: an explicit id already
-# set via _knit_set_row_id (_KNIT_CMD_<cmd>_row_id), otherwise a fresh uuidv7.
+# set via knit_set_row_id (_KNIT_CMD_<cmd>_row_id), otherwise a fresh uuidv7.
 #
 # Every invocation gets its own distinct id: the historical couplings that made a
 # job body reuse its submission's UUID (KNIT_JOB_PREFIX) and an app's rank-0 row
