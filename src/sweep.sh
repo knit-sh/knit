@@ -267,74 +267,6 @@ _knit_sweep_scan() {
     done
 }
 
-# ------------------------------------------------------------------------------
-# @fn _knit_sweep_resolve_target()
-#
-# Resolve the downstream target from the downstream token list: the command whose
-# parameters the sweep introspects to resolve a declared domain (@sweep /
-# --fill sweep), plus the dispatcher and target display names recorded on the
-# sweeps row. The mapping mirrors how the downstream is actually run:
-#
-#   submit|prepare ... -- <job> ...  -> submit:<job>  (prepare reuses submit's jobs)
-#   run ... -- <app> ...             -> run:<app>
-#   <command> ...                    -> the command itself (lazy-discovered, so a
-#                                       colon-nested name like "metadata store"
-#                                       resolves)
-#
-# The mangled command is empty when a submit/prepare/run line carries no job or
-# app after its inner "--" (the downstream dispatcher reports that error when the
-# line is run), so the caller can still record the dispatcher without a target.
-#
-# @param[out] __knit_ret1 Mangled command name to introspect (empty if none).
-# @param[out] __knit_ret2 Dispatcher display name (submit/prepare/run, or the
-#   command name for a bare command).
-# @param[out] __knit_ret3 Target display name (the job/app name, or the command
-#   name for a bare command).
-# @param[in] ... The downstream tokens.
-# ------------------------------------------------------------------------------
-_knit_sweep_resolve_target() {
-    local -n __knit_ret_mangled=$1
-    local -n __knit_ret_disp=$2
-    local -n __knit_ret_tgt=$3
-    shift 3
-    local -a down=("$@")
-    __knit_ret_mangled=""; __knit_ret_disp=""; __knit_ret_tgt=""
-    [[ ${#down[@]} -eq 0 ]] && return 0
-
-    local d0="${down[0]}" d0n
-    _knit_name_normalize d0n "${d0}"
-    case "${d0n}" in
-        submit|prepare|run)
-            __knit_ret_disp="${d0}"
-            local k inner=-1
-            for ((k=1; k<${#down[@]}; k++)); do
-                if [[ "${down[k]}" == "--" ]]; then inner=$((k+1)); break; fi
-            done
-            (( inner < 0 || inner >= ${#down[@]} )) && return 0
-            __knit_ret_tgt="${down[inner]}"
-            local prefix="submit"
-            [[ "${d0n}" == "run" ]] && prefix="run"
-            # Named resolved_cmd, not mangled: a caller's output variable is often
-            # named "mangled" (e.g. _knit_sweep), and an internal of that name
-            # would shadow the __knit_ret_mangled nameref (nameref-shadow-collision)
-            # so the result would never reach the caller.
-            local resolved_cmd
-            _knit_command_mangle resolved_cmd "${prefix}" "${down[inner]}"
-            __knit_ret_mangled="${resolved_cmd}"
-            ;;
-        *)
-            local resolved_cmd
-            # shellcheck disable=SC2034 # the consumed count is unused here
-            local consumed
-            _knit_resolve_command_tokens resolved_cmd consumed "${down[@]}"
-            __knit_ret_mangled="${resolved_cmd}"
-            local demangled
-            demangled=$(_knit_command_demangle "${resolved_cmd}")
-            __knit_ret_disp="${demangled}"
-            __knit_ret_tgt="${demangled}"
-            ;;
-    esac
-}
 
 # ------------------------------------------------------------------------------
 # @fn _knit_sweep_enumerate_domain()
@@ -730,7 +662,7 @@ _knit_sweep() {
     _knit_sweep_scan template axes values seen "${passthrough}" "${downstream[@]}"
     # shellcheck disable=SC2034 # dispatcher/target are recorded in M5
     local mangled dispatcher target
-    _knit_sweep_resolve_target mangled dispatcher target "${downstream[@]}"
+    knit_search_resolve_target mangled dispatcher target "${downstream[@]}"
     _knit_sweep_resolve_domains template axes values seen "${fill}" "${mangled}"
 
     # Build the odometer plan over the resolved axes.

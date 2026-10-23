@@ -137,6 +137,40 @@ _knit_search_parse_literal() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_search_parse_token()
+#
+# Public accessor that parses one domain descriptor token into its structured
+# form. The same grammar covers "{...}" list, "[lo..hi]" / "[lo..hi:step]"
+# range, "@glob:<pattern>" glob, and "@file:<path>" file tokens. Callers MUST
+# declare the first output as an associative array (declare -A) and the second
+# as an ordinary array. A malformed or unrecognised token is fatal.
+#
+# @param[out] __knit_ret1 Associative array to receive the descriptor scalars:
+#   keys kind (list|range|glob), lo, hi, step, glob.
+# @param[out] __knit_ret2 Indexed array to receive the list values (empty unless
+#   kind=list).
+# @param[in] token The descriptor token to parse.
+# ------------------------------------------------------------------------------
+knit_search_parse_token() {
+    # shellcheck disable=SC2178 # nameref to an assoc array
+    local -n __knit_ret1=$1
+    # shellcheck disable=SC2178 # nameref to an array
+    local -n __knit_ret2=$2
+    local tok="$3"
+    local -A __desc
+    local -a __vals
+    _knit_search_parse_literal __desc __vals "${tok}"
+    __knit_ret1=(
+        [kind]="${__desc[kind]}"
+        [lo]="${__desc[lo]}"
+        [hi]="${__desc[hi]}"
+        [step]="${__desc[step]}"
+        [glob]="${__desc[glob]}"
+    )
+    __knit_ret2=("${__vals[@]}")
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_search_validate_descriptor()
 #
 # Validate a parsed descriptor against a parameter's declared type, applying the
@@ -842,4 +876,83 @@ knit_search_group_forward() {
         *) return 0 ;;
     esac
     __knit_argv=( "${__knit_argv[0]}" "--group" "${group}" "${__knit_argv[@]:1}" )
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_search_resolve_target()
+#
+# Resolve the downstream target from the downstream token list: the command
+# whose parameters a search proposer introspects (to resolve declared domains
+# or @sweep markers), plus the dispatcher and target display names. The mapping
+# mirrors how the downstream is actually run:
+#
+#   submit|prepare ... -- <job> ...  -> submit:<job>
+#   run ... -- <app> ...             -> run:<app>
+#   <command> ...                    -> the command itself
+#
+# The mangled command is empty when a submit/prepare/run line carries no job or
+# app after its inner "--" (the downstream dispatcher reports the error when the
+# line is actually run), so the caller can still record the dispatcher name.
+#
+# @param[out] __knit_ret1 Mangled command name to introspect (empty if none).
+# @param[out] __knit_ret2 Dispatcher display name (submit/prepare/run, or the
+#   command name for a bare command).
+# @param[out] __knit_ret3 Target display name (the job/app name, or the command
+#   name for a bare command).
+# @param[in] ... The downstream tokens.
+# ------------------------------------------------------------------------------
+knit_search_resolve_target() {
+    # shellcheck disable=SC2178 # scalar nameref outputs, not arrays
+    local -n __knit_ret1=$1
+    # shellcheck disable=SC2178
+    local -n __knit_ret2=$2
+    # shellcheck disable=SC2178
+    local -n __knit_ret3=$3
+    shift 3
+    local -a down=("$@")
+    # shellcheck disable=SC2178 # scalar nameref outputs, not arrays
+    __knit_ret1=""
+    # shellcheck disable=SC2178
+    __knit_ret2=""
+    # shellcheck disable=SC2178
+    __knit_ret3=""
+    [[ ${#down[@]} -eq 0 ]] && return 0
+
+    local d0="${down[0]}" __d0n
+    _knit_name_normalize __d0n "${d0}"
+    case "${__d0n}" in
+        submit|prepare|run)
+            # shellcheck disable=SC2178
+            __knit_ret2="${d0}"
+            local k inner=-1
+            for ((k=1; k<${#down[@]}; k++)); do
+                if [[ "${down[k]}" == "--" ]]; then
+                    inner=$((k+1)); break
+                fi
+            done
+            (( inner < 0 || inner >= ${#down[@]} )) && return 0
+            # shellcheck disable=SC2178
+            __knit_ret3="${down[inner]}"
+            local prefix="submit"
+            [[ "${__d0n}" == "run" ]] && prefix="run"
+            local __cmd
+            _knit_command_mangle __cmd "${prefix}" "${down[inner]}"
+            # shellcheck disable=SC2178
+            __knit_ret1="${__cmd}"
+            ;;
+        *)
+            local __cmd __consumed
+            # shellcheck disable=SC2034 # consumed count unused here
+            _knit_resolve_command_tokens \
+                __cmd __consumed "${down[@]}"
+            # shellcheck disable=SC2178
+            __knit_ret1="${__cmd}"
+            local demangled
+            demangled=$(_knit_command_demangle "${__cmd}")
+            # shellcheck disable=SC2178
+            __knit_ret2="${demangled}"
+            # shellcheck disable=SC2178
+            __knit_ret3="${demangled}"
+            ;;
+    esac
 }

@@ -634,6 +634,32 @@ knit_command_table() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_output_type()
+#
+# Public accessor for the declared type of a command's output. The output name
+# is normalized (hyphens and underscores are interchangeable). Returns the empty
+# string and status 1 when the command has no such output. This is the stable
+# surface plugins use instead of reaching into the _KNIT_CMD_<cmd>_3_<out>_type
+# internals.
+#
+# @param[out] __knit_ret Name of the variable to hold the type.
+# @param[in] cmd Command the output belongs to (the mangled/registered name).
+# @param[in] output Output name (hyphen or underscore spelling).
+# @return 0 if the output exists, 1 otherwise.
+# ------------------------------------------------------------------------------
+knit_output_type() {
+    local -n __knit_ret=$1
+    local __norm
+    _knit_name_normalize __norm "$3"
+    local __var="_KNIT_CMD_${2}_3_${__norm}_type"
+    if [[ ! -v "${__var}" ]]; then
+        __knit_ret=""
+        return 1
+    fi
+    __knit_ret="${!__var}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_output_description()
 #
 # This function returns the description of an output for a given command.
