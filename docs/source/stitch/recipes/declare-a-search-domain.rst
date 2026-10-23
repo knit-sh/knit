@@ -1,6 +1,6 @@
 ..
    title: Declare a parameter's search domain
-   categories: parameters
+   categories: parameters, search
    order: 40
    description: Attach a value set or range to a parameter with --domain for sweeps and optimization.
    apis: knit_with_optional, knit_with_required, knit_parameter_space, knit_parameter_space_json

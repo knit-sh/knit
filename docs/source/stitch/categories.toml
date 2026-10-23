@@ -56,6 +56,11 @@ title = "Apps"
 summary = "Launching MPI applications across a job's allocation with knit run."
 
 [[category]]
+slug = "search"
+title = "Parameter search"
+summary = "Exploring a declared parameter space: exhaustive sweeps with knit sweep and Bayesian optimization with the knit-ax plugin."
+
+[[category]]
 slug = "recording"
 title = "Recording"
 summary = "Recording command invocations, their parameters, and their outputs in per-command tables."
