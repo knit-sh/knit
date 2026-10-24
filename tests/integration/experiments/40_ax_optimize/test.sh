@@ -116,9 +116,12 @@ else
     fail "best_objective ${BEST_OBJ} did not approach the optimum (expected >= 75)"
 fi
 
-# The best trial's recorded x knob sits near the true optimum x = 6.
+# The best trial's recorded x knob sits near the true optimum x = 6. best_id is
+# the submit (jobs) row id; the x/score live in the quad body row one "call" edge
+# away (the submit -> submit:quad edge), so resolve x by that two-hop walk --
+# exactly how the plugin reads the objective -- rather than by best_id directly.
 BEST_ID="$("${SQLITE}" "${DB}" "SELECT best_id FROM optimizations WHERE id='conv';")"
-BEST_X="$("${SQLITE}" "${DB}" "SELECT x FROM quad WHERE id='${BEST_ID}';")"
+BEST_X="$("${SQLITE}" "${DB}" "SELECT x FROM quad WHERE id='${BEST_ID}' OR id IN (SELECT target_id FROM __provenance__ WHERE source_id='${BEST_ID}' AND edge_type='call');")"
 if awk -v x="${BEST_X}" 'BEGIN { d = x - 6; if (d < 0) d = -d; exit !(d <= 3) }'; then
     __assert_pass "the best trial's x=${BEST_X} is near the optimum x=6 (|x-6| <= 3)"
 else
