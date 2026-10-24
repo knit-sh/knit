@@ -25,7 +25,10 @@ knit_set_program_description "knit-ax Bayesian-optimization integration test exp
 knit_register_job "quad" __quad_job_fn "Evaluate the closed-form surrogate."
 knit_without_setup
 knit_with_optional "x:real"         "0" "The knob to optimize." --domain '[0..12]'
-knit_with_table
+# No knit_with_table here: knit_register_job already declares the job's table
+# (named "quad" after the job). A bare knit_with_table would re-point it at the
+# "submit:quad" command name, splitting recording from where the objective is
+# read and leaving the optimizer unable to see each trial's score.
 knit_with_output   "score:real"     "0" "Surrogate score = 100 - (x - 6)^2 (max 100 at x = 6)."
 __quad_job_fn() {
     local x score

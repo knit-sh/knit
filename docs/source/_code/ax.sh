@@ -28,7 +28,9 @@ knit_set_program_description "Optimize a surrogate job with Bayesian search."
 @job "quad" "Evaluate the surrogate objective."
 @without_setup
 @with_optional "x:real"     "0" "The knob to optimize." --domain '[0..12]'
-@with_table
+# @job already declares the job's table (named "quad"); do not add @with_table,
+# which would re-point it at the "submit:quad" command name and split recording
+# from where the objective is read.
 @with_output   "score:real" "0" "Objective = 100 - (x - 6)^2 (max 100 at x = 6)."
 _quad() {
     local x score
