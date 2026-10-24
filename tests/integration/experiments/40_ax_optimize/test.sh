@@ -87,9 +87,7 @@ check_sqlite "${DB}" \
     "prepared" \
     "prepare recorded the optimizations row as prepared"
 
-# TEMP DIAGNOSTIC: trace level surfaces the plugin's downstream/template/argv
-# traces so a CI failure shows the exact reconstructed trial command line.
-KNIT_LOG_LEVEL=trace ./experiment.sh ax optimize --campaign conv
+./experiment.sh ax optimize --campaign conv
 
 # The campaign is marked completed in both places it lives.
 check_eq "$(cat campaigns/conv/status)" "completed" \
