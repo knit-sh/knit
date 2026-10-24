@@ -216,7 +216,7 @@ _knit_setup() {
     # the row identifies the instance (used to resolve `knit remove --name`).
     if [[ -n "${body_row_id}" ]]; then
         printf '%s\n' "${body_row_id}" > "${path}/.setup.id"
-        _knit_db_update_row "setup:${setup_name}" "${body_row_id}" \
+        knit_db_update_row "setup:${setup_name}" "${body_row_id}" \
             "name=${name}" "directory=${path}"
     fi
 }

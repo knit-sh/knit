@@ -175,3 +175,120 @@ setup() {
     out="$(knit_parameter_space_json "pj_none" "plain")"
     [ "$out" = "null" ]
 }
+
+# ---------- knit_search_parse_token ----------
+
+@test "knit_search_parse_token parses a list token" {
+    local -A desc
+    local -a vals
+    knit_search_parse_token desc vals '{a,b,c}'
+    [ "${desc[kind]}" = "list" ]
+    [ "${#vals[@]}" -eq 3 ]
+    [ "${vals[0]}" = "a" ]
+    [ "${vals[2]}" = "c" ]
+}
+
+@test "knit_search_parse_token parses a range token" {
+    local -A desc
+    local -a vals
+    knit_search_parse_token desc vals '[1..10:2]'
+    [ "${desc[kind]}" = "range" ]
+    [ "${desc[lo]}" = "1" ]
+    [ "${desc[hi]}" = "10" ]
+    [ "${desc[step]}" = "2" ]
+}
+
+@test "knit_search_parse_token parses a range without step" {
+    local -A desc
+    local -a vals
+    knit_search_parse_token desc vals '[0.1..1.0]'
+    [ "${desc[kind]}" = "range" ]
+    [ "${desc[lo]}" = "0.1" ]
+    [ "${desc[hi]}" = "1.0" ]
+    [ "${desc[step]}" = "" ]
+}
+
+@test "knit_search_parse_token parses a glob token" {
+    local -A desc
+    local -a vals
+    knit_search_parse_token desc vals '@glob:data/*.txt'
+    [ "${desc[kind]}" = "glob" ]
+    [ "${desc[glob]}" = "data/*.txt" ]
+}
+
+@test "knit_search_parse_token fatals on an unknown token" {
+    local -A desc
+    local -a vals
+    run knit_search_parse_token desc vals 'notatoken'
+    [ "$status" -ne 0 ]
+}
+
+# ---------- knit_search_resolve_target ----------
+
+@test "knit_search_resolve_target resolves a submit downstream" {
+    knit_register "submit__1__myjob" knit_empty "A job."
+    knit_done
+    local m d t
+    knit_search_resolve_target m d t submit -- myjob --n 4
+    [ "$m" = "submit__1__myjob" ]
+    [ "$d" = "submit" ]
+    [ "$t" = "myjob" ]
+}
+
+@test "knit_search_resolve_target resolves a run downstream" {
+    knit_register "run__1__myapp" knit_empty "An app."
+    knit_done
+    local m d t
+    knit_search_resolve_target m d t run -- myapp --procs 4
+    [ "$m" = "run__1__myapp" ]
+    [ "$d" = "run" ]
+    [ "$t" = "myapp" ]
+}
+
+@test "knit_search_resolve_target resolves a bare command" {
+    knit_register "mybare" knit_empty "A command."
+    knit_done
+    local m d t
+    knit_search_resolve_target m d t mybare --x 1
+    [ "$m" = "mybare" ]
+    [ "$d" = "mybare" ]
+    [ "$t" = "mybare" ]
+}
+
+@test "knit_search_resolve_target is empty for submit with no inner --" {
+    local m d t
+    knit_search_resolve_target m d t submit --nodes 4
+    [ "$m" = "" ]
+    [ "$d" = "submit" ]
+    [ "$t" = "" ]
+}
+
+# ---------- knit_output_type ----------
+
+@test "knit_output_type reads a declared output type" {
+    knit_register "ot_cmd" knit_empty "A command."
+    knit_with_output "val-loss:real" "" "the loss"
+    knit_done
+    local t
+    knit_output_type t "ot_cmd" "val_loss"
+    [ "$t" = "real" ]
+}
+
+@test "knit_output_type normalizes hyphens and underscores" {
+    knit_register "ot_norm" knit_empty "A command."
+    knit_with_output "best-acc:real" "" "accuracy"
+    knit_done
+    local t
+    knit_output_type t "ot_norm" "best-acc"
+    [ "$t" = "real" ]
+    knit_output_type t "ot_norm" "best_acc"
+    [ "$t" = "real" ]
+}
+
+@test "knit_output_type returns 1 for an unknown output" {
+    knit_register "ot_unk" knit_empty "A command."
+    knit_done
+    local t
+    run knit_output_type t "ot_unk" "nope"
+    [ "$status" -eq 1 ]
+}

@@ -307,7 +307,7 @@ _knit_pilot_mark_outstanding_killed() {
             2>/dev/null)" || state=""
         case "${state}" in
             ""|completed|failed|killed) continue ;;
-            *) _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${id}" "state=killed" \
+            *) knit_db_update_row "${_KNIT_JOBS_TABLE}" "${id}" "state=killed" \
                    2>/dev/null || true ;;
         esac
     done < "${file}"
