@@ -76,7 +76,10 @@ _knit_search_parse_literal() {
     local -n __knit_ret2=$2
     local token="$3"
 
-    # shellcheck disable=SC2034 # keys are read through the caller's nameref
+    # The caller's nameref target is an associative array, which shellcheck
+    # cannot see through the nameref: it reads the [key]= entries as arithmetic
+    # indices (SC2154) and the never-read keys as unused (SC2034).
+    # shellcheck disable=SC2034,SC2154
     __knit_ret1=( [kind]="" [lo]="" [hi]="" [step]="" [glob]="" )
     __knit_ret2=()
 
