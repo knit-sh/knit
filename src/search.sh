@@ -430,6 +430,11 @@ knit_search_launch() {
 # optimizer's leaf-first chain walk over declared outputs); this function owns
 # only the generic row resolution and point read.
 #
+# Trust contract: only the id is SQL-escaped; table and column are interpolated
+# into the query verbatim. They are expected to be registration-derived names
+# (e.g. from knit_command_table and knit_output_type), the same trust knit places
+# in table names throughout db.sh — do NOT pass an end-user string here.
+#
 # A missing objective row (no reachable row in the table) and a NULL/empty
 # objective column (a crashed trial that recorded no value) are both reported as
 # failure: the output is cleared and the return status is non-zero, so the caller
@@ -453,9 +458,10 @@ knit_search_read_objective() {
     local -a frontier=("${child_id}")
     local -A visited=()
     local depth=0 max_depth=64
+    local -a next
+    local id esc exists targets target
     while [[ ${#frontier[@]} -gt 0 && ${depth} -lt ${max_depth} ]]; do
-        local -a next=()
-        local id esc exists targets target
+        next=()
         for id in "${frontier[@]}"; do
             [[ -v visited["${id}"] ]] && continue
             visited["${id}"]=1
@@ -828,8 +834,9 @@ knit_search_resolve_fill() {
 # downstream. The "seen" map records, for every "--option" that carried a
 # value, how the call site referenced it ("explicit", "sweep", or "default");
 # a literal axis folds to "explicit". The inline "--opt=value" form is
-# self-contained and recorded as "explicit". The caller MUST pass a freshly
-# declared associative array for the "seen" map.
+# self-contained and recorded as "explicit". All four outputs are reset on
+# entry, so the "seen" map need not be empty, but it MUST be declared as an
+# associative array (declare -A).
 #
 # Unlike _knit_sweep_scan, this function stores the verbatim token text (not
 # an enumerated value list) in rawtokens-out for literal axes. Callers that
@@ -863,6 +870,10 @@ knit_search_scan() {
     __knit_ret1=("${down[@]}")
     __knit_ret2=()
     __knit_ret3=()
+    # Reset the seen map too, so all four outputs are cleared for the caller
+    # (clearing a nameref to an associative array keeps its -A attribute).
+    # shellcheck disable=SC2178 # nameref to an associative array
+    __knit_ret4=()
 
     local -A pass=()
     if [[ -n "${passthrough_csv}" ]]; then
