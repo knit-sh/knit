@@ -80,6 +80,23 @@ setup() {
     [ "${tmpl[2]}" = "{foo,bar}" ]
 }
 
+@test "--passthrough protects several names and trims surrounding whitespace" {
+    local -a tmpl axes raw
+    local -A seen
+    knit_search_scan tmpl axes raw seen " pattern , input " \
+        scan --pattern '{foo,bar}' --input '{a,b}' --threads '{1,2,4}'
+    # Only --threads is swept; the two whitespace-padded passthrough names protect
+    # --pattern and --input, which pass through as explicit values.
+    [ "${#axes[@]}" -eq 1 ]
+    [ "${axes[0]}" = "literal 6 threads" ]
+    [ "${raw[0]}" = "{1,2,4}" ]
+    [ "${seen[pattern]}" = "explicit" ]
+    [ "${seen[input]}" = "explicit" ]
+    [ "${seen[threads]}" = "explicit" ]
+    [ "${tmpl[2]}" = "{foo,bar}" ]
+    [ "${tmpl[4]}" = "{a,b}" ]
+}
+
 @test "a swept positional is named by its index" {
     local -a tmpl axes raw
     local -A seen
