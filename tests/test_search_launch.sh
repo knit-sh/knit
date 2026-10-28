@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# search-core M5: _knit_search_launch invokes a downstream knit command line
+# search-core M5: knit_search_launch invokes a downstream knit command line
 # in-process and returns the child's recorded row id by nameref. The provenance
 # "call" edge parent -> child is written by knit's existing recording, not by
 # the launch helper, so these tests assert the edge too.
@@ -31,7 +31,7 @@ teardown() {
     knit_with_table "drivers"
     _l_driver_fn() {
         local kid
-        _knit_search_launch kid trial
+        knit_search_launch kid trial
         __l_kid="${kid}"
     }
     knit_done
@@ -54,7 +54,7 @@ teardown() {
     knit_with_table "cdrivers"
     _l_cdriver_fn() {
         local kid
-        _knit_search_launch kid ctrial
+        knit_search_launch kid ctrial
     }
     knit_done
 
@@ -90,7 +90,7 @@ teardown() {
     knit_with_table "edrivers"
     _l_edriver_fn() {
         local kid
-        _knit_search_launch kid etrial -- alpha beta
+        knit_search_launch kid etrial -- alpha beta
     }
     knit_done
 
@@ -111,7 +111,7 @@ teardown() {
     knit_done
 
     local kid
-    _knit_search_launch kid rtrial
+    knit_search_launch kid rtrial
 
     local trial_id
     trial_id=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM rtrials;")
@@ -130,7 +130,7 @@ teardown() {
     knit_done
 
     local kid
-    run _knit_search_launch kid okcmd
+    run knit_search_launch kid okcmd
     [ "$status" -eq 0 ]
 }
 
@@ -140,7 +140,7 @@ teardown() {
     knit_done
 
     local kid
-    run _knit_search_launch kid failcmd
+    run knit_search_launch kid failcmd
     [ "$status" -eq 7 ]
 }
 
@@ -148,7 +148,7 @@ teardown() {
 
 @test "launch is fatal with no downstream command line" {
     local kid
-    run _knit_search_launch kid
+    run knit_search_launch kid
     [ "$status" -eq 1 ]
     [[ "$output" == *"requires a downstream command line"* ]]
 }

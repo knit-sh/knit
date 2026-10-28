@@ -322,7 +322,7 @@ _knit_job_cancel() {
     local backend
     _knit_jobid_read backend jobid "${jobdir}"
     _knit_sched_cancel "${backend}" "${jobid}"
-    _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${id}" "state=killed"
+    knit_db_update_row "${_KNIT_JOBS_TABLE}" "${id}" "state=killed"
     knit_info "Cancelled job \"${id}\"."
 }
 
@@ -385,7 +385,7 @@ _knit_job_reset_validate_states() {
 _knit_job_reset_one() {
     local id="$1" current="$2"
     local new=$(( current + 1 ))
-    _knit_db_update_row "${_KNIT_JOBS_TABLE}" "${id}" \
+    knit_db_update_row "${_KNIT_JOBS_TABLE}" "${id}" \
         "state=prepared" "hostnames=" "native-cmd=" "retries=${new}"
     local jobdir
     jobdir="$(_knit_job_dir "${id}")"

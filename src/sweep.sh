@@ -36,7 +36,7 @@ knit_register "sweep" _knit_sweep \
 _knit_is_builtin
 # The campaign label is the one recorded option: it becomes the "group" column
 # and is forwarded into a submit/prepare line so the children land in the same
-# jobs.group (see _knit_search_group_forward, extended in a later milestone).
+# jobs.group (see knit_search_group_forward, extended in a later milestone).
 knit_with_optional "group:string" "" \
     "Campaign label; recorded and forwarded into a submit/prepare line."
 # Control options. Each is parsed, type-validated, and shown in "--help", but
@@ -214,40 +214,22 @@ _knit_sweep_enumerate() {
 # ------------------------------------------------------------------------------
 # @fn _knit_sweep_scan()
 #
-# Scan a downstream token list left to right into an ordered list of axes and a
-# reconstruction template, without introspecting the downstream command. A token
-# is sweeper-handled only when it starts with "{", "[", or "@" and its preceding
-# "--option" is not named in --passthrough; every other token is literal and is
-# left in the template verbatim. Each handled token is classified:
-#
-#   - "{...}" / "[...]" / "@glob:..." / "@file:..." -> a literal axis: parsed and
-#     enumerated now into a value list (kind "literal");
-#   - "@sweep" -> a marker to sweep the parameter's declared domain, resolved in
-#     a later milestone (kind "sweep", empty value list here);
-#   - "@default" -> a marker to pin the parameter at its default (kind "default");
-#   - any other "@..." -> a fatal (unknown directive).
-#
-# An axis is named by its preceding "--option" (hyphens folded to underscores);
-# a swept positional token is named "#<index>" by its position in the downstream.
-# The "seen" map records, for every "--option" that carried a value, how the call
-# site referenced it ("explicit", "sweep", or "default"), so declared-domain
-# resolution (a later milestone) knows which parameters were specified. The
-# inline "--opt=value" form is self-contained and never swept (use the separate
-# "--opt {...}" form to sweep a value); it is recorded as "explicit".
-#
-# Output arrays are parallel: axis i is described by __knit_ret2[i] (the string
-# "<kind> <template-index> <name>") and its value list is __knit_ret3[i] (newline
-# joined; empty for a "sweep"/"default" marker). The caller MUST pass a freshly
-# declared associative array for the "seen" map.
+# Thin wrapper around knit_search_scan that adds literal-axis enumeration.
+# Delegates classification to knit_search_scan, then for each axis whose kind
+# is "literal" calls _knit_sweep_enumerate on the raw token and stores the
+# newline-joined value list in __knit_ret3. The output contract is unchanged
+# from before the refactor: __knit_ret3[i] is a newline-joined value list for
+# a "literal" axis and empty for a "sweep"/"default" marker.
 #
 # @param[out] __knit_ret1 Name of the array to receive the reconstruction
-#   template (a copy of the downstream tokens; the odometer overwrites each
-#   axis's template slot with its current value).
+#   template (a copy of the downstream tokens).
 # @param[out] __knit_ret2 Name of the array to receive the axis descriptors.
-# @param[out] __knit_ret3 Name of the array to receive the per-axis value lists.
-# @param[out] __knit_ret4 Name of the associative array to receive the seen map.
-# @param[in] passthrough_csv Comma-separated option names whose values are never
-#   treated as sweep-syntax (may be empty).
+# @param[out] __knit_ret3 Name of the array to receive the per-axis value
+#   lists (newline-joined; empty for "sweep"/"default").
+# @param[out] __knit_ret4 Name of the associative array to receive the seen
+#   map.
+# @param[in] passthrough_csv Comma-separated option names whose values are
+#   never treated as sweep-syntax (may be empty).
 # @param[in] ... The downstream tokens.
 # ------------------------------------------------------------------------------
 _knit_sweep_scan() {
@@ -257,155 +239,34 @@ _knit_sweep_scan() {
     local -n __knit_ret4=$4
     local passthrough_csv="$5"
     shift 5
-    local -a down=("$@")
 
-    __knit_ret1=("${down[@]}")
-    __knit_ret2=()
+    local -a _scan_tmpl _scan_axes _scan_raw
+    local -A _scan_seen
+    knit_search_scan _scan_tmpl _scan_axes _scan_raw _scan_seen \
+        "${passthrough_csv}" "$@"
+
+    __knit_ret1=("${_scan_tmpl[@]}")
+    __knit_ret2=("${_scan_axes[@]}")
     __knit_ret3=()
-
-    # Build the set of protected option names from --passthrough.
-    local -A pass=()
-    if [[ -n "${passthrough_csv}" ]]; then
-        local IFS=',' raw pname
-        for raw in ${passthrough_csv}; do
-            raw="${raw#"${raw%%[![:space:]]*}"}"
-            raw="${raw%"${raw##*[![:space:]]}"}"
-            [[ -z "${raw}" ]] && continue
-            _knit_name_normalize pname "${raw}"
-            pass["${pname}"]=1
-        done
-    fi
-
-    local i token prev_opt=""
-    for ((i=0; i<${#down[@]}; i++)); do
-        token="${down[i]}"
-        # An option token sets the context for the value token that follows it.
-        # The inline "--opt=value" form is self-contained (its value is never
-        # swept), and the bare "--" separator carries no value.
-        if [[ "${token}" == --* ]]; then
-            if [[ "${token}" == *=* ]]; then
-                local inline_opt
-                _knit_name_normalize inline_opt "${token#--}"
-                inline_opt="${inline_opt%%=*}"
-                [[ -n "${inline_opt}" ]] && __knit_ret4["${inline_opt}"]="explicit"
-                prev_opt=""
-            elif [[ "${token}" == "--" ]]; then
-                prev_opt=""
-            else
-                _knit_name_normalize prev_opt "${token#--}"
-            fi
-            continue
-        fi
-
-        # A value (or positional) token. It is swept only when it looks like
-        # sweep-syntax and its option is not protected by --passthrough.
-        local is_candidate="false"
-        case "${token}" in '{'*|'['*|'@'*) is_candidate="true" ;; esac
-        local protected="false"
-        [[ -n "${prev_opt}" && -v pass["${prev_opt}"] ]] && protected="true"
-
-        if [[ "${is_candidate}" == "true" && "${protected}" == "false" ]]; then
-            local akind=""
-            case "${token}" in
-                '@sweep')            akind="sweep" ;;
-                '@default')          akind="default" ;;
-                '@glob:'*|'@file:'*) akind="literal" ;;
-                '@'*)
-                    knit_fatal "Unknown sweep directive '%s' (expected @sweep, @default, @glob:<pattern>, or @file:<path>)." "${token}"
-                    ;;
-                *) akind="literal" ;;  # {...} or [...]
-            esac
-            local aname
-            if [[ -n "${prev_opt}" ]]; then aname="${prev_opt}"; else aname="#${i}"; fi
-            local joined=""
-            if [[ "${akind}" == "literal" ]]; then
-                local -a vlist
-                _knit_sweep_enumerate vlist "${token}"
-                printf -v joined '%s\n' "${vlist[@]}"
-                joined="${joined%$'\n'}"
-            fi
-            __knit_ret2+=("${akind} ${i} ${aname}")
+    local -a vlist
+    local joined i akind
+    for ((i=0; i<${#_scan_axes[@]}; i++)); do
+        akind="${_scan_axes[i]%% *}"
+        if [[ "${akind}" == "literal" ]]; then
+            _knit_sweep_enumerate vlist "${_scan_raw[i]}"
+            printf -v joined '%s\n' "${vlist[@]}"
+            joined="${joined%$'\n'}"
             __knit_ret3+=("${joined}")
-            if [[ -n "${prev_opt}" ]]; then
-                __knit_ret4["${prev_opt}"]="${akind/literal/explicit}"
-            fi
-        elif [[ -n "${prev_opt}" ]]; then
-            # A concrete value (or a protected passthrough value): the option is
-            # specified with an explicit value, so it never varies from a domain.
-            __knit_ret4["${prev_opt}"]="explicit"
+        else
+            __knit_ret3+=("")
         fi
-        prev_opt=""
+    done
+    local k
+    for k in "${!_scan_seen[@]}"; do
+        __knit_ret4["${k}"]="${_scan_seen[${k}]}"
     done
 }
 
-# ------------------------------------------------------------------------------
-# @fn _knit_sweep_resolve_target()
-#
-# Resolve the downstream target from the downstream token list: the command whose
-# parameters the sweep introspects to resolve a declared domain (@sweep /
-# --fill sweep), plus the dispatcher and target display names recorded on the
-# sweeps row. The mapping mirrors how the downstream is actually run:
-#
-#   submit|prepare ... -- <job> ...  -> submit:<job>  (prepare reuses submit's jobs)
-#   run ... -- <app> ...             -> run:<app>
-#   <command> ...                    -> the command itself (lazy-discovered, so a
-#                                       colon-nested name like "metadata store"
-#                                       resolves)
-#
-# The mangled command is empty when a submit/prepare/run line carries no job or
-# app after its inner "--" (the downstream dispatcher reports that error when the
-# line is run), so the caller can still record the dispatcher without a target.
-#
-# @param[out] __knit_ret1 Mangled command name to introspect (empty if none).
-# @param[out] __knit_ret2 Dispatcher display name (submit/prepare/run, or the
-#   command name for a bare command).
-# @param[out] __knit_ret3 Target display name (the job/app name, or the command
-#   name for a bare command).
-# @param[in] ... The downstream tokens.
-# ------------------------------------------------------------------------------
-_knit_sweep_resolve_target() {
-    local -n __knit_ret_mangled=$1
-    local -n __knit_ret_disp=$2
-    local -n __knit_ret_tgt=$3
-    shift 3
-    local -a down=("$@")
-    __knit_ret_mangled=""; __knit_ret_disp=""; __knit_ret_tgt=""
-    [[ ${#down[@]} -eq 0 ]] && return 0
-
-    local d0="${down[0]}" d0n
-    _knit_name_normalize d0n "${d0}"
-    case "${d0n}" in
-        submit|prepare|run)
-            __knit_ret_disp="${d0}"
-            local k inner=-1
-            for ((k=1; k<${#down[@]}; k++)); do
-                if [[ "${down[k]}" == "--" ]]; then inner=$((k+1)); break; fi
-            done
-            (( inner < 0 || inner >= ${#down[@]} )) && return 0
-            __knit_ret_tgt="${down[inner]}"
-            local prefix="submit"
-            [[ "${d0n}" == "run" ]] && prefix="run"
-            # Named resolved_cmd, not mangled: a caller's output variable is often
-            # named "mangled" (e.g. _knit_sweep), and an internal of that name
-            # would shadow the __knit_ret_mangled nameref (nameref-shadow-collision)
-            # so the result would never reach the caller.
-            local resolved_cmd
-            _knit_command_mangle resolved_cmd "${prefix}" "${down[inner]}"
-            __knit_ret_mangled="${resolved_cmd}"
-            ;;
-        *)
-            local resolved_cmd
-            # shellcheck disable=SC2034 # the consumed count is unused here
-            local consumed
-            _knit_resolve_command_tokens resolved_cmd consumed "${down[@]}"
-            __knit_ret_mangled="${resolved_cmd}"
-            local demangled
-            demangled=$(_knit_command_demangle "${resolved_cmd}")
-            __knit_ret_disp="${demangled}"
-            __knit_ret_tgt="${demangled}"
-            ;;
-    esac
-}
 
 # ------------------------------------------------------------------------------
 # @fn _knit_sweep_enumerate_domain()
@@ -462,7 +323,7 @@ _knit_sweep_enumerate_domain() {
 #
 # For each target parameter, the call-site classification (explicit / sweep /
 # default / unspecified, from the seen map) and the parameter's declared-domain
-# presence feed the shared _knit_search_resolve_fill precedence rule:
+# presence feed the shared knit_search_resolve_fill precedence rule:
 #   - explicit: left as the M2 scan already has it (a literal axis, or a scalar
 #     that passes through);
 #   - sweep: enumerate the declared domain (via _knit_sweep_enumerate_domain) and
@@ -526,7 +387,7 @@ _knit_sweep_resolve_domains() {
         has_domain="false"
         local dvar="_KNIT_CMD_${mangled}_2_${p}_domain"
         [[ -v "${dvar}" && -n "${!dvar}" ]] && has_domain="true"
-        _knit_search_resolve_fill resolved "${fill}" "${token}" "${has_domain}"
+        knit_search_resolve_fill resolved "${fill}" "${token}" "${has_domain}"
         case "${resolved}" in
             explicit) ;;
             default)
@@ -699,7 +560,7 @@ _knit_sweep_dimensions_json() {
 # ------------------------------------------------------------------------------
 # @fn _knit_sweep_ask()
 #
-# The sweep's "ask" callback for _knit_search_loop: yield the next cartesian
+# The sweep's "ask" callback for knit_search_loop: yield the next cartesian
 # product combination as a reconstructed downstream command line, then advance
 # the odometer cursor. Like every search proposer (see the fake proposer in
 # tests/test_search_loop.sh), it reads its state from the enclosing dispatcher
@@ -723,7 +584,7 @@ _knit_sweep_ask() {
     _knit_sweep_reconstruct reconstructed \
         template axes flat offsets counts "${cursor}"
     # shellcheck disable=SC2154
-    _knit_search_group_forward reconstructed "${group}"
+    knit_search_group_forward reconstructed "${group}"
     __knit_ret_tag="${cursor}"
     __knit_ret_argv=("${reconstructed[@]}")
     cursor=$(( cursor + 1 ))
@@ -733,7 +594,7 @@ _knit_sweep_ask() {
 # ------------------------------------------------------------------------------
 # @fn _knit_sweep_observe()
 #
-# The sweep's "observe" callback for _knit_search_loop: apply the --on-failure
+# The sweep's "observe" callback for knit_search_loop: apply the --on-failure
 # policy to one finished trial. The sweep reads no objective (it is the no-model
 # proposer), so it uses only the terminal status: under "stop" a failed child
 # aborts the campaign (return non-zero); under "continue" the whole product runs
@@ -801,7 +662,7 @@ _knit_sweep() {
     _knit_sweep_scan template axes values seen "${passthrough}" "${downstream[@]}"
     # shellcheck disable=SC2034 # dispatcher/target are recorded in M5
     local mangled dispatcher target
-    _knit_sweep_resolve_target mangled dispatcher target "${downstream[@]}"
+    knit_search_resolve_target mangled dispatcher target "${downstream[@]}"
     _knit_sweep_resolve_domains template axes values seen "${fill}" "${mangled}"
 
     # Build the odometer plan over the resolved axes.
@@ -817,7 +678,7 @@ _knit_sweep() {
         for ((idx=0; idx<total; idx++)); do
             local -a line
             _knit_sweep_reconstruct line template axes flat offsets counts "${idx}"
-            _knit_search_group_forward line "${group}"
+            knit_search_group_forward line "${group}"
             _knit_str_render_cmd line
             printf '\n'
         done
@@ -854,10 +715,10 @@ _knit_sweep() {
         for ((idx=0; idx<total; idx++)); do
             local -a line
             _knit_sweep_reconstruct line template axes flat offsets counts "${idx}"
-            _knit_search_group_forward line "${group}"
+            knit_search_group_forward line "${group}"
             # shellcheck disable=SC2034 # child row id is unused (prepare runs nothing)
             local child_id
-            _knit_search_launch child_id "${line[@]}"
+            knit_search_launch child_id "${line[@]}"
         done
         return 0
     fi
@@ -865,12 +726,12 @@ _knit_sweep() {
     # Ephemeral path: drive the shared search loop over the product, keeping up to
     # --parallel children in flight. submit is a job (poll jobs.state); run and a
     # bare command are apps (reap backgrounded children). The loop launches each
-    # reconstructed line in-process through _knit_search_launch, so every child's
+    # reconstructed line in-process through knit_search_launch, so every child's
     # "call" edge to this sweeps row is automatic.
     local mode="app"
     [[ "${d0n}" == "submit" ]] && mode="job"
     local loop_status=0
-    _knit_search_loop --mode "${mode}" --parallel "${parallel}" \
+    knit_search_loop --mode "${mode}" --parallel "${parallel}" \
         --ask _knit_sweep_ask --observe _knit_sweep_observe || loop_status=$?
     return "${loop_status}"
 }

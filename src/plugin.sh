@@ -248,7 +248,7 @@ _knit_plugin_defer() {
 _knit_plugin_install_cnf_net() {
     [[ "${_KNIT_PLUGIN_CNF_INSTALLED}" == "true" ]] && return 0
     _KNIT_PLUGIN_CNF_INSTALLED="true"
-    # shellcheck disable=SC2317 # invoked indirectly by bash as the not-found hook
+    # shellcheck disable=SC2317,SC2329 # invoked indirectly by bash as the not-found hook
     command_not_found_handle() {
         local missing="$1"
         if [[ "${missing}" == knit_* || "${missing}" == @* ]]; then

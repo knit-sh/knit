@@ -1,6 +1,6 @@
 ..
    title: Run a parameter sweep
-   categories: jobs
+   categories: jobs, search
    order: 70
    description: Run a command, job, or app once per point in a cartesian product of values with knit sweep.
    apis: sweep, submit:drain, knit_with_optional, knit_parameter_space, knit_command_parameters

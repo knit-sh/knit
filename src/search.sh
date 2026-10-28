@@ -76,7 +76,10 @@ _knit_search_parse_literal() {
     local -n __knit_ret2=$2
     local token="$3"
 
-    # shellcheck disable=SC2034 # keys are read through the caller's nameref
+    # The caller's nameref target is an associative array, which shellcheck
+    # cannot see through the nameref: it reads the [key]= entries as arithmetic
+    # indices (SC2154) and the never-read keys as unused (SC2034).
+    # shellcheck disable=SC2034,SC2154
     __knit_ret1=( [kind]="" [lo]="" [hi]="" [step]="" [glob]="" )
     __knit_ret2=()
 
@@ -134,6 +137,40 @@ _knit_search_parse_literal() {
     fi
 
     knit_fatal "'%s' is not a domain descriptor ({...}, [lo..hi], @glob:..., or @file:...)." "${token}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_search_parse_token()
+#
+# Public accessor that parses one domain descriptor token into its structured
+# form. The same grammar covers "{...}" list, "[lo..hi]" / "[lo..hi:step]"
+# range, "@glob:<pattern>" glob, and "@file:<path>" file tokens. Callers MUST
+# declare the first output as an associative array (declare -A) and the second
+# as an ordinary array. A malformed or unrecognised token is fatal.
+#
+# @param[out] __knit_ret1 Associative array to receive the descriptor scalars:
+#   keys kind (list|range|glob), lo, hi, step, glob.
+# @param[out] __knit_ret2 Indexed array to receive the list values (empty unless
+#   kind=list).
+# @param[in] token The descriptor token to parse.
+# ------------------------------------------------------------------------------
+knit_search_parse_token() {
+    # shellcheck disable=SC2178 # nameref to an assoc array
+    local -n __knit_ret1=$1
+    # shellcheck disable=SC2178 # nameref to an array
+    local -n __knit_ret2=$2
+    local tok="$3"
+    local -A __desc
+    local -a __vals
+    _knit_search_parse_literal __desc __vals "${tok}"
+    __knit_ret1=(
+        [kind]="${__desc[kind]}"
+        [lo]="${__desc[lo]}"
+        [hi]="${__desc[hi]}"
+        [step]="${__desc[step]}"
+        [glob]="${__desc[glob]}"
+    )
+    __knit_ret2=("${__vals[@]}")
 }
 
 # ------------------------------------------------------------------------------
@@ -331,7 +368,7 @@ knit_parameter_space_json() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_search_launch()
+# @fn knit_search_launch()
 #
 # Launch one tracked trial: invoke a fully-substituted downstream knit command
 # line in-process, through the normal entry path, and return the child's
@@ -358,11 +395,11 @@ knit_parameter_space_json() {
 # @param[in] ... The downstream knit command line (command and its arguments).
 # @return The exit status of the downstream invocation.
 # ------------------------------------------------------------------------------
-_knit_search_launch() {
+knit_search_launch() {
     local -n __knit_ret=$1
     shift
     if [[ $# -eq 0 ]]; then
-        knit_fatal "_knit_search_launch requires a downstream command line."
+        knit_fatal "knit_search_launch requires a downstream command line."
     fi
     __knit_ret=""
     # Clear first so we pick up only an id the child itself recorded (it stays
@@ -372,6 +409,87 @@ _knit_search_launch() {
     _knit_invoke_command "$@" || launch_status=$?
     __knit_ret="${_KNIT_LAST_ROW_ID}"
     return "${launch_status}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_search_read_objective()
+#
+# Read one finished trial's objective value from the database, given the trial's
+# recorded child row id (as returned by knit_search_launch) and the table/column
+# that holds the objective. A trial is a chain of recorded rows linked by
+# "call" edges in the provenance table: the launch id is the outer dispatcher's
+# row (the jobs row for "submit", the runs row for "run"), while the objective is
+# usually written by a descendant (the job body's row, the app's row). This
+# function resolves the objective row by walking "call" edges breadth-first from
+# the child id until it reaches a row that exists in the named table, then reads
+# the named column from that row.
+#
+# The child id itself is tried first, so an objective recorded directly in the
+# dispatcher's own table (no descendant) is read without a walk. The caller owns
+# the policy of which table and column hold the objective (e.g. the Bayesian
+# optimizer's leaf-first chain walk over declared outputs); this function owns
+# only the generic row resolution and point read.
+#
+# Trust contract: only the id is SQL-escaped; table and column are interpolated
+# into the query verbatim. They are expected to be registration-derived names
+# (e.g. from knit_command_table and knit_output_type), the same trust knit places
+# in table names throughout db.sh — do NOT pass an end-user string here.
+#
+# A missing objective row (no reachable row in the table) and a NULL/empty
+# objective column (a crashed trial that recorded no value) are both reported as
+# failure: the output is cleared and the return status is non-zero, so the caller
+# can apply its failure policy.
+#
+# @param[out] __knit_ret The objective value (empty on failure).
+# @param[in] child_id The trial's recorded child row id (from knit_search_launch).
+# @param[in] table The table that holds the objective column.
+# @param[in] column The objective column name.
+# @return 0 when a non-empty objective value was read, 1 otherwise.
+# ------------------------------------------------------------------------------
+knit_search_read_objective() {
+    local -n __knit_ret=$1
+    local child_id="$2" table="$3" column="$4"
+    __knit_ret=""
+    [[ -z "${child_id}" || -z "${table}" || -z "${column}" ]] && return 1
+
+    # Breadth-first walk over "call" edges from the child id. The provenance call
+    # edges form a tree (each invocation has one caller), so a visited set and a
+    # depth bound only guard against unexpected shapes.
+    local -a frontier=("${child_id}")
+    local -A visited=()
+    local depth=0 max_depth=64
+    local -a next
+    local id esc exists targets target
+    while [[ ${#frontier[@]} -gt 0 && ${depth} -lt ${max_depth} ]]; do
+        next=()
+        for id in "${frontier[@]}"; do
+            [[ -v visited["${id}"] ]] && continue
+            visited["${id}"]=1
+            _knit_sql_escape esc "${id}"
+            # A row with this id in the objective table ends the walk: read the
+            # column (which may itself be NULL -> reported as failure below).
+            exists="$(_knit_sqlite3 \
+                "SELECT 1 FROM ${table} WHERE id='${esc}' LIMIT 1;" 2>/dev/null)" \
+                || exists=""
+            if [[ -n "${exists}" ]]; then
+                __knit_ret="$(_knit_sqlite3 \
+                    "SELECT ${column} FROM ${table} WHERE id='${esc}';" \
+                    2>/dev/null)" || __knit_ret=""
+                [[ -n "${__knit_ret}" ]] && return 0
+                return 1
+            fi
+            # Not in the table: enqueue this id's call-edge targets.
+            targets="$(_knit_sqlite3 \
+                "SELECT target_id FROM ${_KNIT_PROV_TABLE} WHERE source_id='${esc}' AND edge_type='call';" \
+                2>/dev/null)" || targets=""
+            while IFS= read -r target; do
+                [[ -n "${target}" ]] && next+=("${target}")
+            done <<< "${targets}"
+        done
+        frontier=("${next[@]}")
+        depth=$(( depth + 1 ))
+    done
+    return 1
 }
 
 # ------------------------------------------------------------------------------
@@ -468,10 +586,17 @@ _knit_search_loop_job() {
             fi
             _knit_loop_tag=""; _knit_loop_argv=()
             if ! "${ask_fn}" _knit_loop_tag _knit_loop_argv; then
-                stop_launching=1; break
+                # The proposer offered no trial right now. This is NOT a
+                # permanent stop: a parallel proposer (e.g. Ax in its model
+                # phase) declines while trials are still in flight and proposes
+                # again once their results arrive. Stop filling this round only;
+                # the loop then waits for a completion and re-asks. Genuine
+                # exhaustion is caught below: when nothing is in flight and the
+                # ask still yields nothing, the inflight==0 guard ends the loop.
+                break
             fi
             _knit_loop_uuid=""
-            _knit_search_launch _knit_loop_uuid "${_knit_loop_argv[@]}"
+            knit_search_launch _knit_loop_uuid "${_knit_loop_argv[@]}"
             launched=$(( launched + 1 ))
             if [[ -n "${_knit_loop_uuid}" ]]; then
                 inflight["${_knit_loop_uuid}"]="${_knit_loop_tag}"
@@ -533,7 +658,11 @@ _knit_search_loop_app() {
             fi
             _knit_loop_tag=""; _knit_loop_argv=()
             if ! "${ask_fn}" _knit_loop_tag _knit_loop_argv; then
-                stop_launching=1; break
+                # Soft stop for this round only, not a permanent one: a parallel
+                # proposer may decline while trials are in flight and propose
+                # again after their results arrive (see _knit_search_loop_job).
+                # The pid_tag==0 guard below ends the loop on genuine exhaustion.
+                break
             fi
             local tmpf
             tmpf="$(mktemp)"
@@ -542,7 +671,7 @@ _knit_search_loop_app() {
             # recovers both from the background job.
             (
                 _knit_loop_child_uuid=""
-                _knit_search_launch _knit_loop_child_uuid "${_knit_loop_argv[@]}"
+                knit_search_launch _knit_loop_child_uuid "${_knit_loop_argv[@]}"
                 _knit_loop_child_status=$?
                 printf '%s' "${_knit_loop_child_uuid}" > "${tmpf}"
                 exit "${_knit_loop_child_status}"
@@ -577,10 +706,10 @@ _knit_search_loop_app() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_search_loop()
+# @fn knit_search_loop()
 #
 # The shared search loop: drive a proposer over a budget of trials, keeping up to
-# --parallel in flight, launching each through _knit_search_launch and detecting
+# --parallel in flight, launching each through knit_search_launch and detecting
 # completion by the chosen mode. It owns budget accounting, in-flight tracking,
 # completion detection, and routing a finished trial's outcome to the proposer;
 # the proposer (the ask/observe callbacks) owns which assignment runs next and
@@ -589,7 +718,7 @@ _knit_search_loop_app() {
 #
 # The proposer is two callbacks. ask yields the next trial, returning the
 # proposer's opaque tag and the fully-substituted downstream command line (the
-# argv _knit_search_launch runs); it returns non-zero when it has no more trials.
+# argv knit_search_launch runs); it returns non-zero when it has no more trials.
 # observe is told each finished trial's tag, child row id, terminal status, and
 # objective, and returns non-zero to abort the campaign (how a failure maps to an
 # abort is the proposer's policy). The optional collector reads one finished
@@ -605,7 +734,7 @@ _knit_search_loop_app() {
 #   default _KNIT_SCHED_POLL_INTERVAL).
 # @return 0 on a completed campaign, 1 when the proposer aborted it.
 # ------------------------------------------------------------------------------
-_knit_search_loop() {
+knit_search_loop() {
     local mode="" parallel="1" budget="" poll="${_KNIT_SCHED_POLL_INTERVAL}"
     local ask_fn="" observe_fn="" collect_fn=""
     while [[ $# -gt 0 ]]; do
@@ -617,21 +746,21 @@ _knit_search_loop() {
             --ask)      ask_fn="$2";     shift 2 ;;
             --observe)  observe_fn="$2"; shift 2 ;;
             --collect)  collect_fn="$2"; shift 2 ;;
-            *) knit_fatal "_knit_search_loop: unknown option '%s'." "$1" ;;
+            *) knit_fatal "knit_search_loop: unknown option '%s'." "$1" ;;
         esac
     done
 
     case "${mode}" in
         job|app) ;;
-        *) knit_fatal "_knit_search_loop requires --mode job|app (got '%s')." "${mode}" ;;
+        *) knit_fatal "knit_search_loop requires --mode job|app (got '%s')." "${mode}" ;;
     esac
-    [[ -n "${ask_fn}" ]] || knit_fatal "_knit_search_loop requires --ask <function>."
-    [[ -n "${observe_fn}" ]] || knit_fatal "_knit_search_loop requires --observe <function>."
+    [[ -n "${ask_fn}" ]] || knit_fatal "knit_search_loop requires --ask <function>."
+    [[ -n "${observe_fn}" ]] || knit_fatal "knit_search_loop requires --observe <function>."
     if ! [[ "${parallel}" =~ ^[0-9]+$ ]] || (( parallel < 1 )); then
-        knit_fatal "_knit_search_loop --parallel must be a positive integer (got '%s')." "${parallel}"
+        knit_fatal "knit_search_loop --parallel must be a positive integer (got '%s')." "${parallel}"
     fi
     if [[ -n "${budget}" ]] && ! [[ "${budget}" =~ ^[0-9]+$ ]]; then
-        knit_fatal "_knit_search_loop --budget must be a non-negative integer (got '%s')." "${budget}"
+        knit_fatal "knit_search_loop --budget must be a non-negative integer (got '%s')." "${budget}"
     fi
 
     if [[ "${mode}" == "job" ]]; then
@@ -644,7 +773,7 @@ _knit_search_loop() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_search_resolve_fill()
+# @fn knit_search_resolve_fill()
 #
 # Resolve, for one parameter, whether it varies in the campaign and from where.
 # This is the shared "Which parameters vary" rule that both proposers reuse (each
@@ -674,12 +803,12 @@ _knit_search_loop() {
 # @param[in] has_domain "true" if the parameter has a declared domain, else
 #   "false".
 # ------------------------------------------------------------------------------
-_knit_search_resolve_fill() {
+knit_search_resolve_fill() {
     local -n __knit_ret=$1
     local fill="$2" token="$3" has_domain="$4"
     case "${fill}" in
         default|sweep) ;;
-        *) knit_fatal "_knit_search_resolve_fill: --fill must be default or sweep (got '%s')." "${fill}" ;;
+        *) knit_fatal "knit_search_resolve_fill: --fill must be default or sweep (got '%s')." "${fill}" ;;
     esac
     case "${token}" in
         explicit) __knit_ret="explicit" ;;
@@ -692,12 +821,135 @@ _knit_search_resolve_fill() {
                 __knit_ret="default"
             fi
             ;;
-        *) knit_fatal "_knit_search_resolve_fill: unknown token classification '%s'." "${token}" ;;
+        *) knit_fatal "knit_search_resolve_fill: unknown token classification '%s'." "${token}" ;;
     esac
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_search_group_forward()
+# @fn knit_search_scan()
+#
+# Classify a downstream token list left to right into an ordered list of axes
+# and a reconstruction template, without introspecting the downstream command
+# and without enumerating literal axes. A token is handled only when it starts
+# with "{", "[", or "@" and its preceding "--option" is not named in
+# --passthrough; every other token is literal and is placed in the template
+# verbatim. Each handled token is classified:
+#
+#   - "{...}" / "[...]" / "@glob:..." / "@file:..." -> kind "literal";
+#   - "@sweep" -> a marker to sweep the declared domain (kind "sweep");
+#   - "@default" -> a marker to pin at the default (kind "default");
+#   - any other "@..." -> a fatal (unknown directive).
+#
+# An axis is named by its preceding "--option" (hyphens folded to underscores);
+# a swept positional token is named "#<index>" by its position in the
+# downstream. The "seen" map records, for every "--option" that carried a
+# value, how the call site referenced it ("explicit", "sweep", or "default");
+# a literal axis folds to "explicit". The inline "--opt=value" form is
+# self-contained and recorded as "explicit". All four outputs are reset on
+# entry, so the "seen" map need not be empty, but it MUST be declared as an
+# associative array (declare -A).
+#
+# Unlike _knit_sweep_scan, this function stores the verbatim token text (not
+# an enumerated value list) in rawtokens-out for literal axes. Callers that
+# need the enumerated list enumerate each raw token themselves.
+#
+# @param[out] __knit_ret1 Name of the array to receive the reconstruction
+#   template (a copy of the downstream tokens).
+# @param[out] __knit_ret2 Name of the array to receive the axis descriptors,
+#   each the string "<kind> <slot> <name>".
+# @param[out] __knit_ret3 Name of the array to receive per-axis raw tokens:
+#   the verbatim token text for a "literal" axis, empty for "sweep"/"default".
+# @param[out] __knit_ret4 Name of the associative array to receive the seen
+#   map (option -> "explicit"|"sweep"|"default").
+# @param[in] passthrough_csv Comma-separated option names whose values are
+#   never treated as sweep-syntax (may be empty).
+# @param[in] ... The downstream tokens.
+# ------------------------------------------------------------------------------
+knit_search_scan() {
+    # shellcheck disable=SC2178 # nameref to an array
+    local -n __knit_ret1=$1
+    # shellcheck disable=SC2178 # nameref to an array
+    local -n __knit_ret2=$2
+    # shellcheck disable=SC2178 # nameref to an array
+    local -n __knit_ret3=$3
+    # shellcheck disable=SC2178 # nameref to an associative array
+    local -n __knit_ret4=$4
+    local passthrough_csv="$5"
+    shift 5
+    local -a down=("$@")
+
+    __knit_ret1=("${down[@]}")
+    __knit_ret2=()
+    __knit_ret3=()
+    # Reset the seen map too, so all four outputs are cleared for the caller
+    # (clearing a nameref to an associative array keeps its -A attribute).
+    # shellcheck disable=SC2178 # nameref to an associative array
+    __knit_ret4=()
+
+    local -A pass=()
+    if [[ -n "${passthrough_csv}" ]]; then
+        local IFS=',' _pt_entry _pt_norm
+        for _pt_entry in ${passthrough_csv}; do
+            _pt_entry="${_pt_entry#"${_pt_entry%%[![:space:]]*}"}"
+            _pt_entry="${_pt_entry%"${_pt_entry##*[![:space:]]}"}"
+            [[ -z "${_pt_entry}" ]] && continue
+            _knit_name_normalize _pt_norm "${_pt_entry}"
+            pass["${_pt_norm}"]=1
+        done
+    fi
+
+    local _tok _prev_opt="" _akind _aname _rawtoken _inline_opt
+    local _is_candidate _protected
+    local _idx
+    for ((_idx=0; _idx<${#down[@]}; _idx++)); do
+        _tok="${down[_idx]}"
+        if [[ "${_tok}" == --* ]]; then
+            if [[ "${_tok}" == *=* ]]; then
+                _knit_name_normalize _inline_opt "${_tok#--}"
+                _inline_opt="${_inline_opt%%=*}"
+                [[ -n "${_inline_opt}" ]] && __knit_ret4["${_inline_opt}"]="explicit"
+                _prev_opt=""
+            elif [[ "${_tok}" == "--" ]]; then
+                _prev_opt=""
+            else
+                _knit_name_normalize _prev_opt "${_tok#--}"
+            fi
+            continue
+        fi
+
+        _is_candidate="false"
+        case "${_tok}" in '{'*|'['*|'@'*) _is_candidate="true" ;; esac
+        _protected="false"
+        [[ -n "${_prev_opt}" && -v pass["${_prev_opt}"] ]] && _protected="true"
+
+        if [[ "${_is_candidate}" == "true" && "${_protected}" == "false" ]]; then
+            _akind=""
+            case "${_tok}" in
+                '@sweep')            _akind="sweep" ;;
+                '@default')          _akind="default" ;;
+                '@glob:'*|'@file:'*) _akind="literal" ;;
+                '@'*)
+                    knit_fatal "Unknown sweep directive '%s' (expected @sweep, @default, @glob:<pattern>, or @file:<path>)." "${_tok}"
+                    ;;
+                *) _akind="literal" ;;
+            esac
+            if [[ -n "${_prev_opt}" ]]; then _aname="${_prev_opt}"; else _aname="#${_idx}"; fi
+            _rawtoken=""
+            [[ "${_akind}" == "literal" ]] && _rawtoken="${_tok}"
+            __knit_ret2+=("${_akind} ${_idx} ${_aname}")
+            __knit_ret3+=("${_rawtoken}")
+            if [[ -n "${_prev_opt}" ]]; then
+                __knit_ret4["${_prev_opt}"]="${_akind/literal/explicit}"
+            fi
+        elif [[ -n "${_prev_opt}" ]]; then
+            __knit_ret4["${_prev_opt}"]="explicit"
+        fi
+        _prev_opt=""
+    done
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_search_group_forward()
 #
 # Forward a campaign --group label into one trial's downstream command line, in
 # place, so a job trial lands in the existing jobs.group column (which makes
@@ -715,7 +967,7 @@ _knit_search_resolve_fill() {
 # @param[in,out] __knit_argv Name of the array holding the downstream argv.
 # @param[in] group The campaign group label (empty to leave the line unchanged).
 # ------------------------------------------------------------------------------
-_knit_search_group_forward() {
+knit_search_group_forward() {
     local -n __knit_argv=$1
     local group="$2"
     [[ -z "${group}" ]] && return 0
@@ -724,4 +976,83 @@ _knit_search_group_forward() {
         *) return 0 ;;
     esac
     __knit_argv=( "${__knit_argv[0]}" "--group" "${group}" "${__knit_argv[@]:1}" )
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_search_resolve_target()
+#
+# Resolve the downstream target from the downstream token list: the command
+# whose parameters a search proposer introspects (to resolve declared domains
+# or @sweep markers), plus the dispatcher and target display names. The mapping
+# mirrors how the downstream is actually run:
+#
+#   submit|prepare ... -- <job> ...  -> submit:<job>
+#   run ... -- <app> ...             -> run:<app>
+#   <command> ...                    -> the command itself
+#
+# The mangled command is empty when a submit/prepare/run line carries no job or
+# app after its inner "--" (the downstream dispatcher reports the error when the
+# line is actually run), so the caller can still record the dispatcher name.
+#
+# @param[out] __knit_ret1 Mangled command name to introspect (empty if none).
+# @param[out] __knit_ret2 Dispatcher display name (submit/prepare/run, or the
+#   command name for a bare command).
+# @param[out] __knit_ret3 Target display name (the job/app name, or the command
+#   name for a bare command).
+# @param[in] ... The downstream tokens.
+# ------------------------------------------------------------------------------
+knit_search_resolve_target() {
+    # shellcheck disable=SC2178 # scalar nameref outputs, not arrays
+    local -n __knit_ret1=$1
+    # shellcheck disable=SC2178
+    local -n __knit_ret2=$2
+    # shellcheck disable=SC2178
+    local -n __knit_ret3=$3
+    shift 3
+    local -a down=("$@")
+    # shellcheck disable=SC2178 # scalar nameref outputs, not arrays
+    __knit_ret1=""
+    # shellcheck disable=SC2178
+    __knit_ret2=""
+    # shellcheck disable=SC2178
+    __knit_ret3=""
+    [[ ${#down[@]} -eq 0 ]] && return 0
+
+    local d0="${down[0]}" __d0n
+    _knit_name_normalize __d0n "${d0}"
+    case "${__d0n}" in
+        submit|prepare|run)
+            # shellcheck disable=SC2178
+            __knit_ret2="${d0}"
+            local k inner=-1
+            for ((k=1; k<${#down[@]}; k++)); do
+                if [[ "${down[k]}" == "--" ]]; then
+                    inner=$((k+1)); break
+                fi
+            done
+            (( inner < 0 || inner >= ${#down[@]} )) && return 0
+            # shellcheck disable=SC2178
+            __knit_ret3="${down[inner]}"
+            local prefix="submit"
+            [[ "${__d0n}" == "run" ]] && prefix="run"
+            local __cmd
+            _knit_command_mangle __cmd "${prefix}" "${down[inner]}"
+            # shellcheck disable=SC2178
+            __knit_ret1="${__cmd}"
+            ;;
+        *)
+            local __cmd __consumed
+            # shellcheck disable=SC2034 # consumed count unused here
+            _knit_resolve_command_tokens \
+                __cmd __consumed "${down[@]}"
+            # shellcheck disable=SC2178
+            __knit_ret1="${__cmd}"
+            local demangled
+            demangled=$(_knit_command_demangle "${__cmd}")
+            # shellcheck disable=SC2178
+            __knit_ret2="${demangled}"
+            # shellcheck disable=SC2178
+            __knit_ret3="${demangled}"
+            ;;
+    esac
 }

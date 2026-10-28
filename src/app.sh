@@ -196,7 +196,7 @@ _knit_run() {
     # runs in the job's directory, so there is no run directory to create.
     local uuid
     uuid=$(_knit_uuidv7)
-    _knit_set_row_id "${uuid}"
+    knit_set_row_id "${uuid}"
     knit_output "app" "${app_name}"
 
     # Resolve the launcher backend (per-run --launcher override -> concrete
@@ -229,7 +229,7 @@ _knit_run() {
     # this row.
     _knit_record_row_now "$@"
     if _knit_is_bootstrapped; then
-        _knit_db_update_row "${_KNIT_RUNS_TABLE}" "${uuid}" \
+        knit_db_update_row "${_KNIT_RUNS_TABLE}" "${uuid}" \
             "procs=${launch_opts["procs"]}" \
             "procs-per-node=${launch_opts["procs-per-node"]}" \
             "hostnames=${launch_opts["hostnames"]}" \
@@ -364,7 +364,7 @@ _knit_run_record_exit_status() {
     local uuid="$1"
     local exit_status="$2"
     _knit_is_bootstrapped || return 0
-    _knit_db_update_row "${_KNIT_RUNS_TABLE}" "${uuid}" "__exit_status__=${exit_status}"
+    knit_db_update_row "${_KNIT_RUNS_TABLE}" "${uuid}" "__exit_status__=${exit_status}"
 }
 
 # ------------------------------------------------------------------------------
@@ -622,7 +622,7 @@ _knit_run_checksum_outputs() {
         _knit_checksum_require_exists "${display}" output "${param}" "${kind}" "${value}"
         local hex
         _knit_sha256 hex "${value}"
-        _knit_db_update_row "${app_name}" "${row_id}" "${param}_checksum=sha256:${hex}"
+        knit_db_update_row "${app_name}" "${row_id}" "${param}_checksum=sha256:${hex}"
     done < <(_knit_set_iter "_KNIT_CMD_${subcmd}_fileparams")
 }
 

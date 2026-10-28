@@ -530,18 +530,20 @@ EOF
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_db_update_row()
+# @fn knit_db_update_row()
 #
 # Update columns of an existing row, identified by its "id". Each assignment is
 # a "column=value" string; the column is a knit name (normalized to underscores
 # to match the schema). Used to record later state transitions of a recorded
-# invocation (e.g. a job moving to "completed").
+# invocation (e.g. a job moving to "completed", or a plugin driving a long-running
+# campaign row to its final status and best result). Public: the stable surface
+# for a cross-invocation row update.
 #
 # @param[in] table Table to update.
 # @param[in] id    Value of the "id" column identifying the row.
 # @param[in] ...   One or more "column=value" assignments.
 # ------------------------------------------------------------------------------
-_knit_db_update_row() {
+knit_db_update_row() {
     local table="$1"
     local id="$2"
     shift 2

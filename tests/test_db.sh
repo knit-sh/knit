@@ -448,10 +448,10 @@ __test_register_cmd() {
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM escs;")" = "it's here" ]
 }
 
-@test "recording honours an explicit row id set with _knit_set_row_id" {
+@test "recording honours an explicit row id set with knit_set_row_id" {
     knit_register "idcmd" _t_id_fn "Id."
     knit_with_table "ids"
-    _t_id_fn() { _knit_set_row_id "11111111-1111-7111-8111-111111111111"; }
+    _t_id_fn() { knit_set_row_id "11111111-1111-7111-8111-111111111111"; }
     knit_done
 
     _knit_invoke_command "idcmd"
@@ -563,26 +563,38 @@ __test_register_cmd() {
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM atoms_t;")" -eq 0 ]
 }
 
-# ---------- _knit_db_update_row ----------
+# ---------- knit_db_update_row ----------
 
-@test "_knit_db_update_row updates a column by id" {
+@test "knit_db_update_row updates a column by id" {
     _knit_db_create_table "upd" "id:uuid" "state:string"
     sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO upd (id, state) VALUES ('abc', 'submitted');"
 
-    _knit_db_update_row "upd" "abc" "state=completed"
+    knit_db_update_row "upd" "abc" "state=completed"
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT state FROM upd WHERE id='abc';")" \
         = "completed" ]
 }
 
-@test "_knit_db_update_row normalizes hyphenated column names" {
+@test "knit_db_update_row normalizes hyphenated column names" {
     _knit_db_create_table "upd2" "id:uuid" "job-name:string"
     sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO upd2 (id, job_name) VALUES ('abc', 'old');"
 
-    _knit_db_update_row "upd2" "abc" "job-name=new"
+    knit_db_update_row "upd2" "abc" "job-name=new"
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT job_name FROM upd2 WHERE id='abc';")" \
         = "new" ]
+}
+
+@test "knit_db_update_row updates several columns at once" {
+    _knit_db_create_table "upd3" "id:uuid" "status:string" "best:string"
+    sqlite3 "${_KNIT_DATABASE}" \
+        "INSERT INTO upd3 (id, status, best) VALUES ('c1', 'running', '');"
+
+    knit_db_update_row "upd3" "c1" "status=completed" "best=0.07"
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT status FROM upd3 WHERE id='c1';")" \
+        = "completed" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT best FROM upd3 WHERE id='c1';")" \
+        = "0.07" ]
 }
 
 # ---------- concurrency ----------
@@ -616,7 +628,7 @@ __test_register_cmd() {
 
     local n=10 i
     for (( i = 0; i < n; i++ )); do
-        _knit_db_update_row "runs" "j" "state=s-${i}" &
+        knit_db_update_row "runs" "j" "state=s-${i}" &
     done
     wait
 

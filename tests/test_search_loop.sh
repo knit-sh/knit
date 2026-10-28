@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# search-core M6: _knit_search_loop drives a proposer over a budget of trials,
+# search-core M6: knit_search_loop drives a proposer over a budget of trials,
 # keeps up to --parallel in flight, detects completion (job mode via jobs.state,
 # app mode via wait -n), runs the optional collector, and routes a finished
 # trial's outcome to the proposer's observe callback (whose return value is the
@@ -79,9 +79,9 @@ _stub_launch_done() {
 
 @test "job mode runs every trial and fires the collector when given" {
     __fake_total=3
-    _knit_search_launch() { _stub_launch_done "$@"; }
+    knit_search_launch() { _stub_launch_done "$@"; }
 
-    run _knit_search_loop --mode job --parallel 2 \
+    run knit_search_loop --mode job --parallel 2 \
         --ask _fake_ask --observe _fake_observe --collect _fake_collect
     [ "$status" -eq 0 ]
     # Every trial was observed, each as completed with its collected objective.
@@ -93,9 +93,9 @@ _stub_launch_done() {
 
 @test "job mode omits the objective when no collector is given" {
     __fake_total=2
-    _knit_search_launch() { _stub_launch_done "$@"; }
+    knit_search_launch() { _stub_launch_done "$@"; }
 
-    run _knit_search_loop --mode job --parallel 2 \
+    run knit_search_loop --mode job --parallel 2 \
         --ask _fake_ask --observe _fake_observe
     [ "$status" -eq 0 ]
     [ "$(wc -l < "${OBS_LOG}")" -eq 2 ]
@@ -110,9 +110,9 @@ _stub_launch_done() {
     __fake_total=5
     __fake_policy="stop"
     __fake_fail_n=2
-    _knit_search_launch() { _stub_launch_done "$@"; }
+    knit_search_launch() { _stub_launch_done "$@"; }
 
-    run _knit_search_loop --mode job --parallel 1 \
+    run knit_search_loop --mode job --parallel 1 \
         --ask _fake_ask --observe _fake_observe
     # The loop reports the abort...
     [ "$status" -eq 1 ]
@@ -125,9 +125,9 @@ _stub_launch_done() {
     __fake_total=5
     __fake_policy="continue"
     __fake_fail_n=2
-    _knit_search_launch() { _stub_launch_done "$@"; }
+    knit_search_launch() { _stub_launch_done "$@"; }
 
-    run _knit_search_loop --mode job --parallel 1 \
+    run knit_search_loop --mode job --parallel 1 \
         --ask _fake_ask --observe _fake_observe
     [ "$status" -eq 0 ]
     # All five ran despite the failure; exactly one was failed.
@@ -142,7 +142,7 @@ _stub_launch_done() {
     # Launch records a non-terminal "running" row and logs how many are running
     # (a deterministic in-flight gauge, since job mode manages the set between
     # polls with no real concurrency).
-    _knit_search_launch() {
+    knit_search_launch() {
         local -n _u=$1; shift
         local n="$3"
         local uuid="job-${n}"
@@ -162,7 +162,7 @@ _stub_launch_done() {
             "UPDATE jobs SET state='completed' WHERE id='${one}';"
     }
 
-    run _knit_search_loop --mode job --parallel 2 --poll 0 \
+    run knit_search_loop --mode job --parallel 2 --poll 0 \
         --ask _fake_ask --observe _fake_observe
     [ "$status" -eq 0 ]
     # Every trial was observed.
@@ -173,20 +173,58 @@ _stub_launch_done() {
     [ "${maxc}" -eq 2 ]
 }
 
+# ---------- a proposer that declines mid-flight still finishes (job mode) ----------
+
+# Regression: in parallel mode the loop used to treat a single declined ask as a
+# permanent stop, so a model-based proposer (e.g. Ax) that declines while trials
+# are in flight and proposes again once their results arrive ended the campaign
+# early. The loop must keep going until the proposer is genuinely exhausted.
+@test "job mode: a proposer that declines while trials are in flight still runs them all" {
+    __fake_total=6
+    __fake_launched=0
+    __fake_observed=0
+    # Pausing proposer: yields the next trial only when no launched trial is
+    # still awaiting its result (launched == observed); otherwise it declines.
+    # This mimics Ax pausing during its model phase while trials are pending.
+    _pausing_ask() {
+        local -n _t=$1
+        local -n _a=$2
+        (( __fake_launched >= __fake_total )) && return 1
+        (( __fake_launched > __fake_observed )) && return 1
+        __fake_launched=$(( __fake_launched + 1 ))
+        _t="trial-${__fake_launched}"
+        _a=( cmd --n "${__fake_launched}" )
+        return 0
+    }
+    _counting_observe() {
+        local tag="$1" uuid="$2" status="$3" objective="$4"
+        __fake_observed=$(( __fake_observed + 1 ))
+        printf '%s %s %s %s\n' "${tag}" "${uuid}" "${status}" "${objective}" >> "${OBS_LOG}"
+        return 0
+    }
+    knit_search_launch() { _stub_launch_done "$@"; }
+
+    run knit_search_loop --mode job --parallel 4 --poll 0 \
+        --ask _pausing_ask --observe _counting_observe
+    [ "$status" -eq 0 ]
+    # All six trials ran despite the proposer declining after every launch.
+    [ "$(wc -l < "${OBS_LOG}")" -eq 6 ]
+}
+
 # ---------- app mode reaps PIDs with wait -n ----------
 
 @test "app mode reaps every backgrounded run and observes its status" {
     __fake_total=4
     # Stub a blocking run: set the child id and return success (the loop
     # backgrounds this and reaps it via wait -n).
-    _knit_search_launch() {
+    knit_search_launch() {
         local -n _u=$1; shift
         local n="$3"
         _u="app-${n}"
         return 0
     }
 
-    run _knit_search_loop --mode app --parallel 2 \
+    run knit_search_loop --mode app --parallel 2 \
         --ask _fake_ask --observe _fake_observe
     [ "$status" -eq 0 ]
     [ "$(wc -l < "${OBS_LOG}")" -eq 4 ]
@@ -195,15 +233,48 @@ _stub_launch_done() {
     [ "$(grep -c ' app-' "${OBS_LOG}")" -eq 4 ]
 }
 
+@test "app mode: a proposer that declines while runs are in flight still runs them all" {
+    __fake_total=5
+    __fake_launched=0
+    __fake_observed=0
+    _pausing_ask() {
+        local -n _t=$1
+        local -n _a=$2
+        (( __fake_launched >= __fake_total )) && return 1
+        (( __fake_launched > __fake_observed )) && return 1
+        __fake_launched=$(( __fake_launched + 1 ))
+        _t="trial-${__fake_launched}"
+        _a=( cmd --n "${__fake_launched}" )
+        return 0
+    }
+    _counting_observe() {
+        local tag="$1" uuid="$2" status="$3" objective="$4"
+        __fake_observed=$(( __fake_observed + 1 ))
+        printf '%s %s %s %s\n' "${tag}" "${uuid}" "${status}" "${objective}" >> "${OBS_LOG}"
+        return 0
+    }
+    knit_search_launch() {
+        local -n _u=$1; shift
+        local n="$3"
+        _u="app-${n}"
+        return 0
+    }
+
+    run knit_search_loop --mode app --parallel 4 \
+        --ask _pausing_ask --observe _counting_observe
+    [ "$status" -eq 0 ]
+    [ "$(wc -l < "${OBS_LOG}")" -eq 5 ]
+}
+
 @test "app mode marks a non-zero run as failed" {
     __fake_total=1
-    _knit_search_launch() {
+    knit_search_launch() {
         local -n _u=$1; shift
         _u="app-x"
         return 3
     }
 
-    run _knit_search_loop --mode app --parallel 1 \
+    run knit_search_loop --mode app --parallel 1 \
         --ask _fake_ask --observe _fake_observe
     [ "$status" -eq 0 ]
     [ "$(grep -c ' failed $' "${OBS_LOG}")" -eq 1 ]
@@ -212,20 +283,20 @@ _stub_launch_done() {
 # ---------- option validation ----------
 
 @test "loop rejects a missing mode" {
-    run _knit_search_loop --ask _fake_ask --observe _fake_observe
+    run knit_search_loop --ask _fake_ask --observe _fake_observe
     [ "$status" -eq 1 ]
     [[ "$output" == *"--mode"* ]]
 }
 
 @test "loop rejects a non-positive --parallel" {
-    run _knit_search_loop --mode job --parallel 0 \
+    run knit_search_loop --mode job --parallel 0 \
         --ask _fake_ask --observe _fake_observe
     [ "$status" -eq 1 ]
     [[ "$output" == *"parallel"* ]]
 }
 
 @test "loop rejects an unknown option" {
-    run _knit_search_loop --mode job --bogus x \
+    run knit_search_loop --mode job --bogus x \
         --ask _fake_ask --observe _fake_observe
     [ "$status" -eq 1 ]
     [[ "$output" == *"unknown option"* ]]

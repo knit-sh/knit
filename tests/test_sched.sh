@@ -86,7 +86,7 @@ _use_profile() {
 
     # _knit_submit is normally reached via _knit_invoke_command; when calling it
     # directly, provide the executing-command context that its knit_output /
-    # _knit_set_row_id calls require.
+    # knit_set_row_id calls require.
     _KNIT_EXECUTING_COMMAND=("submit")
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     _knit_submit --setup "setup" -- myjob
@@ -116,7 +116,7 @@ _use_profile() {
 
     # _knit_submit is normally reached via _knit_invoke_command; when calling it
     # directly, provide the executing-command context that its knit_output /
-    # _knit_set_row_id calls require.
+    # knit_set_row_id calls require.
     _KNIT_EXECUTING_COMMAND=("submit")
     _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
     _knit_submit --setup "setup" -- myjob

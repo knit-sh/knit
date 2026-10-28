@@ -30,7 +30,7 @@ declare -ga _KNIT_EXECUTING_COMMAND=()
 # the id that frame i's invocation will record. The id is resolved when the frame
 # is pushed (so a nested callee can read its caller's id while the caller's body
 # still runs) and read back by _knit_record_invocation, so the id a callee saw as
-# its edge source is exactly the id the caller records. _knit_set_row_id updates
+# its edge source is exactly the id the caller records. knit_set_row_id updates
 # the top entry so an explicit id and the recorded id never diverge.
 # ------------------------------------------------------------------------------
 declare -ga _KNIT_EXECUTING_ROW_ID=()
@@ -597,6 +597,66 @@ knit_command_parameters() {
         _knit_set_array __knit_tmp "_KNIT_CMD_${cmd}_${category}"
         __knit_ret_params+=("${__knit_tmp[@]}")
     done
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_command_outputs()
+#
+# Public accessor listing a command's declared output names, in declaration
+# order. This is the stable surface plugins use to discover which outputs a
+# command produces instead of reaching into the _KNIT_CMD_<cmd>_outputs set
+# directly.
+#
+# @param[out] __knit_ret Name of the array variable to populate.
+# @param[in] cmd Command to list (the mangled/registered name).
+# ------------------------------------------------------------------------------
+knit_command_outputs() {
+    local -n __knit_ret_outputs=$1
+    __knit_ret_outputs=()
+    _knit_set_array __knit_ret_outputs "_KNIT_CMD_${2}_outputs"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_command_table()
+#
+# Public accessor returning the table name declared for a command via
+# knit_with_table. Returns an empty string when the command declared no table.
+# This is the stable surface plugins use to learn which SQLite table holds a
+# command's recorded rows.
+#
+# @param[out] __knit_ret Name of the variable to hold the table name.
+# @param[in] cmd Command to query (the mangled/registered name).
+# ------------------------------------------------------------------------------
+knit_command_table() {
+    local -n __knit_ret_table=$1
+    local __table_var="_KNIT_CMD_${2}_table"
+    __knit_ret_table="${!__table_var}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_output_type()
+#
+# Public accessor for the declared type of a command's output. The output name
+# is normalized (hyphens and underscores are interchangeable). Returns the empty
+# string and status 1 when the command has no such output. This is the stable
+# surface plugins use instead of reaching into the _KNIT_CMD_<cmd>_3_<out>_type
+# internals.
+#
+# @param[out] __knit_ret Name of the variable to hold the type.
+# @param[in] cmd Command the output belongs to (the mangled/registered name).
+# @param[in] output Output name (hyphen or underscore spelling).
+# @return 0 if the output exists, 1 otherwise.
+# ------------------------------------------------------------------------------
+knit_output_type() {
+    local -n __knit_ret=$1
+    local __norm
+    _knit_name_normalize __norm "$3"
+    local __var="_KNIT_CMD_${2}_3_${__norm}_type"
+    if [[ ! -v "${__var}" ]]; then
+        __knit_ret=""
+        return 1
+    fi
+    __knit_ret="${!__var}"
 }
 
 # ------------------------------------------------------------------------------
@@ -4383,20 +4443,24 @@ knit_output() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_set_row_id()
+# @fn knit_set_row_id()
 #
 # Set the "id" value of the row that will be recorded for the currently
-# executing command (see M10 run recording). Use this when a command already
-# owns a canonical identifier — e.g. `knit submit` records the job UUID it
-# generated — instead of letting recording mint a fresh uuid. Must be called
-# from within an executing command function.
+# executing command, instead of letting recording mint a fresh uuid. Use this
+# when a command already owns a canonical identifier — e.g. `knit submit` records
+# the job UUID it generated, and a plugin that re-attaches to an existing row
+# (its campaign/parent row created by an earlier invocation) sets that row's id
+# so its provenance "call" edges to children and its later updates land on that
+# row rather than on an ephemeral one. Also updates the executing-row-id stack so
+# a nested child resolves this id as its parent. Must be called from within an
+# executing command function.
 #
-# @param[in] id The uuid to record as the row's id.
+# @param[in] id The id to record as the row's id.
 # ------------------------------------------------------------------------------
-_knit_set_row_id() {
+knit_set_row_id() {
     local id="$1"
     if [[ ${#_KNIT_EXECUTING_COMMAND[@]} -eq 0 ]]; then
-        knit_fatal "_knit_set_row_id should be called from within a registered command function."
+        knit_fatal "knit_set_row_id should be called from within a registered command function."
     fi
     local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
     printf -v "_KNIT_CMD_${cmd}_row_id" '%s' "${id}"
@@ -4411,7 +4475,7 @@ _knit_set_row_id() {
 #
 # Resolve the row id for an invocation of a command, used when its frame is
 # pushed onto _KNIT_EXECUTING_ROW_ID. The precedence is: an explicit id already
-# set via _knit_set_row_id (_KNIT_CMD_<cmd>_row_id), otherwise a fresh uuidv7.
+# set via knit_set_row_id (_KNIT_CMD_<cmd>_row_id), otherwise a fresh uuidv7.
 #
 # Every invocation gets its own distinct id: the historical couplings that made a
 # job body reuse its submission's UUID (KNIT_JOB_PREFIX) and an app's rank-0 row

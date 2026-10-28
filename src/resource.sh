@@ -622,7 +622,7 @@ _knit_fetch() {
         # the used_by edge) and complete the row with the instance name and directory.
         if [[ -n "${body_row_id}" ]]; then
             printf '%s\n' "${body_row_id}" > "${id_marker}"
-            _knit_db_update_row "resource:${type}" "${body_row_id}" \
+            knit_db_update_row "resource:${type}" "${body_row_id}" \
                 "name=${name}" "directory=${path}"
         fi
 
