@@ -586,7 +586,14 @@ _knit_search_loop_job() {
             fi
             _knit_loop_tag=""; _knit_loop_argv=()
             if ! "${ask_fn}" _knit_loop_tag _knit_loop_argv; then
-                stop_launching=1; break
+                # The proposer offered no trial right now. This is NOT a
+                # permanent stop: a parallel proposer (e.g. Ax in its model
+                # phase) declines while trials are still in flight and proposes
+                # again once their results arrive. Stop filling this round only;
+                # the loop then waits for a completion and re-asks. Genuine
+                # exhaustion is caught below: when nothing is in flight and the
+                # ask still yields nothing, the inflight==0 guard ends the loop.
+                break
             fi
             _knit_loop_uuid=""
             knit_search_launch _knit_loop_uuid "${_knit_loop_argv[@]}"
@@ -651,7 +658,11 @@ _knit_search_loop_app() {
             fi
             _knit_loop_tag=""; _knit_loop_argv=()
             if ! "${ask_fn}" _knit_loop_tag _knit_loop_argv; then
-                stop_launching=1; break
+                # Soft stop for this round only, not a permanent one: a parallel
+                # proposer may decline while trials are in flight and propose
+                # again after their results arrive (see _knit_search_loop_job).
+                # The pid_tag==0 guard below ends the loop on genuine exhaustion.
+                break
             fi
             local tmpf
             tmpf="$(mktemp)"

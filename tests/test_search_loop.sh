@@ -173,6 +173,44 @@ _stub_launch_done() {
     [ "${maxc}" -eq 2 ]
 }
 
+# ---------- a proposer that declines mid-flight still finishes (job mode) ----------
+
+# Regression: in parallel mode the loop used to treat a single declined ask as a
+# permanent stop, so a model-based proposer (e.g. Ax) that declines while trials
+# are in flight and proposes again once their results arrive ended the campaign
+# early. The loop must keep going until the proposer is genuinely exhausted.
+@test "job mode: a proposer that declines while trials are in flight still runs them all" {
+    __fake_total=6
+    __fake_launched=0
+    __fake_observed=0
+    # Pausing proposer: yields the next trial only when no launched trial is
+    # still awaiting its result (launched == observed); otherwise it declines.
+    # This mimics Ax pausing during its model phase while trials are pending.
+    _pausing_ask() {
+        local -n _t=$1
+        local -n _a=$2
+        (( __fake_launched >= __fake_total )) && return 1
+        (( __fake_launched > __fake_observed )) && return 1
+        __fake_launched=$(( __fake_launched + 1 ))
+        _t="trial-${__fake_launched}"
+        _a=( cmd --n "${__fake_launched}" )
+        return 0
+    }
+    _counting_observe() {
+        local tag="$1" uuid="$2" status="$3" objective="$4"
+        __fake_observed=$(( __fake_observed + 1 ))
+        printf '%s %s %s %s\n' "${tag}" "${uuid}" "${status}" "${objective}" >> "${OBS_LOG}"
+        return 0
+    }
+    knit_search_launch() { _stub_launch_done "$@"; }
+
+    run knit_search_loop --mode job --parallel 4 --poll 0 \
+        --ask _pausing_ask --observe _counting_observe
+    [ "$status" -eq 0 ]
+    # All six trials ran despite the proposer declining after every launch.
+    [ "$(wc -l < "${OBS_LOG}")" -eq 6 ]
+}
+
 # ---------- app mode reaps PIDs with wait -n ----------
 
 @test "app mode reaps every backgrounded run and observes its status" {
@@ -193,6 +231,39 @@ _stub_launch_done() {
     [ "$(grep -c ' completed $' "${OBS_LOG}")" -eq 4 ]
     # Each reaped child carried its own recorded row id through the temp file.
     [ "$(grep -c ' app-' "${OBS_LOG}")" -eq 4 ]
+}
+
+@test "app mode: a proposer that declines while runs are in flight still runs them all" {
+    __fake_total=5
+    __fake_launched=0
+    __fake_observed=0
+    _pausing_ask() {
+        local -n _t=$1
+        local -n _a=$2
+        (( __fake_launched >= __fake_total )) && return 1
+        (( __fake_launched > __fake_observed )) && return 1
+        __fake_launched=$(( __fake_launched + 1 ))
+        _t="trial-${__fake_launched}"
+        _a=( cmd --n "${__fake_launched}" )
+        return 0
+    }
+    _counting_observe() {
+        local tag="$1" uuid="$2" status="$3" objective="$4"
+        __fake_observed=$(( __fake_observed + 1 ))
+        printf '%s %s %s %s\n' "${tag}" "${uuid}" "${status}" "${objective}" >> "${OBS_LOG}"
+        return 0
+    }
+    knit_search_launch() {
+        local -n _u=$1; shift
+        local n="$3"
+        _u="app-${n}"
+        return 0
+    }
+
+    run knit_search_loop --mode app --parallel 4 \
+        --ask _pausing_ask --observe _counting_observe
+    [ "$status" -eq 0 ]
+    [ "$(wc -l < "${OBS_LOG}")" -eq 5 ]
 }
 
 @test "app mode marks a non-zero run as failed" {
