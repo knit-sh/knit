@@ -15,10 +15,9 @@
 
 source knit.sh
 
-# Import the Ax plugin (it imports knit-uv in turn). Temporarily pinned to the
-# main branch until knit-ax cuts v1.0.0; the resolved commit is frozen in
-# knit-plugins.lock either way. Switch this to ax@v1.0.0 at the release.
-knit_import ax@main
+# Import the Ax plugin (it imports knit-uv in turn). Pinned to the released
+# tag; the resolved commit is frozen in knit-plugins.lock on first import.
+knit_import ax@v1.0.0
 
 knit_set_program_description "knit-ax Bayesian-optimization integration test experiment."
 
