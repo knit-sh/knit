@@ -926,9 +926,11 @@
 # it just re-emits the reconstructed command once per combination. Which
 # dispatcher you write after `--` picks the execution model:
 #
-#   # Ephemeral: launch each point now, <=N in flight (--parallel, default 1):
-#   ./full.sh sweep --group pi-sweep --parallel 4 \
-#       -- submit --setup env --nodes {1,2} -- montecarlo --samples '{20000,50000}'
+#   # Ephemeral: launch each point now, <=N in flight (--parallel, default 1).
+#   # A --group on the submit line labels the jobs the sweep produces; the sweep
+#   # does not forward its own --group (which labels only the sweeps row):
+#   ./full.sh sweep --parallel 4 \
+#       -- submit --group pi-sweep --setup env --nodes {1,2} -- montecarlo --samples '{20000,50000}'
 #   # --dry-run prints every reconstructed line and runs nothing:
 #   ./full.sh sweep --dry-run -- montecarlo --samples '{20000,50000}'
 #
@@ -942,7 +944,7 @@
 # `submit drain` releases them — the resumable queue from above, on the login node
 # or inside a pilot:
 #
-#   ./full.sh sweep --group pi-sweep -- prepare --setup env -- montecarlo --samples '{20000,50000}'
+#   ./full.sh sweep -- prepare --group pi-sweep --setup env -- montecarlo --samples '{20000,50000}'
 #   ./full.sh submit drain --group pi-sweep --max-inflight 4 --reconcile --retry killed,failed
 #
 # -----------------------------------------------------------------------------

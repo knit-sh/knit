@@ -1,8 +1,9 @@
 #!/usr/bin/env bats
 #
-# M4 tests for the odometer, line reconstruction, the --group splice, the
-# dimensions JSON / count, and --dry-run: _knit_sweep_plan,
-# _knit_sweep_reconstruct, _knit_sweep_dimensions_json, and the dry-run body.
+# M4 tests for the odometer, line reconstruction, the dimensions JSON / count,
+# and --dry-run (including that the sweep group is not forwarded onto the
+# downstream line): _knit_sweep_plan, _knit_sweep_reconstruct,
+# _knit_sweep_dimensions_json, and the dry-run body.
 
 setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
@@ -104,22 +105,30 @@ _scan_plan() {
     [ "${lines[3]}" = "submit --nodes 2 -- montecarlo --samples 100000" ]
 }
 
-@test "--dry-run splices the group into submit lines" {
+@test "--dry-run does not forward the sweep group onto submit lines" {
     run _knit_invoke_command "sweep" --group mc --dry-run \
         -- submit -- montecarlo --samples '{1000,100000}'
     [ "$status" -eq 0 ]
-    [ "${lines[0]}" = "submit --group mc -- montecarlo --samples 1000" ]
-    [ "${lines[1]}" = "submit --group mc -- montecarlo --samples 100000" ]
+    [ "${lines[0]}" = "submit -- montecarlo --samples 1000" ]
+    [ "${lines[1]}" = "submit -- montecarlo --samples 100000" ]
 }
 
-@test "--dry-run splices the group into prepare lines" {
+@test "--dry-run does not forward the sweep group onto prepare lines" {
     run _knit_invoke_command "sweep" --group mc --dry-run \
         -- prepare -- montecarlo --samples '{1000,100000}'
     [ "$status" -eq 0 ]
-    [ "${lines[0]}" = "prepare --group mc -- montecarlo --samples 1000" ]
+    [ "${lines[0]}" = "prepare -- montecarlo --samples 1000" ]
 }
 
-@test "--dry-run does not splice the group into a bare command line" {
+@test "--dry-run keeps a downstream --group that the user wrote themselves" {
+    run _knit_invoke_command "sweep" --group mc --dry-run \
+        -- submit --group other -- montecarlo --samples '{1000,100000}'
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "submit --group other -- montecarlo --samples 1000" ]
+    [ "${lines[1]}" = "submit --group other -- montecarlo --samples 100000" ]
+}
+
+@test "--dry-run does not forward the sweep group onto a bare command line" {
     run _knit_invoke_command "sweep" --group mc --dry-run \
         -- render --width '{256,512}'
     [ "$status" -eq 0 ]

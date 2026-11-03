@@ -71,11 +71,11 @@ teardown() {
     eval "knit_search_launch() { local -n _u=\$1; shift; printf '%s\n' \"\$*\" >> '${LOG}'; _u='x'; }"
     eval "knit_search_loop() { printf 'LOOP\n' >> '${LOG}'; }"
     _knit_invoke_command "sweep" --group mc -- prepare -- montecarlo --samples '{1000,100000}'
-    # Two prepare lines, group spliced, no loop.
+    # Two prepare lines, group not forwarded onto the child, no loop.
     [ "$(grep -c '^prepare ' "${LOG}")" -eq 2 ]
     [ "$(grep -c '^LOOP$' "${LOG}")" -eq 0 ]
-    grep -qx 'prepare --group mc -- montecarlo --samples 1000' "${LOG}"
-    grep -qx 'prepare --group mc -- montecarlo --samples 100000' "${LOG}"
+    grep -qx 'prepare -- montecarlo --samples 1000' "${LOG}"
+    grep -qx 'prepare -- montecarlo --samples 100000' "${LOG}"
 }
 
 # ---------- declared-domain resolution through the full command ----------

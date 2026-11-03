@@ -31,19 +31,23 @@ keeping at most ``--parallel`` in flight (default 1):
 .. code-block:: console
 
    # a job per point (3 submissions), grouped as a campaign:
-   $ ./exp.sh sweep --group mc -- submit --nodes {1,2} -- sim --n '{1,2,4}'
+   $ ./exp.sh sweep -- submit --group mc --nodes {1,2} -- sim --n '{1,2,4}'
    # an app per point, inside one allocation:
    $ ./exp.sh sweep -- run --procs {1,2,4} -- stencil --tile '{64,128}'
    # a plain command per point:
    $ ./exp.sh sweep -- sim --n '{1,2,4}'
 
-``--group`` is spliced into each ``submit`` line, so the campaign's jobs share a
-``jobs.group``; every point also records an automatic ``call`` edge back to the
-sweep's row, so a query can walk a campaign to its children. ``--on-failure
-stop`` aborts on the first failed child (``continue``, the default, runs the
-whole product). ``--dry-run`` prints each reconstructed command line and exits
-without recording or running --- the quickest way to see exactly what a sweep
-would do.
+A ``--group`` you put on the ``submit`` line tags the jobs the sweep produces, so
+the campaign's jobs share a ``jobs.group`` you can later drain, inspect, or
+remove as a unit. The sweep does **not** forward its own ``--group`` onto that
+line: a ``--group`` on ``sweep`` labels only the sweeps (parent) row, and the two
+are kept independent so you can gather jobs from several submits --- by hand or
+under one or more sweeps --- under one job-level group. Independently of any
+group, every point records an automatic ``call`` edge back to the sweep's row, so
+a query can always walk a campaign to its children. ``--on-failure stop`` aborts
+on the first failed child (``continue``, the default, runs the whole product).
+``--dry-run`` prints each reconstructed command line and exits without recording
+or running --- the quickest way to see exactly what a sweep would do.
 
 **Vary a declared domain.** When a parameter declares a ``--domain`` (see *Declare
 a parameter's search domain*), the sweep can draw its values from the
@@ -71,8 +75,9 @@ failed or killed jobs*):
 
 .. code-block:: console
 
-   # 1. prepare the product once (durable, grouped):
-   $ ./exp.sh sweep --group mc -- prepare -- sim --n '{1,2,4}'
+   # 1. prepare the product once (durable, grouped -- --group on prepare labels
+   #    the prepared jobs so the drain can select them):
+   $ ./exp.sh sweep -- prepare --group mc -- sim --n '{1,2,4}'
    # 2. drain it -- from the login node, or inside a pilot job:
    $ ./exp.sh submit drain --group mc --max-inflight 8 --reconcile --retry killed,failed
 

@@ -11,7 +11,7 @@ Spack-backed, MPI-parallel, fully recorded experiment. Along the way you use
 setups, jobs, apps, and the query and provenance surfaces together on a single
 realistic workload.
 
-The tutorial comes in two parts:
+The tutorial comes in three parts:
 
 - :doc:`part1` --- the essential. It builds the experiment end to end, from a
   plain command to a Spack-backed, MPI-parallel, recorded workload running on a
@@ -19,9 +19,13 @@ The tutorial comes in two parts:
 - :doc:`part2` --- a refinement pass over the *same* experiment. It follows the
   same setup→run order and, section by section, improves each piece with a Knit
   capability that makes it cleaner, safer, or more reproducible.
+- :doc:`part3` --- a new experiment built around a *search*. It tunes a CNN
+  image classifier, moving from one training run to a grid sweep to Bayesian
+  optimization, and runs the whole campaign inside a resumable pilot job.
 
 .. toctree::
    :maxdepth: 2
 
    part1
    part2
+   part3

@@ -35,10 +35,13 @@ knit_register "sweep" _knit_sweep \
     "Run a command, job, or app once per point in a cartesian product of values."
 _knit_is_builtin
 # The campaign label is the one recorded option: it becomes the "group" column
-# and is forwarded into a submit/prepare line so the children land in the same
-# jobs.group (see knit_search_group_forward, extended in a later milestone).
+# on the sweeps row. It is NOT forwarded onto the downstream submit/prepare line:
+# the sweep's group labels the sweep (parent) row, while a --group on the
+# downstream submit/prepare labels the produced jobs, and the two are kept
+# deliberately independent so a user controls each. The sweep finds its children
+# through the automatic provenance "call" edges, not through a shared group.
 knit_with_optional "group:string" "" \
-    "Campaign label; recorded and forwarded into a submit/prepare line."
+    "Campaign label for the sweep row (not forwarded to the downstream line)."
 # Control options. Each is parsed, type-validated, and shown in "--help", but
 # marked "--no-record" so it never widens the fixed "sweeps" column set.
 knit_with_optional "on-failure:sweep_on_failure" "continue" \
@@ -490,7 +493,7 @@ _knit_sweep_plan() {
 # template, then overwrite each axis's template slot with that axis's value for
 # the given combination index. The index is decoded as a mixed-radix odometer in
 # which the last axis varies fastest (so the product enumerates in a stable,
-# row-major order). The caller applies the --group splice afterwards.
+# row-major order).
 #
 # @param[out] __knit_ret Name of the array to receive the reconstructed line.
 # @param[in] __knit_tmpl Name of the reconstruction template array.
@@ -565,9 +568,8 @@ _knit_sweep_dimensions_json() {
 # the odometer cursor. Like every search proposer (see the fake proposer in
 # tests/test_search_loop.sh), it reads its state from the enclosing dispatcher
 # frame through dynamic scope -- here _knit_sweep's locals: the plan arrays
-# (template/axes/flat/offsets/counts), the product size (total), the campaign
-# group spliced into a submit/prepare line, and the cursor it advances. Returns 1
-# when the product is exhausted.
+# (template/axes/flat/offsets/counts), the product size (total), and the cursor
+# it advances. Returns 1 when the product is exhausted.
 #
 # @param[out] __knit_ret_tag  The opaque trial tag (the combination index).
 # @param[out] __knit_ret_argv The reconstructed downstream argv.
@@ -576,15 +578,13 @@ _knit_sweep_ask() {
     local -n __knit_ret_tag=$1
     # shellcheck disable=SC2178 # nameref output used as an array
     local -n __knit_ret_argv=$2
-    # cursor/total/group and the plan arrays come from the enclosing _knit_sweep
-    # frame through dynamic scope (the search proposer state contract).
+    # cursor/total and the plan arrays come from the enclosing _knit_sweep frame
+    # through dynamic scope (the search proposer state contract).
     # shellcheck disable=SC2154
     (( cursor >= total )) && return 1
     local -a reconstructed
     _knit_sweep_reconstruct reconstructed \
         template axes flat offsets counts "${cursor}"
-    # shellcheck disable=SC2154
-    knit_search_group_forward reconstructed "${group}"
     __knit_ret_tag="${cursor}"
     __knit_ret_argv=("${reconstructed[@]}")
     cursor=$(( cursor + 1 ))
@@ -640,8 +640,7 @@ _knit_sweep() {
         knit_fatal "sweep requires a downstream command after -- (e.g. \"-- submit -- <job>\", \"-- run -- <app>\", or \"-- <command>\")."
     fi
 
-    local group fill passthrough dry_run on_failure parallel
-    group=$(knit_get_parameter "group" "${args[@]}") || group=""
+    local fill passthrough dry_run on_failure parallel
     fill=$(knit_get_parameter "fill" "${args[@]}") || fill="default"
     passthrough=$(knit_get_parameter "passthrough" "${args[@]}") || passthrough=""
     dry_run=$(knit_get_parameter "dry-run" "${args[@]}") || dry_run="false"
@@ -671,14 +670,13 @@ _knit_sweep() {
     local total
     _knit_sweep_plan counts flat offsets total values
 
-    # --dry-run prints each reconstructed command line (with the --group splice a
-    # real run would get) and exits without recording or running.
+    # --dry-run prints each reconstructed command line exactly as a real run would
+    # launch it, and exits without recording or running.
     if [[ "${dry_run}" == "true" ]]; then
         local idx
         for ((idx=0; idx<total; idx++)); do
             local -a line
             _knit_sweep_reconstruct line template axes flat offsets counts "${idx}"
-            knit_search_group_forward line "${group}"
             _knit_str_render_cmd line
             printf '\n'
         done
@@ -699,7 +697,7 @@ _knit_sweep() {
     knit_output "count" "${total}"
 
     # The cursor is the odometer position advanced by _knit_sweep_ask (dynamic
-    # scope). The plan arrays, total, group and on_failure are read there too.
+    # scope). The plan arrays, total and on_failure are read there too.
     # shellcheck disable=SC2034 # cursor advanced by _knit_sweep_ask via dynamic scope
     local cursor=0
 
@@ -715,7 +713,6 @@ _knit_sweep() {
         for ((idx=0; idx<total; idx++)); do
             local -a line
             _knit_sweep_reconstruct line template axes flat offsets counts "${idx}"
-            knit_search_group_forward line "${group}"
             # shellcheck disable=SC2034 # child row id is unused (prepare runs nothing)
             local child_id
             knit_search_launch child_id "${line[@]}"

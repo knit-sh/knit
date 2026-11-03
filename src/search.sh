@@ -957,12 +957,17 @@ knit_search_scan() {
 # code). The group is a submission field, so it is inserted among the submit
 # options -- right after the leading "submit" or "prepare" token, before its
 # "--". Both are job dispatchers that share the submit option surface (and so
-# accept --group); a sweep that prepares a durable product uses the "prepare"
-# form. The line is left unchanged when the group is empty or the line is neither
-# a submit nor a prepare line (a "run ... -- app" or a bare command has no
-# scheduler, so its group lives only on the parent row and the call edges). The
-# parent row itself records the group automatically, since a proposer declares
-# --group as an ordinary optional parameter.
+# accept --group). The line is left unchanged when the group is empty or the line
+# is neither a submit nor a prepare line (a "run ... -- app" or a bare command has
+# no scheduler, so its group lives only on the parent row and the call edges).
+#
+# This is an optional search-core helper for a proposer that wants its trials to
+# carry the campaign group (the ax optimizer uses it so a campaign's trial jobs
+# share a jobs.group). A proposer is not required to call it: "knit sweep"
+# deliberately does not, keeping the sweep's own --group (which labels the parent
+# sweeps row) independent of any --group the user writes on the downstream
+# submit/prepare line (which labels the produced jobs). A sweep still finds its
+# children through the automatic provenance "call" edges, not a shared group.
 #
 # @param[in,out] __knit_argv Name of the array holding the downstream argv.
 # @param[in] group The campaign group label (empty to leave the line unchanged).
