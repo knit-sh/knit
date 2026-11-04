@@ -79,7 +79,7 @@ call_edges() {
 # Five trials, two quasi-random before the GP engages; a fixed seed makes the
 # run reproducible. This first "ax optimize" also builds the private Ax env.
 ./experiment.sh ax prepare --campaign conv --objective score --maximize \
-    --trials 5 --sobol-trials 2 --seed 1 --parallel 1 -- submit -- quad --x @domain
+    --max-trials 5 --sobol-trials 2 --seed 1 -- submit -- quad --x @domain
 
 check_dir "campaigns/conv" "prepare created the campaign directory"
 check_sqlite "${DB}" \
@@ -133,7 +133,7 @@ check_eq "$("${JQ}" -r '.trials_done' campaigns/conv/result.json)" "5" \
     "result.json records the full trial budget"
 
 # Each trial carries a provenance "call" edge back to the campaign row. With
-# --parallel 1 and no interruption, there is exactly one edge per trial.
+# --max-inflight 1 (the default) and no interruption, there is exactly one edge per trial.
 check_eq "$(call_edges conv)" "5" \
     "each trial carries a call edge back to the campaign row"
 
@@ -144,7 +144,7 @@ check_eq "$(call_edges conv)" "5" \
 # in the background, let it persist at least one trial (state.json appears after
 # the first observation), then interrupt it and resume.
 ./experiment.sh ax prepare --campaign rez --objective score --maximize \
-    --trials 4 --sobol-trials 2 --seed 2 --parallel 1 -- submit -- quad --x @domain
+    --max-trials 4 --sobol-trials 2 --seed 2 -- submit -- quad --x @domain
 
 ./experiment.sh ax optimize --campaign rez &
 OPT_PID=$!
