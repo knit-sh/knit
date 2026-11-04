@@ -798,6 +798,34 @@ _seed_default_setup() {
     [ "${r[walltime-defaulted]}" = "false" ]
 }
 
+@test "resolve rejects --walltime none on the slurm backend" {
+    _knit_sched_backend() { local -n __r=$1; __r='slurm'; }
+    declare -A r
+    run _knit_sched_resolve r --walltime none
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--walltime none is not supported"* ]]
+    [[ "$output" == *"slurm"* ]]
+    [[ "$output" == *"HH:MM:SS"* ]]
+}
+
+@test "resolve rejects --walltime none on the pbs backend" {
+    _knit_sched_backend() { local -n __r=$1; __r='pbs'; }
+    declare -A r
+    run _knit_sched_resolve r --walltime none
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--walltime none is not supported"* ]]
+    [[ "$output" == *"pbs"* ]]
+}
+
+@test "resolve rejects --walltime none on the flux backend" {
+    _knit_sched_backend() { local -n __r=$1; __r='flux'; }
+    declare -A r
+    run _knit_sched_resolve r --walltime none
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--walltime none is not supported"* ]]
+    [[ "$output" == *"flux"* ]]
+}
+
 @test "resolve job-name defaults to the experiment script name" {
     declare -A r
     _knit_sched_resolve r

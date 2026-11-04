@@ -321,14 +321,22 @@ _knit_sched_resolve() {
     # longer auto-fills it from the default queue's cap).
     local defaulted="false"
     v="$(knit_get_parameter "walltime" "${cli[@]}")" || v=""
-    # An explicit "--walltime none" asks for no wall-clock limit. On backends that
-    # run jobs without a queue walltime cap (local, none, pilot), honor it as-is:
-    # record the literal "none" and short-circuit the default chain so a project or
-    # queue default cannot silently re-impose a limit. The request is explicit, so
-    # it is never "defaulted".
-    if [[ "${v}" == "none" \
-          && ( "${backend}" == "local" || "${backend}" == "none" \
-               || "${backend}" == "pilot" ) ]]; then
+    # An explicit "--walltime none" asks for no wall-clock limit. Backends that run
+    # jobs without a queue walltime cap (local, none, pilot) honor it as-is: record
+    # the literal "none" and short-circuit the default chain so a project or queue
+    # default cannot silently re-impose a limit. The request is explicit, so it is
+    # never "defaulted". Batch backends always run under a queue walltime cap and
+    # have no portable "unlimited" value to request, so "none" is rejected there
+    # rather than silently clamped to the queue maximum (which would record "none"
+    # for a job that is actually bounded).
+    if [[ "${v}" == "none" ]]; then
+        case "${backend}" in
+            local | none | pilot) ;;
+            *)
+                knit_fatal "--walltime none is not supported on the \"%s\" scheduler; batch jobs run under a queue walltime cap. Pass --walltime HH:MM:SS." \
+                    "${backend}"
+                ;;
+        esac
         v="none"
     else
         if [[ -z "${v}" ]]; then
