@@ -105,9 +105,11 @@ _knit_sched_profile_field() {
 # violates none of its declared constraints is returned by nameref.
 #
 # The constraints checked are the node count (min_nodes/max_nodes) and, only when
-# the user gave an explicit walltime, the walltime bounds (min_walltime/
-# max_walltime, compared in seconds). A constraint the profile omits — or a
-# profile walltime that does not parse — is not an obstacle (permissive). The
+# the user gave a concrete walltime, the walltime bounds (min_walltime/
+# max_walltime, compared in seconds). A "none" walltime (no wall-clock limit) does
+# not filter on walltime, the same as an unspecified one. A constraint the profile
+# omits — or a profile walltime that does not parse — is not an obstacle
+# (permissive). The
 # walltime argument is the raw user request, so this must run before walltime is
 # defaulted (the default itself is queue-derived, which is why auto resolves the
 # queue first).
@@ -121,7 +123,8 @@ _knit_sched_profile_field() {
 #
 # @param[out] __knit_ret Name of the variable to hold the selected queue name.
 # @param[in] nodes    Requested node count.
-# @param[in] walltime Requested walltime (HH:MM:SS), or empty when unspecified.
+# @param[in] walltime Requested walltime (HH:MM:SS), "none" for no limit, or
+#                     empty when unspecified. Only a concrete HH:MM:SS filters.
 # ------------------------------------------------------------------------------
 _knit_sched_pick_queue() {
     local -n __knit_ret=$1
@@ -151,10 +154,12 @@ _knit_sched_pick_queue() {
         return 0
     fi
 
-    # The requested walltime in seconds, but only when the user asked for one and
-    # it parses; otherwise walltime does not filter.
+    # The requested walltime in seconds, but only when the user asked for a
+    # concrete one and it parses; otherwise walltime does not filter. An empty
+    # request and the "none" sentinel (no wall-clock limit) are both unconstrained
+    # here: "none" is never fed to the HH:MM:SS parser.
     local want_secs=""
-    if [[ -n "${walltime}" ]]; then
+    if [[ -n "${walltime}" && "${walltime}" != "none" ]]; then
         want_secs="$(_knit_walltime_to_seconds "${walltime}")" || want_secs=""
     fi
 

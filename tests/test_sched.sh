@@ -886,6 +886,19 @@ _seed_default_setup() {
     [ "${r["walltime-defaulted"]}" = "false" ]
 }
 
+@test "resolve --queue auto with --walltime none still rejects on a batch backend" {
+    # auto queue selection runs before the walltime block and treats "none" as
+    # unconstrained (so it does not fatal in pick_queue); the batch-backend reject
+    # then fires from the walltime block with the walltime-none message.
+    _use_profile polaris
+    _knit_metadata_store --key "__scheduler__" --value "pbs"
+    declare -A r
+    run _knit_sched_resolve r --queue auto --nodes 1 --walltime none
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--walltime none is not supported"* ]]
+    [[ "$output" != *"no queue that accepts this job"* ]]
+}
+
 @test "resolve --queue auto is empty on the local backend" {
     _use_profile polaris
     _knit_metadata_store --key "__scheduler__" --value "local"
@@ -990,6 +1003,25 @@ _use_profile_json() {
     local picked="sentinel"
     _knit_sched_pick_queue picked 4 "01:00:00"
     [ -z "${picked}" ]
+}
+
+@test "pick_queue treats a none walltime as unconstrained (same as empty)" {
+    _use_profile polaris
+    local picked
+    # A 2h walltime would filter out debug/debug-scaling; "none" must not filter on
+    # walltime at all, so it picks the first queue that fits by node count — debug —
+    # exactly as an empty walltime does.
+    _knit_sched_pick_queue picked 1 "none"
+    [ "${picked}" = "debug" ]
+}
+
+@test "pick_queue does not reject a tightly-bounded queue for a none walltime" {
+    # A queue with a 1h max would reject a 2h request, but "none" is unconstrained,
+    # so the queue is selected rather than rejected (the parser never sees "none").
+    _use_profile_json '{"scheduler":{"queues":{"short":{"max_walltime":"01:00:00"}}}}'
+    local picked
+    _knit_sched_pick_queue picked 1 "none"
+    [ "${picked}" = "short" ]
 }
 
 @test "pick_queue is permissive when a queue omits its node bounds" {
