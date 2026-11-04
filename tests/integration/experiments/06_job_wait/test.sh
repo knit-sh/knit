@@ -91,4 +91,21 @@ unknown_failed="no"
 [[ "${rc}" -ne 0 ]] && unknown_failed="yes"
 check_eq "${unknown_failed}" "yes" "job wait on an unknown id fails"
 
+# --------------------------------------------------------------------------
+# A blocking `submit --wait` on a job that fails must return non-zero and record
+# the row "failed" (not leave it stranded at "running"). The failer's body aborts
+# with knit_fatal, which exits before the normal after-callback; the on-fatal
+# recorder marks the row "failed".
+# --------------------------------------------------------------------------
+set +e
+fail_uuid="$(./experiment.sh submit --setup env --wait -- failer 2>/dev/null)"
+fail_rc=$?
+set -e
+wait_failed="no"
+[[ "${fail_rc}" -ne 0 ]] && wait_failed="yes"
+check_eq "${wait_failed}" "yes" "submit --wait returns non-zero for a failing job"
+fail_state="$("${SQLITE}" ".knit/knit.db" \
+    "SELECT state FROM jobs WHERE id='${fail_uuid}';")"
+check_eq "${fail_state}" "failed" "the failing job is recorded failed, not stranded running"
+
 assert_summary

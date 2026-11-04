@@ -198,10 +198,32 @@ knit_critical() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_on_fatal()
+#
+# Register a callback to run when knit_fatal is about to abort the process. The
+# arguments form one command (and its arguments), stored pre-escaped with
+# printf %q (as knit_run_before / knit_run_after store their callbacks) in the
+# global _KNIT_ON_FATAL list, and re-run by knit_fatal's drain just before it
+# exits.
+#
+# This exists so a compute-side job can record a terminal state before a fatal
+# abort tears the process down: the normal after-callback (which records the
+# state) never runs when the body or a before-callback exits via knit_fatal.
+#
+# @param[in] ... The callback command and its arguments.
+# ------------------------------------------------------------------------------
+knit_on_fatal() {
+    local cb
+    printf -v cb "%q " "$@"
+    _KNIT_ON_FATAL+=("${cb}")
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_fatal()
 #
 # Logging function for fatal error messages. Will be printed no matter the log
-# level, and the program will exit with an error value.
+# level, and the program will exit with an error value. Any callbacks registered
+# with knit_on_fatal are run first (see the drain below).
 #
 # @param[in] ... Arguments for printf.
 # ------------------------------------------------------------------------------
@@ -215,6 +237,18 @@ knit_fatal() {
     if [[ -n "${_KNIT_TRACE_FILE}" && -s "${_KNIT_TRACE_FILE}" ]]; then
         _knit_log fatal "More info may be found in %s" "${_KNIT_TRACE_FILE}"
     fi
+    # Run any on-fatal callbacks before exiting. Snapshot and clear the list
+    # first so a callback that itself calls knit_fatal finds an empty list and
+    # cannot recurse; tolerate a callback error (we are already aborting) so one
+    # failing callback does not skip the rest. The list is empty in almost every
+    # context, so this loop usually does nothing.
+    local -a _knit_fatal_cbs=("${_KNIT_ON_FATAL[@]}")
+    _KNIT_ON_FATAL=()
+    local _knit_fatal_cb
+    for _knit_fatal_cb in "${_knit_fatal_cbs[@]}"; do
+        # shellcheck disable=SC2209 # callback string pre-escaped with printf %q by knit_on_fatal
+        eval "${_knit_fatal_cb}" || true
+    done
     exit 1
 }
 

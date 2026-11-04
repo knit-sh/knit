@@ -18,3 +18,4 @@ __pycache__/
 
 # Local GitHub token (never commit)
 github-token.txt
+.part3-qa/

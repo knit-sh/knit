@@ -340,25 +340,24 @@ _stub_dispatch_ok() {
 @test "submit prepared --wait threads the wait flag to the backend" {
     _register_myjob_with_setup
     _stub_dispatch_ok
-    # Record that the backend was asked to block. The submission is now issued
-    # non-blocking and the wait is a separate step (_knit_sched_wait ->
-    # _knit_sched_local_wait), so stub the backend wait primitive, not the
-    # foreground _knit_wait_local used by the old blocking-submit form.
-    _knit_sched_local_wait() { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/.waited"; }
+    # The release now blocks via _knit_job_wait_one (the same seam `job wait` and
+    # `submit drain` use), which reads the terminal state back and returns its
+    # code. Record that it was called, and report success.
+    _knit_job_wait_one() { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/.waited"; return 0; }
 
     local uuid
     uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
     _knit_invoke_command submit prepared --id "${uuid}" --wait >/dev/null
 
     # A prepared job freezes wait=false; the release --wait must override it so the
-    # local backend blocks (calls _knit_sched_local_wait).
+    # release blocks (calls _knit_job_wait_one).
     [ -f "${_KNIT_TEST_TMPDIR}/.waited" ]
 }
 
 @test "submit next without --wait does not block" {
     _register_myjob_with_setup
     _stub_dispatch_ok
-    _knit_sched_local_wait() { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/.waited"; }
+    _knit_job_wait_one() { printf 'waited\n' > "${_KNIT_TEST_TMPDIR}/.waited"; return 0; }
 
     _knit_invoke_command prepare --setup setup -- myjob >/dev/null
     _knit_invoke_command submit next >/dev/null
@@ -366,22 +365,50 @@ _stub_dispatch_ok() {
     [ ! -f "${_KNIT_TEST_TMPDIR}/.waited" ]
 }
 
-@test "submit prepared --wait prints the UUID before it blocks on the wait" {
+@test "submit prepared --wait prints the UUID and keeps stdout to the UUID alone" {
     _register_myjob_with_setup
     _stub_dispatch_ok
-    # The wait step appends a marker to stdout. If the UUID is printed before the
-    # wait blocks (the whole point of this change), it must appear on stdout ahead
-    # of the marker.
-    _knit_sched_local_wait() { printf 'WAITED\n'; }
+    # The wait's printed state is discarded by the release so `submit`'s stdout
+    # stays the one UUID line. If the wait leaked to stdout, a second line would
+    # appear.
+    _knit_job_wait_one() { printf 'LEAKED\n'; return 0; }
 
     local uuid
     uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
 
     run _knit_invoke_command submit prepared --id "${uuid}" --wait
     [ "$status" -eq 0 ]
-    # First line is the released UUID; the wait marker only follows it.
     [ "${lines[0]}" = "${uuid}" ]
-    [ "${lines[1]}" = "WAITED" ]
+    [ "${#lines[@]}" -eq 1 ]
+}
+
+@test "submit prepared --wait exits non-zero when the job fails" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+    # _knit_job_wait_one returns non-zero for a failed/killed job; the release must
+    # propagate that as its exit status and warn, pointing at the job's stderr.
+    _knit_job_wait_one() { printf 'failed\n'; return 1; }
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
+
+    run _knit_invoke_command submit prepared --id "${uuid}" --wait
+    [ "$status" -ne 0 ]
+    [ "${lines[0]}" = "${uuid}" ]
+    [[ "$output" == *"did not complete successfully"* ]]
+}
+
+@test "submit prepared --wait exits zero when the job completes" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+    _knit_job_wait_one() { printf 'completed\n'; return 0; }
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
+
+    run _knit_invoke_command submit prepared --id "${uuid}" --wait
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"did not complete successfully"* ]]
 }
 
 # ---------- job cancel : prepared jobs ----------

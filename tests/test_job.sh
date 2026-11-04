@@ -276,6 +276,52 @@ _stub_hostfile() {
     [ "$(_state_of "job")" = "killed" ]
 }
 
+# ---------- _knit_job_fatal_record ----------
+
+@test "fatal record is a no-op when KNIT_JOB_PREFIX is not set" {
+    unset KNIT_JOB_PREFIX
+    run _knit_job_fatal_record
+    [ "$status" -eq 0 ]
+}
+
+@test "fatal record marks a running job as failed" {
+    export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
+    _seed_jobs "job" "running"
+    _knit_job_fatal_record
+    [ "$(_state_of "job")" = "failed" ]
+}
+
+@test "fatal record marks a submitted job as failed" {
+    export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
+    _seed_jobs "job" "submitted"
+    _knit_job_fatal_record
+    [ "$(_state_of "job")" = "failed" ]
+}
+
+@test "fatal record does not overwrite a killed job" {
+    export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
+    _seed_jobs "job" "killed"
+    _knit_job_fatal_record
+    [ "$(_state_of "job")" = "killed" ]
+}
+
+@test "fatal record does not overwrite a completed job" {
+    export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
+    _seed_jobs "job" "completed"
+    _knit_job_fatal_record
+    [ "$(_state_of "job")" = "completed" ]
+}
+
+@test "job before callback registers the on-fatal state recorder" {
+    export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/job"
+    unset KNIT_SETUP_PREFIX
+    _seed_jobs "job" "submitted"
+    _stub_hostfile
+    _KNIT_ON_FATAL=()
+    _knit_job_before_cb
+    printf '%s\n' "${_KNIT_ON_FATAL[@]}" | grep -q _knit_job_fatal_record
+}
+
 # ---------- _knit_job_after_cb ----------
 
 @test "job after callback marks the job completed on a zero exit status" {
