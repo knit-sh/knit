@@ -763,6 +763,41 @@ _seed_default_setup() {
     [ "${r[walltime-defaulted]}" = "true" ]
 }
 
+@test "resolve honors --walltime none on the local backend" {
+    _knit_sched_backend() { local -n __r=$1; __r='local'; }
+    declare -A r
+    _knit_sched_resolve r --walltime none
+    [ "${r[walltime]}" = "none" ]
+    [ "${r[walltime-defaulted]}" = "false" ]
+}
+
+@test "resolve honors --walltime none on the none backend" {
+    _knit_sched_backend() { local -n __r=$1; __r='none'; }
+    declare -A r
+    _knit_sched_resolve r --walltime none
+    [ "${r[walltime]}" = "none" ]
+    [ "${r[walltime-defaulted]}" = "false" ]
+}
+
+@test "resolve honors --walltime none on the pilot backend" {
+    _knit_sched_backend() { local -n __r=$1; __r='pilot'; }
+    declare -A r
+    _knit_sched_resolve r --walltime none
+    [ "${r[walltime]}" = "none" ]
+    [ "${r[walltime-defaulted]}" = "false" ]
+}
+
+@test "resolve --walltime none skips the project-default chain" {
+    # A project default is set, but an explicit "none" must not be overridden by
+    # it (nor by any queue default): the default chain is short-circuited.
+    _knit_sched_backend() { local -n __r=$1; __r='local'; }
+    _knit_metadata_store --key "__default_walltime__" --value "03:00:00"
+    declare -A r
+    _knit_sched_resolve r --walltime none
+    [ "${r[walltime]}" = "none" ]
+    [ "${r[walltime-defaulted]}" = "false" ]
+}
+
 @test "resolve job-name defaults to the experiment script name" {
     declare -A r
     _knit_sched_resolve r
