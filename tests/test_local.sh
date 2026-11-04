@@ -136,6 +136,18 @@ teardown() {
     [ "$status" -ne 0 ]
 }
 
+@test "_knit_submit_local does not time out when no walltime is given" {
+    # The sched_local none-walltime handling relies on an empty walltime meaning
+    # "no timeout wrapper": a process with no walltime must still be alive past the
+    # point a short limit would have killed it.
+    local pid
+    pid="$(_knit_submit_local -- sleep 3)"
+    sleep 1
+    run kill -0 "${pid}"
+    [ "$status" -eq 0 ]
+    kill "${pid}" 2>/dev/null || true
+}
+
 @test "_knit_submit_local fails on unknown option" {
     run _knit_submit_local --bad-option -- echo hi
     [ "$status" -ne 0 ]

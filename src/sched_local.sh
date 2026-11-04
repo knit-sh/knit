@@ -22,8 +22,9 @@ _knit_sched_local_directives() {
 # Submit a batch script on a machine with no scheduler by running it as a
 # detached background process via _knit_submit_local. Job stdout/stderr are
 # redirected to <jobdir>/.stdout and <jobdir>/.stderr, and the resolved walltime
-# (if any) caps the run. When the resolved "wait" flag is "true", block until the
-# process finishes. Prints the process id to stdout.
+# (if any) caps the run; a walltime of "none" imposes no cap. When the resolved
+# "wait" flag is "true", block until the process finishes. Prints the process id to
+# stdout.
 #
 # @param[in] arr_name Name of the resolved-options associative array.
 # @param[in] script   Path to the batch script to run.
@@ -38,7 +39,11 @@ _knit_sched_local_submit() {
         --stdout "${jobdir}/.stdout"
         --stderr "${jobdir}/.stderr"
     )
-    if [[ -n "${resolved[walltime]}" ]]; then
+    # A resolved walltime of "none" means no wall-clock limit (an explicit
+    # --walltime none): forward no --walltime so _knit_submit_local builds no
+    # timeout wrapper and the process runs unbounded. The recorded row still holds
+    # the literal "none"; only the launcher argument is suppressed.
+    if [[ -n "${resolved[walltime]}" && "${resolved[walltime]}" != "none" ]]; then
         launch_args+=(--walltime "${resolved[walltime]}")
     fi
 

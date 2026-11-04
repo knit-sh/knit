@@ -165,6 +165,21 @@ teardown() {
     [ ! -f "${_KNIT_TEST_TMPDIR}/should-not-exist" ]
 }
 
+@test "local_submit forwards no walltime for a none walltime (unbounded run)" {
+    local args="${_KNIT_TEST_TMPDIR}/args3"
+    _knit_submit_local() { printf '%s\n' "$*" > "${args}"; printf '13\n'; }
+
+    declare -A o
+    o[wait]="false"
+    o[walltime]="none"
+
+    _knit_sched_local_submit o "/tmp/x/run.sh" "/tmp/x" >/dev/null
+
+    # "none" means no wall-clock limit: no --walltime is forwarded, so
+    # _knit_submit_local builds no timeout wrapper and the process runs unbounded.
+    ! grep -Fq -- "--walltime" "${args}"
+}
+
 # ---------- _knit_submit : full end-to-end ----------
 
 @test "_knit_submit returns the job UUID and records the launcher id" {
