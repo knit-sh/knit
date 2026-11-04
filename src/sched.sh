@@ -105,9 +105,11 @@ _knit_sched_profile_field() {
 # violates none of its declared constraints is returned by nameref.
 #
 # The constraints checked are the node count (min_nodes/max_nodes) and, only when
-# the user gave an explicit walltime, the walltime bounds (min_walltime/
-# max_walltime, compared in seconds). A constraint the profile omits — or a
-# profile walltime that does not parse — is not an obstacle (permissive). The
+# the user gave a concrete walltime, the walltime bounds (min_walltime/
+# max_walltime, compared in seconds). A "none" walltime (no wall-clock limit) does
+# not filter on walltime, the same as an unspecified one. A constraint the profile
+# omits — or a profile walltime that does not parse — is not an obstacle
+# (permissive). The
 # walltime argument is the raw user request, so this must run before walltime is
 # defaulted (the default itself is queue-derived, which is why auto resolves the
 # queue first).
@@ -121,7 +123,8 @@ _knit_sched_profile_field() {
 #
 # @param[out] __knit_ret Name of the variable to hold the selected queue name.
 # @param[in] nodes    Requested node count.
-# @param[in] walltime Requested walltime (HH:MM:SS), or empty when unspecified.
+# @param[in] walltime Requested walltime (HH:MM:SS), "none" for no limit, or
+#                     empty when unspecified. Only a concrete HH:MM:SS filters.
 # ------------------------------------------------------------------------------
 _knit_sched_pick_queue() {
     local -n __knit_ret=$1
@@ -151,10 +154,12 @@ _knit_sched_pick_queue() {
         return 0
     fi
 
-    # The requested walltime in seconds, but only when the user asked for one and
-    # it parses; otherwise walltime does not filter.
+    # The requested walltime in seconds, but only when the user asked for a
+    # concrete one and it parses; otherwise walltime does not filter. An empty
+    # request and the "none" sentinel (no wall-clock limit) are both unconstrained
+    # here: "none" is never fed to the HH:MM:SS parser.
     local want_secs=""
-    if [[ -n "${walltime}" ]]; then
+    if [[ -n "${walltime}" && "${walltime}" != "none" ]]; then
         want_secs="$(_knit_walltime_to_seconds "${walltime}")" || want_secs=""
     fi
 
@@ -273,6 +278,13 @@ _knit_sched_resolve() {
     [[ -z "${v}" ]] && v="0"
     resolved["gpus-per-node"]="${v}"
 
+    # Resolve the target backend once: both automatic queue selection and the
+    # walltime resolution below branch on it (local/none/pilot run jobs without a
+    # queue walltime cap, so "none" walltime is honored there; batch backends run
+    # under a queue cap).
+    local backend
+    _knit_sched_backend backend
+
     # Automatic queue selection -------------------------------------------------
     # Resolve the "auto" strategy (an explicit --queue auto, or a site default of
     # "auto" arriving through the precedence above) to a concrete queue now,
@@ -282,8 +294,6 @@ _knit_sched_resolve() {
     # explicitly. The concrete name replaces "auto", so every downstream consumer
     # (directives, native-cmd, the recorded row) sees the real queue, never "auto".
     if [[ "${resolved["queue"]}" == "auto" ]]; then
-        local backend
-        _knit_sched_backend backend
         if [[ "${backend}" == "local" || "${backend}" == "none" ]]; then
             # These backends ignore the queue entirely (they emit no queue
             # directive), so there is nothing to select.
@@ -298,7 +308,10 @@ _knit_sched_resolve() {
     fi
 
     # Walltime is resolved queue-aware, and we record whether the value was
-    # picked by knit rather than requested (walltime-defaulted). Precedence:
+    # picked by knit rather than requested (walltime-defaulted). An explicit
+    # "--walltime none" on a backend without a queue walltime cap (local, none,
+    # pilot) is honored verbatim as "no wall-clock limit" and bypasses the chain
+    # below. Otherwise the precedence is:
     #   1. --walltime CLI argument               (explicit; not defaulted)
     #   2. __default_walltime__ metadata          (explicit; the project-wide
     #      default the user set with `bootstrap --default-walltime`; not defaulted)
@@ -313,22 +326,41 @@ _knit_sched_resolve() {
     # longer auto-fills it from the default queue's cap).
     local defaulted="false"
     v="$(knit_get_parameter "walltime" "${cli[@]}")" || v=""
-    if [[ -z "${v}" ]]; then
-        _knit_metadata_get v "__default_walltime__"
-    fi
-    if [[ -z "${v}" && -n "${resolved["queue"]}" ]]; then
-        _knit_sched_profile_field v "${profile}" \
-            ".scheduler.queues.\"${resolved["queue"]}\".default_walltime"
-        defaulted="true"
-    fi
-    if [[ -z "${v}" && -n "${resolved["queue"]}" ]]; then
-        _knit_sched_profile_field v "${profile}" \
-            ".scheduler.queues.\"${resolved["queue"]}\".max_walltime"
-        defaulted="true"
-    fi
-    if [[ -z "${v}" ]]; then
-        v="01:00:00"
-        defaulted="true"
+    # An explicit "--walltime none" asks for no wall-clock limit. Backends that run
+    # jobs without a queue walltime cap (local, none, pilot) honor it as-is: record
+    # the literal "none" and short-circuit the default chain so a project or queue
+    # default cannot silently re-impose a limit. The request is explicit, so it is
+    # never "defaulted". Batch backends always run under a queue walltime cap and
+    # have no portable "unlimited" value to request, so "none" is rejected there
+    # rather than silently clamped to the queue maximum (which would record "none"
+    # for a job that is actually bounded).
+    if [[ "${v}" == "none" ]]; then
+        case "${backend}" in
+            local | none | pilot) ;;
+            *)
+                knit_fatal "--walltime none is not supported on the \"%s\" scheduler; batch jobs run under a queue walltime cap. Pass --walltime HH:MM:SS." \
+                    "${backend}"
+                ;;
+        esac
+        v="none"
+    else
+        if [[ -z "${v}" ]]; then
+            _knit_metadata_get v "__default_walltime__"
+        fi
+        if [[ -z "${v}" && -n "${resolved["queue"]}" ]]; then
+            _knit_sched_profile_field v "${profile}" \
+                ".scheduler.queues.\"${resolved["queue"]}\".default_walltime"
+            defaulted="true"
+        fi
+        if [[ -z "${v}" && -n "${resolved["queue"]}" ]]; then
+            _knit_sched_profile_field v "${profile}" \
+                ".scheduler.queues.\"${resolved["queue"]}\".max_walltime"
+            defaulted="true"
+        fi
+        if [[ -z "${v}" ]]; then
+            v="01:00:00"
+            defaulted="true"
+        fi
     fi
     resolved["walltime"]="${v}"
     resolved["walltime-defaulted"]="${defaulted}"

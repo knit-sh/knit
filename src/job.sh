@@ -75,7 +75,7 @@ _knit_declare_submit_options() {
     # per submit, so there is no CPU option here.
     knit_with_optional "nodes:integer" "1" "Number of nodes."
     knit_with_optional "walltime:string" "" \
-        "Wall-clock limit as HH:MM:SS (default: the site default)."
+        "Wall-clock limit as HH:MM:SS (default: the site default). Pass \"none\" to run with no limit (local, none, and pilot schedulers only)."
     knit_with_optional "gpus-per-node:integer" "0" "GPUs per node."
     # A free-form label grouping related jobs. An optional parameter is recorded
     # as its own "group" column automatically; it also drives "submit next
