@@ -370,6 +370,42 @@ _knit_plugin_parse_spec() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_plugin_cached_commit()
+#
+# Find a usable cached commit for a plugin id when its ref cannot be resolved
+# upstream (rate-limited or a transient network error). The content-addressed
+# cache keys trees by commit SHA with no record of which ref produced which, so
+# this returns the most recently fetched commit tree (the best guess for the
+# ref's current tip) that still carries a plugin.sh. It looks in the
+# bootstrapped ".knit" tree and the shared cache, since knit_import can source
+# from either. Returns 1 (output untouched) when nothing is cached.
+#
+# @param[out] commit_out Nameref receiving the cached commit SHA.
+# @param[in]  id         Canonical plugin id ("<host>/<org>/<repo>").
+# @return 0 and sets the output when a cached commit exists; 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_plugin_cached_commit() {
+    local -n __knit_ret=$1
+    local id="$2"
+    local root dir base newest=""
+    for root in "${_KNIT_PREFIX}/plugins/${id}" \
+                "${_KNIT_PLUGIN_CACHE_ROOT}/${id}"; do
+        [[ -d "${root}" ]] || continue
+        for dir in "${root}"/*/; do
+            [[ -f "${dir}plugin.sh" ]] || continue
+            base="${dir%/}"; base="${base##*/}"
+            [[ "${base}" =~ ^[0-9a-f]{40}$ ]] || continue
+            if [[ -z "${newest}" || "${dir}" -nt "${newest}" ]]; then
+                newest="${dir}"
+            fi
+        done
+    done
+    [[ -n "${newest}" ]] || return 1
+    base="${newest%/}"
+    __knit_ret="${base##*/}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_plugin_resolve_commit()
 #
 # Resolve a plugin ref to an exact commit SHA, honoring the lockfile. Precedence:
@@ -421,6 +457,20 @@ _knit_plugin_resolve_commit() {
     # shell (a command substitution would swallow it).
     if ! _knit_github_resolve_commit_light __knit_commit "${org}" "${repo}" \
             "${ref:-HEAD}"; then
+        # The ref could not be resolved upstream (rate-limited or a transient
+        # network error). Fall back to a cached commit for this id when one
+        # exists, so a rate limit does not break an already-provisioned import.
+        # Warn first, and leave the writeback flag false: the commit is a best-
+        # guess, not an authoritative resolution, so a later unthrottled run
+        # re-resolves the ref's real tip rather than pinning the guess.
+        if _knit_plugin_cached_commit __knit_commit "${host}/${org}/${repo}"; then
+            knit_warning "knit_import: could not resolve \"${ref:-HEAD}\" in \
+${org}/${repo} (rate-limited or offline); falling back to the cached commit \
+${__knit_commit}. Set GITHUB_TOKEN or commit a knit-plugins.lock pin to resolve \
+the current tip."
+            __knit_ret1="${__knit_commit}"
+            return 0
+        fi
         knit_fatal "knit_import: could not resolve \"${ref:-HEAD}\" to a commit \
 in ${org}/${repo}. Check the ref and network access (set GITHUB_TOKEN if \
 rate-limited), or commit a knit-plugins.lock pin."
