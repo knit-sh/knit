@@ -18,7 +18,10 @@ The resources a job needs are ``submit`` options, so they go *before* the ``--``
 - ``--walltime`` is the wall-clock limit as ``HH:MM:SS``. If you omit it, knit
   fills one in, in this order: the project default set with ``bootstrap
   --default-walltime``, then the selected queue's default (or maximum) from the
-  machine profile, and finally one hour.
+  machine profile, and finally one hour. Pass ``--walltime none`` to run with **no
+  wall-clock limit** --- honored on the ``local``, ``none``, and ``pilot``
+  schedulers (which do not cap a job's run), and rejected on batch schedulers
+  (Slurm, PBS, Flux), where every job runs under a queue walltime cap.
 - ``--gpus-per-node`` (default ``0``) requests GPUs per node on a GPU partition.
 
 These values become the scheduler directives in the generated batch script (which

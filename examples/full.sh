@@ -422,7 +422,9 @@
 #   --group (a free-form label grouping related runs, recorded in the `jobs`
 #   table). Pass --queue auto to let knit pick the first profile queue whose
 #   node/walltime bounds accept the job (make it the default with `bootstrap
-#   --default-queue auto`). To build a submission now and release it to the scheduler later —
+#   --default-queue auto`). Pass --walltime none to run with no wall-clock limit
+#   (local, none, and pilot schedulers only; batch schedulers reject it, since every
+#   queued job runs under a walltime cap). To build a submission now and release it to the scheduler later —
 #   one at a time, or a whole batch from a JSON plan — use `prepare` instead of
 #   `submit`; see section 16.
 #

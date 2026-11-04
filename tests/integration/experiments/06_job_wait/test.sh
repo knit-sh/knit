@@ -8,6 +8,8 @@
 #   - when the job finishes, its compute-side after-callback has recorded the
 #     row as "completed", so `job wait` prints "completed" and exits 0
 #   - a `job wait` on an already-terminal job returns immediately
+#   - `submit --walltime none` is rejected on a batch scheduler (no unbounded
+#     jobs there) and records no row
 #
 # Run from inside the cluster login node as hpcuser:
 #   bash /shared/knit/tests/integration/experiments/06_job_wait/test.sh
@@ -107,5 +109,25 @@ check_eq "${wait_failed}" "yes" "submit --wait returns non-zero for a failing jo
 fail_state="$("${SQLITE}" ".knit/knit.db" \
     "SELECT state FROM jobs WHERE id='${fail_uuid}';")"
 check_eq "${fail_state}" "failed" "the failing job is recorded failed, not stranded running"
+
+# --------------------------------------------------------------------------
+# `--walltime none` asks for no wall-clock limit. A batch scheduler always runs a
+# job under a queue walltime cap, so it is rejected here (this experiment runs on
+# a real Slurm/PBS/Flux cluster): the submit must exit non-zero, name the limit,
+# and record no new job row. (The honored local/none/pilot path is covered by the
+# unit tests, where a local backend can be forced.)
+rows_before="$("${SQLITE}" ".knit/knit.db" "SELECT COUNT(*) FROM jobs;")"
+set +e
+none_out="$(./experiment.sh submit --setup env --walltime none -- worker 2>&1)"
+none_rc=$?
+set -e
+none_rejected="no"
+[[ "${none_rc}" -ne 0 ]] && none_rejected="yes"
+check_eq "${none_rejected}" "yes" "submit --walltime none is rejected on a batch scheduler"
+none_msg="no"
+[[ "${none_out}" == *"--walltime none is not supported"* ]] && none_msg="yes"
+check_eq "${none_msg}" "yes" "the rejection names the --walltime none limitation"
+rows_after="$("${SQLITE}" ".knit/knit.db" "SELECT COUNT(*) FROM jobs;")"
+check_eq "${rows_after}" "${rows_before}" "the rejected submit records no job row"
 
 assert_summary
