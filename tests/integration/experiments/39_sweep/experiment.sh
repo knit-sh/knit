@@ -4,7 +4,7 @@
 # A single self-contained job (no setup) used to exercise `knit sweep` against
 # the real cluster scheduler: "sim" only does arithmetic and records a result,
 # so it runs fast anywhere. Its --n parameter carries a search --domain so the
-# sweep can draw values from the declaration (--fill sweep / @sweep) as well as
+# sweep can draw values from the declaration (--fill domain / @domain) as well as
 # from an explicit set on the command line.
 
 source knit.sh

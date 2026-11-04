@@ -3,7 +3,7 @@
 # search-core M7: shared dispatcher support reused by both proposer commands
 # (knit sweep, knit ax optimize): the --group label (recorded on the parent row
 # and forwarded into a job trial's submit line) and the "Which parameters vary"
-# fill resolution (--fill default|sweep + per-parameter @sweep/@default, explicit
+# fill resolution (--fill default|domain + per-parameter @domain/@default, explicit
 # always winning).
 
 setup() {
@@ -23,31 +23,31 @@ teardown() {
 
 @test "an explicit value wins over every policy" {
     local r
-    knit_search_resolve_fill r sweep explicit true;  [ "${r}" = "explicit" ]
+    knit_search_resolve_fill r domain explicit true;  [ "${r}" = "explicit" ]
     knit_search_resolve_fill r default explicit false; [ "${r}" = "explicit" ]
 }
 
-@test "@sweep varies regardless of --fill" {
+@test "@domain varies regardless of --fill" {
     local r
-    knit_search_resolve_fill r default sweep true; [ "${r}" = "sweep" ]
-    knit_search_resolve_fill r sweep sweep true;   [ "${r}" = "sweep" ]
+    knit_search_resolve_fill r default domain true; [ "${r}" = "domain" ]
+    knit_search_resolve_fill r domain domain true;   [ "${r}" = "domain" ]
 }
 
 @test "@default fixes regardless of --fill" {
     local r
-    knit_search_resolve_fill r sweep default true;   [ "${r}" = "default" ]
+    knit_search_resolve_fill r domain default true;   [ "${r}" = "default" ]
     knit_search_resolve_fill r default default true;  [ "${r}" = "default" ]
 }
 
 @test "an unspecified parameter follows --fill when it has a domain" {
     local r
-    knit_search_resolve_fill r sweep unspecified true;   [ "${r}" = "sweep" ]
+    knit_search_resolve_fill r domain unspecified true;   [ "${r}" = "domain" ]
     knit_search_resolve_fill r default unspecified true;  [ "${r}" = "default" ]
 }
 
 @test "a parameter with no declared domain stays at its default under either policy" {
     local r
-    knit_search_resolve_fill r sweep unspecified false;   [ "${r}" = "default" ]
+    knit_search_resolve_fill r domain unspecified false;   [ "${r}" = "default" ]
     knit_search_resolve_fill r default unspecified false;  [ "${r}" = "default" ]
 }
 
@@ -58,7 +58,7 @@ teardown() {
 }
 
 @test "fill resolution rejects an unknown token classification" {
-    run knit_search_resolve_fill r sweep bogus true
+    run knit_search_resolve_fill r domain bogus true
     [ "$status" -eq 1 ]
     [[ "$output" == *"token"* ]]
 }

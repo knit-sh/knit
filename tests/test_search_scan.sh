@@ -35,14 +35,14 @@ setup() {
     [ "${raw[2]}" = "[1..3]" ]
 }
 
-@test "@sweep and @default axes carry empty raw tokens" {
+@test "@domain and @default axes carry empty raw tokens" {
     local -a tmpl axes raw
     local -A seen
     knit_search_scan tmpl axes raw seen "" \
-        submit -- train --batch '{16,64}' --layers @sweep --lr @default
+        submit -- train --batch '{16,64}' --layers @domain --lr @default
     [ "${#axes[@]}" -eq 3 ]
     [ "${axes[0]}" = "literal 4 batch" ]
-    [ "${axes[1]}" = "sweep 6 layers" ]
+    [ "${axes[1]}" = "domain 6 layers" ]
     [ "${axes[2]}" = "default 8 lr" ]
     [ "${raw[0]}" = "{16,64}" ]
     [ -z "${raw[1]}" ]
@@ -53,10 +53,10 @@ setup() {
     local -a tmpl axes raw
     local -A seen
     knit_search_scan tmpl axes raw seen "" \
-        submit -- train --lr @default --batch '{16,64}' --layers @sweep
+        submit -- train --lr @default --batch '{16,64}' --layers @domain
     [ "${seen[lr]}" = "default" ]
     [ "${seen[batch]}" = "explicit" ]
-    [ "${seen[layers]}" = "sweep" ]
+    [ "${seen[layers]}" = "domain" ]
 }
 
 @test "a concrete value marks its option explicit in the seen map" {

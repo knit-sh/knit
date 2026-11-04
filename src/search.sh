@@ -783,22 +783,22 @@ knit_search_loop() {
 #
 #   explicit   the call site carries a concrete value or a set literal for this
 #              parameter, so the proposer uses what the line already says;
-#   sweep      vary this parameter from its declared domain;
+#   domain     vary this parameter from its declared domain;
 #   default    leave this parameter at its default value.
 #
 # The precedence (highest first): an explicit value/token always wins; then a
-# per-parameter @sweep / @default token; then the --fill policy for an otherwise
-# unspecified parameter. Under --fill sweep an unspecified parameter varies only
+# per-parameter @domain / @default token; then the --fill policy for an otherwise
+# unspecified parameter. Under --fill domain an unspecified parameter varies only
 # when it has a declared domain -- a parameter with no declared domain stays at
 # its default under either policy (it is never "the space"). The per-parameter
-# token classification (explicit / sweep / default / unspecified) comes from the
+# token classification (explicit / domain / default / unspecified) comes from the
 # proposer's own call-site scan; this helper only applies the precedence.
 #
-# @param[out] __knit_ret The resolution ("explicit", "sweep", or "default").
+# @param[out] __knit_ret The resolution ("explicit", "domain", or "default").
 # @param[in] fill The --fill policy for an unspecified parameter ("default" or
-#   "sweep").
+#   "domain").
 # @param[in] token How the call site referenced this parameter: "explicit" (a
-#   concrete value or set literal), "sweep" (@sweep), "default" (@default), or
+#   concrete value or set literal), "domain" (@domain), "default" (@default), or
 #   "unspecified" (nothing).
 # @param[in] has_domain "true" if the parameter has a declared domain, else
 #   "false".
@@ -807,16 +807,16 @@ knit_search_resolve_fill() {
     local -n __knit_ret=$1
     local fill="$2" token="$3" has_domain="$4"
     case "${fill}" in
-        default|sweep) ;;
-        *) knit_fatal "knit_search_resolve_fill: --fill must be default or sweep (got '%s')." "${fill}" ;;
+        default|domain) ;;
+        *) knit_fatal "knit_search_resolve_fill: --fill must be default or domain (got '%s')." "${fill}" ;;
     esac
     case "${token}" in
         explicit) __knit_ret="explicit" ;;
-        sweep)    __knit_ret="sweep" ;;
+        domain)   __knit_ret="domain" ;;
         default)  __knit_ret="default" ;;
         unspecified)
-            if [[ "${fill}" == "sweep" && "${has_domain}" == "true" ]]; then
-                __knit_ret="sweep"
+            if [[ "${fill}" == "domain" && "${has_domain}" == "true" ]]; then
+                __knit_ret="domain"
             else
                 __knit_ret="default"
             fi
@@ -836,14 +836,14 @@ knit_search_resolve_fill() {
 # verbatim. Each handled token is classified:
 #
 #   - "{...}" / "[...]" / "@glob:..." / "@file:..." -> kind "literal";
-#   - "@sweep" -> a marker to sweep the declared domain (kind "sweep");
+#   - "@domain" -> a marker to vary the declared domain (kind "domain");
 #   - "@default" -> a marker to pin at the default (kind "default");
 #   - any other "@..." -> a fatal (unknown directive).
 #
 # An axis is named by its preceding "--option" (hyphens folded to underscores);
 # a swept positional token is named "#<index>" by its position in the
 # downstream. The "seen" map records, for every "--option" that carried a
-# value, how the call site referenced it ("explicit", "sweep", or "default");
+# value, how the call site referenced it ("explicit", "domain", or "default");
 # a literal axis folds to "explicit". The inline "--opt=value" form is
 # self-contained and recorded as "explicit". All four outputs are reset on
 # entry, so the "seen" map need not be empty, but it MUST be declared as an
@@ -858,9 +858,9 @@ knit_search_resolve_fill() {
 # @param[out] __knit_ret2 Name of the array to receive the axis descriptors,
 #   each the string "<kind> <slot> <name>".
 # @param[out] __knit_ret3 Name of the array to receive per-axis raw tokens:
-#   the verbatim token text for a "literal" axis, empty for "sweep"/"default".
+#   the verbatim token text for a "literal" axis, empty for "domain"/"default".
 # @param[out] __knit_ret4 Name of the associative array to receive the seen
-#   map (option -> "explicit"|"sweep"|"default").
+#   map (option -> "explicit"|"domain"|"default").
 # @param[in] passthrough_csv Comma-separated option names whose values are
 #   never treated as sweep-syntax (may be empty).
 # @param[in] ... The downstream tokens.
@@ -925,11 +925,11 @@ knit_search_scan() {
         if [[ "${_is_candidate}" == "true" && "${_protected}" == "false" ]]; then
             _akind=""
             case "${_tok}" in
-                '@sweep')            _akind="sweep" ;;
+                '@domain')           _akind="domain" ;;
                 '@default')          _akind="default" ;;
                 '@glob:'*|'@file:'*) _akind="literal" ;;
                 '@'*)
-                    knit_fatal "Unknown sweep directive '%s' (expected @sweep, @default, @glob:<pattern>, or @file:<path>)." "${_tok}"
+                    knit_fatal "Unknown sweep directive '%s' (expected @domain, @default, @glob:<pattern>, or @file:<path>)." "${_tok}"
                     ;;
                 *) _akind="literal" ;;
             esac
@@ -988,7 +988,7 @@ knit_search_group_forward() {
 #
 # Resolve the downstream target from the downstream token list: the command
 # whose parameters a search proposer introspects (to resolve declared domains
-# or @sweep markers), plus the dispatcher and target display names. The mapping
+# or @domain markers), plus the dispatcher and target display names. The mapping
 # mirrors how the downstream is actually run:
 #
 #   submit|prepare ... -- <job> ...  -> submit:<job>

@@ -935,7 +935,7 @@
 #   ./full.sh sweep --dry-run -- montecarlo --samples '{20000,50000}'
 #
 # A value may also be drawn from a parameter's declared --domain (see section 5):
-# `--samples @sweep` sweeps that one parameter's domain, `--fill sweep` sweeps
+# `--samples @domain` sweeps that one parameter's domain, `--fill domain` sweeps
 # every unspecified parameter that has one. Each point records an automatic `call`
 # edge back to the sweep's row, so `knit query` can walk a campaign to its jobs.
 #

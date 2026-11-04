@@ -29,9 +29,9 @@ persisted state:
 .. code-block:: console
 
    # define the campaign (runs nothing); the objective is a declared output,
-   # the varying knob is drawn from its domain with @sweep:
+   # the varying parameter is drawn from its domain with @domain:
    $ ./exp.sh ax prepare --campaign tune --objective score --maximize \
-         --trials 20 --parallel 4 --seed 1 -- submit -- quad --x @sweep
+         --trials 20 --parallel 4 --seed 1 -- submit -- quad --x @domain
    # drive the loop (re-run to resume after an interruption):
    $ ./exp.sh ax optimize --campaign tune
    $ ./exp.sh ax list                  # one line per campaign: status, trials, best
@@ -49,7 +49,7 @@ tells the model a fixed penalty for a failed trial instead of dropping it.
 
 The same campaign optimizes an **app** inside one allocation: swap ``-- submit``
 for ``-- run`` and give the launch fields, as in ``-- run --procs 8 -- bench
---msg-size @sweep``. App trials share the allocation, so they run sequentially
+--msg-size @domain``. App trials share the allocation, so they run sequentially
 (``--parallel`` is job-mode only), and the objective is read from the app's own
 table. Declare a parameter's domain with ``--domain`` (see *Declare a parameter's
 search domain*); ``ax`` and ``knit sweep`` read the very same domains, so a space

@@ -29,7 +29,7 @@ _KNIT_SWEEPS_TABLE="sweeps"
 # with the standard "expects one of: ..." message instead of the sweep having to
 # check by hand.
 knit_enum "sweep_on_failure" "continue" "stop"
-knit_enum "sweep_fill" "default" "sweep"
+knit_enum "sweep_fill" "default" "domain"
 
 knit_register "sweep" _knit_sweep \
     "Run a command, job, or app once per point in a cartesian product of values."
@@ -54,7 +54,7 @@ knit_with_optional "passthrough:string" "" \
     "Comma-separated option names whose values are never treated as sweep-syntax." \
     --no-record
 knit_with_optional "fill:sweep_fill" "default" \
-    "Policy for an unspecified parameter: keep its default, or sweep its declared domain." \
+    "Policy for an unspecified parameter: keep its default, or vary its declared domain." \
     --no-record
 knit_with_flag "dry-run" \
     "Print each reconstructed command line and exit without recording or running." \
@@ -222,13 +222,13 @@ _knit_sweep_enumerate() {
 # is "literal" calls _knit_sweep_enumerate on the raw token and stores the
 # newline-joined value list in __knit_ret3. The output contract is unchanged
 # from before the refactor: __knit_ret3[i] is a newline-joined value list for
-# a "literal" axis and empty for a "sweep"/"default" marker.
+# a "literal" axis and empty for a "domain"/"default" marker.
 #
 # @param[out] __knit_ret1 Name of the array to receive the reconstruction
 #   template (a copy of the downstream tokens).
 # @param[out] __knit_ret2 Name of the array to receive the axis descriptors.
 # @param[out] __knit_ret3 Name of the array to receive the per-axis value
-#   lists (newline-joined; empty for "sweep"/"default").
+#   lists (newline-joined; empty for "domain"/"default").
 # @param[out] __knit_ret4 Name of the associative array to receive the seen
 #   map.
 # @param[in] passthrough_csv Comma-separated option names whose values are
@@ -318,32 +318,32 @@ _knit_sweep_enumerate_domain() {
 # ------------------------------------------------------------------------------
 # @fn _knit_sweep_resolve_domains()
 #
-# Resolve the declared-domain axes (@sweep / @default / --fill) against the
+# Resolve the declared-domain axes (@domain / @default / --fill) against the
 # downstream target's parameters, splicing the results into the M2 scan. This is
 # the one point where the sweep introspects the target, and it runs only when it
-# must: --fill sweep, or a @sweep/@default marker at the call site. With --fill
+# must: --fill domain, or a @domain/@default marker at the call site. With --fill
 # default and no marker it returns at once, having read nothing.
 #
-# For each target parameter, the call-site classification (explicit / sweep /
+# For each target parameter, the call-site classification (explicit / domain /
 # default / unspecified, from the seen map) and the parameter's declared-domain
 # presence feed the shared knit_search_resolve_fill precedence rule:
 #   - explicit: left as the M2 scan already has it (a literal axis, or a scalar
 #     that passes through);
-#   - sweep: enumerate the declared domain (via _knit_sweep_enumerate_domain) and
-#     either fill the call-site @sweep marker axis in place, or, for a parameter
-#     left unspecified under --fill sweep, append a new "--param <value>" axis to
+#   - domain: enumerate the declared domain (via _knit_sweep_enumerate_domain) and
+#     either fill the call-site @domain marker axis in place, or, for a parameter
+#     left unspecified under --fill domain, append a new "--param <value>" axis to
 #     the template;
 #   - default: a call-site @default marker is pinned to the resolved default value
 #     in the template (and drops out as an axis); an unspecified parameter keeps
 #     its default, which the downstream fills when the reconstructed line runs.
-# An explicit @sweep on a parameter with no declared domain is a fatal; a @sweep /
-# @default naming a parameter the target does not have is a fatal.
+# An explicit @domain on a parameter with no declared domain is a fatal; a
+# @domain / @default naming a parameter the target does not have is a fatal.
 #
 # @param[in,out] __knit_ret1 Name of the reconstruction template array.
 # @param[in,out] __knit_ret2 Name of the axis-descriptor array.
 # @param[in,out] __knit_ret3 Name of the per-axis value-list array.
 # @param[in] __knit_seen Name of the seen map (option -> classification).
-# @param[in] fill The --fill policy ("default" or "sweep").
+# @param[in] fill The --fill policy ("default" or "domain").
 # @param[in] mangled The resolved downstream target (mangled command name).
 # ------------------------------------------------------------------------------
 _knit_sweep_resolve_domains() {
@@ -358,24 +358,24 @@ _knit_sweep_resolve_domains() {
 
     # Gate: introspect only when there is something to resolve.
     local need="false" spec
-    [[ "${fill}" == "sweep" ]] && need="true"
+    [[ "${fill}" == "domain" ]] && need="true"
     if [[ "${need}" == "false" ]]; then
         for spec in "${__knit_ret2[@]}"; do
-            case "${spec}" in "sweep "*|"default "*) need="true"; break ;; esac
+            case "${spec}" in "domain "*|"default "*) need="true"; break ;; esac
         done
     fi
     [[ "${need}" == "false" ]] && return 0
 
     if ! _knit_set_find _KNIT_COMMANDS "${mangled}"; then
-        knit_fatal "Cannot introspect the downstream target for --fill sweep / @sweep: '%s' is not a known command." "${mangled}"
+        knit_fatal "Cannot introspect the downstream target for --fill domain / @domain: '%s' is not a known command." "${mangled}"
     fi
 
-    # Index the call-site @sweep/@default markers by parameter name.
+    # Index the call-site @domain/@default markers by parameter name.
     local -A marker_idx=() marker_slot=()
     local i kind slot name
     for ((i=0; i<${#__knit_ret2[@]}; i++)); do
         read -r kind slot name <<< "${__knit_ret2[i]}"
-        if [[ "${kind}" == "sweep" || "${kind}" == "default" ]]; then
+        if [[ "${kind}" == "domain" || "${kind}" == "default" ]]; then
             marker_idx["${name}"]="${i}"
             marker_slot["${name}"]="${slot}"
         fi
@@ -402,9 +402,9 @@ _knit_sweep_resolve_domains() {
                     remove["${marker_idx[${p}]}"]=1
                 fi
                 ;;
-            sweep)
+            domain)
                 if [[ "${has_domain}" != "true" ]]; then
-                    knit_fatal "Cannot @sweep '%s': it has no declared domain. Give it a value on the line, or declare it with --domain '{...}'." "${p}"
+                    knit_fatal "Cannot @domain '%s': it has no declared domain. Give it a value on the line, or declare it with --domain '{...}'." "${p}"
                 fi
                 local -a dvals
                 _knit_sweep_enumerate_domain dvals "${mangled}" "${p}"
@@ -442,7 +442,7 @@ _knit_sweep_resolve_domains() {
     # Any marker left unresolved names a parameter the target does not have.
     for ((i=0; i<${#__knit_ret2[@]}; i++)); do
         read -r kind slot name <<< "${__knit_ret2[i]}"
-        if [[ "${kind}" == "sweep" || "${kind}" == "default" ]]; then
+        if [[ "${kind}" == "domain" || "${kind}" == "default" ]]; then
             knit_fatal "@%s references '%s', which is not a parameter of the downstream target '%s'." \
                 "${kind}" "${name}" "${mangled}"
         fi
@@ -651,7 +651,7 @@ _knit_sweep() {
     parallel=$(knit_get_parameter "parallel" "${args[@]}") || parallel="1"
 
     # Scan the downstream into axes + a template (M2), then resolve any declared
-    # domains (@sweep / @default / --fill) against the target's parameters (M3).
+    # domains (@domain / @default / --fill) against the target's parameters (M3).
     # These locals are populated and consumed through the sweep pipeline by
     # nameref, which shellcheck cannot see (hence the SC2034 suppressions).
     # shellcheck disable=SC2034 # populated/consumed by the sweep pipeline via nameref

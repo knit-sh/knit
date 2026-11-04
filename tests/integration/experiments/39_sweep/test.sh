@@ -7,7 +7,7 @@
 #     edge back to the sweeps row;
 #   - a durable `-- prepare` sweep writes one prepared job per point (running
 #     none), which a following `submit drain` releases to completion;
-#   - `--fill sweep` draws a parameter's values from its declared --domain;
+#   - `--fill domain` draws a parameter's values from its declared --domain;
 #   - `--dry-run` prints the reconstructed lines and records nothing.
 #
 # Run from inside the cluster login node as hpcuser:
@@ -77,10 +77,10 @@ check_eq "$(count_state dur completed)" "3" "draining the prepared product ran e
 check_eq "$(count_state dur prepared)" "0" "the prepared queue drained empty"
 
 # ==========================================================================
-# 3. --fill sweep draws the parameter's values from its declared domain.
+# 3. --fill domain draws the parameter's values from its declared domain.
 # ==========================================================================
-./experiment.sh sweep --parallel 3 --fill sweep -- submit --group fs -- sim
-check_eq "$(group_count fs)" "3" "--fill sweep used the declared {1,2,4} domain"
+./experiment.sh sweep --parallel 3 --fill domain -- submit --group fs -- sim
+check_eq "$(group_count fs)" "3" "--fill domain used the declared {1,2,4} domain"
 check_eq "$(count_state fs completed)" "3" "every domain-swept job completed"
 
 # ==========================================================================

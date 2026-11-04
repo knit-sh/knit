@@ -83,16 +83,16 @@ teardown() {
 # Exercises knit_search_resolve_target + _knit_sweep_resolve_domains via the real
 # _knit_sweep body (not the helpers directly), which is where the target-command
 # nameref must reach the body.
-@test "--fill sweep resolves the job's declared domain end to end" {
-    run _knit_invoke_command "sweep" --fill sweep --dry-run -- submit -- montecarlo
+@test "--fill domain resolves the job's declared domain end to end" {
+    run _knit_invoke_command "sweep" --fill domain --dry-run -- submit -- montecarlo
     [ "$status" -eq 0 ]
     [ "${#lines[@]}" -eq 2 ]
     [ "${lines[0]}" = "submit -- montecarlo --samples 1000" ]
     [ "${lines[1]}" = "submit -- montecarlo --samples 100000" ]
 }
 
-@test "@sweep resolves the job's declared domain end to end" {
-    run _knit_invoke_command "sweep" --dry-run -- submit -- montecarlo --samples @sweep
+@test "@domain resolves the job's declared domain end to end" {
+    run _knit_invoke_command "sweep" --dry-run -- submit -- montecarlo --samples @domain
     [ "$status" -eq 0 ]
     [ "${#lines[@]}" -eq 2 ]
     [ "${lines[0]}" = "submit -- montecarlo --samples 1000" ]

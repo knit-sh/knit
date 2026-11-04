@@ -59,7 +59,7 @@ _columns_of() {
     run _knit_invoke_command "sweep" "--fill" "bogus" "--" "render"
     [ "$status" -ne 0 ]
     [[ "$output" == *"default"* ]]
-    [[ "$output" == *"sweep"* ]]
+    [[ "$output" == *"domain"* ]]
 }
 
 @test "sweep rejects a non-integer --parallel value" {

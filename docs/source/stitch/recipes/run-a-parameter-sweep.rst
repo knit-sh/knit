@@ -51,8 +51,8 @@ or running --- the quickest way to see exactly what a sweep would do.
 
 **Vary a declared domain.** When a parameter declares a ``--domain`` (see *Declare
 a parameter's search domain*), the sweep can draw its values from the
-declaration instead of the command line: ``--param @sweep`` opts one parameter in,
-``--fill sweep`` opts in *every* unspecified parameter with an enumerable domain,
+declaration instead of the command line: ``--param @domain`` opts one parameter in,
+``--fill domain`` opts in *every* unspecified parameter with an enumerable domain,
 and ``--param @default`` opts one back out. A real-interval range is bounds-only
 and cannot be enumerated, so sweeping one is a hard error with a fix message.
 This is the one point where the sweep introspects the target, through the same
@@ -61,8 +61,8 @@ accessors a Bayesian-optimization proposer uses (``knit_parameter_space`` /
 
 .. code-block:: console
 
-   $ ./exp.sh sweep --fill sweep -- submit -- sim          # sim --n over its {1,2,4} domain
-   $ ./exp.sh sweep -- submit -- sim --n @sweep             # same, opting --n in explicitly
+   $ ./exp.sh sweep --fill domain -- submit -- sim          # sim --n over its {1,2,4} domain
+   $ ./exp.sh sweep -- submit -- sim --n @domain            # same, opting --n in explicitly
 
 **Durable: prepare now, drain later (resumable).** Swap ``-- submit`` for
 ``-- prepare`` and the sweep writes the whole product as a durable to-do list ---

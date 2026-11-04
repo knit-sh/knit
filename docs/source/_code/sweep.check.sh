@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Driver for sweep.sh (not shown in the documentation). Bootstraps on the local
 # backend and drives both sweep forms end to end: the ephemeral `-- submit` loop
-# and the durable `-- prepare` + `submit drain` queue, plus --fill sweep (drawing
+# and the durable `-- prepare` + `submit drain` queue, plus --fill domain (drawing
 # values from the declared domain) and --dry-run (prints, records nothing).
 set -uo pipefail
 # shellcheck source=maint/doc-check-lib.sh
@@ -34,10 +34,10 @@ sid="$(sql "SELECT source_id FROM __provenance__ WHERE edge_type='call' AND targ
 check_eq "$(sql "SELECT count(*) FROM __provenance__ WHERE source_id='${sid}' AND edge_type='call'")" \
     "3" "each swept job carries a call edge to the sweeps row"
 
-# ---- --fill sweep draws values from the parameter's declared domain -------
-exp sweep --fill sweep -- submit --group fs -- sim >/dev/null 2>&1 || true
+# ---- --fill domain draws values from the parameter's declared domain ------
+exp sweep --fill domain -- submit --group fs -- sim >/dev/null 2>&1 || true
 check_eq "$(sql "SELECT count(*) FROM jobs WHERE \"group\"='fs'")" "3" \
-    "--fill sweep used the declared domain {1,2,4}"
+    "--fill domain used the declared domain {1,2,4}"
 
 # ---- durable: prepare the whole product, then drain it --------------------
 # `-- prepare` writes one prepared row per point and runs nothing; a separate
