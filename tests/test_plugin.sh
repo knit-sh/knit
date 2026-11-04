@@ -125,6 +125,46 @@ _stub_fetch() {
     [ "$status" -eq 1 ]
 }
 
+# ---------- resolver failure -> cache fallback ----------
+
+@test "resolve_commit falls back to a cached commit when the ref cannot be resolved" {
+    _seed_cache "github.com" "o" "r" "${SHA}" "X"
+    _knit_github_resolve_commit_light() { return 1; }
+    local c wb
+    _knit_plugin_resolve_commit c wb "github.com" "o" "r" "main"
+    [ "${c}" = "${SHA}" ]
+    # The guessed commit is not an authoritative resolution, so it is not pinned.
+    [ "${wb}" = "false" ]
+}
+
+@test "resolve_commit warns before falling back to the cache" {
+    _seed_cache "github.com" "o" "r" "${SHA}" "X"
+    _knit_github_resolve_commit_light() { return 1; }
+    run _knit_plugin_resolve_commit c wb "github.com" "o" "r" "main"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"falling back to the cached commit"* ]]
+}
+
+@test "resolve_commit falls back to the most recently cached commit" {
+    local old="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    local new="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    _seed_cache "github.com" "o" "r" "${old}" "OLD"
+    _seed_cache "github.com" "o" "r" "${new}" "NEW"
+    touch -d '2020-01-01' "${_KNIT_PLUGIN_CACHE_ROOT}/github.com/o/r/${old}"
+    touch -d '2021-01-01' "${_KNIT_PLUGIN_CACHE_ROOT}/github.com/o/r/${new}"
+    _knit_github_resolve_commit_light() { return 1; }
+    local c wb
+    _knit_plugin_resolve_commit c wb "github.com" "o" "r" "main"
+    [ "${c}" = "${new}" ]
+}
+
+@test "resolve_commit fatals when the ref cannot be resolved and nothing is cached" {
+    _knit_github_resolve_commit_light() { return 1; }
+    run _knit_plugin_resolve_commit c wb "github.com" "o" "r" "main"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"could not resolve"* ]]
+}
+
 # ---------- cache hit ----------
 
 @test "knit_import sources plugin.sh from the cache on a hit (no fetch)" {

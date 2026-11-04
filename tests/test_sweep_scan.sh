@@ -141,20 +141,20 @@ _split_values() {
     [ "${axes[0]}" = "literal 1 #1" ]
 }
 
-@test "@sweep and @default are marked, not enumerated" {
+@test "@domain and @default are marked, not enumerated" {
     local -a tmpl axes values
     local -A seen
     _knit_sweep_scan tmpl axes values seen "" \
-        submit -- train --batch '{16,64}' --layers @sweep --lr @default
+        submit -- train --batch '{16,64}' --layers @domain --lr @default
     [ "${#axes[@]}" -eq 3 ]
     [ "${axes[0]}" = "literal 4 batch" ]
-    [ "${axes[1]}" = "sweep 6 layers" ]
+    [ "${axes[1]}" = "domain 6 layers" ]
     [ "${axes[2]}" = "default 8 lr" ]
     # The markers carry no values yet (resolved in M3).
     [ -z "${values[1]}" ]
     [ -z "${values[2]}" ]
     [ "${seen[batch]}" = "explicit" ]
-    [ "${seen[layers]}" = "sweep" ]
+    [ "${seen[layers]}" = "domain" ]
     [ "${seen[lr]}" = "default" ]
 }
 

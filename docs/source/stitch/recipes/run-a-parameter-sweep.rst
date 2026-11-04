@@ -26,29 +26,33 @@ through. The downstream command carries an ordinary job here:
 **Ephemeral: run the product now.** Write the real invocation after ``--`` and
 mark the swept values. The dispatcher you use (``submit``, ``run``, or a plain
 command) selects what each point does; the sweep launches them in-process,
-keeping at most ``--parallel`` in flight (default 1):
+keeping at most ``--max-inflight`` in flight (default 1):
 
 .. code-block:: console
 
    # a job per point (3 submissions), grouped as a campaign:
-   $ ./exp.sh sweep --group mc -- submit --nodes {1,2} -- sim --n '{1,2,4}'
+   $ ./exp.sh sweep -- submit --group mc --nodes {1,2} -- sim --n '{1,2,4}'
    # an app per point, inside one allocation:
    $ ./exp.sh sweep -- run --procs {1,2,4} -- stencil --tile '{64,128}'
    # a plain command per point:
    $ ./exp.sh sweep -- sim --n '{1,2,4}'
 
-``--group`` is spliced into each ``submit`` line, so the campaign's jobs share a
-``jobs.group``; every point also records an automatic ``call`` edge back to the
-sweep's row, so a query can walk a campaign to its children. ``--on-failure
-stop`` aborts on the first failed child (``continue``, the default, runs the
-whole product). ``--dry-run`` prints each reconstructed command line and exits
-without recording or running --- the quickest way to see exactly what a sweep
-would do.
+A ``--group`` you put on the ``submit`` line tags the jobs the sweep produces, so
+the campaign's jobs share a ``jobs.group`` you can later drain, inspect, or
+remove as a unit. The sweep does **not** forward its own ``--group`` onto that
+line: a ``--group`` on ``sweep`` labels only the sweeps (parent) row, and the two
+are kept independent so you can gather jobs from several submits --- by hand or
+under one or more sweeps --- under one job-level group. Independently of any
+group, every point records an automatic ``call`` edge back to the sweep's row, so
+a query can always walk a campaign to its children. ``--on-failure stop`` aborts
+on the first failed child (``continue``, the default, runs the whole product).
+``--dry-run`` prints each reconstructed command line and exits without recording
+or running --- the quickest way to see exactly what a sweep would do.
 
 **Vary a declared domain.** When a parameter declares a ``--domain`` (see *Declare
 a parameter's search domain*), the sweep can draw its values from the
-declaration instead of the command line: ``--param @sweep`` opts one parameter in,
-``--fill sweep`` opts in *every* unspecified parameter with an enumerable domain,
+declaration instead of the command line: ``--param @domain`` opts one parameter in,
+``--fill domain`` opts in *every* unspecified parameter with an enumerable domain,
 and ``--param @default`` opts one back out. A real-interval range is bounds-only
 and cannot be enumerated, so sweeping one is a hard error with a fix message.
 This is the one point where the sweep introspects the target, through the same
@@ -57,8 +61,8 @@ accessors a Bayesian-optimization proposer uses (``knit_parameter_space`` /
 
 .. code-block:: console
 
-   $ ./exp.sh sweep --fill sweep -- submit -- sim          # sim --n over its {1,2,4} domain
-   $ ./exp.sh sweep -- submit -- sim --n @sweep             # same, opting --n in explicitly
+   $ ./exp.sh sweep --fill domain -- submit -- sim          # sim --n over its {1,2,4} domain
+   $ ./exp.sh sweep -- submit -- sim --n @domain            # same, opting --n in explicitly
 
 **Durable: prepare now, drain later (resumable).** Swap ``-- submit`` for
 ``-- prepare`` and the sweep writes the whole product as a durable to-do list ---
@@ -71,8 +75,9 @@ failed or killed jobs*):
 
 .. code-block:: console
 
-   # 1. prepare the product once (durable, grouped):
-   $ ./exp.sh sweep --group mc -- prepare -- sim --n '{1,2,4}'
+   # 1. prepare the product once (durable, grouped -- --group on prepare labels
+   #    the prepared jobs so the drain can select them):
+   $ ./exp.sh sweep -- prepare --group mc -- sim --n '{1,2,4}'
    # 2. drain it -- from the login node, or inside a pilot job:
    $ ./exp.sh submit drain --group mc --max-inflight 8 --reconcile --retry killed,failed
 
@@ -81,5 +86,5 @@ prepare/drain queue the sweep writes into. Draining inside a ``knit_with_pilot``
 job packs the swept jobs onto the pilot's nodes with no second queue wait; a
 pilot killed at walltime is resumed by re-submitting it, where ``--reconcile``
 first corrects the sub-jobs the hard kill stranded at ``running`` and ``--retry``
-re-queues them. The sweep's own ``--parallel`` / ``--on-failure`` govern only the
+re-queues them. The sweep's own ``--max-inflight`` / ``--on-failure`` govern only the
 ephemeral forms; durable concurrency, recovery, and failure policy are drain's.

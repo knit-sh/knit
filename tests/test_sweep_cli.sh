@@ -34,7 +34,7 @@ _columns_of() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"--group"* ]]
     [[ "$output" == *"--on-failure"* ]]
-    [[ "$output" == *"--parallel"* ]]
+    [[ "$output" == *"--max-inflight"* ]]
     [[ "$output" == *"--passthrough"* ]]
     [[ "$output" == *"--fill"* ]]
     [[ "$output" == *"--dry-run"* ]]
@@ -59,11 +59,11 @@ _columns_of() {
     run _knit_invoke_command "sweep" "--fill" "bogus" "--" "render"
     [ "$status" -ne 0 ]
     [[ "$output" == *"default"* ]]
-    [[ "$output" == *"sweep"* ]]
+    [[ "$output" == *"domain"* ]]
 }
 
-@test "sweep rejects a non-integer --parallel value" {
-    run _knit_invoke_command "sweep" "--parallel" "notanint" "--" "render"
+@test "sweep rejects a non-integer --max-inflight value" {
+    run _knit_invoke_command "sweep" "--max-inflight" "notanint" "--" "render"
     [ "$status" -ne 0 ]
     [[ "$output" == *"integer"* ]]
 }
@@ -71,7 +71,7 @@ _columns_of() {
 @test "sweep accepts a valid invocation" {
     # --dry-run exercises the parse/scan/resolve/plan pipeline without executing
     # the downstream (execution is covered end-to-end in test_sweep_run.sh).
-    run _knit_invoke_command "sweep" "--group" "g" "--parallel" "4" "--dry-run" \
+    run _knit_invoke_command "sweep" "--group" "g" "--max-inflight" "4" "--dry-run" \
         "--" "submit" "--nodes" "2" "--" "montecarlo" "--samples" "10"
     [ "$status" -eq 0 ]
 }
@@ -79,7 +79,7 @@ _columns_of() {
 @test "the downstream split keeps inner -- tokens" {
     local -a down
     _knit_sweep_downstream down \
-        "--group" "g" "--parallel" "4" \
+        "--group" "g" "--max-inflight" "4" \
         "--" "submit" "--nodes" "2" "--" "montecarlo" "--samples" "10"
     # Everything after the FIRST -- is the downstream, inner -- preserved.
     [ "${down[0]}" = "submit" ]
@@ -113,7 +113,7 @@ _columns_of() {
     [[ "$cols" == *"count"* ]]
     # The control options carry no column (declared --no-record).
     [[ "$cols" != *"on_failure"* ]]
-    [[ "$cols" != *"parallel"* ]]
+    [[ "$cols" != *"max_inflight"* ]]
     [[ "$cols" != *"passthrough"* ]]
     [[ "$cols" != *"fill"* ]]
     [[ "$cols" != *"dry_run"* ]]

@@ -457,7 +457,9 @@ _knit_prepare_build() {
 # command, and handles a scheduler rejection (removing the never-run job, exactly
 # as a direct submit does). On success it records the backend job id in .job.id,
 # prints the job UUID to stdout, and — when the resolved "wait" option is true —
-# blocks until the job reaches a terminal state via _knit_sched_wait.
+# blocks until the job reaches a terminal state and returns non-zero if that state
+# is "failed" or "killed" (via _knit_job_wait_one), so a blocking submit honors
+# the --wait contract of returning the job's exit code.
 #
 # The submission is always issued non-blocking so the UUID can be printed as soon
 # as the scheduler accepts the job, before any wait blocks; a caller who captures
@@ -571,11 +573,21 @@ _knit_submit_dispatch() {
     printf '%s\n' "${uuid}"
 
     # Block until the job reaches a terminal state, when the release asked to
-    # wait. This polls the backend (see _knit_sched_wait), the same primitive
-    # `job wait` uses; the job's terminal state is recorded in the DB by the
-    # compute side, so waiting only has to unblock when the job stops running.
+    # wait, and propagate its outcome as this command's exit status — honoring the
+    # --wait contract ("return its exit code"). _knit_job_wait_one blocks on the
+    # backend (the same primitive `job wait` uses), then reads the compute-side
+    # terminal state back from the DB and returns non-zero for a "failed"/"killed"
+    # job. Its printed state is discarded so `submit`'s stdout stays the UUID
+    # alone; a failing job gets a warning pointing at its captured stderr, since
+    # the job's own error is written there rather than to this process.
     if [[ "${do_wait}" == "true" ]]; then
-        _knit_sched_wait "${backend}" "${jobid}"
+        local wait_rc=0
+        _knit_job_wait_one "${uuid}" >/dev/null || wait_rc=$?
+        if (( wait_rc != 0 )); then
+            knit_warning "Job \"%s\" did not complete successfully; see %s" \
+                "${job_display}" "${jobdir}/.stderr"
+        fi
+        return "${wait_rc}"
     fi
 }
 
@@ -695,6 +707,36 @@ _knit_job_set_state() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_job_fatal_record()
+#
+# On-fatal callback (registered via knit_on_fatal in _knit_job_before_cb) that
+# records the running job as "failed" when it aborts through knit_fatal. A
+# knit_fatal in the job body or in a before-callback (e.g. a missing resource or
+# setup) exits the process before the normal after-callback can record a terminal
+# state, which would otherwise strand the row at "running". Recording "failed"
+# here mirrors _knit_job_after_cb's "non-zero body => failed" rule.
+#
+# It records "failed" ONLY when the row is still in a non-terminal state
+# (running/submitted): a job that already recorded a terminal state — most
+# importantly "killed" via the signal trap — keeps it, so a kill followed by a
+# fatal cannot downgrade "killed" to "failed". Best-effort and guarded like
+# _knit_job_set_state, so it never itself aborts the already-aborting process.
+# ------------------------------------------------------------------------------
+_knit_job_fatal_record() {
+    [[ -v KNIT_JOB_PREFIX ]] || return 0
+    _knit_is_bootstrapped || return 0
+    local uuid uuid_esc state
+    uuid="$(basename "${KNIT_JOB_PREFIX}")"
+    _knit_sql_escape uuid_esc "${uuid}"
+    state="$(_knit_sqlite3 \
+        "SELECT state FROM ${_KNIT_JOBS_TABLE} WHERE id='${uuid_esc}';" \
+        2>/dev/null)" || state=""
+    case "${state}" in
+        running|submitted) _knit_job_set_state "failed" ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_job_record_hostnames()
 #
 # Record the nodes the running job was allocated into its jobs-table row. Called
@@ -742,7 +784,8 @@ _knit_job_killed_trap() {
 # Before-callback installed on every setup subcommand by knit_register_job.
 # Verifies that KNIT_JOB_PREFIX is set, ensuring the job was invoked through
 # `knit submit` rather than called directly, installs the pre-termination signal
-# handler, marks the job "running", and records the allocated hostnames.
+# handler, marks the job "running", registers the on-fatal state recorder, and
+# records the allocated hostnames.
 #
 # It does NOT source the setup environment: the jobscript already sources the
 # setup's .activate.sh before it re-enters the experiment (see
@@ -759,6 +802,10 @@ _knit_job_before_cb() {
     # HUP covers Flux, which sends it to the batch program when it cancels a job.
     trap '_knit_job_killed_trap' HUP TERM USR1
     _knit_job_set_state "running"
+    # Record "failed" if the job later aborts through knit_fatal (in the body or a
+    # remaining before-callback): that path exits the process before the normal
+    # after-callback can record a terminal state (see _knit_job_fatal_record).
+    knit_on_fatal _knit_job_fatal_record
     _knit_job_record_hostnames
 }
 

@@ -19,7 +19,7 @@
 # so a campaign's children are found by walking the edges, not by a stored column.
 # The column set is fixed and kind-independent: id, the recorded "group" label,
 # and the "target"/"dispatcher"/"dimensions"/"count" outputs. The control options
-# (--on-failure/--parallel/--passthrough/--fill/--dry-run) are declared with
+# (--on-failure/--max-inflight/--passthrough/--fill/--dry-run) are declared with
 # "--no-record" so they are parsed and validated but add no column.
 # ------------------------------------------------------------------------------
 declare -g _KNIT_SWEEPS_TABLE
@@ -29,29 +29,32 @@ _KNIT_SWEEPS_TABLE="sweeps"
 # with the standard "expects one of: ..." message instead of the sweep having to
 # check by hand.
 knit_enum "sweep_on_failure" "continue" "stop"
-knit_enum "sweep_fill" "default" "sweep"
+knit_enum "sweep_fill" "default" "domain"
 
 knit_register "sweep" _knit_sweep \
     "Run a command, job, or app once per point in a cartesian product of values."
 _knit_is_builtin
 # The campaign label is the one recorded option: it becomes the "group" column
-# and is forwarded into a submit/prepare line so the children land in the same
-# jobs.group (see knit_search_group_forward, extended in a later milestone).
+# on the sweeps row. It is NOT forwarded onto the downstream submit/prepare line:
+# the sweep's group labels the sweep (parent) row, while a --group on the
+# downstream submit/prepare labels the produced jobs, and the two are kept
+# deliberately independent so a user controls each. The sweep finds its children
+# through the automatic provenance "call" edges, not through a shared group.
 knit_with_optional "group:string" "" \
-    "Campaign label; recorded and forwarded into a submit/prepare line."
+    "Campaign label for the sweep row (not forwarded to the downstream line)."
 # Control options. Each is parsed, type-validated, and shown in "--help", but
 # marked "--no-record" so it never widens the fixed "sweeps" column set.
 knit_with_optional "on-failure:sweep_on_failure" "continue" \
     "Abort on the first failed child (stop), or keep going (continue). Ephemeral modes only." \
     --no-record
-knit_with_optional "parallel:integer" "1" \
+knit_with_optional "max-inflight:integer" "1" \
     "Ephemeral modes only: keep at most this many children in flight at once." \
     --no-record
 knit_with_optional "passthrough:string" "" \
     "Comma-separated option names whose values are never treated as sweep-syntax." \
     --no-record
 knit_with_optional "fill:sweep_fill" "default" \
-    "Policy for an unspecified parameter: keep its default, or sweep its declared domain." \
+    "Policy for an unspecified parameter: keep its default, or vary its declared domain." \
     --no-record
 knit_with_flag "dry-run" \
     "Print each reconstructed command line and exit without recording or running." \
@@ -219,13 +222,13 @@ _knit_sweep_enumerate() {
 # is "literal" calls _knit_sweep_enumerate on the raw token and stores the
 # newline-joined value list in __knit_ret3. The output contract is unchanged
 # from before the refactor: __knit_ret3[i] is a newline-joined value list for
-# a "literal" axis and empty for a "sweep"/"default" marker.
+# a "literal" axis and empty for a "domain"/"default" marker.
 #
 # @param[out] __knit_ret1 Name of the array to receive the reconstruction
 #   template (a copy of the downstream tokens).
 # @param[out] __knit_ret2 Name of the array to receive the axis descriptors.
 # @param[out] __knit_ret3 Name of the array to receive the per-axis value
-#   lists (newline-joined; empty for "sweep"/"default").
+#   lists (newline-joined; empty for "domain"/"default").
 # @param[out] __knit_ret4 Name of the associative array to receive the seen
 #   map.
 # @param[in] passthrough_csv Comma-separated option names whose values are
@@ -315,32 +318,32 @@ _knit_sweep_enumerate_domain() {
 # ------------------------------------------------------------------------------
 # @fn _knit_sweep_resolve_domains()
 #
-# Resolve the declared-domain axes (@sweep / @default / --fill) against the
+# Resolve the declared-domain axes (@domain / @default / --fill) against the
 # downstream target's parameters, splicing the results into the M2 scan. This is
 # the one point where the sweep introspects the target, and it runs only when it
-# must: --fill sweep, or a @sweep/@default marker at the call site. With --fill
+# must: --fill domain, or a @domain/@default marker at the call site. With --fill
 # default and no marker it returns at once, having read nothing.
 #
-# For each target parameter, the call-site classification (explicit / sweep /
+# For each target parameter, the call-site classification (explicit / domain /
 # default / unspecified, from the seen map) and the parameter's declared-domain
 # presence feed the shared knit_search_resolve_fill precedence rule:
 #   - explicit: left as the M2 scan already has it (a literal axis, or a scalar
 #     that passes through);
-#   - sweep: enumerate the declared domain (via _knit_sweep_enumerate_domain) and
-#     either fill the call-site @sweep marker axis in place, or, for a parameter
-#     left unspecified under --fill sweep, append a new "--param <value>" axis to
+#   - domain: enumerate the declared domain (via _knit_sweep_enumerate_domain) and
+#     either fill the call-site @domain marker axis in place, or, for a parameter
+#     left unspecified under --fill domain, append a new "--param <value>" axis to
 #     the template;
 #   - default: a call-site @default marker is pinned to the resolved default value
 #     in the template (and drops out as an axis); an unspecified parameter keeps
 #     its default, which the downstream fills when the reconstructed line runs.
-# An explicit @sweep on a parameter with no declared domain is a fatal; a @sweep /
-# @default naming a parameter the target does not have is a fatal.
+# An explicit @domain on a parameter with no declared domain is a fatal; a
+# @domain / @default naming a parameter the target does not have is a fatal.
 #
 # @param[in,out] __knit_ret1 Name of the reconstruction template array.
 # @param[in,out] __knit_ret2 Name of the axis-descriptor array.
 # @param[in,out] __knit_ret3 Name of the per-axis value-list array.
 # @param[in] __knit_seen Name of the seen map (option -> classification).
-# @param[in] fill The --fill policy ("default" or "sweep").
+# @param[in] fill The --fill policy ("default" or "domain").
 # @param[in] mangled The resolved downstream target (mangled command name).
 # ------------------------------------------------------------------------------
 _knit_sweep_resolve_domains() {
@@ -355,24 +358,24 @@ _knit_sweep_resolve_domains() {
 
     # Gate: introspect only when there is something to resolve.
     local need="false" spec
-    [[ "${fill}" == "sweep" ]] && need="true"
+    [[ "${fill}" == "domain" ]] && need="true"
     if [[ "${need}" == "false" ]]; then
         for spec in "${__knit_ret2[@]}"; do
-            case "${spec}" in "sweep "*|"default "*) need="true"; break ;; esac
+            case "${spec}" in "domain "*|"default "*) need="true"; break ;; esac
         done
     fi
     [[ "${need}" == "false" ]] && return 0
 
     if ! _knit_set_find _KNIT_COMMANDS "${mangled}"; then
-        knit_fatal "Cannot introspect the downstream target for --fill sweep / @sweep: '%s' is not a known command." "${mangled}"
+        knit_fatal "Cannot introspect the downstream target for --fill domain / @domain: '%s' is not a known command." "${mangled}"
     fi
 
-    # Index the call-site @sweep/@default markers by parameter name.
+    # Index the call-site @domain/@default markers by parameter name.
     local -A marker_idx=() marker_slot=()
     local i kind slot name
     for ((i=0; i<${#__knit_ret2[@]}; i++)); do
         read -r kind slot name <<< "${__knit_ret2[i]}"
-        if [[ "${kind}" == "sweep" || "${kind}" == "default" ]]; then
+        if [[ "${kind}" == "domain" || "${kind}" == "default" ]]; then
             marker_idx["${name}"]="${i}"
             marker_slot["${name}"]="${slot}"
         fi
@@ -399,9 +402,9 @@ _knit_sweep_resolve_domains() {
                     remove["${marker_idx[${p}]}"]=1
                 fi
                 ;;
-            sweep)
+            domain)
                 if [[ "${has_domain}" != "true" ]]; then
-                    knit_fatal "Cannot @sweep '%s': it has no declared domain. Give it a value on the line, or declare it with --domain '{...}'." "${p}"
+                    knit_fatal "Cannot @domain '%s': it has no declared domain. Give it a value on the line, or declare it with --domain '{...}'." "${p}"
                 fi
                 local -a dvals
                 _knit_sweep_enumerate_domain dvals "${mangled}" "${p}"
@@ -439,7 +442,7 @@ _knit_sweep_resolve_domains() {
     # Any marker left unresolved names a parameter the target does not have.
     for ((i=0; i<${#__knit_ret2[@]}; i++)); do
         read -r kind slot name <<< "${__knit_ret2[i]}"
-        if [[ "${kind}" == "sweep" || "${kind}" == "default" ]]; then
+        if [[ "${kind}" == "domain" || "${kind}" == "default" ]]; then
             knit_fatal "@%s references '%s', which is not a parameter of the downstream target '%s'." \
                 "${kind}" "${name}" "${mangled}"
         fi
@@ -490,7 +493,7 @@ _knit_sweep_plan() {
 # template, then overwrite each axis's template slot with that axis's value for
 # the given combination index. The index is decoded as a mixed-radix odometer in
 # which the last axis varies fastest (so the product enumerates in a stable,
-# row-major order). The caller applies the --group splice afterwards.
+# row-major order).
 #
 # @param[out] __knit_ret Name of the array to receive the reconstructed line.
 # @param[in] __knit_tmpl Name of the reconstruction template array.
@@ -565,9 +568,8 @@ _knit_sweep_dimensions_json() {
 # the odometer cursor. Like every search proposer (see the fake proposer in
 # tests/test_search_loop.sh), it reads its state from the enclosing dispatcher
 # frame through dynamic scope -- here _knit_sweep's locals: the plan arrays
-# (template/axes/flat/offsets/counts), the product size (total), the campaign
-# group spliced into a submit/prepare line, and the cursor it advances. Returns 1
-# when the product is exhausted.
+# (template/axes/flat/offsets/counts), the product size (total), and the cursor
+# it advances. Returns 1 when the product is exhausted.
 #
 # @param[out] __knit_ret_tag  The opaque trial tag (the combination index).
 # @param[out] __knit_ret_argv The reconstructed downstream argv.
@@ -576,15 +578,13 @@ _knit_sweep_ask() {
     local -n __knit_ret_tag=$1
     # shellcheck disable=SC2178 # nameref output used as an array
     local -n __knit_ret_argv=$2
-    # cursor/total/group and the plan arrays come from the enclosing _knit_sweep
-    # frame through dynamic scope (the search proposer state contract).
+    # cursor/total and the plan arrays come from the enclosing _knit_sweep frame
+    # through dynamic scope (the search proposer state contract).
     # shellcheck disable=SC2154
     (( cursor >= total )) && return 1
     local -a reconstructed
     _knit_sweep_reconstruct reconstructed \
         template axes flat offsets counts "${cursor}"
-    # shellcheck disable=SC2154
-    knit_search_group_forward reconstructed "${group}"
     __knit_ret_tag="${cursor}"
     __knit_ret_argv=("${reconstructed[@]}")
     cursor=$(( cursor + 1 ))
@@ -640,19 +640,18 @@ _knit_sweep() {
         knit_fatal "sweep requires a downstream command after -- (e.g. \"-- submit -- <job>\", \"-- run -- <app>\", or \"-- <command>\")."
     fi
 
-    local group fill passthrough dry_run on_failure parallel
-    group=$(knit_get_parameter "group" "${args[@]}") || group=""
+    local fill passthrough dry_run on_failure max_inflight
     fill=$(knit_get_parameter "fill" "${args[@]}") || fill="default"
     passthrough=$(knit_get_parameter "passthrough" "${args[@]}") || passthrough=""
     dry_run=$(knit_get_parameter "dry-run" "${args[@]}") || dry_run="false"
-    # on_failure is read by _knit_sweep_observe through dynamic scope; parallel is
-    # forwarded to the ephemeral loop.
+    # on_failure is read by _knit_sweep_observe through dynamic scope; max_inflight
+    # is forwarded to the ephemeral loop.
     # shellcheck disable=SC2034 # on_failure consumed by _knit_sweep_observe via dynamic scope
     on_failure=$(knit_get_parameter "on-failure" "${args[@]}") || on_failure="continue"
-    parallel=$(knit_get_parameter "parallel" "${args[@]}") || parallel="1"
+    max_inflight=$(knit_get_parameter "max-inflight" "${args[@]}") || max_inflight="1"
 
     # Scan the downstream into axes + a template (M2), then resolve any declared
-    # domains (@sweep / @default / --fill) against the target's parameters (M3).
+    # domains (@domain / @default / --fill) against the target's parameters (M3).
     # These locals are populated and consumed through the sweep pipeline by
     # nameref, which shellcheck cannot see (hence the SC2034 suppressions).
     # shellcheck disable=SC2034 # populated/consumed by the sweep pipeline via nameref
@@ -671,14 +670,13 @@ _knit_sweep() {
     local total
     _knit_sweep_plan counts flat offsets total values
 
-    # --dry-run prints each reconstructed command line (with the --group splice a
-    # real run would get) and exits without recording or running.
+    # --dry-run prints each reconstructed command line exactly as a real run would
+    # launch it, and exits without recording or running.
     if [[ "${dry_run}" == "true" ]]; then
         local idx
         for ((idx=0; idx<total; idx++)); do
             local -a line
             _knit_sweep_reconstruct line template axes flat offsets counts "${idx}"
-            knit_search_group_forward line "${group}"
             _knit_str_render_cmd line
             printf '\n'
         done
@@ -699,7 +697,7 @@ _knit_sweep() {
     knit_output "count" "${total}"
 
     # The cursor is the odometer position advanced by _knit_sweep_ask (dynamic
-    # scope). The plan arrays, total, group and on_failure are read there too.
+    # scope). The plan arrays, total and on_failure are read there too.
     # shellcheck disable=SC2034 # cursor advanced by _knit_sweep_ask via dynamic scope
     local cursor=0
 
@@ -708,14 +706,13 @@ _knit_sweep() {
     if [[ "${d0n}" == "prepare" ]]; then
         # Durable path: prepare each point sequentially. prepare records a
         # "prepared" jobs row and returns, running nothing, so there is no loop
-        # and no --parallel/--on-failure; resume/retry/concurrency are the user's
+        # and no --max-inflight/--on-failure; resume/retry/concurrency are the user's
         # later "submit drain" step. Each prepared child gets an automatic "call"
         # edge to this sweeps row.
         local idx
         for ((idx=0; idx<total; idx++)); do
             local -a line
             _knit_sweep_reconstruct line template axes flat offsets counts "${idx}"
-            knit_search_group_forward line "${group}"
             # shellcheck disable=SC2034 # child row id is unused (prepare runs nothing)
             local child_id
             knit_search_launch child_id "${line[@]}"
@@ -724,14 +721,16 @@ _knit_sweep() {
     fi
 
     # Ephemeral path: drive the shared search loop over the product, keeping up to
-    # --parallel children in flight. submit is a job (poll jobs.state); run and a
-    # bare command are apps (reap backgrounded children). The loop launches each
+    # --max-inflight children in flight. submit is a job (poll jobs.state); run and
+    # a bare command are apps (reap backgrounded children). The loop launches each
     # reconstructed line in-process through knit_search_launch, so every child's
-    # "call" edge to this sweeps row is automatic.
+    # "call" edge to this sweeps row is automatic. The loop's own flag is still
+    # --parallel (an internal API shared with the ax proposer); the user-facing
+    # sweep option is --max-inflight.
     local mode="app"
     [[ "${d0n}" == "submit" ]] && mode="job"
     local loop_status=0
-    knit_search_loop --mode "${mode}" --parallel "${parallel}" \
+    knit_search_loop --mode "${mode}" --parallel "${max_inflight}" \
         --ask _knit_sweep_ask --observe _knit_sweep_observe || loop_status=$?
     return "${loop_status}"
 }

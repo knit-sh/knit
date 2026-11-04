@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # M3 tests for declared-domain resolution: target resolution from the downstream
-# (knit_search_resolve_target) and the --fill / @sweep / @default splicing
+# (knit_search_resolve_target) and the --fill / @domain / @default splicing
 # (_knit_sweep_resolve_domains, _knit_sweep_enumerate_domain).
 
 setup() {
@@ -96,10 +96,10 @@ _axis_values() {
     [ "${tmpl[*]}" = "${before_tmpl}" ]
 }
 
-@test "--fill sweep varies every enumerable domain and skips domainless ones" {
+@test "--fill domain varies every enumerable domain and skips domainless ones" {
     local -a tmpl axes values; local -A seen
     _knit_sweep_scan tmpl axes values seen "" submit -- train --lr @default
-    _knit_sweep_resolve_domains tmpl axes values seen sweep "submit__1__train"
+    _knit_sweep_resolve_domains tmpl axes values seen domain "submit__1__train"
     # batch (list) and layers (int range) are swept; tag (no domain) and lr
     # (opted out via @default) are not.
     [ "$(_axis_values axes batch values)" = "16 32 64 128" ]
@@ -110,71 +110,71 @@ _axis_values() {
     [[ "${tmpl[*]}" == *"--lr 0.01"* ]]
 }
 
-@test "@sweep opts a parameter in even under --fill default" {
+@test "@domain opts a parameter in even under --fill default" {
     local -a tmpl axes values; local -A seen
-    _knit_sweep_scan tmpl axes values seen "" submit -- train --batch '{16,64}' --layers @sweep
+    _knit_sweep_scan tmpl axes values seen "" submit -- train --batch '{16,64}' --layers @domain
     _knit_sweep_resolve_domains tmpl axes values seen default "submit__1__train"
     # batch is the explicit literal; layers is swept from its declared domain.
     [ "$(_axis_values axes batch values)" = "16 64" ]
     [ "$(_axis_values axes layers values)" = "2 3 4 5 6 7 8 9 10 11 12" ]
 }
 
-@test "@default opts a parameter out even under --fill sweep" {
+@test "@default opts a parameter out even under --fill domain" {
     local -a tmpl axes values; local -A seen
-    # lr (a real range) must also be opted out, or --fill sweep would try to
+    # lr (a real range) must also be opted out, or --fill domain would try to
     # enumerate its real interval and fatal (see the real-range test below).
     _knit_sweep_scan tmpl axes values seen "" \
         submit -- train --batch @default --lr @default
-    _knit_sweep_resolve_domains tmpl axes values seen sweep "submit__1__train"
+    _knit_sweep_resolve_domains tmpl axes values seen domain "submit__1__train"
     # batch is pinned (no axis); layers (unspecified, int range) is swept.
     [ -z "$(_axis_values axes batch values)" ]
     [[ "${tmpl[*]}" == *"--batch 32"* ]]
     [ -n "$(_axis_values axes layers values)" ]
 }
 
-@test "an explicit value wins over the declared domain under --fill sweep" {
+@test "an explicit value wins over the declared domain under --fill domain" {
     local -a tmpl axes values; local -A seen
     _knit_sweep_scan tmpl axes values seen "" submit -- train --batch '{8,16}' --lr @default
-    _knit_sweep_resolve_domains tmpl axes values seen sweep "submit__1__train"
+    _knit_sweep_resolve_domains tmpl axes values seen domain "submit__1__train"
     # batch uses the explicit {8,16}, not its declared {16,32,64,128}.
     [ "$(_axis_values axes batch values)" = "8 16" ]
 }
 
-@test "a real-range @sweep is a fatal with the fix message" {
+@test "a real-range @domain is a fatal with the fix message" {
     local -a tmpl axes values; local -A seen
-    _knit_sweep_scan tmpl axes values seen "" submit -- train --lr @sweep
+    _knit_sweep_scan tmpl axes values seen "" submit -- train --lr @domain
     run _knit_sweep_resolve_domains tmpl axes values seen default "submit__1__train"
     [ "$status" -ne 0 ]
     [[ "$output" == *"real interval"* ]]
     [[ "$output" == *"bounds only"* ]]
 }
 
-@test "@sweep on a domainless parameter is a fatal" {
+@test "@domain on a domainless parameter is a fatal" {
     local -a tmpl axes values; local -A seen
-    _knit_sweep_scan tmpl axes values seen "" submit -- train --tag @sweep
+    _knit_sweep_scan tmpl axes values seen "" submit -- train --tag @domain
     run _knit_sweep_resolve_domains tmpl axes values seen default "submit__1__train"
     [ "$status" -ne 0 ]
     [[ "$output" == *"no declared domain"* ]]
 }
 
-@test "@sweep on an unknown parameter is a fatal" {
+@test "@domain on an unknown parameter is a fatal" {
     local -a tmpl axes values; local -A seen
-    _knit_sweep_scan tmpl axes values seen "" submit -- train --bogus @sweep
+    _knit_sweep_scan tmpl axes values seen "" submit -- train --bogus @domain
     run _knit_sweep_resolve_domains tmpl axes values seen default "submit__1__train"
     [ "$status" -ne 0 ]
     [[ "$output" == *"not a parameter"* ]]
 }
 
-@test "--fill sweep works for a run -- app target" {
+@test "--fill domain works for a run -- app target" {
     local -a tmpl axes values; local -A seen
     _knit_sweep_scan tmpl axes values seen "" run -- stencil
-    _knit_sweep_resolve_domains tmpl axes values seen sweep "run__1__stencil"
+    _knit_sweep_resolve_domains tmpl axes values seen domain "run__1__stencil"
     [ "$(_axis_values axes tile values)" = "64 128 256" ]
 }
 
-@test "--fill sweep works for a bare command target" {
+@test "--fill domain works for a bare command target" {
     local -a tmpl axes values; local -A seen
     _knit_sweep_scan tmpl axes values seen "" render
-    _knit_sweep_resolve_domains tmpl axes values seen sweep "render"
+    _knit_sweep_resolve_domains tmpl axes values seen domain "render"
     [ "$(_axis_values axes width values)" = "256 512 1024" ]
 }

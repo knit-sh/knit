@@ -11,7 +11,7 @@ knit_set_program_description "Sweep a job over a product of parameter values."
 
 # START job
 # An ordinary job whose tunable parameter carries a search --domain, so the sweep
-# can draw its values from the declaration (--fill sweep / --n @sweep) as well as
+# can draw its values from the declaration (--fill domain / --n @domain) as well as
 # from an explicit set on the command line (--n '{1,2,4}').
 @job "sim" "Run one trivial simulation."
 @without_setup

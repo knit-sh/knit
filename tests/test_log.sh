@@ -192,6 +192,55 @@ setup() {
     [[ "$output" == *"More info may be found"* ]]
 }
 
+# --- knit_on_fatal ---
+
+@test "knit_on_fatal registers a callback in _KNIT_ON_FATAL" {
+    _KNIT_ON_FATAL=()
+    knit_on_fatal echo hello
+    [ "${#_KNIT_ON_FATAL[@]}" -eq 1 ]
+}
+
+@test "knit_fatal runs registered on-fatal callbacks before exiting" {
+    run bash -c '
+        source knit.sh
+        knit_on_fatal printf "ONFATAL-RAN\n"
+        knit_fatal "boom" 2>&1'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"ONFATAL-RAN"* ]]
+    [[ "$output" == *"boom"* ]]
+}
+
+@test "knit_fatal with no on-fatal callbacks still exits 1 (empty drain is a no-op)" {
+    run bash -c '
+        source knit.sh
+        _KNIT_ON_FATAL=()
+        knit_fatal "boom" 2>&1'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"boom"* ]]
+}
+
+@test "an on-fatal callback that itself fatals does not recurse" {
+    # The callback calls knit_fatal again; the drain clears the list first, so
+    # the second knit_fatal finds an empty list and the process exits once.
+    run bash -c '
+        source knit.sh
+        knit_on_fatal knit_fatal "second"
+        knit_fatal "first" 2>&1'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"first"* ]]
+    [[ "$output" == *"second"* ]]
+}
+
+@test "a failing on-fatal callback does not skip later callbacks" {
+    run bash -c '
+        source knit.sh
+        knit_on_fatal false
+        knit_on_fatal printf "SECOND-RAN\n"
+        knit_fatal "boom" 2>&1'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"SECOND-RAN"* ]]
+}
+
 # --- KNIT_LOG_LEVEL validation on source ---
 
 @test "default KNIT_LOG_LEVEL is info" {

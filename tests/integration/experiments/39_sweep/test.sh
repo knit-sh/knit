@@ -7,7 +7,7 @@
 #     edge back to the sweeps row;
 #   - a durable `-- prepare` sweep writes one prepared job per point (running
 #     none), which a following `submit drain` releases to completion;
-#   - `--fill sweep` draws a parameter's values from its declared --domain;
+#   - `--fill domain` draws a parameter's values from its declared --domain;
 #   - `--dry-run` prints the reconstructed lines and records nothing.
 #
 # Run from inside the cluster login node as hpcuser:
@@ -51,14 +51,16 @@ group_count() {
 # ==========================================================================
 # 1. An ephemeral `-- submit` sweep submits one job per point and completes.
 # ==========================================================================
-# Three points (--n over {1,2,4}); --parallel 3 keeps all in flight so the loop
+# Three points (--n over {1,2,4}); --max-inflight 3 keeps all in flight so the loop
 # does not serialize the (fast) jobs behind one another's scheduling latency.
-./experiment.sh sweep --group eph --parallel 3 -- submit -- sim --n '{1,2,4}'
+./experiment.sh sweep --max-inflight 3 -- submit --group eph -- sim --n '{1,2,4}'
 check_eq "$(group_count eph)" "3" "the ephemeral sweep submitted one job per point"
 check_eq "$(count_state eph completed)" "3" "every swept job completed"
 
-# The sweep recorded a sweeps row; each child carries a call edge back to it.
-SID="$("${SQLITE}" "${DB}" "SELECT id FROM sweeps WHERE \"group\"='eph';")"
+# The sweep recorded a sweeps row; each child carries a call edge back to it. The
+# sweep's children are found by walking those edges (not a shared group, which
+# the sweep does not forward), so the sweeps row is reached from a child here.
+SID="$("${SQLITE}" "${DB}" "SELECT source_id FROM __provenance__ WHERE edge_type='call' AND target_id IN (SELECT id FROM jobs WHERE \"group\"='eph') LIMIT 1;")"
 check_eq \
     "$("${SQLITE}" "${DB}" "SELECT count(*) FROM __provenance__ WHERE source_id='${SID}' AND edge_type='call';")" \
     "3" "each swept job carries a call edge to the sweeps row"
@@ -66,7 +68,7 @@ check_eq \
 # ==========================================================================
 # 2. A durable `-- prepare` sweep prepares the product; drain runs it.
 # ==========================================================================
-./experiment.sh sweep --group dur -- prepare -- sim --n '{1,2,4}'
+./experiment.sh sweep -- prepare --group dur -- sim --n '{1,2,4}'
 check_eq "$(count_state dur prepared)" "3" "the durable sweep prepared one job per point"
 check_eq "$(count_state dur completed)" "0" "the durable sweep ran nothing yet"
 
@@ -75,10 +77,10 @@ check_eq "$(count_state dur completed)" "3" "draining the prepared product ran e
 check_eq "$(count_state dur prepared)" "0" "the prepared queue drained empty"
 
 # ==========================================================================
-# 3. --fill sweep draws the parameter's values from its declared domain.
+# 3. --fill domain draws the parameter's values from its declared domain.
 # ==========================================================================
-./experiment.sh sweep --group fs --parallel 3 --fill sweep -- submit -- sim
-check_eq "$(group_count fs)" "3" "--fill sweep used the declared {1,2,4} domain"
+./experiment.sh sweep --max-inflight 3 --fill domain -- submit --group fs -- sim
+check_eq "$(group_count fs)" "3" "--fill domain used the declared {1,2,4} domain"
 check_eq "$(count_state fs completed)" "3" "every domain-swept job completed"
 
 # ==========================================================================

@@ -27,6 +27,23 @@ declare -ga _KNIT_SCRIPT_ARGV
 _KNIT_SCRIPT_ARGV=("$@")
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_ON_FATAL
+#
+# List of callback command strings run by knit_fatal just before it exits. Each
+# entry is a single command, pre-escaped with printf %q (as knit_run_before /
+# knit_run_after store their callbacks), so it can be re-run with eval. A
+# callback registers via knit_on_fatal.
+#
+# The list is empty in almost every context (the login side, bootstrap, any
+# ordinary command), so knit_fatal's drain is a no-op there. It exists so a
+# compute-side job can record a terminal "failed" state when its body or a
+# before-callback aborts with knit_fatal, which exits the process before the
+# normal after-callback (that would record the state) can run.
+# ------------------------------------------------------------------------------
+declare -ga _KNIT_ON_FATAL
+_KNIT_ON_FATAL=()
+
+# ------------------------------------------------------------------------------
 # @var _KNIT_SCRIPT_PATH
 #
 # Absolute, resolved path to the experiment script that sourced knit.sh. Unlike

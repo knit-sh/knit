@@ -29,28 +29,34 @@ persisted state:
 .. code-block:: console
 
    # define the campaign (runs nothing); the objective is a declared output,
-   # the varying knob is drawn from its domain with @sweep:
+   # the varying parameter is drawn from its domain with @domain. --max-trials
+   # is the campaign's lifetime budget:
    $ ./exp.sh ax prepare --campaign tune --objective score --maximize \
-         --trials 20 --parallel 4 --seed 1 -- submit -- quad --x @sweep
-   # drive the loop (re-run to resume after an interruption):
-   $ ./exp.sh ax optimize --campaign tune
+         --max-trials 20 --seed 1 -- submit -- quad --x @domain
+   # drive the loop (re-run to resume); --max-inflight sets this call's concurrency:
+   $ ./exp.sh ax optimize --campaign tune --max-inflight 4
    $ ./exp.sh ax list                  # one line per campaign: status, trials, best
    $ ./exp.sh ax show --campaign tune  # one campaign's detail and current optimum
+   # reached the budget but want to keep searching? raise it, then optimize again:
+   $ ./exp.sh ax extend --campaign tune --max-trials 40
+   $ ./exp.sh ax optimize --campaign tune
 
 Each trial is a real ``knit submit`` into the campaign's group, so the trials
-are ordinary tracked jobs: ``--parallel`` keeps that many in flight, and every
-trial records a ``call`` edge back to the campaign's ``optimizations`` row, so a
-query can walk a campaign to its children. ``ax`` reads each trial's objective
-from the declared output column, feeds it to the Ax model, and records the best
-trial on the campaign row and in ``campaigns/<name>/result.json``. ``--minimize``
-(the default) or ``--maximize`` sets the sense; ``--sobol-trials`` sets how many
-quasi-random trials explore before the model engages; ``--on-failure penalize``
-tells the model a fixed penalty for a failed trial instead of dropping it.
+are ordinary tracked jobs: on ``ax optimize``, ``--max-inflight`` keeps that many
+in flight (per call, default 1) and ``--trials K`` runs at most K more this call
+(default: run to the campaign's ``--max-trials``); every trial records a ``call``
+edge back to the campaign's ``optimizations`` row, so a query can walk a campaign
+to its children. ``ax`` reads each trial's objective from the declared output
+column, feeds it to the Ax model, and records the best trial on the campaign row
+and in ``campaigns/<name>/result.json``. ``--minimize`` (the default) or
+``--maximize`` sets the sense; ``--sobol-trials`` sets how many quasi-random
+trials explore before the model engages; ``--on-failure penalize`` tells the
+model a fixed penalty for a failed trial instead of dropping it.
 
 The same campaign optimizes an **app** inside one allocation: swap ``-- submit``
 for ``-- run`` and give the launch fields, as in ``-- run --procs 8 -- bench
---msg-size @sweep``. App trials share the allocation, so they run sequentially
-(``--parallel`` is job-mode only), and the objective is read from the app's own
+--msg-size @domain``. App trials share the allocation, so they run sequentially
+(``--max-inflight`` is job-mode only), and the objective is read from the app's own
 table. Declare a parameter's domain with ``--domain`` (see *Declare a parameter's
 search domain*); ``ax`` and ``knit sweep`` read the very same domains, so a space
 written for one proposer serves the other unchanged.

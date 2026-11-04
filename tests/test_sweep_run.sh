@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # M5 tests for sweep execution: the durable prepare path, the ephemeral search
-# loop, the on-failure policy, --parallel forwarding, mode derivation, and the
+# loop, the on-failure policy, --max-inflight forwarding, mode derivation, and the
 # sweeps-row recording with its call edges to the children.
 
 setup() {
@@ -71,11 +71,11 @@ teardown() {
     eval "knit_search_launch() { local -n _u=\$1; shift; printf '%s\n' \"\$*\" >> '${LOG}'; _u='x'; }"
     eval "knit_search_loop() { printf 'LOOP\n' >> '${LOG}'; }"
     _knit_invoke_command "sweep" --group mc -- prepare -- montecarlo --samples '{1000,100000}'
-    # Two prepare lines, group spliced, no loop.
+    # Two prepare lines, group not forwarded onto the child, no loop.
     [ "$(grep -c '^prepare ' "${LOG}")" -eq 2 ]
     [ "$(grep -c '^LOOP$' "${LOG}")" -eq 0 ]
-    grep -qx 'prepare --group mc -- montecarlo --samples 1000' "${LOG}"
-    grep -qx 'prepare --group mc -- montecarlo --samples 100000' "${LOG}"
+    grep -qx 'prepare -- montecarlo --samples 1000' "${LOG}"
+    grep -qx 'prepare -- montecarlo --samples 100000' "${LOG}"
 }
 
 # ---------- declared-domain resolution through the full command ----------
@@ -83,16 +83,16 @@ teardown() {
 # Exercises knit_search_resolve_target + _knit_sweep_resolve_domains via the real
 # _knit_sweep body (not the helpers directly), which is where the target-command
 # nameref must reach the body.
-@test "--fill sweep resolves the job's declared domain end to end" {
-    run _knit_invoke_command "sweep" --fill sweep --dry-run -- submit -- montecarlo
+@test "--fill domain resolves the job's declared domain end to end" {
+    run _knit_invoke_command "sweep" --fill domain --dry-run -- submit -- montecarlo
     [ "$status" -eq 0 ]
     [ "${#lines[@]}" -eq 2 ]
     [ "${lines[0]}" = "submit -- montecarlo --samples 1000" ]
     [ "${lines[1]}" = "submit -- montecarlo --samples 100000" ]
 }
 
-@test "@sweep resolves the job's declared domain end to end" {
-    run _knit_invoke_command "sweep" --dry-run -- submit -- montecarlo --samples @sweep
+@test "@domain resolves the job's declared domain end to end" {
+    run _knit_invoke_command "sweep" --dry-run -- submit -- montecarlo --samples @domain
     [ "$status" -eq 0 ]
     [ "${#lines[@]}" -eq 2 ]
     [ "${lines[0]}" = "submit -- montecarlo --samples 1000" ]
@@ -111,9 +111,11 @@ teardown() {
     [ "$(sed -n '3p' "${LOG}")" = "mode=app" ]
 }
 
-@test "--parallel is forwarded to the loop" {
+@test "--max-inflight is forwarded to the loop" {
+    # The user-facing option is --max-inflight; the loop's own flag stays
+    # --parallel (an internal API shared with the ax proposer).
     eval "knit_search_loop() { while [[ \$# -gt 0 ]]; do [[ \$1 == --parallel ]] && printf 'parallel=%s\n' \"\$2\" >> '${LOG}'; shift; done; }"
-    _knit_invoke_command "sweep" --parallel 4 -- submit -- montecarlo --samples '{1,2}'
+    _knit_invoke_command "sweep" --max-inflight 4 -- submit -- montecarlo --samples '{1,2}'
     [ "$(cat "${LOG}")" = "parallel=4" ]
 }
 
@@ -133,7 +135,7 @@ _stub_launch_fail() {
 
 @test "--on-failure stop aborts on the first failed child" {
     eval "knit_search_launch() { _stub_launch_fail \"\$@\"; }"
-    run _knit_invoke_command "sweep" --on-failure stop --parallel 1 \
+    run _knit_invoke_command "sweep" --on-failure stop --max-inflight 1 \
         -- submit -- montecarlo --samples '{1,2,3,4}'
     # The first child fails and aborts the campaign: only one launch.
     [ "$(grep -c '^launch$' "${LOG}")" -eq 1 ]
@@ -142,7 +144,7 @@ _stub_launch_fail() {
 
 @test "--on-failure continue runs the whole product despite failures" {
     eval "knit_search_launch() { _stub_launch_fail \"\$@\"; }"
-    _knit_invoke_command "sweep" --on-failure continue --parallel 1 \
+    _knit_invoke_command "sweep" --on-failure continue --max-inflight 1 \
         -- submit -- montecarlo --samples '{1,2,3,4}'
     # Every point launches even though each child fails.
     [ "$(grep -c '^launch$' "${LOG}")" -eq 4 ]
