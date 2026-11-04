@@ -26,7 +26,7 @@ through. The downstream command carries an ordinary job here:
 **Ephemeral: run the product now.** Write the real invocation after ``--`` and
 mark the swept values. The dispatcher you use (``submit``, ``run``, or a plain
 command) selects what each point does; the sweep launches them in-process,
-keeping at most ``--parallel`` in flight (default 1):
+keeping at most ``--max-inflight`` in flight (default 1):
 
 .. code-block:: console
 
@@ -86,5 +86,5 @@ prepare/drain queue the sweep writes into. Draining inside a ``knit_with_pilot``
 job packs the swept jobs onto the pilot's nodes with no second queue wait; a
 pilot killed at walltime is resumed by re-submitting it, where ``--reconcile``
 first corrects the sub-jobs the hard kill stranded at ``running`` and ``--retry``
-re-queues them. The sweep's own ``--parallel`` / ``--on-failure`` govern only the
+re-queues them. The sweep's own ``--max-inflight`` / ``--on-failure`` govern only the
 ephemeral forms; durable concurrency, recovery, and failure policy are drain's.

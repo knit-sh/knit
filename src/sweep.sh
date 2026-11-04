@@ -19,7 +19,7 @@
 # so a campaign's children are found by walking the edges, not by a stored column.
 # The column set is fixed and kind-independent: id, the recorded "group" label,
 # and the "target"/"dispatcher"/"dimensions"/"count" outputs. The control options
-# (--on-failure/--parallel/--passthrough/--fill/--dry-run) are declared with
+# (--on-failure/--max-inflight/--passthrough/--fill/--dry-run) are declared with
 # "--no-record" so they are parsed and validated but add no column.
 # ------------------------------------------------------------------------------
 declare -g _KNIT_SWEEPS_TABLE
@@ -47,7 +47,7 @@ knit_with_optional "group:string" "" \
 knit_with_optional "on-failure:sweep_on_failure" "continue" \
     "Abort on the first failed child (stop), or keep going (continue). Ephemeral modes only." \
     --no-record
-knit_with_optional "parallel:integer" "1" \
+knit_with_optional "max-inflight:integer" "1" \
     "Ephemeral modes only: keep at most this many children in flight at once." \
     --no-record
 knit_with_optional "passthrough:string" "" \
@@ -640,15 +640,15 @@ _knit_sweep() {
         knit_fatal "sweep requires a downstream command after -- (e.g. \"-- submit -- <job>\", \"-- run -- <app>\", or \"-- <command>\")."
     fi
 
-    local fill passthrough dry_run on_failure parallel
+    local fill passthrough dry_run on_failure max_inflight
     fill=$(knit_get_parameter "fill" "${args[@]}") || fill="default"
     passthrough=$(knit_get_parameter "passthrough" "${args[@]}") || passthrough=""
     dry_run=$(knit_get_parameter "dry-run" "${args[@]}") || dry_run="false"
-    # on_failure is read by _knit_sweep_observe through dynamic scope; parallel is
-    # forwarded to the ephemeral loop.
+    # on_failure is read by _knit_sweep_observe through dynamic scope; max_inflight
+    # is forwarded to the ephemeral loop.
     # shellcheck disable=SC2034 # on_failure consumed by _knit_sweep_observe via dynamic scope
     on_failure=$(knit_get_parameter "on-failure" "${args[@]}") || on_failure="continue"
-    parallel=$(knit_get_parameter "parallel" "${args[@]}") || parallel="1"
+    max_inflight=$(knit_get_parameter "max-inflight" "${args[@]}") || max_inflight="1"
 
     # Scan the downstream into axes + a template (M2), then resolve any declared
     # domains (@domain / @default / --fill) against the target's parameters (M3).
@@ -706,7 +706,7 @@ _knit_sweep() {
     if [[ "${d0n}" == "prepare" ]]; then
         # Durable path: prepare each point sequentially. prepare records a
         # "prepared" jobs row and returns, running nothing, so there is no loop
-        # and no --parallel/--on-failure; resume/retry/concurrency are the user's
+        # and no --max-inflight/--on-failure; resume/retry/concurrency are the user's
         # later "submit drain" step. Each prepared child gets an automatic "call"
         # edge to this sweeps row.
         local idx
@@ -721,14 +721,16 @@ _knit_sweep() {
     fi
 
     # Ephemeral path: drive the shared search loop over the product, keeping up to
-    # --parallel children in flight. submit is a job (poll jobs.state); run and a
-    # bare command are apps (reap backgrounded children). The loop launches each
+    # --max-inflight children in flight. submit is a job (poll jobs.state); run and
+    # a bare command are apps (reap backgrounded children). The loop launches each
     # reconstructed line in-process through knit_search_launch, so every child's
-    # "call" edge to this sweeps row is automatic.
+    # "call" edge to this sweeps row is automatic. The loop's own flag is still
+    # --parallel (an internal API shared with the ax proposer); the user-facing
+    # sweep option is --max-inflight.
     local mode="app"
     [[ "${d0n}" == "submit" ]] && mode="job"
     local loop_status=0
-    knit_search_loop --mode "${mode}" --parallel "${parallel}" \
+    knit_search_loop --mode "${mode}" --parallel "${max_inflight}" \
         --ask _knit_sweep_ask --observe _knit_sweep_observe || loop_status=$?
     return "${loop_status}"
 }

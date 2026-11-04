@@ -926,10 +926,10 @@
 # it just re-emits the reconstructed command once per combination. Which
 # dispatcher you write after `--` picks the execution model:
 #
-#   # Ephemeral: launch each point now, <=N in flight (--parallel, default 1).
+#   # Ephemeral: launch each point now, <=N in flight (--max-inflight, default 1).
 #   # A --group on the submit line labels the jobs the sweep produces; the sweep
 #   # does not forward its own --group (which labels only the sweeps row):
-#   ./full.sh sweep --parallel 4 \
+#   ./full.sh sweep --max-inflight 4 \
 #       -- submit --group pi-sweep --setup env --nodes {1,2} -- montecarlo --samples '{20000,50000}'
 #   # --dry-run prints every reconstructed line and runs nothing:
 #   ./full.sh sweep --dry-run -- montecarlo --samples '{20000,50000}'

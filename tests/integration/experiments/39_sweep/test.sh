@@ -51,9 +51,9 @@ group_count() {
 # ==========================================================================
 # 1. An ephemeral `-- submit` sweep submits one job per point and completes.
 # ==========================================================================
-# Three points (--n over {1,2,4}); --parallel 3 keeps all in flight so the loop
+# Three points (--n over {1,2,4}); --max-inflight 3 keeps all in flight so the loop
 # does not serialize the (fast) jobs behind one another's scheduling latency.
-./experiment.sh sweep --parallel 3 -- submit --group eph -- sim --n '{1,2,4}'
+./experiment.sh sweep --max-inflight 3 -- submit --group eph -- sim --n '{1,2,4}'
 check_eq "$(group_count eph)" "3" "the ephemeral sweep submitted one job per point"
 check_eq "$(count_state eph completed)" "3" "every swept job completed"
 
@@ -79,7 +79,7 @@ check_eq "$(count_state dur prepared)" "0" "the prepared queue drained empty"
 # ==========================================================================
 # 3. --fill domain draws the parameter's values from its declared domain.
 # ==========================================================================
-./experiment.sh sweep --parallel 3 --fill domain -- submit --group fs -- sim
+./experiment.sh sweep --max-inflight 3 --fill domain -- submit --group fs -- sim
 check_eq "$(group_count fs)" "3" "--fill domain used the declared {1,2,4} domain"
 check_eq "$(count_state fs completed)" "3" "every domain-swept job completed"
 
