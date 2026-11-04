@@ -287,6 +287,14 @@ knit_with_flag "wait" "Block until the released job completes; return its exit c
 # _knit_prepare_claim_next). When no prepared job matches, this reports it and
 # returns non-zero so a fill-the-queue loop can stop. Prints the released job's
 # UUID on success.
+#
+# An empty queue is reported with an info line for a direct, interactive call, but
+# `submit drain` calls this in a loop until the queue empties, so its final
+# (empty) probe would print "No prepared job to release." right before drain's own
+# "Released N job(s)" summary --- a contradictory pair. Drain therefore sets
+# _KNIT_SUBMIT_NEXT_QUIET=true around the probe to suppress just that benign
+# empty-queue line; the non-zero return (the loop's real stop signal) is
+# unchanged, and a genuine error still surfaces (it fatals, not this path).
 # ------------------------------------------------------------------------------
 _knit_submit_next() {
     local type group wait_flag
@@ -297,7 +305,9 @@ _knit_submit_next() {
     local claimed
     claimed="$(_knit_prepare_claim_next "${type}" "${group}")"
     if [[ -z "${claimed}" ]]; then
-        knit_info "No prepared job to release."
+        if [[ "${_KNIT_SUBMIT_NEXT_QUIET:-false}" != "true" ]]; then
+            knit_info "No prepared job to release."
+        fi
         return 1
     fi
     _knit_prepare_release "${claimed}" "${wait_flag}"

@@ -288,6 +288,24 @@ _stub_dispatch_ok() {
     [ "$status" -ne 0 ]
 }
 
+@test "submit next reports the empty queue by default" {
+    _register_myjob_with_setup
+
+    run _knit_invoke_command submit next
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No prepared job to release."* ]]
+}
+
+@test "submit next stays silent on an empty queue when _KNIT_SUBMIT_NEXT_QUIET=true" {
+    _register_myjob_with_setup
+
+    # Drain sets this around its probe so the loop's final (empty) call does not
+    # print a contradictory line before drain's own summary.
+    _KNIT_SUBMIT_NEXT_QUIET=true run _knit_invoke_command submit next
+    [ "$status" -ne 0 ]
+    [[ "$output" != *"No prepared job to release."* ]]
+}
+
 @test "submit next --type filters by job type" {
     _register_myjob_with_setup
     _stub_dispatch_ok

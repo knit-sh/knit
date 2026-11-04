@@ -44,7 +44,11 @@ _knit_drain_release_next() {
     local wait_flag="$1"
     shift
     local uuid
-    uuid="$("${_KNIT_SCRIPT_PATH}" submit next "$@")" || true
+    # Probe the queue quietly: on the loop's final (empty) call, submit next would
+    # otherwise log "No prepared job to release." right before drain's own
+    # end-of-run summary. _KNIT_SUBMIT_NEXT_QUIET suppresses only that benign
+    # empty-queue line (a real dispatch error still fatals and prints).
+    uuid="$(_KNIT_SUBMIT_NEXT_QUIET=true "${_KNIT_SCRIPT_PATH}" submit next "$@")" || true
     [[ -z "${uuid}" ]] && return 1
     printf '%s\n' "${uuid}"
     [[ "${wait_flag}" != "true" ]] && return 0
