@@ -164,6 +164,8 @@ _knit_drain_nolimit() {
 # @param[in] stop_on_failure "true" to stop after the first failed job.
 # @param[in] count           Maximum jobs to release, or "" for no cap.
 # @param[in] json_summary    "true" to also print the JSON summary to stdout.
+# @param[in] show_progress   "true" to draw a live progress bar (TTY only).
+# @param[in] total           Backlog size for the bar (jobs this pass will act on).
 # @param[in] ...             Filter arguments forwarded to
 #                        _knit_drain_release_next.
 # ------------------------------------------------------------------------------
@@ -171,10 +173,16 @@ _knit_drain_serial() {
     local stop_on_failure="$1"
     local count="$2"
     local json_summary="$3"
-    shift 3
+    local show_progress="$4"
+    local total="$5"
+    shift 5
     local -a filters=("$@")
     local released=0 completed=0 failed=0 uuid rc
     local drained="false" stopped="false"
+    # Draw the resumed/initial baseline (one running job once a release begins; here
+    # nothing in flight yet, so all remaining).
+    [[ "${show_progress}" == "true" ]] && (( total > 0 )) \
+        && knit_progress_bar "draining" 0 0 0 "${total}"
     while [[ -z "${count}" ]] || (( released < count )); do
         uuid="$(_knit_drain_release_next true "${filters[@]}")" && rc=0 || rc=$?
         if [[ -z "${uuid}" ]]; then
@@ -188,10 +196,19 @@ _knit_drain_serial() {
             failed=$(( failed + 1 ))
             if [[ "${stop_on_failure}" == "true" ]]; then
                 stopped="true"
-                break
             fi
         fi
+        # Serial mode waits for each release, so by the time we get here the job has
+        # reached a terminal state: nothing is in flight. remaining is whatever of
+        # the backlog has not yet been released.
+        if [[ "${show_progress}" == "true" ]] && (( total > 0 )); then
+            local rem=$(( total - completed - failed ))
+            (( rem < 0 )) && rem=0
+            knit_progress_bar "draining" "${completed}" 0 "${failed}" "${rem}"
+        fi
+        [[ "${stopped}" == "true" ]] && break
     done
+    [[ "${show_progress}" == "true" ]] && (( total > 0 )) && knit_progress_bar_finish
     _knit_drain_report "waiting" "${json_summary}" "${released}" "${completed}" \
         "${failed}" "${drained}" "${stopped}"
     (( failed == 0 ))
@@ -234,6 +251,8 @@ _knit_drain_pool_worker() {
 # @param[in] stop_on_failure "true" to stop topping up after the first failure.
 # @param[in] count          Maximum jobs to release, or "" for no cap.
 # @param[in] json_summary   "true" to also print the JSON summary to stdout.
+# @param[in] show_progress  "true" to draw a live progress bar (TTY only).
+# @param[in] total          Backlog size for the bar (jobs this pass will act on).
 # @param[in] ...            Filter arguments forwarded to the workers.
 # ------------------------------------------------------------------------------
 _knit_drain_pool() {
@@ -241,7 +260,9 @@ _knit_drain_pool() {
     local stop_on_failure="$2"
     local count="$3"
     local json_summary="$4"
-    shift 4
+    local show_progress="$5"
+    local total="$6"
+    shift 6
     local -a filters=("$@")
 
     local workdir
@@ -250,6 +271,17 @@ _knit_drain_pool() {
     local inflight=0 released=0 completed=0 failed=0 next_id=0
     local drained="false" stop="false"
     local -A worker_file=()
+
+    # Redraw the bar from the pool's live counters: running is the current in-flight
+    # worker count, remaining is the rest of the backlog.
+    _knit_drain_pool_draw() {
+        [[ "${show_progress}" == "true" ]] && (( total > 0 )) || return 0
+        local rem=$(( total - completed - failed - inflight ))
+        (( rem < 0 )) && rem=0
+        knit_progress_bar "draining" "${completed}" "${inflight}" "${failed}" "${rem}"
+    }
+
+    _knit_drain_pool_draw   # initial baseline (all remaining)
 
     while true; do
         # Top up to max_inflight, respecting --count and the drained/stop flags.
@@ -264,6 +296,8 @@ _knit_drain_pool() {
         done
 
         (( inflight == 0 )) && break
+
+        _knit_drain_pool_draw   # reflect the topped-up in-flight count
 
         # Block until at least one worker finishes, then reap every worker whose
         # result file is ready (a worker writes its file just before exiting).
@@ -293,7 +327,12 @@ _knit_drain_pool() {
                 fi
             fi
         done
+
+        _knit_drain_pool_draw   # reflect the reaped outcomes
     done
+
+    unset -f _knit_drain_pool_draw
+    [[ "${show_progress}" == "true" ]] && (( total > 0 )) && knit_progress_bar_finish
 
     rm -rf "${workdir}"
     _knit_drain_report "waiting" "${json_summary}" "${released}" "${completed}" \
@@ -384,6 +423,54 @@ _knit_drain_dry_run() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_drain_total()
+#
+# Count the prepared jobs this drain pass will act on and return the count by
+# nameref. Uses the same state='prepared' (+ optional job / group) filter as
+# _knit_drain_dry_run, capped at --count when set, so it anchors the progress bar
+# to exactly the backlog the loop will release. A single read-only SELECT COUNT(*);
+# it advances no state. Run after any --reconcile / --retry pass so re-queued rows
+# are already counted. Returns 0 when there is nothing to drain.
+#
+# @param[out] __knit_ret Name of the variable to receive the count.
+# @param[in] count Maximum jobs this run, or "" for no cap.
+# @param[in] job   Optional job-name filter (empty means any).
+# @param[in] group Optional group filter (empty means any).
+# ------------------------------------------------------------------------------
+_knit_drain_total() {
+    local -n __knit_ret=$1
+    local count="$2" job="$3" group="$4"
+
+    local -a conds=("state='prepared'")
+    local esc
+    if [[ -n "${job}" ]]; then
+        _knit_sql_escape esc "${job}"
+        conds+=("job='${esc}'")
+    fi
+    local group_ident
+    _knit_db_sql_ident group_ident "group"
+    if [[ -n "${group}" ]]; then
+        _knit_sql_escape esc "${group}"
+        conds+=("${group_ident}='${esc}'")
+    fi
+    local where
+    printf -v where '%s AND ' "${conds[@]}"
+    where="${where% AND }"
+
+    local jobs_ident
+    _knit_db_sql_ident jobs_ident "${_KNIT_JOBS_TABLE}"
+    # Count the matching rows; --count caps the backlog the loop will act on, so
+    # apply it as an upper bound on the reported total.
+    local matched
+    matched="$(_knit_sqlite3 "SELECT COUNT(*) FROM ${jobs_ident} WHERE ${where};")"
+    [[ "${matched}" =~ ^[0-9]+$ ]] || matched=0
+    if [[ -n "${count}" ]] && (( matched > count )); then
+        matched="${count}"
+    fi
+    __knit_ret="${matched}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_drain_validate_retry_states()
 #
 # Check that a --retry list names only states drain may re-queue, and abort
@@ -442,6 +529,8 @@ knit_with_flag "json-summary" \
     "Print a machine-readable JSON summary object to stdout at the end."
 knit_with_flag "dry-run" \
     "List the prepared jobs that would be released, without releasing any."
+knit_with_flag "show-progress" \
+    "Show a live full-width progress bar while draining (TTY only; ignored under --dry-run)."
 # ------------------------------------------------------------------------------
 # @fn _knit_submit_drain()
 #
@@ -482,7 +571,7 @@ _knit_submit_drain() {
         knit_fatal "This command requires a bootstrapped experiment. Run: ./${KNIT_SCRIPT_NAME} bootstrap"
     fi
     local type group max_inflight count stop_on_failure json_summary dry_run
-    local retry max_retries reconcile
+    local retry max_retries reconcile show_progress
     type=$(knit_get_parameter "type" "$@") || type=""
     group=$(knit_get_parameter "group" "$@") || group=""
     max_inflight=$(knit_get_parameter "max-inflight" "$@") || max_inflight="1"
@@ -493,6 +582,7 @@ _knit_submit_drain() {
     stop_on_failure=$(knit_get_parameter "stop-on-failure" "$@") || stop_on_failure="false"
     json_summary=$(knit_get_parameter "json-summary" "$@") || json_summary="false"
     dry_run=$(knit_get_parameter "dry-run" "$@") || dry_run="false"
+    show_progress=$(knit_get_parameter "show-progress" "$@") || show_progress="false"
 
     # The framework already enforced integer-ness; only the ranges remain.
     if (( max_inflight < 0 )); then
@@ -536,13 +626,22 @@ _knit_submit_drain() {
     [[ -n "${type}" ]] && filters+=(--type "${type}")
     [[ -n "${group}" ]] && filters+=(--group "${group}")
 
+    # With --show-progress, anchor the bar to the backlog this pass will act on by
+    # counting it once here, after any --reconcile/--retry pass has moved rows into
+    # "prepared". A total of 0 means nothing to drain, so no bar is drawn.
+    local total=0
+    if [[ "${show_progress}" == "true" ]]; then
+        _knit_drain_total total "${count}" "${type}" "${group}"
+    fi
+
     if (( max_inflight == 0 )); then
         _knit_drain_nolimit "${count}" "${json_summary}" "${filters[@]}"
     elif (( max_inflight == 1 )); then
-        _knit_drain_serial "${stop_on_failure}" "${count}" "${json_summary}" "${filters[@]}"
+        _knit_drain_serial "${stop_on_failure}" "${count}" "${json_summary}" \
+            "${show_progress}" "${total}" "${filters[@]}"
     else
         _knit_drain_pool "${max_inflight}" "${stop_on_failure}" "${count}" \
-            "${json_summary}" "${filters[@]}"
+            "${json_summary}" "${show_progress}" "${total}" "${filters[@]}"
     fi
 }
 knit_done
