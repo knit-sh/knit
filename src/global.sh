@@ -202,3 +202,79 @@ _KNIT_COLORS=(
     [bg_bright_cyan]=$'\033[106m'
     [bg_bright_white]=$'\033[107m'
 )
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_BRAND_TRUECOLOR
+#
+# Knit brand accent colors as 24-bit truecolor escape sequences, taken from the
+# landing-page palette (docs/pygments-knit/knit_pygments.py, mirroring
+# web/styles.css). Used where knit wants its own identity rather than one of the
+# basic ANSI colors (e.g. the progress bar sections). Keys:
+#   magenta      #b83a83  (--knit-magenta, red-magenta)
+#   purple       #9e7fd4  (--knit-purple, light purple)
+#   purple_dark  #5f4c7f  (dark purple; brand purple shifted darker, same hue)
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_BRAND_TRUECOLOR
+_KNIT_BRAND_TRUECOLOR=(
+    [magenta]=$'\033[38;2;184;58;131m'
+    [purple]=$'\033[38;2;158;127;212m'
+    [purple_dark]=$'\033[38;2;95;76;127m'
+)
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_BRAND_FALLBACK
+#
+# Nearest basic 16-color ANSI escape for each brand color, used when the terminal
+# does not support 24-bit truecolor. Chosen so colorized output stays legible and
+# the brand colors remain distinguishable from one another.
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_BRAND_FALLBACK
+_KNIT_BRAND_FALLBACK=(
+    [magenta]=$'\033[35m'
+    [purple]=$'\033[95m'
+    [purple_dark]=$'\033[34m'
+)
+
+# ------------------------------------------------------------------------------
+# @fn _knit_truecolor()
+#
+# Return success (0) when the terminal supports 24-bit truecolor, failure (1)
+# otherwise. COLORTERM (truecolor/24bit) is the explicit signal, but many
+# terminals that support truecolor leave COLORTERM empty, so a modern TERM is
+# also accepted. KNIT_FORCE_16COLOR forces failure and KNIT_TRUECOLOR forces
+# success (both for testing the two code paths deterministically).
+# ------------------------------------------------------------------------------
+_knit_truecolor() {
+    [[ -n "${KNIT_FORCE_16COLOR:-}" ]] && return 1
+    [[ -n "${KNIT_TRUECOLOR:-}" ]] && return 0
+    case "${COLORTERM:-}" in
+        truecolor | 24bit) return 0 ;;
+    esac
+    case "${TERM:-}" in
+        *-256color | *-direct | xterm* | screen* | tmux* | vte* | kitty* | \
+            alacritty* | wezterm* | foot*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_brand_color()
+#
+# Set the nameref given as the first argument to the escape sequence for a brand
+# color, resolved to truecolor when the terminal supports it (see
+# _knit_truecolor) or the nearest 16-color ANSI otherwise. The brand key is one
+# of: magenta, purple, purple_dark.
+#
+# @param[out] __knit_ret Name of the variable to receive the escape sequence.
+# @param[in] key Brand color key (magenta | purple | purple_dark).
+# ------------------------------------------------------------------------------
+_knit_brand_color() {
+    local -n __knit_ret=$1
+    if _knit_truecolor; then
+        __knit_ret="${_KNIT_BRAND_TRUECOLOR[$2]}"
+    else
+        __knit_ret="${_KNIT_BRAND_FALLBACK[$2]}"
+    fi
+}
