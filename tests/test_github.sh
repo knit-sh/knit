@@ -182,8 +182,12 @@ teardown() {
     knit_github_download_asset sha256 \
         astral-sh uv "0.5.0" "uv-x86_64-unknown-linux-gnu.tar.gz" "${dest}"
 
-    # It downloads releases/download/<tag>/<asset> from the owner/repo.
-    [[ "${cmds[0]}" == "curl -fL -o "*"https://github.com/astral-sh/uv/releases/download/0.5.0/uv-x86_64-unknown-linux-gnu.tar.gz" ]]
+    # It downloads releases/download/<tag>/<asset> from the owner/repo, with curl's
+    # fail/follow-redirect flags and a transient-failure retry.
+    [[ "${cmds[0]}" == "curl -fL "* ]]
+    [[ "${cmds[0]}" == *"--retry 3"* ]]
+    [[ "${cmds[0]}" == *"--retry-all-errors"* ]]
+    [[ "${cmds[0]}" == *"-o "*"https://github.com/astral-sh/uv/releases/download/0.5.0/uv-x86_64-unknown-linux-gnu.tar.gz" ]]
     # The destination directory is created and the asset written there verbatim.
     [ -f "${dest}" ]
     [ "$(cat "${dest}")" = "${content}" ]
