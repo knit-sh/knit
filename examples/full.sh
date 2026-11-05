@@ -883,9 +883,12 @@
 # most --max-inflight jobs alive at once (default 1 = one at a time; 0 = release
 # all without waiting), optionally capped by --count and halted by
 # --stop-on-failure. --dry-run lists what it would release without releasing, and
-# --json-summary prints a machine-readable summary:
+# --json-summary prints a machine-readable summary. On a terminal, --show-progress
+# draws a live, full-width progress bar (failed/done/running/remaining) on stderr as
+# the batch drains; it is silent off a TTY and ignored under --dry-run:
 #
 #   ./full.sh submit drain --group pi-sweep --max-inflight 4
+#   ./full.sh submit drain --group pi-sweep --max-inflight 4 --show-progress
 #   ./full.sh submit drain --group pi-sweep --dry-run
 #
 # Releasing advances the same row prepared -> submitted -> running -> completed;

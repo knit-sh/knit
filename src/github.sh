@@ -154,6 +154,13 @@ knit_github_download() {
 # helpers do) so knit needs no git, and frames the transfer with knit_framed_run
 # (shown live at trace level). Release assets are public, so no token is sent.
 #
+# The transfer retries on a transient failure (connection reset, 5xx, timeout),
+# like knit_github_api: an asset download is a large transfer over a possibly
+# flaky network (CI runners especially), and a single blip must not abort a whole
+# bootstrap. --retry-all-errors covers connection-level failures that --retry
+# alone would not; the connect/low-speed timeouts turn a stalled transfer into a
+# retryable failure rather than an indefinite hang.
+#
 # This complements knit_github_download, which fetches a repository *source*
 # archive by commit. A tool shipped as a prebuilt per-platform release binary
 # (for example uv) is fetched with this function instead. The destination is a
@@ -181,8 +188,14 @@ knit_github_download_asset() {
     _knit_ensure_trace_file
     knit_trace "Downloading ${org}/${repo} asset ${asset} (${tag})..."
     mkdir -p "$(dirname "${dest}")"
+    # --retry 3 --retry-all-errors: retry transient HTTP and connection failures.
+    # --connect-timeout / --speed-time+--speed-limit: give up on a stalled transfer
+    # (no connect in 30s, or < 1 KB/s for 60s) and let --retry take another pass,
+    # rather than hanging or aborting on one blip.
     if ! knit_framed_run "download ${asset}" \
-            curl -fL -o "${dest}" "${url}"; then
+            curl -fL --retry 3 --retry-delay 2 --retry-all-errors \
+                 --connect-timeout 30 --speed-time 60 --speed-limit 1024 \
+                 -o "${dest}" "${url}"; then
         rm -f "${dest}"
         knit_fatal "Could not download asset ${asset} from ${url}." \
             "See ${_KNIT_TRACE_FILE} for more information."

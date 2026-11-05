@@ -3,7 +3,7 @@
    categories: jobs
    order: 66
    description: Release a whole prepared batch in one command, throttled to N jobs at once.
-   apis: submit:drain
+   apis: submit:drain, knit_progress_bar
 
 Once a batch is prepared (see *Prepare a job instead of submitting it*), you
 could release it by hand with a loop over ``submit next`` (see *Release prepared
@@ -38,6 +38,21 @@ anything, and ``--json-summary`` prints a machine-readable object to stdout:
    018f9c3a-8c3f-7d52-ae1b-2f3e4d5c6b7c  sim  [sweep]
    $ ./exp.sh submit drain --group sweep --json-summary
    {"released":2,"completed":2,"failed":0,"drained":true,"stopped":false,"dry_run":false}
+
+On a terminal, add ``--show-progress`` for a live, full-width progress bar that
+fills as the batch drains --- a framed bar split into *failed*, *done*, *running*,
+and *remaining* sections, with a count line beneath it:
+
+.. code-block:: console
+
+   $ ./exp.sh submit drain --group sweep --max-inflight 4 --show-progress
+   ┌─ draining ──────────────────────────────────────────────────────────────┐
+   │████████████████████████████████████████████████▒▒▒▒                      │
+   └──────────────────────────────────────────────────────────────────────────┘
+     █ failed   █ done   ▒ running      10 done  2 run  0 fail  0 left  (12)  83%
+
+The bar is drawn to stderr only (so a piped ``--json-summary`` on stdout stays
+clean), appears only on a terminal, and is skipped entirely under ``--dry-run``.
 
 Like ``submit next``, draining records nothing of its own --- each release
 advances an existing ``jobs`` row --- so the jobs you prepared and the jobs that
