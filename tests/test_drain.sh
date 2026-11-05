@@ -102,7 +102,7 @@ teardown() {
 
 @test "no-limit releases every job without observing outcomes" {
     _drain_program u1:0 u2:7 u3:0
-    run _knit_drain_nolimit "" false
+    run _knit_drain_nolimit "" false false 0
     [ "$status" -eq 0 ]
     [[ "$output" == *"Released 3 job(s)."* ]]
     [[ "$output" != *"completed"* ]]
@@ -110,14 +110,14 @@ teardown() {
 
 @test "no-limit --count caps the number of releases" {
     _drain_program u1:0 u2:0 u3:0
-    run _knit_drain_nolimit 2 false
+    run _knit_drain_nolimit 2 false false 0
     [ "$status" -eq 0 ]
     [[ "$output" == *"Released 2 job(s)."* ]]
 }
 
 @test "no-limit reports an empty queue" {
     _drain_program
-    run _knit_drain_nolimit "" false
+    run _knit_drain_nolimit "" false false 0
     [ "$status" -eq 0 ]
     [[ "$output" == *"No prepared jobs to release."* ]]
 }
@@ -224,7 +224,7 @@ _drain_json() { printf '%s\n' "$1" | grep '^{'; }
 @test "no-limit --json-summary reports null completed and failed" {
     knit_test_require_jq
     _drain_program a:0 b:7 c:0
-    run _knit_drain_nolimit "" true
+    run _knit_drain_nolimit "" true false 0
     [ "$status" -eq 0 ]
     jq -e '.released==3 and .completed==null and .failed==null and .drained==true and .stopped==false' <<<"$(_drain_json "$output")"
 }
@@ -442,12 +442,30 @@ _drain_job_state() {
     [ "$output" = "$plain_output" ]
 }
 
+@test "no-limit --show-progress is silent on a non-TTY (output unchanged)" {
+    _drain_program a:0 b:0 c:0
+    run _knit_drain_nolimit "" false false 0
+    local plain_status=$status plain_output=$output
+    _drain_program a:0 b:0 c:0
+    run _knit_drain_nolimit "" false true 3
+    [ "$status" -eq "$plain_status" ]
+    [ "$output" = "$plain_output" ]
+}
+
 @test "serial --show-progress --json-summary leaves stdout JSON intact" {
     knit_test_require_jq
     _drain_program a:0 b:0 c:0
     run _knit_drain_serial false "" true true 3
     [ "$status" -eq 0 ]
     jq -e '.released==3 and .completed==3 and .failed==0' <<<"$(_drain_json "$output")"
+}
+
+@test "no-limit --show-progress --json-summary leaves stdout JSON intact" {
+    knit_test_require_jq
+    _drain_program a:0 b:0 c:0
+    run _knit_drain_nolimit "" true true 3
+    [ "$status" -eq 0 ]
+    jq -e '.released==3 and .completed==null and .failed==null' <<<"$(_drain_json "$output")"
 }
 
 @test "submit drain --show-progress passes through and does not disturb output" {

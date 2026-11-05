@@ -133,15 +133,25 @@ _knit_drain_emit_json() {
 # reached. No per-job outcome is observed, so this always succeeds on a clean
 # drain.
 #
+# No-limit never waits for an outcome, so with --show-progress the bar degrades to a
+# *release* bar: it fills the completed (dark-purple) section by released-so-far and
+# leaves running and failed at 0 (neither is observable here). It is an honest, cheap
+# "how fast the backlog is being fired off" signal, not a success meter.
+#
 # @param[in] count        Maximum jobs to release, or "" for no cap.
 # @param[in] json_summary "true" to also print the JSON summary to stdout.
+# @param[in] show_progress "true" to draw a live release bar (TTY only).
+# @param[in] total        Backlog size for the bar (jobs this pass will act on).
 # @param[in] ...          Filter arguments forwarded to _knit_drain_release_next.
 # ------------------------------------------------------------------------------
 _knit_drain_nolimit() {
-    local count="$1" json_summary="$2"
-    shift 2
+    local count="$1" json_summary="$2" show_progress="$3" total="$4"
+    shift 4
     local -a filters=("$@")
     local released=0 uuid drained="false"
+    # Initial baseline (all remaining; nothing released yet).
+    [[ "${show_progress}" == "true" ]] && (( total > 0 )) \
+        && knit_progress_bar "draining" 0 0 0 "${total}"
     while [[ -z "${count}" ]] || (( released < count )); do
         uuid="$(_knit_drain_release_next false "${filters[@]}")" || true
         if [[ -z "${uuid}" ]]; then
@@ -149,7 +159,13 @@ _knit_drain_nolimit() {
             break
         fi
         released=$(( released + 1 ))
+        if [[ "${show_progress}" == "true" ]] && (( total > 0 )); then
+            local rem=$(( total - released ))
+            (( rem < 0 )) && rem=0
+            knit_progress_bar "draining" "${released}" 0 0 "${rem}"
+        fi
     done
+    [[ "${show_progress}" == "true" ]] && (( total > 0 )) && knit_progress_bar_finish
     _knit_drain_report "no-limit" "${json_summary}" "${released}" "" "" "${drained}" "false"
 }
 
@@ -635,7 +651,8 @@ _knit_submit_drain() {
     fi
 
     if (( max_inflight == 0 )); then
-        _knit_drain_nolimit "${count}" "${json_summary}" "${filters[@]}"
+        _knit_drain_nolimit "${count}" "${json_summary}" "${show_progress}" \
+            "${total}" "${filters[@]}"
     elif (( max_inflight == 1 )); then
         _knit_drain_serial "${stop_on_failure}" "${count}" "${json_summary}" \
             "${show_progress}" "${total}" "${filters[@]}"
