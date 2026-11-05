@@ -241,7 +241,7 @@ knit_framed_run() {
 # Full block glyph (U+2588) for the completed and failed progress-bar sections;
 # color distinguishes the two.
 # ------------------------------------------------------------------------------
-declare _KNIT_PROGRESS_FULL
+declare -g _KNIT_PROGRESS_FULL
 _KNIT_PROGRESS_FULL=$'█'
 
 # ------------------------------------------------------------------------------
@@ -250,7 +250,7 @@ _KNIT_PROGRESS_FULL=$'█'
 # Medium-shade block glyph (U+2592) for the running progress-bar section, so it is
 # distinct from the completed section even without color.
 # ------------------------------------------------------------------------------
-declare _KNIT_PROGRESS_RUN
+declare -g _KNIT_PROGRESS_RUN
 _KNIT_PROGRESS_RUN=$'▒'
 
 # ------------------------------------------------------------------------------
@@ -421,4 +421,389 @@ _knit_progress_bar_counts() {
     else
         printf -v __knit_ret '%s' "${__knit_line}"
     fi
+}
+
+# ------------------------------------------------------------------------------
+# Progress bar — TTY draw layer
+#
+# knit_progress_bar / knit_progress_bar2 draw a framed bar live to stderr; they are
+# a no-op unless stderr is a TTY and KNIT_LOG_LEVEL is at or below "info" (a quiet
+# run gets no bar). On each call the terminal width is re-measured and the whole
+# block (titled frame + interior bar row(s) + legend/counts) is rebuilt and
+# repainted with a reflow-aware redraw, so a terminal resize — grow or shrink —
+# repaints cleanly rather than stacking. knit_progress_bar_finish resets the redraw
+# state and drops to a fresh line so a following knit_info prints below the frame.
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PROGRESS_TL
+# Top-left frame corner glyph (U+250C) for the progress bar.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_PROGRESS_TL
+_KNIT_PROGRESS_TL=$'┌'
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PROGRESS_TR
+# Top-right frame corner glyph (U+2510) for the progress bar.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_PROGRESS_TR
+_KNIT_PROGRESS_TR=$'┐'
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PROGRESS_BL
+# Bottom-left frame corner glyph (U+2514) for the progress bar.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_PROGRESS_BL
+_KNIT_PROGRESS_BL=$'└'
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PROGRESS_BR
+# Bottom-right frame corner glyph (U+2518) for the progress bar.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_PROGRESS_BR
+_KNIT_PROGRESS_BR=$'┘'
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PROGRESS_H
+# Horizontal frame rule glyph (U+2500) for the progress bar.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_PROGRESS_H
+_KNIT_PROGRESS_H=$'─'
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PROGRESS_V
+# Vertical frame side glyph (U+2502) for the progress bar.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_PROGRESS_V
+_KNIT_PROGRESS_V=$'│'
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PROGRESS_LINES
+#
+# Number of logical lines the last progress block printed (0 before the first
+# paint). Drives the cursor-up on the next redraw.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_PROGRESS_LINES
+_KNIT_PROGRESS_LINES=0
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_PROGRESS_WIDTH
+#
+# Terminal width the last progress block was printed at, used to compute how many
+# physical rows it occupies now if the terminal has since been resized.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_PROGRESS_WIDTH
+_KNIT_PROGRESS_WIDTH=0
+
+# ------------------------------------------------------------------------------
+# @fn _knit_progress_gate()
+#
+# Return success when a live progress bar should be drawn: stderr is a TTY and
+# KNIT_LOG_LEVEL is at or below "info" (a warning-or-higher, i.e. quieter, run
+# suppresses the bar). Failure otherwise.
+# ------------------------------------------------------------------------------
+_knit_progress_gate() {
+    [[ -t 2 ]] || return 1
+    local cur info
+    _knit_log_level_to_int cur "${KNIT_LOG_LEVEL}"
+    _knit_log_level_to_int info "info"
+    (( cur <= info ))
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_progress_colored()
+#
+# Return success when the bar should be colorized: stderr is a TTY and NO_COLOR is
+# unset. (The brand/16-color choice is then made by _knit_brand_color.)
+# ------------------------------------------------------------------------------
+_knit_progress_colored() {
+    [[ -z "${NO_COLOR:-}" ]] && [[ -t 2 ]]
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_progress_hbar()
+#
+# Print a run of <n> horizontal rule glyphs (no newline).
+#
+# @param[in] n Number of rule cells.
+# ------------------------------------------------------------------------------
+_knit_progress_hbar() {
+    local n=$1 s="" i
+    for (( i = 0; i < n; i++ )); do s+="${_KNIT_PROGRESS_H}"; done
+    printf '%s' "${s}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_progress_rule_top()
+#
+# Print the frame's top rule for an interior width of <inner> cells, with an
+# optional <title> embedded in the rule. The interior between the corners is one
+# leading rule cell, the padded title, then the remaining rule cells, summing to
+# exactly <inner>. Dimmed when color is enabled.
+#
+# @param[in] inner Interior width in cells.
+# @param[in] title Optional title text.
+# ------------------------------------------------------------------------------
+_knit_progress_rule_top() {
+    local inner=$1 title="${2:-}"
+    local dim="" reset=""
+    if _knit_progress_colored; then
+        dim="${_KNIT_COLORS[dim]}"
+        reset="${_KNIT_COLORS[reset]}"
+    fi
+    if [[ -n "${title}" ]]; then
+        local label=" ${title} "
+        local fill=$(( inner - 1 - ${#label} ))
+        (( fill < 0 )) && fill=0
+        printf '%s%s%s%s%s%s\n' "${dim}" "${_KNIT_PROGRESS_TL}${_KNIT_PROGRESS_H}" \
+            "${label}" "$(_knit_progress_hbar "${fill}")" "${_KNIT_PROGRESS_TR}" "${reset}"
+    else
+        printf '%s%s%s%s%s\n' "${dim}" "${_KNIT_PROGRESS_TL}" \
+            "$(_knit_progress_hbar "${inner}")" "${_KNIT_PROGRESS_TR}" "${reset}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_progress_rule_bottom()
+#
+# Print the frame's bottom rule for an interior width of <inner> cells. Dimmed when
+# color is enabled.
+#
+# @param[in] inner Interior width in cells.
+# ------------------------------------------------------------------------------
+_knit_progress_rule_bottom() {
+    local inner=$1
+    local dim="" reset=""
+    if _knit_progress_colored; then
+        dim="${_KNIT_COLORS[dim]}"
+        reset="${_KNIT_COLORS[reset]}"
+    fi
+    printf '%s%s%s%s%s\n' "${dim}" "${_KNIT_PROGRESS_BL}" \
+        "$(_knit_progress_hbar "${inner}")" "${_KNIT_PROGRESS_BR}" "${reset}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_progress_side()
+#
+# Print one vertical frame side glyph. Dimmed when color is enabled.
+# ------------------------------------------------------------------------------
+_knit_progress_side() {
+    local dim="" reset=""
+    if _knit_progress_colored; then
+        dim="${_KNIT_COLORS[dim]}"
+        reset="${_KNIT_COLORS[reset]}"
+    fi
+    printf '%s%s%s' "${dim}" "${_KNIT_PROGRESS_V}" "${reset}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_progress_inner_width()
+#
+# Set the nameref given as the first argument to the interior width for the bar:
+# the current terminal width (via _knit_terminal_width) minus the two frame sides,
+# re-measured each call so the frame tracks the terminal. Falls back to a 40-cell
+# interior when the width is unknown, and never goes below 10.
+#
+# @param[out] __knit_ret Name of the variable to receive the interior width.
+# ------------------------------------------------------------------------------
+_knit_progress_inner_width() {
+    local -n __knit_ret=$1
+    local tw=0
+    _knit_terminal_width tw
+    (( tw <= 0 )) && tw=42
+    local iw=$(( tw - 2 ))
+    (( iw < 10 )) && iw=10
+    __knit_ret=${iw}
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_progress_clip()
+#
+# Clip a line to <max> display columns and return it by nameref, counting visible
+# characters only — ANSI SGR escapes are copied through but do not count toward the
+# width. Keeps a long line from wrapping onto a second physical row, which would
+# desync the cursor-up redraw. A reset is appended if any color was still open at
+# the cut.
+#
+# @param[out] __knit_ret Name of the variable to receive the clipped line.
+# @param[in] line The line to clip (may contain ANSI escapes).
+# @param[in] max Maximum display columns.
+# ------------------------------------------------------------------------------
+_knit_progress_clip() {
+    local -n __knit_ret=$1
+    local line=$2 max=$3
+    local __knit_res="" vis=0 k=0 n=${#2}
+    local saw_color=false
+    while (( k < n )); do
+        local ch="${line:k:1}"
+        if [[ "${ch}" == $'\033' ]]; then
+            local esc="${line:k}"
+            if [[ "${esc}" =~ ^$'\033'\[[0-9\;]*[A-Za-z] ]]; then
+                local tok="${BASH_REMATCH[0]}"
+                __knit_res+="${tok}"
+                k=$(( k + ${#tok} ))
+                saw_color=true
+                continue
+            fi
+        fi
+        (( vis >= max )) && break
+        __knit_res+="${ch}"
+        vis=$(( vis + 1 ))
+        k=$(( k + 1 ))
+    done
+    [[ "${saw_color}" == true ]] && __knit_res+="${_KNIT_COLORS[reset]}"
+    __knit_ret="${__knit_res}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_progress_draw()
+#
+# Erase the previously drawn progress block and repaint <block> to stderr. Every
+# line is clipped to the current terminal width so none wraps (printed-line count
+# equals physical-row count). The cursor is moved up by the previous block's
+# physical-row count — computed as its logical lines times ceil(prev_width /
+# cur_width), to account for the terminal reflowing already-printed rows when it is
+# made narrower — then everything below is erased (\033[J) before the new block is
+# printed. Re-measuring and clipping each draw means a resize (grow or shrink)
+# repaints at the new size without stacking or tearing.
+#
+# @param[in] block The multi-line block to paint (each line without a clear-to-eol).
+# ------------------------------------------------------------------------------
+_knit_progress_draw() {
+    local block=$1
+    local tw=0
+    _knit_terminal_width tw
+    (( tw <= 0 )) && tw=80
+
+    # Clip each line to the current width (dropping any embedded clear-to-eol first)
+    # and re-append a clear-to-eol, so leftover from a longer previous frame is wiped.
+    local clipped="" line
+    while IFS= read -r line; do
+        line="${line//$'\033'\[K/}"
+        local cl=""
+        _knit_progress_clip cl "${line}" "${tw}"
+        clipped+="${cl}"$'\033'"[K"$'\n'
+    done <<< "${block%$'\n'}"
+    block="${clipped}"
+
+    local lines=${block//[!$'\n']/}
+    lines=${#lines}
+
+    if (( _KNIT_PROGRESS_LINES > 0 )); then
+        local oldw=${_KNIT_PROGRESS_WIDTH}
+        (( oldw < 1 )) && oldw=${tw}
+        local rowspan=$(( (oldw + tw - 1) / tw ))
+        (( rowspan < 1 )) && rowspan=1
+        printf '\r\033[%dA\033[J' "$(( _KNIT_PROGRESS_LINES * rowspan ))" >&2
+    fi
+    printf '%s' "${block}" >&2
+    _KNIT_PROGRESS_LINES=${lines}
+    _KNIT_PROGRESS_WIDTH=${tw}
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_progress_bar()
+#
+# Draw one full-width framed progress bar live to stderr, in place. A no-op unless
+# stderr is a TTY and KNIT_LOG_LEVEL <= info (see _knit_progress_gate). Call once
+# per observable state change; call knit_progress_bar_finish once at the end.
+#
+# @param[in] title Title shown in the frame's top rule.
+# @param[in] completed Number of completed items.
+# @param[in] running Number of running items.
+# @param[in] failed Number of failed/killed items.
+# @param[in] remaining Number of not-yet-started items.
+# ------------------------------------------------------------------------------
+knit_progress_bar() {
+    _knit_progress_gate || return 0
+    local title=$1 completed=$2 running=$3 failed=$4 remaining=$5
+
+    local nocolor=()
+    _knit_progress_colored || nocolor=(--no-color)
+
+    local inner
+    _knit_progress_inner_width inner
+
+    local fill="" legend="" counts=""
+    _knit_progress_bar_render fill "${inner}" "${completed}" "${running}" \
+        "${failed}" "${remaining}" "${nocolor[@]}"
+    _knit_progress_bar_legend legend "${nocolor[@]}"
+    _knit_progress_bar_counts counts "${completed}" "${running}" "${failed}" \
+        "${remaining}"
+
+    local block=""
+    block+="$(_knit_progress_rule_top "${inner}" "${title}")"$'\n'
+    block+="$(printf '%s%s%s' "$(_knit_progress_side)" "${fill}" "$(_knit_progress_side)")"$'\n'
+    block+="$(_knit_progress_rule_bottom "${inner}")"$'\n'
+    block+="$(printf '%s      %s' "${legend}" "${counts}")"$'\n'
+
+    _knit_progress_draw "${block}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_progress_bar2()
+#
+# Draw two stacked framed progress bars sharing one frame, live to stderr, in
+# place. Each bar is a labelled interior row; the legend and two labelled count
+# lines sit below the frame. A no-op under the same gate as knit_progress_bar. Used
+# for the two-budget case (e.g. a "current" bar and a "campaign" bar).
+#
+# @param[in] title Title shown in the frame's top rule.
+# @param[in] c1 r1 f1 rem1 Counts for the first bar.
+# @param[in] label1 Label for the first bar.
+# @param[in] c2 r2 f2 rem2 Counts for the second bar.
+# @param[in] label2 Label for the second bar.
+# ------------------------------------------------------------------------------
+knit_progress_bar2() {
+    _knit_progress_gate || return 0
+    local title=$1
+    shift
+    local c1=$1 r1=$2 f1=$3 rem1=$4 label1=$5
+    shift 5
+    local c2=$1 r2=$2 f2=$3 rem2=$4 label2=$5
+    shift 5
+
+    local nocolor=()
+    _knit_progress_colored || nocolor=(--no-color)
+
+    local inner
+    _knit_progress_inner_width inner
+    # Reserve a label column inside the frame; the bar fills the rest.
+    local labw=11
+    local barw=$(( inner - labw ))
+    (( barw < 10 )) && barw=10
+
+    local fill1="" fill2="" legend="" cnt1="" cnt2=""
+    _knit_progress_bar_render fill1 "${barw}" "${c1}" "${r1}" "${f1}" "${rem1}" "${nocolor[@]}"
+    _knit_progress_bar_render fill2 "${barw}" "${c2}" "${r2}" "${f2}" "${rem2}" "${nocolor[@]}"
+    _knit_progress_bar_legend legend "${nocolor[@]}"
+    _knit_progress_bar_counts cnt1 "${c1}" "${r1}" "${f1}" "${rem1}" --label "${label1}"
+    _knit_progress_bar_counts cnt2 "${c2}" "${r2}" "${f2}" "${rem2}" --label "${label2}"
+
+    local block=""
+    block+="$(_knit_progress_rule_top "${inner}" "${title}")"$'\n'
+    block+="$(printf '%s %-*s%s%s' "$(_knit_progress_side)" "$(( labw - 1 ))" \
+        "${label1}" "${fill1}" "$(_knit_progress_side)")"$'\n'
+    block+="$(printf '%s %-*s%s%s' "$(_knit_progress_side)" "$(( labw - 1 ))" \
+        "${label2}" "${fill2}" "$(_knit_progress_side)")"$'\n'
+    block+="$(_knit_progress_rule_bottom "${inner}")"$'\n'
+    block+="${legend}"$'\n'
+    block+="${cnt1}"$'\n'
+    block+="${cnt2}"$'\n'
+
+    _knit_progress_draw "${block}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_progress_bar_finish()
+#
+# Finish a progress-bar sequence: reset the redraw state and emit a trailing
+# newline so a following knit_info prints on a fresh line below the final frame. A
+# no-op under the same gate as knit_progress_bar.
+# ------------------------------------------------------------------------------
+knit_progress_bar_finish() {
+    _knit_progress_gate || return 0
+    _KNIT_PROGRESS_LINES=0
+    _KNIT_PROGRESS_WIDTH=0
+    printf '\n' >&2
 }

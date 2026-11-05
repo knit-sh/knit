@@ -1,9 +1,32 @@
 #!/usr/bin/env bats
 
+bats_require_minimum_version 1.5.0
+
 source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
 
 setup() {
     knit_test_source_knit
+}
+
+# Strip ANSI SGR escapes from a string and return it by nameref. A glob cannot
+# express "zero or more chars from a class" (its * means "any string"), so strip in
+# a loop driven by a bash regex instead.
+_strip_sgr() {
+    local -n __ret=$1
+    local s=$2
+    while [[ "${s}" =~ $'\033'\[[0-9\;]*[A-Za-z] ]]; do
+        s="${s/"${BASH_REMATCH[0]}"/}"
+    done
+    __ret="${s}"
+}
+
+# Number of display cells in a string (character count, not bytes), ignoring any
+# ANSI SGR escapes. Used to assert frame widths with multibyte box glyphs.
+_display_cells() {
+    local -n __ret=$1
+    local __stripped=""
+    _strip_sgr __stripped "$2"
+    __ret=${#__stripped}
 }
 
 # --- _knit_progress_bar_render: whole-cell fill, failed-first ----------------
@@ -140,4 +163,74 @@ setup() {
     local out=""
     _knit_progress_bar_counts out 0 0 0 0
     [[ "${out}" == *"(0)  0%" ]]
+}
+
+# --- TTY draw layer: silent off a TTY ---------------------------------------
+# bats runs with stderr not a TTY, so the gate fails and the public functions
+# must produce no output and leave the redraw state untouched.
+
+@test "knit_progress_bar: no output when stderr is not a TTY" {
+    run --separate-stderr knit_progress_bar "draining" 3 1 1 1
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
+    [ -z "${stderr}" ]
+}
+
+@test "knit_progress_bar2: no output when stderr is not a TTY" {
+    run --separate-stderr knit_progress_bar2 "optimize: x" 2 1 0 3 current 12 1 0 5 campaign
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
+    [ -z "${stderr}" ]
+}
+
+@test "knit_progress_bar_finish: no output when stderr is not a TTY" {
+    run --separate-stderr knit_progress_bar_finish
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
+    [ -z "${stderr}" ]
+}
+
+@test "knit_progress_bar: does not touch redraw state off a TTY" {
+    _KNIT_PROGRESS_LINES=0
+    _KNIT_PROGRESS_WIDTH=0
+    knit_progress_bar "draining" 3 1 1 1 2>/dev/null
+    [ "${_KNIT_PROGRESS_LINES}" -eq 0 ]
+    [ "${_KNIT_PROGRESS_WIDTH}" -eq 0 ]
+}
+
+# --- gate helpers -----------------------------------------------------------
+
+@test "gate: suppressed when KNIT_LOG_LEVEL is above info" {
+    # Even if stderr were a TTY, a quiet run must not draw. Assert the level half of
+    # the gate directly (the TTY half is covered by the silence tests above).
+    local cur info
+    _knit_log_level_to_int cur "warning"
+    _knit_log_level_to_int info "info"
+    [ "${cur}" -gt "${info}" ]
+}
+
+# --- pure frame-rule helpers (deterministic, no TTY needed) -----------------
+
+@test "rule: top rule with title sums to the interior width + 2 corners" {
+    local rule cells=0
+    rule="$(NO_COLOR=1 _knit_progress_rule_top 40 "draining")"
+    _display_cells cells "${rule}"
+    [ "${cells}" -eq 42 ]
+    [[ "${rule}" == "┌─ draining "*"┐" ]]
+}
+
+@test "rule: bottom rule sums to the interior width + 2 corners" {
+    local rule cells=0
+    rule="$(NO_COLOR=1 _knit_progress_rule_bottom 40)"
+    _display_cells cells "${rule}"
+    [ "${cells}" -eq 42 ]
+    [[ "${rule}" == "└"*"┘" ]]
+}
+
+@test "clip: trims to the display width, ignoring ANSI escapes" {
+    local out="" cells=0
+    # 6 visible '#', wrapped in color, clipped to 4 visible cells
+    _knit_progress_clip out $'\033[31m######\033[0m' 4
+    _display_cells cells "${out}"
+    [ "${cells}" -eq 4 ]
 }
