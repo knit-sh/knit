@@ -1140,3 +1140,25 @@ knit_search_segment_command() {
         esac
     fi
 }
+
+# ------------------------------------------------------------------------------
+# @fn knit_search_axis_qualify()
+#
+# Compose a command-qualified axis identity from a segment and a bare option
+# name: "<segment>.<option>". This is the uniform spelling a search proposer
+# uses to label an axis (e.g. in a recorded dimensions map, an Ax parameter
+# name, or an error message) so the same option name in two segments
+# ("submit.nodes" vs "job.nodes") stays distinct. The "." separator is used
+# because the identity is passed verbatim to Ax as a parameter name and ":" is
+# reserved by knit's command-name mangling.
+#
+# @param[out] __knit_ret The qualified identity "<segment>.<option>".
+# @param[in] segment The command segment the axis belongs to.
+# @param[in] option The bare option name.
+# ------------------------------------------------------------------------------
+knit_search_axis_qualify() {
+    # shellcheck disable=SC2178 # scalar nameref output
+    local -n __knit_ret=$1
+    # shellcheck disable=SC2178
+    __knit_ret="${2}.${3}"
+}

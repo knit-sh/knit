@@ -316,35 +316,55 @@ _knit_sweep_enumerate_domain() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_sweep_segment_has_param()
+#
+# Return success when command $1 declares a parameter named $2 (normalized).
+#
+# @param[in] cmd The mangled command name.
+# @param[in] want The normalized parameter name to look for.
+# ------------------------------------------------------------------------------
+_knit_sweep_segment_has_param() {
+    local cmd="$1" want="$2"
+    local -a params
+    knit_command_parameters params "${cmd}"
+    local p
+    for p in "${params[@]}"; do
+        [[ "${p}" == "${want}" ]] && return 0
+    done
+    return 1
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sweep_resolve_domains()
 #
-# Resolve the declared-domain axes (@domain / @default / --fill) against the
-# downstream target's parameters, splicing the results into the M2 scan. This is
-# the one point where the sweep introspects the target, and it runs only when it
-# must: --fill domain, or a @domain/@default marker at the call site. With --fill
-# default and no marker it returns at once, having read nothing.
+# Resolve the declared-domain axes (@domain / @default / --fill), splicing the
+# results into the M2 scan. It runs only when it must: --fill domain, or a
+# @domain/@default marker at the call site. With --fill default and no marker it
+# returns at once, having read nothing.
 #
-# For each target parameter, the call-site classification (explicit / domain /
-# default / unspecified, from the seen map) and the parameter's declared-domain
-# presence feed the shared knit_search_resolve_fill precedence rule:
-#   - explicit: left as the M2 scan already has it (a literal axis, or a scalar
-#     that passes through);
-#   - domain: enumerate the declared domain (via _knit_sweep_enumerate_domain) and
-#     either fill the call-site @domain marker axis in place, or, for a parameter
-#     left unspecified under --fill domain, append a new "--param <value>" axis to
-#     the template;
-#   - default: a call-site @default marker is pinned to the resolved default value
-#     in the template (and drops out as an axis); an unspecified parameter keeps
-#     its default, which the downstream fills when the reconstructed line runs.
+# Two passes:
+#   - markers: each call-site @domain/@default axis is resolved against the
+#     command of the segment it sits in (knit_search_segment_command), so the
+#     same option name in two segments (e.g. "submit --nodes @domain -- job
+#     --nodes @domain") resolves against two different commands. A @domain
+#     enumerates the declared domain (via _knit_sweep_enumerate_domain) and fills
+#     the marker axis in place; a @default pins the marker to the resolved default
+#     and drops it as an axis.
+#   - --fill domain: for each parameter of the downstream TARGET left unspecified
+#     on the line that has a declared domain, append a new "--param <value>" axis.
+#     (A dispatcher-segment parameter is varied only when marked explicitly, not
+#     by --fill.)
+#
 # An explicit @domain on a parameter with no declared domain is a fatal; a
-# @domain / @default naming a parameter the target does not have is a fatal.
+# @domain / @default naming a parameter its segment does not have is a fatal.
 #
 # @param[in,out] __knit_ret1 Name of the reconstruction template array.
 # @param[in,out] __knit_ret2 Name of the axis-descriptor array.
 # @param[in,out] __knit_ret3 Name of the per-axis value-list array.
 # @param[in] __knit_seen Name of the seen map (option -> classification).
 # @param[in] fill The --fill policy ("default" or "domain").
-# @param[in] mangled The resolved downstream target (mangled command name).
+# @param[in] ... The downstream tokens (used to resolve each axis's segment to
+#   its own command).
 # ------------------------------------------------------------------------------
 _knit_sweep_resolve_domains() {
     # shellcheck disable=SC2178 # nameref outputs used as arrays
@@ -354,7 +374,9 @@ _knit_sweep_resolve_domains() {
     # shellcheck disable=SC2178
     local -n __knit_ret3=$3
     local -n __knit_seen=$4
-    local fill="$5" mangled="$6"
+    local fill="$5"
+    shift 5
+    local -a down=("$@")
 
     # Gate: introspect only when there is something to resolve.
     local need="false" spec
@@ -366,66 +388,80 @@ _knit_sweep_resolve_domains() {
     fi
     [[ "${need}" == "false" ]] && return 0
 
-    if ! _knit_set_find _KNIT_COMMANDS "${mangled}"; then
-        knit_fatal "Cannot introspect the downstream target for --fill domain / @domain: '%s' is not a known command." "${mangled}"
-    fi
-
-    # Index the call-site @domain/@default markers by parameter name.
-    local -A marker_idx=() marker_slot=()
-    local i kind slot name
+    # --- Pass 1: resolve each @domain/@default marker against its own segment's
+    #     command. ---
+    local -A remove=() seg_cmd_cache=()
+    local i kind slot name seg segcmd
     for ((i=0; i<${#__knit_ret2[@]}; i++)); do
-        read -r kind slot name _ <<< "${__knit_ret2[i]}"
-        if [[ "${kind}" == "domain" || "${kind}" == "default" ]]; then
-            marker_idx["${name}"]="${i}"
-            marker_slot["${name}"]="${slot}"
+        read -r kind slot name seg <<< "${__knit_ret2[i]}"
+        case "${kind}" in domain|default) ;; *) continue ;; esac
+
+        if [[ -v seg_cmd_cache["${seg}"] ]]; then
+            segcmd="${seg_cmd_cache[${seg}]}"
+        else
+            knit_search_segment_command segcmd "${seg}" "${down[@]}"
+            seg_cmd_cache["${seg}"]="${segcmd}"
+        fi
+        if [[ -z "${segcmd}" ]] || ! _knit_set_find _KNIT_COMMANDS "${segcmd}"; then
+            knit_fatal "@%s references segment '%s', which is not a known command in the downstream." \
+                "${kind}" "${seg}"
+        fi
+        if ! _knit_sweep_segment_has_param "${segcmd}" "${name}"; then
+            knit_fatal "@%s references '%s', which is not a parameter of segment '%s' (%s)." \
+                "${kind}" "${name}" "${seg}" "${segcmd}"
+        fi
+
+        if [[ "${kind}" == "default" ]]; then
+            local raw def
+            _knit_param_default raw "${segcmd}" "${name}"
+            def=$(_knit_resolve_default "${raw}")
+            __knit_ret1["${slot}"]="${def}"
+            remove["${i}"]=1
+        else
+            local dvar="_KNIT_CMD_${segcmd}_2_${name}_domain"
+            if [[ ! -v "${dvar}" || -z "${!dvar}" ]]; then
+                knit_fatal "Cannot @domain '%s': it has no declared domain. Give it a value on the line, or declare it with --domain '{...}'." \
+                    "${name}"
+            fi
+            local -a dvals
+            _knit_sweep_enumerate_domain dvals "${segcmd}" "${name}"
+            local joined
+            printf -v joined '%s\n' "${dvals[@]}"
+            joined="${joined%$'\n'}"
+            __knit_ret2["${i}"]="literal ${slot} ${name} ${seg}"
+            __knit_ret3["${i}"]="${joined}"
         fi
     done
 
-    local -a params
-    knit_command_parameters params "${mangled}"
-    local -A remove=()
-    local p token has_domain resolved
-    for p in "${params[@]}"; do
-        token="${__knit_seen[${p}]:-unspecified}"
-        has_domain="false"
-        local dvar="_KNIT_CMD_${mangled}_2_${p}_domain"
-        [[ -v "${dvar}" && -n "${!dvar}" ]] && has_domain="true"
-        knit_search_resolve_fill resolved "${fill}" "${token}" "${has_domain}"
-        case "${resolved}" in
-            explicit) ;;
-            default)
-                if [[ -v marker_idx["${p}"] ]]; then
-                    local raw def
-                    _knit_param_default raw "${mangled}" "${p}"
-                    def=$(_knit_resolve_default "${raw}")
-                    __knit_ret1["${marker_slot[${p}]}"]="${def}"
-                    remove["${marker_idx[${p}]}"]=1
-                fi
-                ;;
-            domain)
-                if [[ "${has_domain}" != "true" ]]; then
-                    knit_fatal "Cannot @domain '%s': it has no declared domain. Give it a value on the line, or declare it with --domain '{...}'." "${p}"
-                fi
-                local -a dvals
-                _knit_sweep_enumerate_domain dvals "${mangled}" "${p}"
-                local joined
-                printf -v joined '%s\n' "${dvals[@]}"
-                joined="${joined%$'\n'}"
-                if [[ -v marker_idx["${p}"] ]]; then
-                    local mi="${marker_idx[${p}]}"
-                    __knit_ret2["${mi}"]="literal ${marker_slot[${p}]} ${p}"
-                    __knit_ret3["${mi}"]="${joined}"
-                else
-                    local hyph
-                    _knit_str_underscores_to_hyphens hyph "${p}"
-                    __knit_ret1+=("--${hyph}" "__SWEEP__")
-                    local newslot=$(( ${#__knit_ret1[@]} - 1 ))
-                    __knit_ret2+=("literal ${newslot} ${p}")
-                    __knit_ret3+=("${joined}")
-                fi
-                ;;
-        esac
-    done
+    # --- Pass 2: --fill domain auto-adds an axis for every TARGET parameter left
+    #     unspecified on the line that has a declared domain. ---
+    if [[ "${fill}" == "domain" ]]; then
+        local mangled dispatcher target
+        knit_search_resolve_target mangled dispatcher target "${down[@]}"
+        if [[ -z "${mangled}" ]] || ! _knit_set_find _KNIT_COMMANDS "${mangled}"; then
+            knit_fatal "Cannot introspect the downstream target for --fill domain: '%s' is not a known command." "${mangled}"
+        fi
+        local -a params
+        knit_command_parameters params "${mangled}"
+        local p token
+        for p in "${params[@]}"; do
+            token="${__knit_seen[${p}]:-unspecified}"
+            [[ "${token}" != "unspecified" ]] && continue
+            local dvar="_KNIT_CMD_${mangled}_2_${p}_domain"
+            [[ ! -v "${dvar}" || -z "${!dvar}" ]] && continue
+            local -a dvals
+            _knit_sweep_enumerate_domain dvals "${mangled}" "${p}"
+            local joined
+            printf -v joined '%s\n' "${dvals[@]}"
+            joined="${joined%$'\n'}"
+            local hyph
+            _knit_str_underscores_to_hyphens hyph "${p}"
+            __knit_ret1+=("--${hyph}" "__SWEEP__")
+            local newslot=$(( ${#__knit_ret1[@]} - 1 ))
+            __knit_ret2+=("literal ${newslot} ${p} ${target}")
+            __knit_ret3+=("${joined}")
+        done
+    fi
 
     # Drop the @default axes now pinned into the template.
     if [[ ${#remove[@]} -gt 0 ]]; then
@@ -438,15 +474,6 @@ _knit_sweep_resolve_domains() {
         __knit_ret2=("${kept_axes[@]}")
         __knit_ret3=("${kept_vals[@]}")
     fi
-
-    # Any marker left unresolved names a parameter the target does not have.
-    for ((i=0; i<${#__knit_ret2[@]}; i++)); do
-        read -r kind slot name _ <<< "${__knit_ret2[i]}"
-        if [[ "${kind}" == "domain" || "${kind}" == "default" ]]; then
-            knit_fatal "@%s references '%s', which is not a parameter of the downstream target '%s'." \
-                "${kind}" "${name}" "${mangled}"
-        fi
-    done
 }
 
 # ------------------------------------------------------------------------------
@@ -526,9 +553,12 @@ _knit_sweep_reconstruct() {
 # ------------------------------------------------------------------------------
 # @fn _knit_sweep_dimensions_json()
 #
-# Build the campaign's "dimensions" JSON object: one key per axis (its name)
-# mapping to the ordered array of that axis's values, e.g.
-# {"nodes":[1,2,4],"samples":[1000,100000]}. Numeric-looking values are emitted
+# Build the campaign's "dimensions" JSON object: one key per axis (its
+# command-qualified "<segment>.<option>" name) mapping to the ordered array of
+# that axis's values, e.g.
+# {"submit.nodes":[1,2,4],"montecarlo.samples":[1000,100000]}. The qualified key
+# keeps two same-named axes in different segments distinct. Numeric-looking
+# values are emitted
 # as JSON numbers, others as strings. This is the single JSON column recorded on
 # the sweeps row (so a 1-node command and a 1024-node job produce rows of the
 # same shape).
@@ -545,15 +575,16 @@ _knit_sweep_dimensions_json() {
     local -n __knit_flat=$3
     local -n __knit_off=$4
     local -n __knit_cnt=$5
-    local json='{}' i kind slot name j
+    local json='{}' i kind slot name seg qname j
     for ((i=0; i<${#__knit_axes[@]}; i++)); do
-        read -r kind slot name _ <<< "${__knit_axes[i]}"
+        read -r kind slot name seg <<< "${__knit_axes[i]}"
+        knit_search_axis_qualify qname "${seg}" "${name}"
         local -a vv=()
         for ((j=0; j<__knit_cnt[i]; j++)); do
             vv+=("${__knit_flat[$(( __knit_off[i] + j ))]}")
         done
         # shellcheck disable=SC2016 # $k and $ARGS are jq variables, not shell
-        json=$(knit_jq -c --arg k "${name}" \
+        json=$(knit_jq -c --arg k "${qname}" \
             '.[$k] = ($ARGS.positional | map(tonumber? // .))' \
             --args "${vv[@]}" <<< "${json}")
     done
@@ -662,7 +693,7 @@ _knit_sweep() {
     # shellcheck disable=SC2034 # dispatcher/target are recorded in M5
     local mangled dispatcher target
     knit_search_resolve_target mangled dispatcher target "${downstream[@]}"
-    _knit_sweep_resolve_domains template axes values seen "${fill}" "${mangled}"
+    _knit_sweep_resolve_domains template axes values seen "${fill}" "${downstream[@]}"
 
     # Build the odometer plan over the resolved axes.
     # shellcheck disable=SC2034 # consumed by _knit_sweep_reconstruct via nameref
