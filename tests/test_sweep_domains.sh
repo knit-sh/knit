@@ -36,7 +36,7 @@ _axis_values() {
     local -n _axes=$1 _vals=$3
     local want="$2" i kind slot name
     for i in "${!_axes[@]}"; do
-        read -r kind slot name <<< "${_axes[i]}"
+        read -r kind slot name _ <<< "${_axes[i]}"
         if [[ "${name}" == "${want}" ]]; then
             echo "${_vals[i]}" | tr '\n' ' ' | sed 's/ $//'
             return 0

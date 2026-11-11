@@ -842,7 +842,13 @@ knit_search_resolve_fill() {
 #
 # An axis is named by its preceding "--option" (hyphens folded to underscores);
 # a swept positional token is named "#<index>" by its position in the
-# downstream. The "seen" map records, for every "--option" that carried a
+# downstream. Each axis also records the command segment it belongs to: the
+# dispatcher keyword (e.g. "submit") before the inner "--", or the target
+# command name (e.g. "train") after it; a bare command is its own segment. The
+# segment lets a consumer build a command-qualified axis identity
+# ("<segment>.<option>") that stays unique when the same option name appears in
+# two segments (e.g. "submit --nodes ... -- job --nodes ..."). The "seen" map
+# records, for every "--option" that carried a
 # value, how the call site referenced it ("explicit", "domain", or "default");
 # a literal axis folds to "explicit". The inline "--opt=value" form is
 # self-contained and recorded as "explicit". All four outputs are reset on
@@ -856,7 +862,7 @@ knit_search_resolve_fill() {
 # @param[out] __knit_ret1 Name of the array to receive the reconstruction
 #   template (a copy of the downstream tokens).
 # @param[out] __knit_ret2 Name of the array to receive the axis descriptors,
-#   each the string "<kind> <slot> <name>".
+#   each the string "<kind> <slot> <name> <segment>".
 # @param[out] __knit_ret3 Name of the array to receive per-axis raw tokens:
 #   the verbatim token text for a "literal" axis, empty for "domain"/"default".
 # @param[out] __knit_ret4 Name of the associative array to receive the seen
@@ -901,8 +907,16 @@ knit_search_scan() {
     local _tok _prev_opt="" _akind _aname _rawtoken _inline_opt
     local _is_candidate _protected
     local _idx
+    # The current command segment: the first non-option token of each
+    # "--"-delimited segment (the dispatcher keyword, then each target name).
+    # _seg_capture marks that the next plain token opens a new segment.
+    local _seg_name="" _seg_capture=1
     for ((_idx=0; _idx<${#down[@]}; _idx++)); do
         _tok="${down[_idx]}"
+        if [[ "${_seg_capture}" == 1 && "${_tok}" != --* ]]; then
+            _seg_name="${_tok}"
+            _seg_capture=0
+        fi
         if [[ "${_tok}" == --* ]]; then
             if [[ "${_tok}" == *=* ]]; then
                 _knit_name_normalize _inline_opt "${_tok#--}"
@@ -911,6 +925,7 @@ knit_search_scan() {
                 _prev_opt=""
             elif [[ "${_tok}" == "--" ]]; then
                 _prev_opt=""
+                _seg_capture=1
             else
                 _knit_name_normalize _prev_opt "${_tok#--}"
             fi
@@ -936,7 +951,7 @@ knit_search_scan() {
             if [[ -n "${_prev_opt}" ]]; then _aname="${_prev_opt}"; else _aname="#${_idx}"; fi
             _rawtoken=""
             [[ "${_akind}" == "literal" ]] && _rawtoken="${_tok}"
-            __knit_ret2+=("${_akind} ${_idx} ${_aname}")
+            __knit_ret2+=("${_akind} ${_idx} ${_aname} ${_seg_name}")
             __knit_ret3+=("${_rawtoken}")
             if [[ -n "${_prev_opt}" ]]; then
                 __knit_ret4["${_prev_opt}"]="${_akind/literal/explicit}"

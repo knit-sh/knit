@@ -374,7 +374,7 @@ _knit_sweep_resolve_domains() {
     local -A marker_idx=() marker_slot=()
     local i kind slot name
     for ((i=0; i<${#__knit_ret2[@]}; i++)); do
-        read -r kind slot name <<< "${__knit_ret2[i]}"
+        read -r kind slot name _ <<< "${__knit_ret2[i]}"
         if [[ "${kind}" == "domain" || "${kind}" == "default" ]]; then
             marker_idx["${name}"]="${i}"
             marker_slot["${name}"]="${slot}"
@@ -441,7 +441,7 @@ _knit_sweep_resolve_domains() {
 
     # Any marker left unresolved names a parameter the target does not have.
     for ((i=0; i<${#__knit_ret2[@]}; i++)); do
-        read -r kind slot name <<< "${__knit_ret2[i]}"
+        read -r kind slot name _ <<< "${__knit_ret2[i]}"
         if [[ "${kind}" == "domain" || "${kind}" == "default" ]]; then
             knit_fatal "@%s references '%s', which is not a parameter of the downstream target '%s'." \
                 "${kind}" "${name}" "${mangled}"
@@ -515,7 +515,7 @@ _knit_sweep_reconstruct() {
     __knit_ret=("${__knit_tmpl[@]}")
     local rem="${idx}" i kind slot name j
     for ((i=${#__knit_axes[@]}-1; i>=0; i--)); do
-        read -r kind slot name <<< "${__knit_axes[i]}"
+        read -r kind slot name _ <<< "${__knit_axes[i]}"
         local c="${__knit_cnt[i]}"
         j=$(( rem % c ))
         rem=$(( rem / c ))
@@ -547,7 +547,7 @@ _knit_sweep_dimensions_json() {
     local -n __knit_cnt=$5
     local json='{}' i kind slot name j
     for ((i=0; i<${#__knit_axes[@]}; i++)); do
-        read -r kind slot name <<< "${__knit_axes[i]}"
+        read -r kind slot name _ <<< "${__knit_axes[i]}"
         local -a vv=()
         for ((j=0; j<__knit_cnt[i]; j++)); do
             vv+=("${__knit_flat[$(( __knit_off[i] + j ))]}")

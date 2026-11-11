@@ -27,9 +27,9 @@ setup() {
     knit_search_scan tmpl axes raw seen "" \
         submit --nodes '{1,2,4}' -- montecarlo --samples '{1000,100000}' --seed '[1..3]'
     [ "${#axes[@]}" -eq 3 ]
-    [ "${axes[0]}" = "literal 2 nodes" ]
-    [ "${axes[1]}" = "literal 6 samples" ]
-    [ "${axes[2]}" = "literal 8 seed" ]
+    [ "${axes[0]}" = "literal 2 nodes submit" ]
+    [ "${axes[1]}" = "literal 6 samples montecarlo" ]
+    [ "${axes[2]}" = "literal 8 seed montecarlo" ]
     [ "${raw[0]}" = "{1,2,4}" ]
     [ "${raw[1]}" = "{1000,100000}" ]
     [ "${raw[2]}" = "[1..3]" ]
@@ -41,9 +41,9 @@ setup() {
     knit_search_scan tmpl axes raw seen "" \
         submit -- train --batch '{16,64}' --layers @domain --lr @default
     [ "${#axes[@]}" -eq 3 ]
-    [ "${axes[0]}" = "literal 4 batch" ]
-    [ "${axes[1]}" = "domain 6 layers" ]
-    [ "${axes[2]}" = "default 8 lr" ]
+    [ "${axes[0]}" = "literal 4 batch train" ]
+    [ "${axes[1]}" = "domain 6 layers train" ]
+    [ "${axes[2]}" = "default 8 lr train" ]
     [ "${raw[0]}" = "{16,64}" ]
     [ -z "${raw[1]}" ]
     [ -z "${raw[2]}" ]
@@ -74,7 +74,7 @@ setup() {
     knit_search_scan tmpl axes raw seen "pattern" \
         scan --pattern '{foo,bar}' --threads '{1,2,4}'
     [ "${#axes[@]}" -eq 1 ]
-    [ "${axes[0]}" = "literal 4 threads" ]
+    [ "${axes[0]}" = "literal 4 threads scan" ]
     [ "${raw[0]}" = "{1,2,4}" ]
     [ "${seen[pattern]}" = "explicit" ]
     [ "${tmpl[2]}" = "{foo,bar}" ]
@@ -88,7 +88,7 @@ setup() {
     # Only --threads is swept; the two whitespace-padded passthrough names protect
     # --pattern and --input, which pass through as explicit values.
     [ "${#axes[@]}" -eq 1 ]
-    [ "${axes[0]}" = "literal 6 threads" ]
+    [ "${axes[0]}" = "literal 6 threads scan" ]
     [ "${raw[0]}" = "{1,2,4}" ]
     [ "${seen[pattern]}" = "explicit" ]
     [ "${seen[input]}" = "explicit" ]
@@ -102,7 +102,7 @@ setup() {
     local -A seen
     knit_search_scan tmpl axes raw seen "" render '{256,512}'
     [ "${#axes[@]}" -eq 1 ]
-    [ "${axes[0]}" = "literal 1 #1" ]
+    [ "${axes[0]}" = "literal 1 #1 render" ]
     [ "${raw[0]}" = "{256,512}" ]
 }
 
@@ -128,8 +128,8 @@ setup() {
     knit_search_scan tmpl axes raw seen "" \
         render --input "@file:${f}" --pattern "@glob:/tmp/*.txt"
     [ "${#axes[@]}" -eq 2 ]
-    [ "${axes[0]}" = "literal 2 input" ]
-    [ "${axes[1]}" = "literal 4 pattern" ]
+    [ "${axes[0]}" = "literal 2 input render" ]
+    [ "${axes[1]}" = "literal 4 pattern render" ]
     [ "${raw[0]}" = "@file:${f}" ]
     [ "${raw[1]}" = "@glob:/tmp/*.txt" ]
 }
@@ -138,5 +138,19 @@ setup() {
     local -a tmpl axes raw
     local -A seen
     knit_search_scan tmpl axes raw seen "" run --procs-per-node '{1,2}'
-    [ "${axes[0]}" = "literal 2 procs_per_node" ]
+    [ "${axes[0]}" = "literal 2 procs_per_node run" ]
+}
+
+@test "the same option name in two segments yields two distinct segment-qualified axes" {
+    local -a tmpl axes raw
+    local -A seen
+    knit_search_scan tmpl axes raw seen "" \
+        submit --nodes @domain -- mygraphjob --nodes @domain --iters 10
+    # Two "--nodes" axes: before the "--" (segment "submit") and after it
+    # (segment "mygraphjob"). They share the bare name "nodes" but their segment
+    # keeps them distinct, so a consumer can build "submit.nodes" vs
+    # "mygraphjob.nodes".
+    [ "${#axes[@]}" -eq 2 ]
+    [ "${axes[0]}" = "domain 2 nodes submit" ]
+    [ "${axes[1]}" = "domain 6 nodes mygraphjob" ]
 }
