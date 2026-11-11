@@ -103,9 +103,9 @@ _split_values() {
     _knit_sweep_scan tmpl axes values seen "" \
         submit --nodes '{1,2,4}' -- montecarlo --samples '{1000,100000}' --seed '[1..3]'
     [ "${#axes[@]}" -eq 3 ]
-    [ "${axes[0]}" = "literal 2 nodes" ]
-    [ "${axes[1]}" = "literal 6 samples" ]
-    [ "${axes[2]}" = "literal 8 seed" ]
+    [ "${axes[0]}" = "literal 2 nodes submit" ]
+    [ "${axes[1]}" = "literal 6 samples montecarlo" ]
+    [ "${axes[2]}" = "literal 8 seed montecarlo" ]
     local -a v
     _split_values v "${values[0]}"; [ "${v[*]}" = "1 2 4" ]
     _split_values v "${values[1]}"; [ "${v[*]}" = "1000 100000" ]
@@ -128,7 +128,7 @@ _split_values() {
         scan --pattern '{foo,bar}' --threads '{1,2,4}'
     # Only --threads is an axis; --pattern reaches the command verbatim.
     [ "${#axes[@]}" -eq 1 ]
-    [ "${axes[0]}" = "literal 4 threads" ]
+    [ "${axes[0]}" = "literal 4 threads scan" ]
     [ "${seen[pattern]}" = "explicit" ]
     [ "${tmpl[2]}" = "{foo,bar}" ]
 }
@@ -138,7 +138,7 @@ _split_values() {
     local -A seen
     _knit_sweep_scan tmpl axes values seen "" render '{256,512}'
     [ "${#axes[@]}" -eq 1 ]
-    [ "${axes[0]}" = "literal 1 #1" ]
+    [ "${axes[0]}" = "literal 1 #1 render" ]
 }
 
 @test "@domain and @default are marked, not enumerated" {
@@ -147,9 +147,9 @@ _split_values() {
     _knit_sweep_scan tmpl axes values seen "" \
         submit -- train --batch '{16,64}' --layers @domain --lr @default
     [ "${#axes[@]}" -eq 3 ]
-    [ "${axes[0]}" = "literal 4 batch" ]
-    [ "${axes[1]}" = "domain 6 layers" ]
-    [ "${axes[2]}" = "default 8 lr" ]
+    [ "${axes[0]}" = "literal 4 batch train" ]
+    [ "${axes[1]}" = "domain 6 layers train" ]
+    [ "${axes[2]}" = "default 8 lr train" ]
     # The markers carry no values yet (resolved in M3).
     [ -z "${values[1]}" ]
     [ -z "${values[2]}" ]
@@ -177,5 +177,5 @@ _split_values() {
     local -a tmpl axes values
     local -A seen
     _knit_sweep_scan tmpl axes values seen "" run --procs-per-node '{1,2}'
-    [ "${axes[0]}" = "literal 2 procs_per_node" ]
+    [ "${axes[0]}" = "literal 2 procs_per_node run" ]
 }

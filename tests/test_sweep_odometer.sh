@@ -80,7 +80,7 @@ _scan_plan() {
     _scan_plan submit --nodes '{1,2,4}' -- montecarlo --samples '{1000,100000}'
     local dims
     _knit_sweep_dimensions_json dims _A _F _O _C
-    [ "${dims}" = '{"nodes":[1,2,4],"samples":[1000,100000]}' ]
+    [ "${dims}" = '{"submit.nodes":[1,2,4],"montecarlo.samples":[1000,100000]}' ]
 }
 
 @test "the dimensions JSON keeps non-numeric values as strings" {
@@ -89,7 +89,17 @@ _scan_plan() {
     _scan_plan render --quality '{low,high}'
     local dims
     _knit_sweep_dimensions_json dims _A _F _O _C
-    [ "${dims}" = '{"quality":["low","high"]}' ]
+    [ "${dims}" = '{"render.quality":["low","high"]}' ]
+}
+
+@test "the dimensions JSON keeps two same-named axes distinct by segment" {
+    local -a _T _A _V; local -A _S
+    local -a _C _F _O; local _TOT
+    # The same option name in two segments must not collapse to one JSON key.
+    _scan_plan submit --nodes '{1,2}' -- montecarlo --nodes '{4,8}'
+    local dims
+    _knit_sweep_dimensions_json dims _A _F _O _C
+    [ "${dims}" = '{"submit.nodes":[1,2],"montecarlo.nodes":[4,8]}' ]
 }
 
 # ---------- --dry-run (full command) ----------

@@ -56,7 +56,7 @@ teardown() {
     # The sweeps row records the campaign shape.
     local row
     row=$(sqlite3 "${_KNIT_DATABASE}" "SELECT target,dispatcher,count,dimensions FROM sweeps;")
-    [ "${row}" = 'render|render|3|{"width":[256,512,1024]}' ]
+    [ "${row}" = 'render|render|3|{"render.width":[256,512,1024]}' ]
     # Each child carries a call edge whose source is the sweeps row.
     local sid n
     sid=$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM sweeps;")

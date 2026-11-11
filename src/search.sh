@@ -842,7 +842,13 @@ knit_search_resolve_fill() {
 #
 # An axis is named by its preceding "--option" (hyphens folded to underscores);
 # a swept positional token is named "#<index>" by its position in the
-# downstream. The "seen" map records, for every "--option" that carried a
+# downstream. Each axis also records the command segment it belongs to: the
+# dispatcher keyword (e.g. "submit") before the inner "--", or the target
+# command name (e.g. "train") after it; a bare command is its own segment. The
+# segment lets a consumer build a command-qualified axis identity
+# ("<segment>.<option>") that stays unique when the same option name appears in
+# two segments (e.g. "submit --nodes ... -- job --nodes ..."). The "seen" map
+# records, for every "--option" that carried a
 # value, how the call site referenced it ("explicit", "domain", or "default");
 # a literal axis folds to "explicit". The inline "--opt=value" form is
 # self-contained and recorded as "explicit". All four outputs are reset on
@@ -856,7 +862,7 @@ knit_search_resolve_fill() {
 # @param[out] __knit_ret1 Name of the array to receive the reconstruction
 #   template (a copy of the downstream tokens).
 # @param[out] __knit_ret2 Name of the array to receive the axis descriptors,
-#   each the string "<kind> <slot> <name>".
+#   each the string "<kind> <slot> <name> <segment>".
 # @param[out] __knit_ret3 Name of the array to receive per-axis raw tokens:
 #   the verbatim token text for a "literal" axis, empty for "domain"/"default".
 # @param[out] __knit_ret4 Name of the associative array to receive the seen
@@ -901,8 +907,16 @@ knit_search_scan() {
     local _tok _prev_opt="" _akind _aname _rawtoken _inline_opt
     local _is_candidate _protected
     local _idx
+    # The current command segment: the first non-option token of each
+    # "--"-delimited segment (the dispatcher keyword, then each target name).
+    # _seg_capture marks that the next plain token opens a new segment.
+    local _seg_name="" _seg_capture=1
     for ((_idx=0; _idx<${#down[@]}; _idx++)); do
         _tok="${down[_idx]}"
+        if [[ "${_seg_capture}" == 1 && "${_tok}" != --* ]]; then
+            _seg_name="${_tok}"
+            _seg_capture=0
+        fi
         if [[ "${_tok}" == --* ]]; then
             if [[ "${_tok}" == *=* ]]; then
                 _knit_name_normalize _inline_opt "${_tok#--}"
@@ -911,6 +925,7 @@ knit_search_scan() {
                 _prev_opt=""
             elif [[ "${_tok}" == "--" ]]; then
                 _prev_opt=""
+                _seg_capture=1
             else
                 _knit_name_normalize _prev_opt "${_tok#--}"
             fi
@@ -936,7 +951,7 @@ knit_search_scan() {
             if [[ -n "${_prev_opt}" ]]; then _aname="${_prev_opt}"; else _aname="#${_idx}"; fi
             _rawtoken=""
             [[ "${_akind}" == "literal" ]] && _rawtoken="${_tok}"
-            __knit_ret2+=("${_akind} ${_idx} ${_aname}")
+            __knit_ret2+=("${_akind} ${_idx} ${_aname} ${_seg_name}")
             __knit_ret3+=("${_rawtoken}")
             if [[ -n "${_prev_opt}" ]]; then
                 __knit_ret4["${_prev_opt}"]="${_akind/literal/explicit}"
@@ -1060,4 +1075,90 @@ knit_search_resolve_target() {
             __knit_ret3="${demangled}"
             ;;
     esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_search_segment_command()
+#
+# Resolve the mangled command to introspect for a given downstream segment. A
+# search axis records the segment it belongs to (knit_search_scan); this maps
+# that segment to the command whose parameters and declared domains govern the
+# axis, so a "@domain"/"@default" axis is resolved against its OWN segment's
+# command instead of a single global target. This is the one place both search
+# proposers (knit sweep and the knit-ax plugin) route a per-segment domain
+# lookup, so the same option name in two segments (e.g.
+# "submit --nodes @domain -- job --nodes @domain") resolves against two
+# different commands.
+#
+# Segments and their commands:
+#   - the dispatcher segment ("submit"/"prepare"/"run") -> the dispatcher
+#     command whose option surface it shares (submit and prepare both -> submit;
+#     run -> run);
+#   - the target segment (the <job>/<app> after the inner "--") -> the mangled
+#     "submit:<job>" / "run:<app>";
+#   - a bare command -> the command itself.
+#
+# Returns the empty string when the segment matches neither the dispatcher nor
+# the target of the downstream (an unknown segment), leaving the caller to
+# report it.
+#
+# @param[out] __knit_ret Mangled command name for the segment (empty if none).
+# @param[in] segment The segment name, as recorded in an axis descriptor.
+# @param[in] ... The downstream tokens.
+# ------------------------------------------------------------------------------
+knit_search_segment_command() {
+    # shellcheck disable=SC2178 # scalar nameref output, not an array
+    local -n __knit_ret=$1
+    local segment="$2"
+    shift 2
+    local -a down=("$@")
+    # shellcheck disable=SC2178
+    __knit_ret=""
+    [[ ${#down[@]} -eq 0 ]] && return 0
+
+    local mangled disp target
+    knit_search_resolve_target mangled disp target "${down[@]}"
+
+    local __seg __disp __target
+    _knit_name_normalize __seg "${segment}"
+    _knit_name_normalize __disp "${disp}"
+    _knit_name_normalize __target "${target}"
+
+    # The target segment -- and, for a bare command, the sole segment where
+    # disp == target -- resolves to the resolved/mangled target command.
+    if [[ -n "${__target}" && "${__seg}" == "${__target}" ]]; then
+        # shellcheck disable=SC2178
+        __knit_ret="${mangled}"
+        return 0
+    fi
+    # The dispatcher segment resolves to the dispatcher command whose option
+    # surface it shares.
+    if [[ -n "${__disp}" && "${__seg}" == "${__disp}" ]]; then
+        case "${__disp}" in
+            submit|prepare) __knit_ret="submit" ;;
+            run)            __knit_ret="run" ;;
+        esac
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_search_axis_qualify()
+#
+# Compose a command-qualified axis identity from a segment and a bare option
+# name: "<segment>.<option>". This is the uniform spelling a search proposer
+# uses to label an axis (e.g. in a recorded dimensions map, an Ax parameter
+# name, or an error message) so the same option name in two segments
+# ("submit.nodes" vs "job.nodes") stays distinct. The "." separator is used
+# because the identity is passed verbatim to Ax as a parameter name and ":" is
+# reserved by knit's command-name mangling.
+#
+# @param[out] __knit_ret The qualified identity "<segment>.<option>".
+# @param[in] segment The command segment the axis belongs to.
+# @param[in] option The bare option name.
+# ------------------------------------------------------------------------------
+knit_search_axis_qualify() {
+    # shellcheck disable=SC2178 # scalar nameref output
+    local -n __knit_ret=$1
+    # shellcheck disable=SC2178
+    __knit_ret="${2}.${3}"
 }

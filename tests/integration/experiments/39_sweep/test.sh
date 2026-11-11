@@ -92,4 +92,21 @@ check_eq "${LINES}" "3" "--dry-run printed one reconstructed line per point"
 check_eq "$("${SQLITE}" "${DB}" "SELECT count(*) FROM sweeps;")" "${BEFORE}" \
     "--dry-run recorded no sweeps row"
 
+# ==========================================================================
+# 5. A submit/job name collision: submit.nodes and sim.nodes are distinct axes.
+# ==========================================================================
+# Both segments carry a "nodes" option. The sweep must treat them as two axes
+# (2x2 = 4 points), binding each to its own slot, and record both under
+# command-qualified dimension keys.
+./experiment.sh sweep --max-inflight 4 \
+    -- submit --group coll --nodes '{1,2}' -- sim --nodes '{3,4}'
+check_eq "$(group_count coll)" "4" "the collision sweep produced the 2x2 product"
+check_eq "$(count_state coll completed)" "4" "every collision-swept job completed"
+"${SQLITE}" "${DB}" "SELECT dimensions FROM sweeps ORDER BY rowid DESC LIMIT 1;" \
+    > "${WORKDIR}/coll_dims.txt"
+check_grep '"submit.nodes"' "${WORKDIR}/coll_dims.txt" \
+    "the submit-segment nodes axis is recorded under a qualified key"
+check_grep '"sim.nodes"' "${WORKDIR}/coll_dims.txt" \
+    "the job-segment nodes axis is recorded under a qualified key"
+
 assert_summary
