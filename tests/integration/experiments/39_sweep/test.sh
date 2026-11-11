@@ -96,10 +96,10 @@ check_eq "$("${SQLITE}" "${DB}" "SELECT count(*) FROM sweeps;")" "${BEFORE}" \
 # 5. A submit/job name collision: submit.nodes and sim.nodes are distinct axes.
 # ==========================================================================
 # Both segments carry a "nodes" option. The sweep must treat them as two axes
-# (2x2 = 4 points), resolving sim's @domain against the job (not the dispatcher),
-# and record both under command-qualified dimension keys.
+# (2x2 = 4 points), binding each to its own slot, and record both under
+# command-qualified dimension keys.
 ./experiment.sh sweep --max-inflight 4 \
-    -- submit --group coll --nodes '{1,2}' -- sim --nodes @domain
+    -- submit --group coll --nodes '{1,2}' -- sim --nodes '{3,4}'
 check_eq "$(group_count coll)" "4" "the collision sweep produced the 2x2 product"
 check_eq "$(count_state coll completed)" "4" "every collision-swept job completed"
 "${SQLITE}" "${DB}" "SELECT dimensions FROM sweeps ORDER BY rowid DESC LIMIT 1;" \
