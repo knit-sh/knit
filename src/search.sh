@@ -1076,3 +1076,67 @@ knit_search_resolve_target() {
             ;;
     esac
 }
+
+# ------------------------------------------------------------------------------
+# @fn knit_search_segment_command()
+#
+# Resolve the mangled command to introspect for a given downstream segment. A
+# search axis records the segment it belongs to (knit_search_scan); this maps
+# that segment to the command whose parameters and declared domains govern the
+# axis, so a "@domain"/"@default" axis is resolved against its OWN segment's
+# command instead of a single global target. This is the one place both search
+# proposers (knit sweep and the knit-ax plugin) route a per-segment domain
+# lookup, so the same option name in two segments (e.g.
+# "submit --nodes @domain -- job --nodes @domain") resolves against two
+# different commands.
+#
+# Segments and their commands:
+#   - the dispatcher segment ("submit"/"prepare"/"run") -> the dispatcher
+#     command whose option surface it shares (submit and prepare both -> submit;
+#     run -> run);
+#   - the target segment (the <job>/<app> after the inner "--") -> the mangled
+#     "submit:<job>" / "run:<app>";
+#   - a bare command -> the command itself.
+#
+# Returns the empty string when the segment matches neither the dispatcher nor
+# the target of the downstream (an unknown segment), leaving the caller to
+# report it.
+#
+# @param[out] __knit_ret Mangled command name for the segment (empty if none).
+# @param[in] segment The segment name, as recorded in an axis descriptor.
+# @param[in] ... The downstream tokens.
+# ------------------------------------------------------------------------------
+knit_search_segment_command() {
+    # shellcheck disable=SC2178 # scalar nameref output, not an array
+    local -n __knit_ret=$1
+    local segment="$2"
+    shift 2
+    local -a down=("$@")
+    # shellcheck disable=SC2178
+    __knit_ret=""
+    [[ ${#down[@]} -eq 0 ]] && return 0
+
+    local mangled disp target
+    knit_search_resolve_target mangled disp target "${down[@]}"
+
+    local __seg __disp __target
+    _knit_name_normalize __seg "${segment}"
+    _knit_name_normalize __disp "${disp}"
+    _knit_name_normalize __target "${target}"
+
+    # The target segment -- and, for a bare command, the sole segment where
+    # disp == target -- resolves to the resolved/mangled target command.
+    if [[ -n "${__target}" && "${__seg}" == "${__target}" ]]; then
+        # shellcheck disable=SC2178
+        __knit_ret="${mangled}"
+        return 0
+    fi
+    # The dispatcher segment resolves to the dispatcher command whose option
+    # surface it shares.
+    if [[ -n "${__disp}" && "${__seg}" == "${__disp}" ]]; then
+        case "${__disp}" in
+            submit|prepare) __knit_ret="submit" ;;
+            run)            __knit_ret="run" ;;
+        esac
+    fi
+}
