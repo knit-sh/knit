@@ -214,6 +214,20 @@ EOF
     [[ "$output" == *"at most one"* ]]
 }
 
+@test "knit_with_fake_specs preserves {{parameter}} tokens into the before callback" {
+    # The specs sugar funnels through _knit_env_with_env on stdin, so a token in a
+    # spec must survive into the before-callback's captured manifest (the stdin
+    # branch), where it is rendered at invocation.
+    knit_register_setup "libs" "_test_setup_fn" "Build deps."
+    knit_with_fake_specs "openblas@{{openblas-version}}"
+    knit_done
+    local cmd cbs
+    _knit_command_mangle cmd "setup:libs"
+    eval "cbs=\"\${_KNIT_CMD_${cmd}_before_cb[*]}\""
+    [[ "${cbs}" == *stdin* ]]
+    [[ "${cbs}" == *'{{openblas-version}}'* ]]
+}
+
 # ---------- _knit_env_setup_before_cb ----------
 
 @test "before callback materializes the stdin manifest, builds, and activates in-shell" {
@@ -228,13 +242,42 @@ EOF
     [ "${FAKE_ENV}" = "${KNIT_SETUP_PREFIX}/fake-env" ]
 }
 
-@test "before callback copies the file-form manifest" {
+@test "before callback materializes the file-form manifest" {
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
     mkdir -p "${KNIT_SETUP_PREFIX}"
     printf 'fake: {}\n' > "${_KNIT_TEST_TMPDIR}/src.yaml"
     _knit_env_setup_before_cb "fake" "file" "${_KNIT_TEST_TMPDIR}/src.yaml"
     [ -f "${KNIT_SETUP_PREFIX}/fake.yaml" ]
     grep -q "fake: {}" "${KNIT_SETUP_PREFIX}/fake.yaml"
+}
+
+@test "before callback renders {{parameter}} tokens in a stdin manifest" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    local manifest
+    manifest=$'fake:\n  specs:\n    - openblas@{{openblas-version}}'
+    _knit_env_setup_before_cb "fake" "stdin" "${manifest}" --openblas-version 0.3.28
+    grep -q "openblas@0.3.28" "${KNIT_SETUP_PREFIX}/fake.yaml"
+    ! grep -q "{{" "${KNIT_SETUP_PREFIX}/fake.yaml"
+}
+
+@test "before callback renders {{parameter}} tokens in a file manifest without touching the source" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    local src="${_KNIT_TEST_TMPDIR}/src.yaml"
+    printf 'fake:\n  specs:\n    - openblas@{{openblas-version}}\n' > "${src}"
+    _knit_env_setup_before_cb "fake" "file" "${src}" --openblas-version 0.3.28
+    grep -q "openblas@0.3.28" "${KNIT_SETUP_PREFIX}/fake.yaml"
+    # The template on disk is left untouched (still carries the placeholder).
+    grep -q "openblas@{{openblas-version}}" "${src}"
+}
+
+@test "before callback is fatal on an unresolved {{parameter}} token" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    run _knit_env_setup_before_cb "fake" "stdin" "fake@{{missing}}" --openblas-version 0.3.28
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"{{missing}}"* ]]
 }
 
 @test "before callback calls install with the env dir and manifest path" {

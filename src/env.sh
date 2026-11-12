@@ -632,16 +632,24 @@ _knit_env_render_tokens() {
 # status propagates so the setup body never runs and the setup dispatcher removes
 # the half-built directory.
 #
+# The manifest (or spec-synthesized manifest) may contain "{{parameter}}"
+# placeholders; they are rendered here against the setup's expanded invocation
+# arguments (the trailing arguments, "${@:4}") before the manifest is written,
+# so a spec or manifest can depend on a setup parameter. A file manifest is
+# rendered on read (the file on disk is never modified).
+#
 # @param[in] nm     Normalized (underscore) manager name.
-# @param[in] mode   "file" (source is a path to copy) or "stdin" (source is the
+# @param[in] mode   "file" (source is a path to read) or "stdin" (source is the
 #                literal manifest content captured at registration).
-# @param[in] source Manifest path (mode=file) or content (mode=stdin). Trailing
-#                arguments are the setup's runtime arguments and are ignored.
+# @param[in] source Manifest path (mode=file) or content (mode=stdin).
+# @param[in] ...    The setup's expanded invocation arguments, used to resolve
+#                "{{parameter}}" placeholders.
 # ------------------------------------------------------------------------------
 _knit_env_setup_before_cb() {
     local nm="$1"
     local mode="$2"
     local source="$3"
+    shift 3
     local display_var="_KNIT_ENV_${nm}_display"
     local display="${!display_var}"
     local manifest_var="_KNIT_ENV_${nm}_manifest"
@@ -657,11 +665,18 @@ _knit_env_setup_before_cb() {
     # experiment was bootstrapped without the manager, and bootstrap cannot be
     # re-run.
     knit_env_ensure_provisioned "${display}"
+    # Render "{{parameter}}" placeholders against the setup's invocation
+    # arguments ("$@" after the shift), then write the materialized manifest. A
+    # file manifest is read into memory and rendered rather than copied, so the
+    # original template on disk is left untouched.
+    local manifest_text rendered
     if [[ "${mode}" == "file" ]]; then
-        cp "${source}" "${manifest_path}"
+        manifest_text="$(cat "${source}")"
     else
-        printf '%s\n' "${source}" > "${manifest_path}"
+        manifest_text="${source}"
     fi
+    _knit_env_render_tokens rendered "${display}" "${manifest_text}" "$@"
+    printf '%s\n' "${rendered}" > "${manifest_path}"
     # Abort the setup if the environment did not install: do not activate a
     # broken environment.
     if ! "${!install_var}" "${env_dir}" "${manifest_path}"; then
