@@ -46,11 +46,25 @@ check_file ".knit/uv/bin/uv" \
 # Build the uv-backed setup. knit writes pyproject.toml, syncs the env, and
 # activates it; the setup body then runs with the venv on PATH.
 # --------------------------------------------------------------------------
-./experiment.sh setup --name penv -- pyenv
+# The requirement carries a "{{six-version}}" placeholder, rendered from the
+# setup parameter value passed here.
+SIX_VERSION="1.16.0"
+./experiment.sh setup --name penv -- pyenv --six-version "${SIX_VERSION}"
 
 check_file "setups/penv/.activate.sh" "setup produced .activate.sh"
 check_grep ".venv/bin/activate" "setups/penv/.activate.sh" \
     ".activate.sh re-activates the uv venv"
+
+# The materialized manifest carries the rendered, concrete version (not the
+# "{{six-version}}" placeholder): direct proof the token was substituted.
+check_file "setups/penv/pyproject.toml" "setup materialized pyproject.toml"
+check_grep "six==${SIX_VERSION}" "setups/penv/pyproject.toml" \
+    "materialized pyproject.toml carries the rendered six==${SIX_VERSION}"
+if grep -q "{{" "setups/penv/pyproject.toml"; then
+    fail "materialized pyproject.toml still contains an unrendered {{...}} placeholder"
+else
+    __assert_pass "materialized pyproject.toml has no leftover placeholder"
+fi
 
 # Provenance: the setup row captured the concrete manifest + lockfile. The table
 # name contains a colon, so it is bracket-quoted for SQLite.
@@ -62,6 +76,15 @@ check_sqlite ".knit/knit.db" \
     "SELECT LENGTH(__uv_lock__) > 0 FROM [setup:pyenv];" \
     "1" \
     "setup row captured __uv_lock__ provenance"
+
+# The recorded manifest provenance (gzip+base64) decodes to the rendered,
+# concrete requirement — so a reproducer reading provenance sees
+# six==${SIX_VERSION}, not the template.
+"${__ASSERT_SQLITE3}" ".knit/knit.db" \
+    "SELECT __uv_manifest__ FROM [setup:pyenv];" \
+    | base64 -d | gunzip > "${WORKDIR}/decoded-manifest.toml"
+check_grep "six==${SIX_VERSION}" "${WORKDIR}/decoded-manifest.toml" \
+    "recorded __uv_manifest__ provenance decodes to the rendered six==${SIX_VERSION}"
 
 # --------------------------------------------------------------------------
 # The `knit uv` wrapper works (forwards to the provisioned uv binary).

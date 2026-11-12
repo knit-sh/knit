@@ -2,9 +2,12 @@
 # Integration test experiment 35_uv_setup.
 #
 # Registers:
-#   - a uv-backed setup "pyenv" declared with knit_with_uv_specs "six": knit
-#     builds and activates a uv Python environment as the setup's first step and
-#     captures the concrete pyproject.toml/uv.lock as provenance outputs.
+#   - a uv-backed setup "pyenv" declared with knit_with_uv_specs
+#     "six=={{six-version}}": the requirement depends on a setup parameter, so the
+#     "{{six-version}}" placeholder is rendered to the invocation's value before
+#     the environment is built. knit builds and activates a uv Python environment
+#     as the setup's first step and captures the concrete pyproject.toml/uv.lock
+#     as provenance outputs.
 #   - a job "pycheck" that requires that setup and, on the compute node, confirms
 #     the uv environment was re-hydrated (VIRTUAL_ENV is set) and that the
 #     six package is importable.
@@ -21,7 +24,8 @@ knit_import uv@v1.0.0
 knit_set_program_description "uv-backed setup integration test experiment."
 
 knit_register_setup "pyenv" __pyenv_setup "Build a uv Python environment with six."
-knit_with_uv_specs "six"
+knit_with_required "six-version:string" "six version to install (renders into the requirement)."
+knit_with_uv_specs "six=={{six-version}}"
 __pyenv_setup() {
     # The uv environment is already built and activated by the time this body
     # runs. Declare a marker so the dependent job can confirm inheritance.
