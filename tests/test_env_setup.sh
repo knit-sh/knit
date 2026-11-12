@@ -267,6 +267,109 @@ EOF
     [[ "${contrib}" == "literal-spec=openblas@{{openblas-version}}" ]]
 }
 
+# ---------- knit_with_<nm>_specs_from ----------
+
+@test "the specs_from directive and shorthand are generated" {
+    declare -F knit_with_fake_specs_from
+    declare -F @with_fake_specs_from
+}
+
+@test "knit_with_fake_specs_from records an fn-spec contribution" {
+    _fake_gen() { echo "zlib"; }
+    knit_register_setup "libs" "_test_setup_fn" "Build deps."
+    knit_with_fake_specs_from _fake_gen
+    knit_done
+    local contrib
+    contrib="$(_fake_contrib libs)"
+    [[ "${contrib}" == "fn-spec=_fake_gen" ]]
+}
+
+@test "knit_with_fake_specs_from is fatal outside a setup registration" {
+    run knit_with_fake_specs_from _fake_gen
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"only for setups"* ]]
+}
+
+@test "knit_with_fake_specs_from is fatal with no function name" {
+    knit_register_setup "libs" "_test_setup_fn" "Build deps."
+    run knit_with_fake_specs_from
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"function"* ]]
+}
+
+@test "knit_with_fake_specs_from and knit_with_fake_env are mutually exclusive" {
+    knit_register_setup "libs" "_test_setup_fn" "Build deps."
+    knit_with_fake_specs_from _fake_gen
+    run knit_with_fake_env "a.yaml"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"cannot mix"* ]]
+}
+
+@test "before callback appends a specs_from function's output to the spec list" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    _fake_gen() { printf 'hdf5@1.14\nfftw\n'; }
+    _fake_stage_before_cb libs fn-spec _fake_gen
+    _knit_env_setup_before_cb "fake"
+    grep -q -- "- hdf5@1.14" "${KNIT_SETUP_PREFIX}/fake.yaml"
+    grep -q -- "- fftw" "${KNIT_SETUP_PREFIX}/fake.yaml"
+}
+
+@test "before callback mixes literal and function specs in declaration order" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    _fake_gen() { echo "mpich"; }
+    _fake_stage_before_cb libs literal-spec "zlib" fn-spec _fake_gen literal-spec "fftw"
+    _knit_env_setup_before_cb "fake"
+    # The specs verb lists them in declaration order: zlib, mpich, fftw.
+    run cat "${KNIT_SETUP_PREFIX}/fake.yaml"
+    [[ "${output}" == *$'- zlib\n    - mpich\n    - fftw'* ]]
+}
+
+@test "before callback runs a flag-conditional specs_from function" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    _fake_gen() {
+        echo "pytorch"
+        [[ "$(knit_get_parameter use-cuda "$@")" == true ]] && echo "cuda"
+    }
+    _fake_stage_before_cb libs fn-spec _fake_gen
+    _knit_env_setup_before_cb "fake" --use-cuda true
+    grep -q -- "- pytorch" "${KNIT_SETUP_PREFIX}/fake.yaml"
+    grep -q -- "- cuda" "${KNIT_SETUP_PREFIX}/fake.yaml"
+}
+
+@test "before callback renders {{parameter}} tokens in specs_from output" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    _fake_gen() { echo "openblas@{{openblas-version}}"; }
+    _fake_stage_before_cb libs fn-spec _fake_gen
+    _knit_env_setup_before_cb "fake" --openblas-version 0.3.28
+    grep -q "openblas@0.3.28" "${KNIT_SETUP_PREFIX}/fake.yaml"
+    ! grep -q "{{" "${KNIT_SETUP_PREFIX}/fake.yaml"
+}
+
+@test "before callback aborts when a specs_from function exits non-zero" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    _fake_gen() { echo "zlib"; return 1; }
+    _fake_stage_before_cb libs fn-spec _fake_gen
+    run _knit_env_setup_before_cb "fake"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"_fake_gen"* ]]
+    [ ! -d "${KNIT_SETUP_PREFIX}/fake-env" ]
+}
+
+@test "before callback is fatal when the whole spec list is empty" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    _fake_gen() { :; }   # prints nothing
+    _fake_stage_before_cb libs fn-spec _fake_gen
+    run _knit_env_setup_before_cb "fake"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"no fake specs"* ]]
+}
+
 # ---------- _knit_env_setup_before_cb ----------
 
 @test "before callback materializes the stdin manifest, builds, and activates in-shell" {
