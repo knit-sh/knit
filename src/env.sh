@@ -556,6 +556,67 @@ _knit_env_with_specs() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_env_render_tokens()
+#
+# Render the "{{parameter-name}}" placeholders in a manifest (or spec) text,
+# replacing each with the value of the named setup parameter. The parameter
+# values are read with knit_get_parameter from the setup's expanded invocation
+# arguments (passed as the trailing arguments). This is the one rendering point
+# shared by the specs sugar, here-doc/stdin manifests, and file manifests.
+#
+# A token is "{{" + optional whitespace + a parameter name + optional whitespace
+# + "}}". The name may use hyphens or underscores interchangeably (as everywhere
+# in Knit). Substitution is textual and literal: the value is inserted verbatim,
+# with no recursion over an inserted value and no shell evaluation. Text with no
+# "{{" is returned unchanged by a cheap early check, so the common,
+# non-parameterized case pays almost nothing.
+#
+# A token whose name does not resolve to a declared parameter of the setup
+# (knit_get_parameter returns non-zero) is almost always a typo; it is fatal,
+# naming the unresolved placeholder and the manager.
+#
+# @param[out] __knit_ret Name of the variable to hold the rendered text.
+# @param[in] display Manager display name, used only in the fatal message.
+# @param[in] text    The manifest/spec text that may contain "{{...}}" tokens.
+# @param[in] ...     The setup's expanded invocation arguments.
+# ------------------------------------------------------------------------------
+_knit_env_render_tokens() {
+    # shellcheck disable=SC2178 # scalar nameref output; the array use is in a sibling function sharing the name
+    local -n __knit_ret=$1; shift
+    local display="$1"; shift
+    local text="$1"; shift
+    # "$@" now holds the setup's invocation arguments.
+
+    # Fast path: no placeholder at all, return the text verbatim.
+    if [[ "${text}" != *"{{"* ]]; then
+        # shellcheck disable=SC2178 # scalar nameref output; the array use is in a sibling function sharing the name
+        __knit_ret="${text}"
+        return 0
+    fi
+
+    local out="" rest="${text}"
+    local name value
+    # Walk the text, consuming one "{{ name }}" token per iteration: the literal
+    # run before the token is appended as-is, then the token is replaced with its
+    # resolved value.
+    while [[ "${rest}" =~ \{\{[[:space:]]*([A-Za-z0-9_-]+)[[:space:]]*\}\} ]]; do
+        name="${BASH_REMATCH[1]}"
+        # Everything up to (not including) the match is literal.
+        out+="${rest%%"${BASH_REMATCH[0]}"*}"
+        if ! value="$(knit_get_parameter "${name}" "$@")"; then
+            knit_fatal "unresolved placeholder {{%s}} in the %s manifest — it does not name a declared parameter of this setup." \
+                "${name}" "${display}"
+        fi
+        out+="${value}"
+        # Advance past the consumed literal run and the token.
+        rest="${rest#*"${BASH_REMATCH[0]}"}"
+    done
+    out+="${rest}"
+    # shellcheck disable=SC2178 # scalar nameref output; the array use is in a sibling function sharing the name
+    __knit_ret="${out}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_env_setup_before_cb()
 #
 # Before-callback installed by _knit_env_with_env. Runs as the setup's first step
