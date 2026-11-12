@@ -243,14 +243,16 @@ knit_env_done() {
     _KNIT_ENV_MANAGERS+=("${nm}")
 
     # Generate the per-manager setup directives knit_with_<nm>_env,
-    # knit_with_<nm>_specs, and knit_with_<nm>_specs_from as thin wrappers over the
-    # generic implementations.
+    # knit_with_<nm>_env_from, knit_with_<nm>_specs, and knit_with_<nm>_specs_from
+    # as thin wrappers over the generic implementations.
     # eval is required to define functions whose names carry the manager name;
     # <nm> is a validated identifier (from _knit_name_is_valid) so the generated
     # text is safe. A hyphenated manager name yields underscore-named functions
     # (knit_with_my_tool_env), matching Knit's hyphen/underscore interchange.
     # shellcheck disable=SC2155 # simple generated definitions, no command substitution
     eval "knit_with_${nm}_env()        { _knit_env_with_env        ${nm} \"\$@\"; }"
+    # shellcheck disable=SC2155
+    eval "knit_with_${nm}_env_from()   { _knit_env_with_env_from   ${nm} \"\$@\"; }"
     # shellcheck disable=SC2155
     eval "knit_with_${nm}_specs()      { _knit_env_with_specs      ${nm} \"\$@\"; }"
     # shellcheck disable=SC2155
@@ -284,9 +286,9 @@ knit_env_done() {
 # ------------------------------------------------------------------------------
 # @fn _knit_env_register_shorthands()
 #
-# Register the "@with_<nm>_env", "@with_<nm>_specs", and "@with_<nm>_specs_from"
-# shorthands for a manager, each forwarding to the directive knit_env_done
-# generated. KNIT_WITHOUT_SHORTHAND
+# Register the "@with_<nm>_env", "@with_<nm>_env_from", "@with_<nm>_specs", and
+# "@with_<nm>_specs_from" shorthands for a manager, each forwarding to the
+# directive knit_env_done generated. KNIT_WITHOUT_SHORTHAND
 # and collision rejection are handled by knit_register_shorthand. Called from
 # knit_env_done for a plugin's manager (declared after the shorthand layer
 # exists) and from the source-time shorthand generator for a core manager
@@ -297,6 +299,7 @@ knit_env_done() {
 _knit_env_register_shorthands() {
     local nm="$1"
     knit_register_shorthand "with_${nm}_env"        "knit_with_${nm}_env"
+    knit_register_shorthand "with_${nm}_env_from"   "knit_with_${nm}_env_from"
     knit_register_shorthand "with_${nm}_specs"      "knit_with_${nm}_specs"
     knit_register_shorthand "with_${nm}_specs_from" "knit_with_${nm}_specs_from"
 }
@@ -304,9 +307,9 @@ _knit_env_register_shorthands() {
 # ------------------------------------------------------------------------------
 # @fn _knit_env_is_manager_shorthand()
 #
-# Return 0 when the token is the "with_<nm>_env", "with_<nm>_specs", or
-# "with_<nm>_specs_from" shorthand of a registered environment manager. The
-# source-time shorthand generator uses
+# Return 0 when the token is the "with_<nm>_env", "with_<nm>_env_from",
+# "with_<nm>_specs", or "with_<nm>_specs_from" shorthand of a registered
+# environment manager. The source-time shorthand generator uses
 # it so a KNIT_WITHOUT_SHORTHAND opt-out of such a token is recognised rather
 # than warned about as an unknown token.
 #
@@ -317,6 +320,7 @@ _knit_env_is_manager_shorthand() {
     local nm
     for nm in "${_KNIT_ENV_MANAGERS[@]}"; do
         [[ "${token}" == "with_${nm}_env" \
+        || "${token}" == "with_${nm}_env_from" \
         || "${token}" == "with_${nm}_specs" \
         || "${token}" == "with_${nm}_specs_from" ]] \
             && return 0
@@ -600,6 +604,35 @@ _knit_env_with_env() {
     fi
 
     _knit_env_record_contribution "${nm}" "env" "${tag}" "${source}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_env_with_env_from()
+#
+# Generic implementation of knit_with_<nm>_env_from: the programmatic twin of
+# knit_with_<nm>_env (world A). Instead of a file or an inline document, a user
+# function produces the complete manifest at setup-invocation time. The function
+# is called as `<fn> "$@"` with the setup's expanded invocation arguments, reads
+# its parameters with knit_get_parameter, and prints the whole manifest
+# (spack.yaml / pyproject.toml) on stdout; the document is then rendered for
+# "{{parameter}}" and materialized.
+#
+# Valid only inside a setup registration (fatal otherwise). World A is exactly one
+# contribution per manager and mutually exclusive with the world-B spec directives
+# (enforced by the shared recorder). The function name is captured here and
+# resolved when the setup runs; the function must be defined by then.
+#
+# @param[in] nm Normalized (underscore) manager name (bound by the wrapper).
+# @param[in] fn Name of the manifest-generating function.
+# ------------------------------------------------------------------------------
+_knit_env_with_env_from() {
+    local nm="$1"
+    shift
+    _knit_env_require_setup_context "knit_with_${nm}_env_from"
+    if [[ -z "$1" ]]; then
+        knit_fatal "knit_with_%s_env_from requires the name of a manifest-generating function." "${nm}"
+    fi
+    _knit_env_record_contribution "${nm}" "env" "fn-manifest" "$1"
 }
 
 # ------------------------------------------------------------------------------

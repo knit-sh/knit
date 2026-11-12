@@ -370,6 +370,102 @@ EOF
     [[ "$output" == *"no fake specs"* ]]
 }
 
+# ---------- knit_with_<nm>_env_from ----------
+
+@test "the env_from directive and shorthand are generated" {
+    declare -F knit_with_fake_env_from
+    declare -F @with_fake_env_from
+}
+
+@test "knit_with_fake_env_from records an fn-manifest contribution" {
+    _fake_gen() { echo "fake: {}"; }
+    knit_register_setup "libs" "_test_setup_fn" "Build deps."
+    knit_with_fake_env_from _fake_gen
+    knit_done
+    local contrib
+    contrib="$(_fake_contrib libs)"
+    [[ "${contrib}" == "fn-manifest=_fake_gen" ]]
+}
+
+@test "knit_with_fake_env_from flags the manager required and declares columns" {
+    _KNIT_ENV_fake_required=""
+    knit_register_setup "libs" "_test_setup_fn" "Build deps."
+    knit_with_fake_env_from _fake_gen
+    knit_done
+    [ -n "${_KNIT_ENV_fake_required}" ]
+    local names
+    names=$(sqlite3 "${_KNIT_DATABASE}" "PRAGMA table_info('setup:libs');" \
+        | cut -d'|' -f2 | tr '\n' ',')
+    [[ "${names}" == *__fake_manifest__* ]]
+    [[ "${names}" == *__fake_lock__* ]]
+}
+
+@test "knit_with_fake_env_from is fatal outside a setup registration" {
+    run knit_with_fake_env_from _fake_gen
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"only for setups"* ]]
+}
+
+@test "knit_with_fake_env_from is fatal with no function name" {
+    knit_register_setup "libs" "_test_setup_fn" "Build deps."
+    run knit_with_fake_env_from
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"function"* ]]
+}
+
+@test "a second world-A manifest directive is fatal (env then env_from)" {
+    knit_register_setup "libs" "_test_setup_fn" "Build deps."
+    knit_with_fake_env "a.yaml"
+    run knit_with_fake_env_from _fake_gen
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"at most one complete"* ]]
+}
+
+@test "a second world-A manifest directive is fatal (env_from twice)" {
+    knit_register_setup "libs" "_test_setup_fn" "Build deps."
+    knit_with_fake_env_from _fake_gen
+    run knit_with_fake_env_from _fake_gen
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"at most one complete"* ]]
+}
+
+@test "world A after world B is fatal (specs then env_from)" {
+    knit_register_setup "libs" "_test_setup_fn" "Build deps."
+    knit_with_fake_specs "zlib"
+    run knit_with_fake_env_from _fake_gen
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"cannot mix"* ]]
+}
+
+@test "world B after world A is fatal (env_from then specs_from)" {
+    knit_register_setup "libs" "_test_setup_fn" "Build deps."
+    knit_with_fake_env_from _fake_gen
+    run knit_with_fake_specs_from _other_gen
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"cannot mix"* ]]
+}
+
+@test "before callback materializes a manifest from an env_from function" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    _fake_gen() { printf 'fake:\n  specs:\n    - openblas@{{openblas-version}}\n'; }
+    _fake_stage_before_cb libs fn-manifest _fake_gen
+    _knit_env_setup_before_cb "fake" --openblas-version 0.3.28
+    grep -q "openblas@0.3.28" "${KNIT_SETUP_PREFIX}/fake.yaml"
+    ! grep -q "{{" "${KNIT_SETUP_PREFIX}/fake.yaml"
+}
+
+@test "before callback aborts when an env_from function exits non-zero" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    _fake_gen() { echo "fake: {}"; return 1; }
+    _fake_stage_before_cb libs fn-manifest _fake_gen
+    run _knit_env_setup_before_cb "fake"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"_fake_gen"* ]]
+    [ ! -d "${KNIT_SETUP_PREFIX}/fake-env" ]
+}
+
 # ---------- _knit_env_setup_before_cb ----------
 
 @test "before callback materializes the stdin manifest, builds, and activates in-shell" {

@@ -259,7 +259,8 @@ _knit_shorthand_generate() {
     # knit_env_done.
     local nm sh
     for nm in "${_KNIT_ENV_MANAGERS[@]}"; do
-        for sh in "with_${nm}_env" "with_${nm}_specs" "with_${nm}_specs_from"; do
+        for sh in "with_${nm}_env" "with_${nm}_env_from" \
+                  "with_${nm}_specs" "with_${nm}_specs_from"; do
             declare -F "@${sh}" >/dev/null 2>&1 && continue
             knit_register_shorthand "${sh}" "knit_${sh}"
         done
