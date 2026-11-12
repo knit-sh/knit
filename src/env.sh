@@ -450,23 +450,116 @@ knit_env_ensure_provisioned() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_env_require_setup_context()
+#
+# Guard shared by the setup directives (knit_with_<nm>_env / _specs / _env_from /
+# _specs_from): fatal unless a setup registration is currently open. Returns
+# normally when the context is a setup.
+#
+# @param[in] directive Full directive name, used in the error message.
+# ------------------------------------------------------------------------------
+_knit_env_require_setup_context() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]] \
+    || [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" != setup:* ]]; then
+        knit_fatal "%s is valid only for setups; it must be called between knit_register_setup and knit_done." "$1"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_env_record_contribution()
+#
+# Generic recorder shared by every setup environment directive. It (1) validates
+# the A/B mode rule against what the setup has already declared for this manager,
+# (2) appends the contribution to the per-command, per-manager contribution list,
+# and (3) on the FIRST contribution for a manager, installs the build/activation
+# callbacks, declares the __<nm>_manifest__ / __<nm>_lock__ provenance outputs and
+# the --help note, and flags the manager required so bootstrap provisions it.
+#
+# A setup declares, per manager, EITHER world A (one complete manifest, mode
+# "env") OR world B (an accumulating spec list, mode "specs"); the two cannot be
+# mixed, and world A is exactly one contribution. The caller passes the mode its
+# directive belongs to; a conflicting or duplicate world-A declaration is fatal.
+#
+# The contribution list `_KNIT_CMD_<cmd>_envcontrib_<nm>` holds two array elements
+# per contribution — a tag then its payload — so a payload (such as an inline
+# manifest) may carry spaces and newlines without any escaping. The mode is kept
+# in the scalar `_KNIT_CMD_<cmd>_envmode_<nm>`.
+#
+# @param[in] nm       Normalized (underscore) manager name.
+# @param[in] mode     "env" (world A, exclusive) or "specs" (world B, additive).
+# @param[in] tag      Contribution tag (literal-spec / fn-spec / file-manifest /
+#                  stdin-manifest / fn-manifest).
+# @param[in] ...      One payload per remaining argument; each appended as its own
+#                  contribution with the same tag (so knit_with_<nm>_specs can pass
+#                  several specs at once).
+# ------------------------------------------------------------------------------
+_knit_env_record_contribution() {
+    local nm="$1" mode="$2" tag="$3"
+    shift 3
+    local display_var="_KNIT_ENV_${nm}_display"
+    local display="${!display_var}"
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local mode_var="_KNIT_CMD_${cmd}_envmode_${nm}"
+    local existing="${!mode_var:-}"
+    local contrib_var="_KNIT_CMD_${cmd}_envcontrib_${nm}"
+
+    # Enforce the A/B rule. World A (one manifest) is exactly one contribution and
+    # mutually exclusive with world B (a spec list).
+    if [[ -n "${existing}" ]]; then
+        if [[ "${existing}" != "${mode}" ]]; then
+            knit_fatal "Setup \"%s\" cannot mix a complete %s manifest with %s specs; declare either one manifest (knit_with_%s_env / knit_with_%s_env_from) or any number of specs (knit_with_%s_specs / knit_with_%s_specs_from), not both." \
+                "${_KNIT_CURRENT_COMMAND_DEMANGLED}" "${display}" "${display}" "${nm}" "${nm}" "${nm}" "${nm}"
+        fi
+        if [[ "${mode}" == "env" ]]; then
+            knit_fatal "Setup \"%s\" may declare at most one complete %s manifest (knit_with_%s_env / knit_with_%s_env_from)." \
+                "${_KNIT_CURRENT_COMMAND_DEMANGLED}" "${display}" "${nm}" "${nm}"
+        fi
+    fi
+
+    # First contribution for this manager: set the mode, create the list, and
+    # install the callbacks / outputs / note / required flag exactly once.
+    if [[ -z "${existing}" ]]; then
+        printf -v "${mode_var}" '%s' "${mode}"
+        declare -ga "${contrib_var}=()"
+
+        knit_run_before _knit_env_setup_before_cb "${nm}"
+        knit_run_after  _knit_env_setup_after_cb  "${nm}"
+
+        knit_with_output "__${nm}_manifest__:string" "" \
+            "gzip+base64 of the environment's concrete manifest."
+        knit_with_output "__${nm}_lock__:string" "" \
+            "gzip+base64 of the environment's lockfile."
+
+        # shellcheck disable=SC2178 # nameref to the command's notes array
+        local -n _notes_ref="_KNIT_CMD_${cmd}_notes"
+        _notes_ref+=("Builds a ${display} environment before the setup body runs.")
+
+        printf -v "_KNIT_ENV_${nm}_required" '%s' '1'
+    fi
+
+    # Append one (tag, payload) pair per payload argument.
+    # shellcheck disable=SC2178 # nameref to the command's contribution array
+    local -n _contrib_ref="${contrib_var}"
+    local payload
+    for payload in "$@"; do
+        _contrib_ref+=("${tag}" "${payload}")
+    done
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_env_with_env()
 #
 # Generic implementation of knit_with_<nm>_env: declare that the setup currently
-# being registered needs a <nm> environment, built as the setup's first step and
-# inherited by jobs via re-activation. Valid only inside a setup registration
-# (fatal otherwise), at most once per manager per setup (a shared marker also
-# makes it mutually exclusive with knit_with_<nm>_specs, which funnels through
-# here).
+# being registered needs a <nm> environment described by a complete manifest
+# (world A). The manifest is a file (non-empty first argument, resolved absolute
+# at registration and recorded with knit_bundle_auto_require) or, with no
+# argument, a here-doc / stdin manifest consumed at registration. The stdin form
+# fails fast on an interactive terminal (nothing to read) and rejects an empty
+# manifest.
 #
-# The environment is described by a manifest file (non-empty first argument,
-# resolved absolute at registration and recorded with knit_bundle_auto_require)
-# or, with no argument, by a here-doc / stdin manifest consumed at registration.
-# The stdin form fails fast on an interactive terminal (nothing to read) and
-# rejects an empty manifest. It installs the build/activation callbacks, declares
-# the __<nm>_manifest__ / __<nm>_lock__ provenance outputs, advertises the
-# requirement in --help, and flags the manager required so bootstrap provisions
-# it.
+# Valid only inside a setup registration (fatal otherwise). World A is exactly one
+# contribution per manager and mutually exclusive with the world-B spec
+# directives (enforced by the shared recorder).
 #
 # @param[in] nm   Normalized (underscore) manager name (bound by the wrapper).
 # @param[in] file Optional manifest path; if omitted, read from stdin.
@@ -474,24 +567,12 @@ knit_env_ensure_provisioned() {
 _knit_env_with_env() {
     local nm="$1"
     shift
-    local display_var="_KNIT_ENV_${nm}_display"
-    local display="${!display_var}"
-    if [[ ! -v _KNIT_CURRENT_COMMAND ]] \
-    || [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" != setup:* ]]; then
-        knit_fatal "knit_with_%s_env is valid only for setups; it must be called between knit_register_setup and knit_done." "${nm}"
-    fi
+    _knit_env_require_setup_context "knit_with_${nm}_env"
     knit_reject_if_wrapper "knit_with_${nm}_env"
-    local cmd="${_KNIT_CURRENT_COMMAND}"
-    local marker_var="_KNIT_CMD_${cmd}_env_${nm}"
-    if [[ -n "${!marker_var:-}" ]]; then
-        knit_fatal "Setup \"%s\" may declare at most one %s environment (knit_with_%s_env / knit_with_%s_specs)." \
-            "${_KNIT_CURRENT_COMMAND_DEMANGLED}" "${display}" "${nm}" "${nm}"
-    fi
-    printf -v "${marker_var}" '%s' '1'
 
-    local mode source
+    local tag source
     if [[ -n "$1" ]]; then
-        mode="file"
+        tag="file-manifest"
         source="$(realpath -m "$1" 2>/dev/null || printf '%s' "$1")"
         # The manifest is an input the bundle should carry. Record it verbatim
         # (the user's typed path); "knit bundle" validates it there.
@@ -503,38 +584,26 @@ _knit_env_with_env() {
         if _knit_stdin_is_terminal; then
             knit_fatal "knit_with_%s_env: no manifest provided. Give a manifest path, feed one on stdin (here-doc/here-string/pipe), or use knit_with_%s_specs." "${nm}" "${nm}"
         fi
-        mode="stdin"
+        tag="stdin-manifest"
         source="$(cat)"
         if [[ -z "${source//[[:space:]]/}" ]]; then
             knit_fatal "knit_with_%s_env: the manifest read from stdin is empty." "${nm}"
         fi
     fi
 
-    knit_run_before _knit_env_setup_before_cb "${nm}" "${mode}" "${source}"
-    knit_run_after  _knit_env_setup_after_cb  "${nm}"
-
-    knit_with_output "__${nm}_manifest__:string" "" \
-        "gzip+base64 of the environment's concrete manifest."
-    knit_with_output "__${nm}_lock__:string" "" \
-        "gzip+base64 of the environment's lockfile."
-
-    # shellcheck disable=SC2178 # nameref to the command's notes array
-    local -n _notes_ref="_KNIT_CMD_${cmd}_notes"
-    _notes_ref+=("Builds a ${display} environment before the setup body runs.")
-
-    printf -v "_KNIT_ENV_${nm}_required" '%s' '1'
+    _knit_env_record_contribution "${nm}" "env" "${tag}" "${source}"
 }
 
 # ------------------------------------------------------------------------------
 # @fn _knit_env_with_specs()
 #
-# Generic implementation of knit_with_<nm>_specs: lightweight sugar over
-# knit_with_<nm>_env for the common "just install these specs" case. It calls the
-# manager's specs verb to synthesize a manifest from the given spec list and
-# feeds it to _knit_env_with_env via a here-string, so provenance capture,
-# activation, and auto-provisioning all apply identically. Valid only inside a
-# setup registration, and mutually exclusive with knit_with_<nm>_env on one setup
-# (shared marker).
+# Generic implementation of knit_with_<nm>_specs: the common "just install these
+# specs" case (world B). Each spec is appended to the setup's accumulating spec
+# list; at build time the manager's specs verb synthesizes one manifest from the
+# whole list, so provenance capture, activation, and auto-provisioning all apply
+# identically. Valid only inside a setup registration; additive with other
+# world-B directives and mutually exclusive with the world-A manifest directives
+# (enforced by the shared recorder).
 #
 # @param[in] nm  Normalized (underscore) manager name (bound by the wrapper).
 # @param[in] ... One or more specs.
@@ -542,17 +611,11 @@ _knit_env_with_env() {
 _knit_env_with_specs() {
     local nm="$1"
     shift
-    if [[ ! -v _KNIT_CURRENT_COMMAND ]] \
-    || [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" != setup:* ]]; then
-        knit_fatal "knit_with_%s_specs is valid only for setups; it must be called between knit_register_setup and knit_done." "${nm}"
-    fi
+    _knit_env_require_setup_context "knit_with_${nm}_specs"
     if [[ $# -eq 0 ]]; then
         knit_fatal "knit_with_%s_specs requires at least one spec." "${nm}"
     fi
-    local specs_fn="_KNIT_ENV_${nm}_specs"
-    local manifest
-    manifest="$("${!specs_fn}" "$@")"
-    _knit_env_with_env "${nm}" <<< "${manifest}"
+    _knit_env_record_contribution "${nm}" "specs" "literal-spec" "$@"
 }
 
 # ------------------------------------------------------------------------------
@@ -617,39 +680,125 @@ _knit_env_render_tokens() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_env_resolve_manifest()
+#
+# Resolve the setup's contribution list for one manager into the concrete
+# manifest text, at invocation time. World A (a single file / stdin / function
+# manifest) yields the document verbatim (rendered); world B (a spec list) runs
+# any spec-generating functions, collects every spec, and synthesizes one manifest
+# via the manager's specs verb. "{{parameter}}" placeholders are rendered against
+# the setup's invocation arguments throughout.
+#
+# @param[out] __knit_ret Name of the variable to hold the rendered manifest text.
+# @param[in] nm      Normalized (underscore) manager name.
+# @param[in] cmd     Mangled command name of the executing setup (holds the list).
+# @param[in] ...     The setup's expanded invocation arguments.
+# ------------------------------------------------------------------------------
+_knit_env_resolve_manifest() {
+    # shellcheck disable=SC2178 # scalar nameref output; the array use is in a sibling function sharing the name
+    local -n __knit_ret=$1; shift
+    local nm="$1" cmd="$2"; shift 2
+    local display_var="_KNIT_ENV_${nm}_display"
+    local display="${!display_var}"
+    # shellcheck disable=SC2178 # nameref to the command's contribution array
+    local -n _contrib_ref="_KNIT_CMD_${cmd}_envcontrib_${nm}"
+
+    # __knit_rendered is passed DOWN as _knit_env_render_tokens' output nameref,
+    # so it must not collide with a name the caller passes us as __knit_ret (the
+    # before-cb passes "rendered"): a plain "rendered" here would be shadowed by
+    # that nameref and the render would write nothing. Keep it __-prefixed.
+    local collected=() __knit_rendered tag payload line
+    local i
+    for (( i = 0; i < ${#_contrib_ref[@]}; i += 2 )); do
+        tag="${_contrib_ref[i]}"
+        payload="${_contrib_ref[i+1]}"
+        case "${tag}" in
+            file-manifest|stdin-manifest|fn-manifest)
+                # World A: exactly one entry (enforced at registration). Produce
+                # the whole document, render "{{...}}", return it directly.
+                local text
+                if [[ "${tag}" == "file-manifest" ]]; then
+                    text="$(cat "${payload}")"
+                elif [[ "${tag}" == "stdin-manifest" ]]; then
+                    text="${payload}"
+                else
+                    if ! text="$("${payload}" "$@")"; then
+                        knit_error "The %s manifest function \"%s\" exited non-zero." \
+                            "${display}" "${payload}"
+                        return 1
+                    fi
+                fi
+                _knit_env_render_tokens __knit_rendered "${display}" "${text}" "$@"
+                # shellcheck disable=SC2178 # scalar nameref output; the array use is in a sibling function sharing the name
+                __knit_ret="${__knit_rendered}"
+                return 0
+                ;;
+            literal-spec)
+                _knit_env_render_tokens __knit_rendered "${display}" "${payload}" "$@"
+                collected+=("${__knit_rendered}")
+                ;;
+            fn-spec)
+                # Run the spec-generating function; split its stdout into non-blank
+                # lines, rendering "{{...}}" on each.
+                local out
+                if ! out="$("${payload}" "$@")"; then
+                    knit_error "The %s spec function \"%s\" exited non-zero." \
+                        "${display}" "${payload}"
+                    return 1
+                fi
+                while IFS= read -r line; do
+                    [[ -z "${line//[[:space:]]/}" ]] && continue
+                    _knit_env_render_tokens __knit_rendered "${display}" "${line}" "$@"
+                    collected+=("${__knit_rendered}")
+                done <<< "${out}"
+                ;;
+            *)
+                knit_fatal "internal error: unknown environment contribution tag \"%s\"." "${tag}"
+                ;;
+        esac
+    done
+
+    # World B: synthesize one manifest from the whole collected spec list.
+    if [[ ${#collected[@]} -eq 0 ]]; then
+        knit_fatal "Setup produced no %s specs; every spec function printed nothing and no literal spec was given." \
+            "${display}"
+    fi
+    local specs_fn="_KNIT_ENV_${nm}_specs"
+    # shellcheck disable=SC2178 # scalar nameref output; the array use is in a sibling function sharing the name
+    __knit_ret="$("${!specs_fn}" "${collected[@]}")"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_env_setup_before_cb()
 #
-# Before-callback installed by _knit_env_with_env. Runs as the setup's first step
-# (before-cbs execute in the setup's own shell, so the activated environment
-# persists into the setup body and the after-callbacks). It sources the platform,
-# provisions the manager on demand, materializes the manifest to
+# Before-callback installed by the first environment contribution. Runs as the
+# setup's first step (before-cbs execute in the setup's own shell, so the
+# activated environment persists into the setup body and the after-callbacks). It
+# sources the platform, provisions the manager on demand, resolves the setup's
+# contribution list into a concrete manifest, writes it to
 # ${KNIT_SETUP_PREFIX}/<manifest>, builds the environment into
 # ${KNIT_SETUP_PREFIX}/<nm>-env via the install verb, and activates it in the
 # current shell (by eval-ing the activate verb's lines) so the body builds
 # against the installed packages.
 #
-# On an install failure it returns non-zero WITHOUT activating: the non-zero
-# status propagates so the setup body never runs and the setup dispatcher removes
-# the half-built directory.
+# On an install failure (or a spec/manifest function exiting non-zero) it returns
+# non-zero WITHOUT activating: the non-zero status propagates so the setup body
+# never runs and the setup dispatcher removes the half-built directory.
 #
-# The manifest (or spec-synthesized manifest) may contain "{{parameter}}"
-# placeholders; they are rendered here against the setup's expanded invocation
-# arguments (the trailing arguments, "${@:4}") before the manifest is written,
-# so a spec or manifest can depend on a setup parameter. A file manifest is
-# rendered on read (the file on disk is never modified).
+# The resolved specs/manifest may contain "{{parameter}}" placeholders; they are
+# rendered against the setup's expanded invocation arguments (the trailing
+# arguments) while the contribution list is resolved, so a spec or manifest can
+# depend on a setup parameter. A file manifest is rendered on read (the file on
+# disk is never modified).
 #
-# @param[in] nm     Normalized (underscore) manager name.
-# @param[in] mode   "file" (source is a path to read) or "stdin" (source is the
-#                literal manifest content captured at registration).
-# @param[in] source Manifest path (mode=file) or content (mode=stdin).
-# @param[in] ...    The setup's expanded invocation arguments, used to resolve
-#                "{{parameter}}" placeholders.
+# @param[in] nm  Normalized (underscore) manager name.
+# @param[in] ... The setup's expanded invocation arguments, used to run spec /
+#            manifest functions and resolve "{{parameter}}" placeholders.
 # ------------------------------------------------------------------------------
 _knit_env_setup_before_cb() {
     local nm="$1"
-    local mode="$2"
-    local source="$3"
-    shift 3
+    shift
+    local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
     local display_var="_KNIT_ENV_${nm}_display"
     local display="${!display_var}"
     local manifest_var="_KNIT_ENV_${nm}_manifest"
@@ -665,17 +814,14 @@ _knit_env_setup_before_cb() {
     # experiment was bootstrapped without the manager, and bootstrap cannot be
     # re-run.
     knit_env_ensure_provisioned "${display}"
-    # Render "{{parameter}}" placeholders against the setup's invocation
-    # arguments ("$@" after the shift), then write the materialized manifest. A
-    # file manifest is read into memory and rendered rather than copied, so the
-    # original template on disk is left untouched.
-    local manifest_text rendered
-    if [[ "${mode}" == "file" ]]; then
-        manifest_text="$(cat "${source}")"
-    else
-        manifest_text="${source}"
+    # Resolve the contribution list into the concrete manifest (world A: one
+    # document; world B: a spec list synthesized into one manifest), rendering
+    # "{{parameter}}" against the invocation arguments. A function exiting
+    # non-zero aborts the setup before anything is built.
+    local rendered
+    if ! _knit_env_resolve_manifest rendered "${nm}" "${cmd}" "$@"; then
+        return 1
     fi
-    _knit_env_render_tokens rendered "${display}" "${manifest_text}" "$@"
     printf '%s\n' "${rendered}" > "${manifest_path}"
     # Abort the setup if the environment did not install: do not activate a
     # broken environment.

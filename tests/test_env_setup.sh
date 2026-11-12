@@ -49,6 +49,35 @@ teardown() {
     knit_test_db_teardown
 }
 
+# Print the (tag, payload) contribution list recorded for the fake manager on a
+# setup, one "<tag>=<payload>" per line, so a test can assert what was recorded.
+_fake_contrib() {
+    local cmd
+    _knit_command_mangle cmd "setup:$1"
+    local -n _c="_KNIT_CMD_${cmd}_envcontrib_fake"
+    local i
+    for (( i = 0; i < ${#_c[@]}; i += 2 )); do
+        printf '%s=%s\n' "${_c[i]}" "${_c[i+1]}"
+    done
+}
+
+# Stand up a setup command named "$1" directly on the executing-command stack with
+# the fake manager's contribution list populated from the remaining (tag, payload)
+# argument pairs, so a before-cb test can drive _knit_env_setup_before_cb against a
+# known contribution list without a full registration.
+_fake_stage_before_cb() {
+    local name="$1"; shift
+    local cmd
+    _knit_command_mangle cmd "setup:${name}"
+    declare -ga "_KNIT_CMD_${cmd}_envcontrib_fake=()"
+    local -n _c="_KNIT_CMD_${cmd}_envcontrib_fake"
+    while [[ $# -gt 0 ]]; do
+        _c+=("$1" "$2")
+        shift 2
+    done
+    _KNIT_EXECUTING_COMMAND=("${cmd}")
+}
+
 # ---------- knit_with_<nm>_env: registration ----------
 
 @test "the env/specs directive functions are generated" {
@@ -78,7 +107,7 @@ teardown() {
     [ -n "${_KNIT_ENV_fake_required}" ]
 }
 
-@test "knit_with_fake_env path form resolves to an absolute path in the before callback" {
+@test "knit_with_fake_env path form records a file-manifest contribution with an absolute path" {
     knit_register_setup "libs" "_test_setup_fn" "Build deps."
     knit_with_fake_env "fake.yaml"
     knit_done
@@ -87,11 +116,12 @@ teardown() {
     eval "cbs=\"\${_KNIT_CMD_${cmd}_before_cb[*]}\""
     [[ "${cbs}" == *_knit_env_setup_before_cb* ]]
     [[ "${cbs}" == *fake* ]]
-    [[ "${cbs}" == *file* ]]
-    [[ "${cbs}" == */fake.yaml* ]]
+    local contrib
+    contrib="$(_fake_contrib libs)"
+    [[ "${contrib}" == file-manifest=/*/fake.yaml ]]
 }
 
-@test "knit_with_fake_env stdin form captures the manifest content" {
+@test "knit_with_fake_env stdin form records a stdin-manifest contribution" {
     knit_register_setup "libs" "_test_setup_fn" "Build deps."
     knit_with_fake_env <<'EOF'
 fake:
@@ -99,11 +129,10 @@ fake:
     - zlib
 EOF
     knit_done
-    local cmd cbs
-    _knit_command_mangle cmd "setup:libs"
-    eval "cbs=\"\${_KNIT_CMD_${cmd}_before_cb[*]}\""
-    [[ "${cbs}" == *stdin* ]]
-    [[ "${cbs}" == *zlib* ]]
+    local contrib
+    contrib="$(_fake_contrib libs)"
+    [[ "${contrib}" == stdin-manifest=* ]]
+    [[ "${contrib}" == *zlib* ]]
 }
 
 @test "knit_with_fake_env declares __fake_manifest__ and __fake_lock__ columns" {
@@ -161,7 +190,7 @@ EOF
     knit_with_fake_env "a.yaml"
     run knit_with_fake_env "b.yaml"
     [ "$status" -ne 0 ]
-    [[ "$output" == *"at most one"* ]]
+    [[ "$output" == *"at most one complete"* ]]
 }
 
 @test "knit_with_fake_env is fatal (does not hang) with no manifest on a terminal" {
@@ -181,16 +210,17 @@ EOF
 
 # ---------- knit_with_<nm>_specs ----------
 
-@test "knit_with_fake_specs synthesizes a manifest with the given specs" {
-    _KNIT_CURRENT_COMMAND="setup__1__libs"
-    _KNIT_CURRENT_COMMAND_DEMANGLED="setup:libs"
-    # The sugar funnels through the generic _knit_env_with_env via stdin; capture
-    # what it feeds there.
-    _knit_env_with_env() { cat > "${_KNIT_TEST_TMPDIR}/captured.yaml"; }
+@test "knit_with_fake_specs resolves to a manifest with the given specs" {
+    knit_register_setup "libs" "_test_setup_fn" "Build deps."
     knit_with_fake_specs "hdf5@1.14" "fftw"
-    grep -q "^fake:" "${_KNIT_TEST_TMPDIR}/captured.yaml"
-    grep -q -- "- hdf5@1.14" "${_KNIT_TEST_TMPDIR}/captured.yaml"
-    grep -q -- "- fftw" "${_KNIT_TEST_TMPDIR}/captured.yaml"
+    knit_done
+    local cmd manifest
+    _knit_command_mangle cmd "setup:libs"
+    _KNIT_EXECUTING_COMMAND=("${cmd}")
+    _knit_env_resolve_manifest manifest "fake" "${cmd}"
+    [[ "${manifest}" == *"fake:"* ]]
+    [[ "${manifest}" == *"- hdf5@1.14"* ]]
+    [[ "${manifest}" == *"- fftw"* ]]
 }
 
 @test "knit_with_fake_specs is fatal with no specs" {
@@ -211,21 +241,30 @@ EOF
     knit_with_fake_specs "zlib"
     run knit_with_fake_env "a.yaml"
     [ "$status" -ne 0 ]
-    [[ "$output" == *"at most one"* ]]
+    [[ "$output" == *"cannot mix"* ]]
 }
 
-@test "knit_with_fake_specs preserves {{parameter}} tokens into the before callback" {
-    # The specs sugar funnels through _knit_env_with_env on stdin, so a token in a
-    # spec must survive into the before-callback's captured manifest (the stdin
-    # branch), where it is rendered at invocation.
+@test "two knit_with_fake_specs calls accumulate into one spec list" {
+    knit_register_setup "libs" "_test_setup_fn" "Build deps."
+    knit_with_fake_specs "zlib"
+    knit_with_fake_specs "hdf5@1.14" "fftw"
+    knit_done
+    local contrib
+    contrib="$(_fake_contrib libs)"
+    [[ "${contrib}" == *"literal-spec=zlib"* ]]
+    [[ "${contrib}" == *"literal-spec=hdf5@1.14"* ]]
+    [[ "${contrib}" == *"literal-spec=fftw"* ]]
+}
+
+@test "knit_with_fake_specs preserves {{parameter}} tokens as a literal-spec contribution" {
+    # A token in a spec must survive verbatim into the recorded contribution list,
+    # where it is rendered at invocation (not at registration).
     knit_register_setup "libs" "_test_setup_fn" "Build deps."
     knit_with_fake_specs "openblas@{{openblas-version}}"
     knit_done
-    local cmd cbs
-    _knit_command_mangle cmd "setup:libs"
-    eval "cbs=\"\${_KNIT_CMD_${cmd}_before_cb[*]}\""
-    [[ "${cbs}" == *stdin* ]]
-    [[ "${cbs}" == *'{{openblas-version}}'* ]]
+    local contrib
+    contrib="$(_fake_contrib libs)"
+    [[ "${contrib}" == "literal-spec=openblas@{{openblas-version}}" ]]
 }
 
 # ---------- _knit_env_setup_before_cb ----------
@@ -234,7 +273,8 @@ EOF
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
     mkdir -p "${KNIT_SETUP_PREFIX}"
     FAKE_ENV=""
-    _knit_env_setup_before_cb "fake" "stdin" $'fake:\n  specs:\n    - zlib'
+    _fake_stage_before_cb libs stdin-manifest $'fake:\n  specs:\n    - zlib'
+    _knit_env_setup_before_cb "fake"
     [ -f "${KNIT_SETUP_PREFIX}/fake.yaml" ]
     grep -q "zlib" "${KNIT_SETUP_PREFIX}/fake.yaml"
     [ -d "${KNIT_SETUP_PREFIX}/fake-env" ]
@@ -246,17 +286,27 @@ EOF
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
     mkdir -p "${KNIT_SETUP_PREFIX}"
     printf 'fake: {}\n' > "${_KNIT_TEST_TMPDIR}/src.yaml"
-    _knit_env_setup_before_cb "fake" "file" "${_KNIT_TEST_TMPDIR}/src.yaml"
+    _fake_stage_before_cb libs file-manifest "${_KNIT_TEST_TMPDIR}/src.yaml"
+    _knit_env_setup_before_cb "fake"
     [ -f "${KNIT_SETUP_PREFIX}/fake.yaml" ]
     grep -q "fake: {}" "${KNIT_SETUP_PREFIX}/fake.yaml"
+}
+
+@test "before callback synthesizes a manifest from a literal-spec list" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
+    mkdir -p "${KNIT_SETUP_PREFIX}"
+    _fake_stage_before_cb libs literal-spec "zlib" literal-spec "hdf5@1.14"
+    _knit_env_setup_before_cb "fake"
+    grep -q "^fake:" "${KNIT_SETUP_PREFIX}/fake.yaml"
+    grep -q -- "- zlib" "${KNIT_SETUP_PREFIX}/fake.yaml"
+    grep -q -- "- hdf5@1.14" "${KNIT_SETUP_PREFIX}/fake.yaml"
 }
 
 @test "before callback renders {{parameter}} tokens in a stdin manifest" {
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
     mkdir -p "${KNIT_SETUP_PREFIX}"
-    local manifest
-    manifest=$'fake:\n  specs:\n    - openblas@{{openblas-version}}'
-    _knit_env_setup_before_cb "fake" "stdin" "${manifest}" --openblas-version 0.3.28
+    _fake_stage_before_cb libs stdin-manifest $'fake:\n  specs:\n    - openblas@{{openblas-version}}'
+    _knit_env_setup_before_cb "fake" --openblas-version 0.3.28
     grep -q "openblas@0.3.28" "${KNIT_SETUP_PREFIX}/fake.yaml"
     ! grep -q "{{" "${KNIT_SETUP_PREFIX}/fake.yaml"
 }
@@ -266,7 +316,8 @@ EOF
     mkdir -p "${KNIT_SETUP_PREFIX}"
     local src="${_KNIT_TEST_TMPDIR}/src.yaml"
     printf 'fake:\n  specs:\n    - openblas@{{openblas-version}}\n' > "${src}"
-    _knit_env_setup_before_cb "fake" "file" "${src}" --openblas-version 0.3.28
+    _fake_stage_before_cb libs file-manifest "${src}"
+    _knit_env_setup_before_cb "fake" --openblas-version 0.3.28
     grep -q "openblas@0.3.28" "${KNIT_SETUP_PREFIX}/fake.yaml"
     # The template on disk is left untouched (still carries the placeholder).
     grep -q "openblas@{{openblas-version}}" "${src}"
@@ -275,7 +326,8 @@ EOF
 @test "before callback is fatal on an unresolved {{parameter}} token" {
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
     mkdir -p "${KNIT_SETUP_PREFIX}"
-    run _knit_env_setup_before_cb "fake" "stdin" "fake@{{missing}}" --openblas-version 0.3.28
+    _fake_stage_before_cb libs stdin-manifest "fake@{{missing}}"
+    run _knit_env_setup_before_cb "fake" --openblas-version 0.3.28
     [ "$status" -ne 0 ]
     [[ "$output" == *"{{missing}}"* ]]
 }
@@ -284,7 +336,8 @@ EOF
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
     mkdir -p "${KNIT_SETUP_PREFIX}"
     _fake_install() { printf '%s' "$*" > "${_KNIT_TEST_TMPDIR}/install.args"; }
-    _knit_env_setup_before_cb "fake" "stdin" "fake: {}"
+    _fake_stage_before_cb libs stdin-manifest "fake: {}"
+    _knit_env_setup_before_cb "fake"
     run cat "${_KNIT_TEST_TMPDIR}/install.args"
     [[ "$output" == *"${KNIT_SETUP_PREFIX}/fake-env ${KNIT_SETUP_PREFIX}/fake.yaml"* ]]
 }
@@ -293,7 +346,8 @@ EOF
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}/prefix"
     mkdir -p "${KNIT_SETUP_PREFIX}" "${_KNIT_PREFIX}"
     printf '%s\n' 'export _KNIT_TEST_ENV_PLATFORM=on' > "${_KNIT_PREFIX}/platform.sh"
-    _knit_env_setup_before_cb "fake" "stdin" "fake: {}"
+    _fake_stage_before_cb libs stdin-manifest "fake: {}"
+    _knit_env_setup_before_cb "fake"
     [ "${_KNIT_TEST_ENV_PLATFORM:-}" = "on" ]
     unset _KNIT_TEST_ENV_PLATFORM
 }
@@ -304,7 +358,8 @@ EOF
     _FAKE_PROVISION_LOG="${_KNIT_TEST_TMPDIR}/prov.log"
     _KNIT_IS_BOOTSTRAPPED="1"
     rm -rf "${_KNIT_PREFIX}/fake"   # tool absent -> ensure provisions it
-    _knit_env_setup_before_cb "fake" "stdin" "fake: {}"
+    _fake_stage_before_cb libs stdin-manifest "fake: {}"
+    _knit_env_setup_before_cb "fake"
     [ -f "${_FAKE_PROVISION_LOG}" ]
 }
 
@@ -313,7 +368,8 @@ EOF
     mkdir -p "${KNIT_SETUP_PREFIX}"
     _fake_install() { return 1; }
     FAKE_ENV=""
-    ! _knit_env_setup_before_cb "fake" "stdin" "fake: {}"
+    _fake_stage_before_cb libs stdin-manifest "fake: {}"
+    ! _knit_env_setup_before_cb "fake"
     [ -z "${FAKE_ENV}" ]
 }
 
