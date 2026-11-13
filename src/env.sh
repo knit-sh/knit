@@ -867,7 +867,11 @@ _knit_env_resolve_manifest() {
 _knit_env_setup_before_cb() {
     local nm="$1"
     shift
-    local cmd="${_KNIT_EXECUTING_COMMAND[-1]}"
+    # A before-callback runs before the command is pushed onto
+    # _KNIT_EXECUTING_COMMAND, so the executing stack does not yet name this setup;
+    # _KNIT_INVOCATION_CMD is the command whose before-callbacks are running (the
+    # same source knit_set_parameter uses), i.e. this setup's mangled name.
+    local cmd="${_KNIT_INVOCATION_CMD}"
     local display_var="_KNIT_ENV_${nm}_display"
     local display="${!display_var}"
     local manifest_var="_KNIT_ENV_${nm}_manifest"

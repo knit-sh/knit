@@ -61,10 +61,12 @@ _fake_contrib() {
     done
 }
 
-# Stand up a setup command named "$1" directly on the executing-command stack with
-# the fake manager's contribution list populated from the remaining (tag, payload)
-# argument pairs, so a before-cb test can drive _knit_env_setup_before_cb against a
-# known contribution list without a full registration.
+# Stand up a setup command named "$1" as the command whose before-callbacks are
+# running (via _KNIT_INVOCATION_CMD, the source _knit_env_setup_before_cb reads),
+# with the fake manager's contribution list populated from the remaining (tag,
+# payload) argument pairs, so a before-cb test can drive
+# _knit_env_setup_before_cb against a known contribution list without a full
+# registration.
 _fake_stage_before_cb() {
     local name="$1"; shift
     local cmd
@@ -75,7 +77,7 @@ _fake_stage_before_cb() {
         _c+=("$1" "$2")
         shift 2
     done
-    _KNIT_EXECUTING_COMMAND=("${cmd}")
+    _KNIT_INVOCATION_CMD="${cmd}"
 }
 
 # ---------- knit_with_<nm>_env: registration ----------
@@ -216,7 +218,6 @@ EOF
     knit_done
     local cmd manifest
     _knit_command_mangle cmd "setup:libs"
-    _KNIT_EXECUTING_COMMAND=("${cmd}")
     _knit_env_resolve_manifest manifest "fake" "${cmd}"
     [[ "${manifest}" == *"fake:"* ]]
     [[ "${manifest}" == *"- hdf5@1.14"* ]]
