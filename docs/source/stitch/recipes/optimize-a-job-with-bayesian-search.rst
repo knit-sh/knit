@@ -2,7 +2,7 @@
    title: Optimize a job with Bayesian search
    categories: search
    order: 80
-   description: Tune a job's recorded output with the knit-ax plugin's Bayesian ask/tell loop over a declared search domain.
+   description: Tune a job's recorded output with the knit-ax plugin's Bayesian ask/tell loop over a declared search domain, or fit a surrogate model and query it with ax predict.
    apis: knit_import, knit_with_optional, knit_with_output, knit_with_table, knit_get_parameter, knit_output
 
 The **knit-ax** plugin runs Bayesian optimization over a knit command. Where
@@ -60,3 +60,40 @@ for ``-- run`` and give the launch fields, as in ``-- run --procs 8 -- bench
 table. Declare a parameter's domain with ``--domain`` (see *Declare a parameter's
 search domain*); ``ax`` and ``knit sweep`` read the very same domains, so a space
 written for one proposer serves the other unchanged.
+
+Model the objective instead of optimizing it
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Sometimes the goal is not the best point but a *model* of how the objective
+behaves across the whole space. Prepare with ``--model`` in place of
+``--minimize`` / ``--maximize``: the campaign then fits a surrogate by **active
+learning**, sending each trial where the model is least certain rather than toward
+an optimum. A model campaign records no best, so ``ax show`` lists its varying axes
+instead:
+
+.. code-block:: console
+
+   $ ./exp.sh ax prepare --campaign surf --objective score --model \
+         --max-trials 20 -- submit -- quad --x @domain
+   $ ./exp.sh ax optimize --campaign surf   # spends the budget on active learning
+   $ ./exp.sh ax show --campaign surf
+   ...
+   axes:       quad.x
+
+Ask the fitted model for the objective at a point with ``ax predict``. Write the
+point as the prepare command with a concrete value in each varying position; the
+value must be in its domain (a member of a ``{...}`` set, or inside a ``[lo..hi]``
+range). It prints the predicted value by default; ``--variance``, ``--std``,
+``--interval`` (the 95% confidence interval), and ``--json`` add detail:
+
+.. code-block:: console
+
+   $ ./exp.sh ax predict --campaign surf -- submit -- quad --x 6
+   93.8
+   $ ./exp.sh ax predict --campaign surf --std --interval -- submit -- quad --x 6
+   93.8  (±6.7, 95% CI 80.7–106.9)
+
+``ax predict`` works on any campaign that has run trials --- a ``--model`` campaign
+or a ``--minimize`` / ``--maximize`` one --- and reads the model only, recording
+nothing. ``ax show --diagnostics`` cross-validates the fitted surrogate and reports
+its fit quality (R² / RMSE); it refits the model, so it is opt-in.
