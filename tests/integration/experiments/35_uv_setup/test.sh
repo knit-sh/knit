@@ -46,11 +46,25 @@ check_file ".knit/uv/bin/uv" \
 # Build the uv-backed setup. knit writes pyproject.toml, syncs the env, and
 # activates it; the setup body then runs with the venv on PATH.
 # --------------------------------------------------------------------------
-./experiment.sh setup --name penv -- pyenv
+# The requirement carries a "{{six-version}}" placeholder, rendered from the
+# setup parameter value passed here.
+SIX_VERSION="1.16.0"
+./experiment.sh setup --name penv -- pyenv --six-version "${SIX_VERSION}"
 
 check_file "setups/penv/.activate.sh" "setup produced .activate.sh"
 check_grep ".venv/bin/activate" "setups/penv/.activate.sh" \
     ".activate.sh re-activates the uv venv"
+
+# The materialized manifest carries the rendered, concrete version (not the
+# "{{six-version}}" placeholder): direct proof the token was substituted.
+check_file "setups/penv/pyproject.toml" "setup materialized pyproject.toml"
+check_grep "six==${SIX_VERSION}" "setups/penv/pyproject.toml" \
+    "materialized pyproject.toml carries the rendered six==${SIX_VERSION}"
+if grep -q "{{" "setups/penv/pyproject.toml"; then
+    fail "materialized pyproject.toml still contains an unrendered {{...}} placeholder"
+else
+    __assert_pass "materialized pyproject.toml has no leftover placeholder"
+fi
 
 # Provenance: the setup row captured the concrete manifest + lockfile. The table
 # name contains a colon, so it is bracket-quoted for SQLite.
@@ -62,6 +76,15 @@ check_sqlite ".knit/knit.db" \
     "SELECT LENGTH(__uv_lock__) > 0 FROM [setup:pyenv];" \
     "1" \
     "setup row captured __uv_lock__ provenance"
+
+# The recorded manifest provenance (gzip+base64) decodes to the rendered,
+# concrete requirement — so a reproducer reading provenance sees
+# six==${SIX_VERSION}, not the template.
+"${__ASSERT_SQLITE3}" ".knit/knit.db" \
+    "SELECT __uv_manifest__ FROM [setup:pyenv];" \
+    | base64 -d | gunzip > "${WORKDIR}/decoded-manifest.toml"
+check_grep "six==${SIX_VERSION}" "${WORKDIR}/decoded-manifest.toml" \
+    "recorded __uv_manifest__ provenance decodes to the rendered six==${SIX_VERSION}"
 
 # --------------------------------------------------------------------------
 # The `knit uv` wrapper works (forwards to the provisioned uv binary).
@@ -108,5 +131,47 @@ check_sqlite ".knit/knit.db" \
     "SELECT source_id, source_name, target_id, target_name, start_time, end_time FROM __provenance__ WHERE edge_type='used_by';" \
     "${setup_id}|setup:pyenv|${uuid}|submit||" \
     "used_by edge links the setup (source_id == .setup.id) to the job, NULL times"
+
+# --------------------------------------------------------------------------
+# World-B function form: knit_with_uv_specs_from. A spec-generating function
+# conditionally adds a requirement based on a flag. Build the "pyflag" setup with
+# the flag OFF and then ON and confirm the materialized manifest and the decoded
+# provenance reflect the function's structural choice (while "{{six-version}}"
+# still renders). Both builds are rows in the same [setup:pyflag] table, told
+# apart by their recorded .setup.id.
+# --------------------------------------------------------------------------
+# Flag OFF: six only, no click.
+./experiment.sh setup --name pflag-off -- pyflag --six-version "${SIX_VERSION}"
+check_grep "six==${SIX_VERSION}" "setups/pflag-off/pyproject.toml" \
+    "specs_from manifest renders six==${SIX_VERSION} (flag off)"
+if grep -q "click" "setups/pflag-off/pyproject.toml"; then
+    fail "specs_from manifest wrongly added click when the flag was off"
+else
+    __assert_pass "specs_from manifest omits click when the flag is off"
+fi
+
+# Flag ON: six and click.
+./experiment.sh setup --name pflag-on -- pyflag --six-version "${SIX_VERSION}" --with-click
+check_grep "six==${SIX_VERSION}" "setups/pflag-on/pyproject.toml" \
+    "specs_from manifest renders six==${SIX_VERSION} (flag on)"
+check_grep "click" "setups/pflag-on/pyproject.toml" \
+    "specs_from manifest added click when the flag was on"
+
+# Decoded provenance reflects each build's choice.
+off_id=$(cat "${WORKDIR}/setups/pflag-off/.setup.id")
+on_id=$(cat "${WORKDIR}/setups/pflag-on/.setup.id")
+"${__ASSERT_SQLITE3}" ".knit/knit.db" \
+    "SELECT __uv_manifest__ FROM [setup:pyflag] WHERE id='${on_id}';" \
+    | base64 -d | gunzip > "${WORKDIR}/decoded-pflag-on.toml"
+check_grep "click" "${WORKDIR}/decoded-pflag-on.toml" \
+    "recorded provenance for the flag-on build includes click"
+"${__ASSERT_SQLITE3}" ".knit/knit.db" \
+    "SELECT __uv_manifest__ FROM [setup:pyflag] WHERE id='${off_id}';" \
+    | base64 -d | gunzip > "${WORKDIR}/decoded-pflag-off.toml"
+if grep -q "click" "${WORKDIR}/decoded-pflag-off.toml"; then
+    fail "recorded provenance for the flag-off build wrongly includes click"
+else
+    __assert_pass "recorded provenance for the flag-off build omits click"
+fi
 
 assert_summary

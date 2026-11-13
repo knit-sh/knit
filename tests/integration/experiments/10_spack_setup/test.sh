@@ -47,11 +47,25 @@ check_file ".knit/spack/bin/spack" \
 # Build the Spack-backed setup. knit writes spack.yaml, installs the env, and
 # activates it; the setup body then runs with zlib on the environment.
 # --------------------------------------------------------------------------
-./experiment.sh setup --name zenv -- zlibenv
+# The spec carries a "{{zlib-version}}" placeholder, rendered from the setup
+# parameter value passed here.
+ZLIB_VERSION="1.3.1"
+./experiment.sh setup --name zenv -- zlibenv --zlib-version "${ZLIB_VERSION}"
 
 check_file "setups/zenv/.activate.sh" "setup produced .activate.sh"
 check_grep "spack env activate" "setups/zenv/.activate.sh" \
     ".activate.sh re-activates the Spack environment"
+
+# The materialized manifest carries the rendered, concrete version (not the
+# "{{zlib-version}}" placeholder): direct proof the token was substituted.
+check_file "setups/zenv/spack.yaml" "setup materialized spack.yaml"
+check_grep "zlib@${ZLIB_VERSION}" "setups/zenv/spack.yaml" \
+    "materialized spack.yaml carries the rendered zlib@${ZLIB_VERSION}"
+if grep -q "{{" "setups/zenv/spack.yaml"; then
+    fail "materialized spack.yaml still contains an unrendered {{...}} placeholder"
+else
+    __assert_pass "materialized spack.yaml has no leftover placeholder"
+fi
 
 # Provenance: the setup row captured the concrete manifest + lockfile. The table
 # name contains a colon, so it is bracket-quoted for SQLite.
@@ -63,6 +77,15 @@ check_sqlite ".knit/knit.db" \
     "SELECT LENGTH(__spack_lock__) > 0 FROM [setup:zlibenv];" \
     "1" \
     "setup row captured __spack_lock__ provenance"
+
+# The recorded manifest provenance (gzip+base64) decodes to the rendered,
+# concrete spec — so a reproducer reading provenance sees zlib@${ZLIB_VERSION},
+# not the template.
+"${__ASSERT_SQLITE3}" ".knit/knit.db" \
+    "SELECT __spack_manifest__ FROM [setup:zlibenv];" \
+    | base64 -d | gunzip > "${WORKDIR}/decoded-manifest.yaml"
+check_grep "zlib@${ZLIB_VERSION}" "${WORKDIR}/decoded-manifest.yaml" \
+    "recorded __spack_manifest__ provenance decodes to the rendered zlib@${ZLIB_VERSION}"
 
 # --------------------------------------------------------------------------
 # The `knit spack` wrapper works and sees the installed zlib.
