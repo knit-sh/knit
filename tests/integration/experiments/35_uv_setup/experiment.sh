@@ -11,6 +11,11 @@
 #   - a job "pycheck" that requires that setup and, on the compute node, confirms
 #     the uv environment was re-hydrated (VIRTUAL_ENV is set) and that the
 #     six package is importable.
+#   - a uv-backed setup "pyflag" declared with knit_with_uv_specs_from: a
+#     spec-generating function prints the requirements at setup-invocation time,
+#     conditionally adding "click" when the --with-click flag is set and still
+#     using "{{six-version}}" for the version value. This exercises the world-B
+#     function form (a structural choice composing with "{{...}}" rendering).
 #
 # Because a registered setup declares a uv environment, bootstrap auto-provisions
 # the knit-private uv (the env-manager required-flag wiring) even without an
@@ -30,6 +35,27 @@ __pyenv_setup() {
     # The uv environment is already built and activated by the time this body
     # runs. Declare a marker so the dependent job can confirm inheritance.
     knit_setup_env_set UV_SETUP_MARKER "pyenv-built"
+}
+knit_done
+
+# A spec-generating function (world B). It is called at setup-invocation with the
+# setup's arguments, reads its parameters with knit_get_parameter, and prints
+# newline-separated requirements on stdout. The "click" requirement is added only
+# when --with-click is set; "six=={{six-version}}" still goes through "{{...}}"
+# rendering, so the function chooses structure and the placeholder fills in values.
+__pyflag_specs() {
+    printf 'six=={{six-version}}\n'
+    if [[ "$(knit_get_parameter with-click "$@")" == true ]]; then
+        printf 'click\n'
+    fi
+}
+
+knit_register_setup "pyflag" __pyflag_setup "Build a uv env, optionally adding click."
+knit_with_required "six-version:string" "six version to install (renders into the requirement)."
+knit_with_flag "with-click" "Also install click."
+knit_with_uv_specs_from __pyflag_specs
+__pyflag_setup() {
+    knit_setup_env_set UV_FLAG_MARKER "pyflag-built"
 }
 knit_done
 

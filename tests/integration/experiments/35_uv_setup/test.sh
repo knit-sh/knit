@@ -132,4 +132,46 @@ check_sqlite ".knit/knit.db" \
     "${setup_id}|setup:pyenv|${uuid}|submit||" \
     "used_by edge links the setup (source_id == .setup.id) to the job, NULL times"
 
+# --------------------------------------------------------------------------
+# World-B function form: knit_with_uv_specs_from. A spec-generating function
+# conditionally adds a requirement based on a flag. Build the "pyflag" setup with
+# the flag OFF and then ON and confirm the materialized manifest and the decoded
+# provenance reflect the function's structural choice (while "{{six-version}}"
+# still renders). Both builds are rows in the same [setup:pyflag] table, told
+# apart by their recorded .setup.id.
+# --------------------------------------------------------------------------
+# Flag OFF: six only, no click.
+./experiment.sh setup --name pflag-off -- pyflag --six-version "${SIX_VERSION}"
+check_grep "six==${SIX_VERSION}" "setups/pflag-off/pyproject.toml" \
+    "specs_from manifest renders six==${SIX_VERSION} (flag off)"
+if grep -q "click" "setups/pflag-off/pyproject.toml"; then
+    fail "specs_from manifest wrongly added click when the flag was off"
+else
+    __assert_pass "specs_from manifest omits click when the flag is off"
+fi
+
+# Flag ON: six and click.
+./experiment.sh setup --name pflag-on -- pyflag --six-version "${SIX_VERSION}" --with-click
+check_grep "six==${SIX_VERSION}" "setups/pflag-on/pyproject.toml" \
+    "specs_from manifest renders six==${SIX_VERSION} (flag on)"
+check_grep "click" "setups/pflag-on/pyproject.toml" \
+    "specs_from manifest added click when the flag was on"
+
+# Decoded provenance reflects each build's choice.
+off_id=$(cat "${WORKDIR}/setups/pflag-off/.setup.id")
+on_id=$(cat "${WORKDIR}/setups/pflag-on/.setup.id")
+"${__ASSERT_SQLITE3}" ".knit/knit.db" \
+    "SELECT __uv_manifest__ FROM [setup:pyflag] WHERE id='${on_id}';" \
+    | base64 -d | gunzip > "${WORKDIR}/decoded-pflag-on.toml"
+check_grep "click" "${WORKDIR}/decoded-pflag-on.toml" \
+    "recorded provenance for the flag-on build includes click"
+"${__ASSERT_SQLITE3}" ".knit/knit.db" \
+    "SELECT __uv_manifest__ FROM [setup:pyflag] WHERE id='${off_id}';" \
+    | base64 -d | gunzip > "${WORKDIR}/decoded-pflag-off.toml"
+if grep -q "click" "${WORKDIR}/decoded-pflag-off.toml"; then
+    fail "recorded provenance for the flag-off build wrongly includes click"
+else
+    __assert_pass "recorded provenance for the flag-off build omits click"
+fi
+
 assert_summary
