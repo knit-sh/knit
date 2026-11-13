@@ -519,6 +519,17 @@ finding alongside the runs so it travels with the experiment:
 That is where Part III ends: a finding, stated in English and backed by every
 recorded run that led to it.
 
+.. note::
+
+   **Beyond finding the best point.** The same campaign machinery can fit a
+   *surrogate model* of the objective instead of chasing its optimum. Prepare with
+   ``ax prepare --model`` (in place of ``--maximize`` / ``--minimize``) and the
+   loop explores where the model is least certain. You then ask the fitted model
+   for the objective at any in-space point with ``ax predict`` --- written as the
+   prepare command with a concrete value in each varying position --- and check
+   the model's fit with ``ax show --diagnostics``. The *Optimize a job with
+   Bayesian search* recipe in the Stitch Guide covers it.
+
 The complete experiment (Part III)
 ----------------------------------
 
