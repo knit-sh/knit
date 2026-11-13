@@ -13,10 +13,11 @@
 #   - each trial carries a provenance "call" edge back to the campaign row;
 #   - an interrupted campaign resumes from its persisted state and runs to budget.
 #
-# This test installs ax-platform into a knit-private uv environment on first
-# "ax optimize" (a CPU-only wheel set — no GPU needed, but a large download), so
-# it is the heaviest experiment in the suite. The surrogate objective itself is
-# just arithmetic, so the trials are fast once Ax is built.
+# This test installs ax-platform into a knit-private uv environment at
+# "bootstrap": the _ax-driver setup declares a uv environment, which bootstrap
+# provisions (a CPU-only wheel set — no GPU needed, but a large download), so it
+# is the heaviest experiment in the suite. The surrogate objective itself is just
+# arithmetic, so the trials are fast once Ax is built.
 #
 # Needs network access (github.com for the plugin fetch, PyPI for ax-platform).
 #
@@ -77,7 +78,8 @@ call_edges() {
 # 1. A full campaign converges on the known optimum (x = 6, score 100).
 # ==========================================================================
 # Five trials, two quasi-random before the GP engages; a fixed seed makes the
-# run reproducible. This first "ax optimize" also builds the private Ax env.
+# run reproducible. The private Ax env was built at bootstrap, so this optimize
+# starts trialing without a build step.
 ./experiment.sh ax prepare --campaign conv --objective score --maximize \
     --max-trials 5 --sobol-trials 2 --seed 1 -- submit -- quad --x @domain
 
@@ -140,9 +142,9 @@ check_eq "$(call_edges conv)" "5" \
 # ==========================================================================
 # 2. An interrupted campaign resumes from its persisted state and reaches budget.
 # ==========================================================================
-# The Ax env is built now, so this optimize starts trialing immediately. Run it
-# in the background, let it persist at least one trial (state.json appears after
-# the first observation), then interrupt it and resume.
+# The Ax env was built at bootstrap, so this optimize starts trialing
+# immediately. Run it in the background, let it persist at least one trial
+# (state.json appears after the first observation), then interrupt it and resume.
 ./experiment.sh ax prepare --campaign rez --objective score --maximize \
     --max-trials 4 --sobol-trials 2 --seed 2 -- submit -- quad --x @domain
 
