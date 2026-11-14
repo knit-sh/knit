@@ -376,6 +376,80 @@ _seedx() {
     [ "$(printf '%s' "${output}" | jq -r '.[0].name')" = "submit" ]
 }
 
+# ---------- --annotate (M6) ----------
+
+@test "--annotate prefixes each default line with id/time/exit" {
+    _seedx "the-id" "setup" '["--name","base"]' 1700000000 0
+    run knit history show --annotate
+    [ "$status" -eq 0 ]
+    [[ "${lines[0]}" == "# the-id "*"(exit 0)" ]]
+    [[ "${lines[0]}" == *"2023-11-14T22:13:20Z"* ]]
+    [ "${lines[1]}" = "setup --name base" ]
+}
+
+@test "--annotate in bash format comments each entry above its ./script line" {
+    KNIT_SCRIPT_NAME="exp.sh"
+    _seedx "the-id" "setup" '["--name","base"]' 1700000000 0
+    run knit history show --format bash --annotate
+    [ "${lines[0]}" = "#!/usr/bin/env bash" ]
+    [[ "${lines[1]}" == "# the-id "*"(exit 0)" ]]
+    [ "${lines[2]}" = "./exp.sh setup --name base" ]
+}
+
+@test "--annotate adds id/time/exit fields in json" {
+    _seedx "the-id" "setup" '["--name","base"]' 1700000000 0
+    run knit history show --format json --annotate
+    [ "$status" -eq 0 ]
+    [ "$(printf '%s' "${output}" | jq -r '.[0].id')" = "the-id" ]
+    [ "$(printf '%s' "${output}" | jq -r '.[0].exit')" = "0" ]
+    [ "$(printf '%s' "${output}" | jq -r '.[0].time')" = "2023-11-14T22:13:20Z" ]
+    [ "$(printf '%s' "${output}" | jq -r '.[0].name')" = "setup" ]
+}
+
+@test "without --annotate the json objects carry no id/time/exit" {
+    _seed "id-1" "setup" '[]' 1.0
+    run knit history show --format json
+    [ "$(printf '%s' "${output}" | jq -r '.[0] | has("id")')" = "false" ]
+    [ "$(printf '%s' "${output}" | jq -r '.[0] | has("time")')" = "false" ]
+    [ "$(printf '%s' "${output}" | jq -r '.[0] | has("exit")')" = "false" ]
+}
+
+@test "--annotate shows '?' and json null for an unknown exit status" {
+    _knit_sqlite3_write \
+        "INSERT INTO __history__ (id, command, invoked, resolved, start_time)
+         VALUES ('mystery-id', 'x', '[]', '[]', 1700000000);"
+    run knit history show --annotate --status all
+    [[ "${lines[0]}" == *"(exit ?)" ]]
+    run knit history show --format json --annotate --status all
+    [ "$(printf '%s' "${output}" | jq -r '.[0].exit')" = "null" ]
+}
+
+# ---------- --output (M6) ----------
+
+@test "--output writes to a file and prints nothing to stdout" {
+    _seed "id-1" "setup" '["--name","base"]' 1.0
+    local f; f="$(mktemp)"
+    run knit history show --output "${f}"
+    [ "$status" -eq 0 ]
+    [ -z "${output}" ]
+    [ "$(cat "${f}")" = "setup --name base" ]
+    rm -f "${f}"
+}
+
+@test "--output with bash format writes a runnable replay script" {
+    KNIT_SCRIPT_NAME="exp.sh"
+    _seed "id-1" "setup"  '["--name","base"]' 1.0
+    _seed "id-2" "submit" '["--nodes","4"]'   2.0
+    local f; f="$(mktemp)"
+    run knit history show --format bash --output "${f}"
+    [ "$status" -eq 0 ]
+    [ -z "${output}" ]
+    [ "$(head -1 "${f}")" = "#!/usr/bin/env bash" ]
+    grep -qx "./exp.sh setup --name base" "${f}"
+    grep -qx "./exp.sh submit --nodes 4" "${f}"
+    rm -f "${f}"
+}
+
 # ---------- end to end: capture (M2) then show (M3) ----------
 
 @test "a real invocation is captured and then shown as invoked" {

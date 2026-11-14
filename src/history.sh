@@ -345,17 +345,19 @@ _knit_history_flags_json() {
 # flag set, and the command name are fed to a single jq pass that does the
 # decomposition, so the flag/option distinction follows the live registration.
 #
-# @param[in] sql A "SELECT command, <col> ..." statement selecting the (already
-#            filtered and ordered) rows to render.
+# @param[in] sql      A "SELECT id, command, start_time, exit_status, <col> ..."
+#            statement selecting the (already filtered and ordered) rows.
+# @param[in] annotate "true" to add id/time/exit fields to each object.
 # ------------------------------------------------------------------------------
 _knit_history_show_json() {
     local sql="$1"
-    local input="" command tokens flags_json
-    while IFS='|' read -r command tokens; do
+    local annotate="$2"
+    local input="" id command start exitv tokens flags_json
+    while IFS='|' read -r id command start exitv tokens; do
         [[ -z "${command}" ]] && continue
         _knit_history_flags_json flags_json "${command}"
-        input+="$(printf '{"command":"%s","tokens":%s,"flags":%s}' \
-            "${command}" "${tokens}" "${flags_json}")"$'\n'
+        input+="$(printf '{"command":"%s","tokens":%s,"flags":%s,"id":"%s","start":%s,"exit":%s}' \
+            "${command}" "${tokens}" "${flags_json}" "${id}" "${start:-null}" "${exitv:-null}")"$'\n'
     done < <(_knit_sqlite3 "${sql}")
 
     if [[ -z "${input}" ]]; then
@@ -363,13 +365,18 @@ _knit_history_show_json() {
         return 0
     fi
 
+    local annotate_json="false"
+    [[ "${annotate}" == "true" ]] && annotate_json="true"
+
     # Per row: split the token array at the first "--" into the option head and
     # the extra tail; fold the head into an args object (a flag -> boolean, an
     # option -> its string value), carrying a pending option key across the token
-    # that holds its value.
+    # that holds its value. With --annotate, add the id, the time (start as an
+    # ISO-8601 string), and the exit status.
     # shellcheck disable=SC2016 # $name/$flags/$toks are jq variables, not shell.
     local prog='map(
       .command as $name | .flags as $flags | .tokens as $toks
+      | .id as $id | .start as $start | .exit as $exit
       | ($toks | index("--")) as $sep
       | (if $sep == null then $toks else $toks[0:$sep] end) as $head
       | (if $sep == null then [] else $toks[$sep+1:] end) as $extra
@@ -391,8 +398,14 @@ _knit_history_show_json() {
           end)) as $r
       | ($r | if .key != null then .args[.key] = true else . end) as $r2
       | {name: $name, args: $r2.args, extra: $extra}
+      | if $annotate then . + {
+          id: $id,
+          time: (if $start == null then null else ($start | todate) end),
+          exit: $exit
+        } else . end
     )'
-    printf '%s' "${input}" | knit_jq -s "${prog}" 2>/dev/null || printf '[]\n'
+    printf '%s' "${input}" | knit_jq -s --argjson annotate "${annotate_json}" "${prog}" 2>/dev/null \
+        || printf '[]\n'
 }
 
 # ------------------------------------------------------------------------------
@@ -524,14 +537,65 @@ _knit_history_row_sql() {
         [[ -z "${where}" ]] && where="WHERE ${cond}" || where+=" AND ${cond}"
     done
 
+    # Columns, in read order: the token column (invoked/resolved) is last so a
+    # token containing the "|" field separator is absorbed by the final field.
+    local cols="id, command, start_time, exit_status, ${col}"
     local tbl="${_KNIT_HISTORY_TABLE}"
     if [[ -n "${last_val}" ]]; then
-        __knit_ret="SELECT command, ${col} FROM (SELECT command, ${col}, start_time, id FROM ${tbl} ${where} ORDER BY start_time DESC, id DESC LIMIT ${last_val}) ORDER BY start_time, id;"
+        __knit_ret="SELECT ${cols} FROM (SELECT ${cols} FROM ${tbl} ${where} ORDER BY start_time DESC, id DESC LIMIT ${last_val}) ORDER BY start_time, id;"
     elif [[ -n "${first_val}" ]]; then
-        __knit_ret="SELECT command, ${col} FROM ${tbl} ${where} ORDER BY start_time, id LIMIT ${first_val};"
+        __knit_ret="SELECT ${cols} FROM ${tbl} ${where} ORDER BY start_time, id LIMIT ${first_val};"
     else
-        __knit_ret="SELECT command, ${col} FROM ${tbl} ${where} ORDER BY start_time, id;"
+        __knit_ret="SELECT ${cols} FROM ${tbl} ${where} ORDER BY start_time, id;"
     fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_history_emit()
+#
+# Emit the history to standard output in the requested format. For "default" and
+# "bash", one line per invocation (bash prefixes a shebang and "./<script>");
+# with --annotate, each line is preceded by a "# <id>  <iso-time>  (exit N)"
+# comment. For "json", delegate to _knit_history_show_json. An absent table
+# (a database predating this feature) is an empty history (an empty JSON array
+# for the JSON format).
+#
+# @param[in] format    "default", "bash", or "json".
+# @param[in] annotate  "true" to prefix id/time/exit annotations.
+# @param[in] has_table Non-empty when the history table exists.
+# @param[in] sql       The filtered/ordered row SELECT (empty when no table).
+# ------------------------------------------------------------------------------
+_knit_history_emit() {
+    local format="$1" annotate="$2" has_table="$3" sql="$4"
+
+    if [[ -z "${has_table}" ]]; then
+        [[ "${format}" == "json" ]] && printf '[]\n'
+        return 0
+    fi
+
+    if [[ "${format}" == "json" ]]; then
+        _knit_history_show_json "${sql}" "${annotate}"
+        return 0
+    fi
+
+    [[ "${format}" == "bash" ]] && printf '#!/usr/bin/env bash\n'
+
+    local id command start exitv tokens line iso
+    while IFS='|' read -r id command start exitv tokens; do
+        [[ -z "${command}" ]] && continue
+        _knit_history_render_line line "${command}" "${tokens}"
+        if [[ "${annotate}" == "true" ]]; then
+            iso=""
+            if [[ -n "${start}" ]]; then
+                iso="$(date -u -d "@${start%.*}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || iso=""
+            fi
+            printf '# %s  %s  (exit %s)\n' "${id}" "${iso}" "${exitv:-?}"
+        fi
+        case "${format}" in
+            bash) printf './%s %s\n' "${KNIT_SCRIPT_NAME}" "${line}" ;;
+            *)    printf '%s\n' "${line}" ;;
+        esac
+    done < <(_knit_sqlite3 "${sql}")
 }
 
 # ------------------------------------------------------------------------------
@@ -544,47 +608,32 @@ _knit_history_row_sql() {
 # output to a file produces a runnable replay script; "--format json" prints a
 # JSON array of {name, args, extra} objects. The as-invoked form (the tokens the
 # user typed) is rendered by default; "--resolved" renders the resolved form
-# instead (defaults, flags, and ENV[...] pinned). The experiment is guaranteed
-# bootstrapped by the framework's central guard; a database predating this
-# feature simply has no table, which is treated as an empty history.
+# instead (defaults, flags, and ENV[...] pinned). "--annotate" adds an id, time,
+# and exit status to each entry; "--output <file>" writes to a file instead of
+# standard output. The experiment is guaranteed bootstrapped by the framework's
+# central guard.
 # ------------------------------------------------------------------------------
 _knit_history_show() {
-    local format resolved
-    format="$(knit_get_parameter "format" "$@")" || format="default"
+    local format resolved annotate out_file
+    format="$(knit_get_parameter "format" "$@")"     || format="default"
     resolved="$(knit_get_parameter "resolved" "$@")" || resolved="false"
+    annotate="$(knit_get_parameter "annotate" "$@")" || annotate="false"
+    out_file="$(knit_get_parameter "output" "$@")"   || out_file=""
 
-    # A database bootstrapped before this feature has no table: nothing to show
-    # (an empty JSON array for the JSON format).
+    # A database bootstrapped before this feature has no table: an empty history.
     local has_table
     has_table="$(_knit_sqlite3 \
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='${_KNIT_HISTORY_TABLE}';")"
-    if [[ -z "${has_table}" ]]; then
-        [[ "${format}" == "json" ]] && printf '[]\n'
-        return 0
-    fi
 
-    local col="invoked"
+    local col="invoked" sql=""
     [[ "${resolved}" == "true" ]] && col="resolved"
+    [[ -n "${has_table}" ]] && _knit_history_row_sql sql "${col}" "$@"
 
-    local sql
-    _knit_history_row_sql sql "${col}" "$@"
-
-    if [[ "${format}" == "json" ]]; then
-        _knit_history_show_json "${sql}"
-        return 0
+    if [[ -n "${out_file}" ]]; then
+        _knit_history_emit "${format}" "${annotate}" "${has_table}" "${sql}" > "${out_file}"
+    else
+        _knit_history_emit "${format}" "${annotate}" "${has_table}" "${sql}"
     fi
-
-    [[ "${format}" == "bash" ]] && printf '#!/usr/bin/env bash\n'
-
-    local command tokens line
-    while IFS='|' read -r command tokens; do
-        [[ -z "${command}" ]] && continue
-        _knit_history_render_line line "${command}" "${tokens}"
-        case "${format}" in
-            bash) printf './%s %s\n' "${KNIT_SCRIPT_NAME}" "${line}" ;;
-            *)    printf '%s\n' "${line}" ;;
-        esac
-    done < <(_knit_sqlite3 "${sql}")
 }
 
 # ------------------------------------------------------------------------------
@@ -621,6 +670,10 @@ _knit_history_discover() {
         "Keep only the first N invocations after the other filters apply."
     knit_with_optional "last:integer" "" \
         "Keep only the last N invocations after the other filters apply."
+    knit_with_flag "annotate" \
+        "Annotate each entry with its id, time, and exit status."
+    knit_with_optional "output:string" "" \
+        "Write to this file instead of standard output."
     knit_done
 }
 
