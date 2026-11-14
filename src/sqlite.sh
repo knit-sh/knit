@@ -94,6 +94,7 @@ _knit_bootstrap_sqlite() {
     _knit_create_metadata_table
     _knit_prov_create_table
     _knit_artifacts_create_table
+    _knit_history_create_table
 }
 
 # ------------------------------------------------------------------------------

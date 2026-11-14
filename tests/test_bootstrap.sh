@@ -104,6 +104,7 @@ _setup_sqlite_decision() {
     eval '_knit_create_metadata_table() { :; }'
     eval '_knit_prov_create_table() { :; }'
     eval '_knit_artifacts_create_table() { :; }'
+    eval '_knit_history_create_table() { :; }'
 }
 
 @test "bootstrap sqlite symlinks the system binary when present (no dev files needed)" {
