@@ -18,12 +18,19 @@ teardown() {
     knit_test_db_teardown
 }
 
-# Seed one history row. Args: id command invoked_json start_time.
+# Seed one successful history row. Args: id command invoked_json start_time.
 _seed() {
     local id="$1" command="$2" invoked="$3" start="$4"
+    _seedx "${id}" "${command}" "${invoked}" "${start}" 0
+}
+
+# Seed one history row with an explicit exit status.
+# Args: id command invoked_json start_time exit_status.
+_seedx() {
+    local id="$1" command="$2" invoked="$3" start="$4" ex="$5"
     _knit_sqlite3_write \
         "INSERT INTO __history__ (id, command, invoked, resolved, start_time, end_time, exit_status)
-         VALUES ('${id}', '${command}', '${invoked}', '${invoked}', ${start}, ${start}, 0);"
+         VALUES ('${id}', '${command}', '${invoked}', '${invoked}', ${start}, ${start}, ${ex});"
 }
 
 # ---------- default format ----------
@@ -191,6 +198,182 @@ _seed() {
     [ "$status" -eq 0 ]
     [ "$(printf '%s' "${output}" | jq -r '.[0].args.walltime')" = "1:00:00" ]
     [ "$(printf '%s' "${output}" | jq -r '.[0].args.nodes')" = "4" ]
+}
+
+# ---------- --status filter (M5) ----------
+
+@test "default status shows only successful invocations" {
+    _seedx "id-1" "ok1" '[]' 1.0 0
+    _seedx "id-2" "bad" '[]' 2.0 1
+    _seedx "id-3" "ok2" '[]' 3.0 0
+    run knit history show
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "ok1" ]
+    [ "${lines[1]}" = "ok2" ]
+    [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "--status failure shows only failed invocations" {
+    _seedx "id-1" "ok1" '[]' 1.0 0
+    _seedx "id-2" "bad" '[]' 2.0 1
+    run knit history show --status failure
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "bad" ]
+    [ "${#lines[@]}" -eq 1 ]
+}
+
+@test "--status all shows every invocation" {
+    _seedx "id-1" "ok1" '[]' 1.0 0
+    _seedx "id-2" "bad" '[]' 2.0 1
+    run knit history show --status all
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "an unknown (NULL) exit status is excluded from success and failure" {
+    _knit_sqlite3_write \
+        "INSERT INTO __history__ (id, command, invoked, resolved, start_time)
+         VALUES ('id-1', 'mystery', '[]', '[]', 1.0);"
+    run knit history show --status all
+    [ "${#lines[@]}" -eq 1 ]
+    run knit history show --status success
+    [ -z "${output}" ]
+    run knit history show --status failure
+    [ -z "${output}" ]
+}
+
+# ---------- --command filter (M5) ----------
+
+@test "--command matches an exact command" {
+    _seedx "id-1" "setup"  '[]' 1.0 0
+    _seedx "id-2" "submit" '[]' 2.0 0
+    run knit history show --command submit
+    [ "${lines[0]}" = "submit" ]
+    [ "${#lines[@]}" -eq 1 ]
+}
+
+@test "--command bare does not match subcommands; :* does" {
+    _seedx "id-1" "submit"       '[]' 1.0 0
+    _seedx "id-2" "submit:drain" '[]' 2.0 0
+
+    run knit history show --command submit
+    [ "${lines[0]}" = "submit" ]
+    [ "${#lines[@]}" -eq 1 ]
+
+    run knit history show --command "submit:*"
+    [ "${lines[0]}" = "submit" ]
+    [ "${lines[1]}" = "submit drain" ]
+    [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "--command accepts a comma-separated list" {
+    _seedx "id-1" "setup"        '[]' 1.0 0
+    _seedx "id-2" "submit"       '[]' 2.0 0
+    _seedx "id-3" "submit:drain" '[]' 3.0 0
+    _seedx "id-4" "aggregate"    '[]' 4.0 0
+    run knit history show --command "setup,submit:*"
+    [ "${lines[0]}" = "setup" ]
+    [ "${lines[1]}" = "submit" ]
+    [ "${lines[2]}" = "submit drain" ]
+    [ "${#lines[@]}" -eq 3 ]
+}
+
+@test "--command :* treats an underscore literally (GLOB, not LIKE)" {
+    _seedx "id-1" "sub_mit:a" '[]' 1.0 0
+    _seedx "id-2" "subXmit:a" '[]' 2.0 0
+    run knit history show --command "sub_mit:*"
+    [ "${lines[0]}" = "sub_mit a" ]
+    [ "${#lines[@]}" -eq 1 ]
+}
+
+# ---------- --since / --until (M5) ----------
+
+@test "--since and --until filter by ISO timestamp against start_time" {
+    _seedx "id-1" "old"    '[]' 1000000000 0
+    _seedx "id-2" "recent" '[]' 2000000000 0
+
+    run knit history show --since "2020-01-01"
+    [ "${lines[0]}" = "recent" ]
+    [ "${#lines[@]}" -eq 1 ]
+
+    run knit history show --until "2020-01-01"
+    [ "${lines[0]}" = "old" ]
+    [ "${#lines[@]}" -eq 1 ]
+}
+
+@test "--since compares a UUID value against the row id" {
+    _seedx "00000000-0000-7000-8000-000000000001" "first"  '[]' 1.0 0
+    _seedx "00000000-0000-7000-8000-000000000002" "second" '[]' 2.0 0
+    _seedx "00000000-0000-7000-8000-000000000003" "third"  '[]' 3.0 0
+    run knit history show --since "00000000-0000-7000-8000-000000000002"
+    [ "${lines[0]}" = "second" ]
+    [ "${lines[1]}" = "third" ]
+    [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "--since with an unparseable value is fatal" {
+    _seedx "id-1" "x" '[]' 1.0 0
+    run knit history show --since "not-a-time"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"cannot parse time"* ]]
+}
+
+# ---------- --first / --last / --id (M5) ----------
+
+@test "--first keeps the earliest N" {
+    _seedx "id-1" "a" '[]' 1.0 0
+    _seedx "id-2" "b" '[]' 2.0 0
+    _seedx "id-3" "c" '[]' 3.0 0
+    run knit history show --first 2
+    [ "${lines[0]}" = "a" ]
+    [ "${lines[1]}" = "b" ]
+    [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "--last keeps the latest N but still prints oldest-first" {
+    _seedx "id-1" "a" '[]' 1.0 0
+    _seedx "id-2" "b" '[]' 2.0 0
+    _seedx "id-3" "c" '[]' 3.0 0
+    run knit history show --last 2
+    [ "${lines[0]}" = "b" ]
+    [ "${lines[1]}" = "c" ]
+    [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "--first and --last together is an error" {
+    _seedx "id-1" "a" '[]' 1.0 0
+    run knit history show --first 1 --last 1
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"mutually exclusive"* ]]
+}
+
+@test "--id selects a single invocation" {
+    _seedx "id-1" "a" '[]' 1.0 0
+    _seedx "id-2" "b" '[]' 2.0 0
+    run knit history show --id "id-2"
+    [ "${lines[0]}" = "b" ]
+    [ "${#lines[@]}" -eq 1 ]
+}
+
+# ---------- combinations and json (M5) ----------
+
+@test "filters combine with AND (command subtree + default success)" {
+    _seedx "id-1" "submit"       '[]' 1.0 0
+    _seedx "id-2" "submit:drain" '[]' 2.0 1
+    _seedx "id-3" "submit:drain" '[]' 3.0 0
+    run knit history show --command "submit:*"
+    [ "${lines[0]}" = "submit" ]
+    [ "${lines[1]}" = "submit drain" ]
+    [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "filters apply to the json format too" {
+    _seedx "id-1" "setup"  '["--name","base"]' 1.0 0
+    _seedx "id-2" "submit" '["--nodes","4"]'   2.0 0
+    run knit history show --command submit --format json
+    [ "$status" -eq 0 ]
+    [ "$(printf '%s' "${output}" | jq 'length')" -eq 1 ]
+    [ "$(printf '%s' "${output}" | jq -r '.[0].name')" = "submit" ]
 }
 
 # ---------- end to end: capture (M2) then show (M3) ----------

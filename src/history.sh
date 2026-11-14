@@ -269,15 +269,15 @@ _knit_history_record() {
 # which an argument cannot hold) is restored exactly. An empty or "[]" input
 # yields an empty array. Best-effort/quiet: a jq failure leaves the array empty.
 #
-# @param[out] __knit_ret The array to fill with the tokens.
-# @param[in]  json       The compact JSON array string to parse.
+# @param[out] __knit_ret_arr The array to fill with the tokens.
+# @param[in]  json           The compact JSON array string to parse.
 # ------------------------------------------------------------------------------
 _knit_history_json_to_tokens() {
-    local -n __knit_ret="$1"
+    local -n __knit_ret_arr="$1"
     local json="$2"
-    __knit_ret=()
+    __knit_ret_arr=()
     [[ -z "${json}" || "${json}" == "[]" ]] && return 0
-    mapfile -d '' -t __knit_ret < <(printf '%s' "${json}" \
+    mapfile -d '' -t __knit_ret_arr < <(printf '%s' "${json}" \
         | knit_jq -j '.[] + "\u0000"' 2>/dev/null)
 }
 
@@ -294,8 +294,6 @@ _knit_history_json_to_tokens() {
 # @param[in]  json       The JSON token array (invoked or resolved) to render.
 # ------------------------------------------------------------------------------
 _knit_history_render_line() {
-    # shellcheck disable=SC2178 # scalar nameref output (shellcheck conflates the
-    # "__knit_ret" name with the array nameref in _knit_history_json_to_tokens).
     local -n __knit_ret="$1"
     local command="$2"
     local json="$3"
@@ -304,7 +302,6 @@ _knit_history_render_line() {
     local path="${command//:/ }"
     local rendered=""
     (( ${#_knit_hrl_tokens[@]} )) && rendered="$(_knit_str_render_cmd _knit_hrl_tokens)"
-    # shellcheck disable=SC2178 # scalar nameref output (see above).
     __knit_ret="${path}${rendered:+ ${rendered}}"
 }
 
@@ -321,8 +318,6 @@ _knit_history_render_line() {
 # @param[in]  command    The command name in colon notation.
 # ------------------------------------------------------------------------------
 _knit_history_flags_json() {
-    # shellcheck disable=SC2178 # scalar nameref output (shellcheck conflates the
-    # "__knit_ret" name with the array nameref in _knit_history_json_to_tokens).
     local -n __knit_ret="$1"
     local command="$2"
     local mangled="${command//:/__1__}"
@@ -336,7 +331,6 @@ _knit_history_flags_json() {
         done < <(_knit_set_iter "${set_var}")
     fi
     out+="]"
-    # shellcheck disable=SC2178 # scalar nameref output (see above).
     __knit_ret="${out}"
 }
 
@@ -351,18 +345,18 @@ _knit_history_flags_json() {
 # flag set, and the command name are fed to a single jq pass that does the
 # decomposition, so the flag/option distinction follows the live registration.
 #
-# @param[in] col The token column to render ("invoked" or "resolved").
+# @param[in] sql A "SELECT command, <col> ..." statement selecting the (already
+#            filtered and ordered) rows to render.
 # ------------------------------------------------------------------------------
 _knit_history_show_json() {
-    local col="$1"
+    local sql="$1"
     local input="" command tokens flags_json
     while IFS='|' read -r command tokens; do
         [[ -z "${command}" ]] && continue
         _knit_history_flags_json flags_json "${command}"
         input+="$(printf '{"command":"%s","tokens":%s,"flags":%s}' \
             "${command}" "${tokens}" "${flags_json}")"$'\n'
-    done < <(_knit_sqlite3 \
-        "SELECT command, ${col} FROM ${_KNIT_HISTORY_TABLE} ORDER BY start_time, id;")
+    done < <(_knit_sqlite3 "${sql}")
 
     if [[ -z "${input}" ]]; then
         printf '[]\n'
@@ -402,6 +396,145 @@ _knit_history_show_json() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_history_command_clause()
+#
+# Build the SQL predicate for a "--command" selector list (comma-separated, colon
+# notation): a bare selector matches that command exactly; a ":*" suffix matches
+# the command and all of its subcommands. Selectors are OR-ed. Subcommand
+# matching uses GLOB (not LIKE) so an underscore in a command name is a literal,
+# not a wildcard. Returns the empty string for an empty selector list.
+#
+# @param[out] __knit_ret The predicate (without surrounding parentheses), or "".
+# @param[in]  spec       The raw "--command" value.
+# ------------------------------------------------------------------------------
+_knit_history_command_clause() {
+    local -n __knit_ret="$1"
+    local spec="$2"
+    local -a selectors=()
+    local IFS=','
+    read -ra selectors <<< "${spec}"
+    local -a parts=()
+    local sel base esc
+    for sel in "${selectors[@]}"; do
+        [[ -z "${sel}" ]] && continue
+        if [[ "${sel}" == *":*" ]]; then
+            base="${sel%:\*}"
+            _knit_sql_escape esc "${base}"
+            parts+=("command = '${esc}'")
+            _knit_sql_escape esc "${base}:*"
+            parts+=("command GLOB '${esc}'")
+        else
+            _knit_sql_escape esc "${sel}"
+            parts+=("command = '${esc}'")
+        fi
+    done
+    # Distinct name (not "clause"): a caller passes its own "clause" variable as
+    # this function's output nameref, so a local "clause" here would shadow it.
+    local __knit_hcc_clause="" p
+    for p in "${parts[@]}"; do
+        [[ -z "${__knit_hcc_clause}" ]] && __knit_hcc_clause="${p}" || __knit_hcc_clause+=" OR ${p}"
+    done
+    __knit_ret="${__knit_hcc_clause}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_history_bound_clause()
+#
+# Build the SQL predicate for a "--since"/"--until" bound. A value shaped like a
+# UUID is compared against the row id (which is time-ordered, being a UUIDv7);
+# any other value is parsed as a date/time (via date(1), accepting ISO-8601) and
+# compared against start_time. Fatal on an unparseable time.
+#
+# @param[out] __knit_ret The predicate.
+# @param[in]  value      The bound value (a UUID or a timestamp).
+# @param[in]  op         The comparison operator (">=" for --since, "<" for --until).
+# ------------------------------------------------------------------------------
+_knit_history_bound_clause() {
+    local -n __knit_ret="$1"
+    local value="$2"
+    local op="$3"
+    local esc
+    if [[ "${value}" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+        _knit_sql_escape esc "${value}"
+        __knit_ret="id ${op} '${esc}'"
+    else
+        local epoch
+        epoch="$(date -d "${value}" +%s 2>/dev/null)" \
+            || knit_fatal "history show: cannot parse time \"${value}\" (expected a UUID or an ISO-8601 timestamp)."
+        __knit_ret="start_time ${op} ${epoch}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_history_row_sql()
+#
+# Build the SELECT that returns "command, <col>" for the filtered, ordered rows a
+# "knit history show" invocation should render. Applies --status (default
+# success), --command, --since/--until, --id, and --first/--last. Rows are ordered
+# oldest-first (start_time, id); --last takes the N most recent while keeping that
+# order via a subquery. --first and --last are mutually exclusive.
+#
+# @param[out] __knit_ret The complete SELECT statement.
+# @param[in]  col        The token column to select ("invoked" or "resolved").
+# @param[in]  ...        The expanded invocation arguments (filters).
+# ------------------------------------------------------------------------------
+_knit_history_row_sql() {
+    local -n __knit_ret="$1"
+    local col="$2"
+    shift 2
+
+    local status command_sel since_val until_val id_val first_val last_val
+    status="$(knit_get_parameter "status" "$@")"      || status="success"
+    command_sel="$(knit_get_parameter "command" "$@")" || command_sel=""
+    since_val="$(knit_get_parameter "since" "$@")"     || since_val=""
+    until_val="$(knit_get_parameter "until" "$@")"     || until_val=""
+    id_val="$(knit_get_parameter "id" "$@")"           || id_val=""
+    first_val="$(knit_get_parameter "first" "$@")"     || first_val=""
+    last_val="$(knit_get_parameter "last" "$@")"       || last_val=""
+
+    if [[ -n "${first_val}" && -n "${last_val}" ]]; then
+        knit_fatal "history show: --first and --last are mutually exclusive."
+    fi
+
+    local -a conds=()
+    case "${status}" in
+        success) conds+=("exit_status = 0") ;;
+        failure) conds+=("exit_status <> 0") ;;
+        all)     ;;
+    esac
+    if [[ -n "${id_val}" ]]; then
+        local esc; _knit_sql_escape esc "${id_val}"
+        conds+=("id = '${esc}'")
+    fi
+    if [[ -n "${command_sel}" ]]; then
+        local clause; _knit_history_command_clause clause "${command_sel}"
+        [[ -n "${clause}" ]] && conds+=("(${clause})")
+    fi
+    if [[ -n "${since_val}" ]]; then
+        local c; _knit_history_bound_clause c "${since_val}" ">="
+        conds+=("${c}")
+    fi
+    if [[ -n "${until_val}" ]]; then
+        local c; _knit_history_bound_clause c "${until_val}" "<"
+        conds+=("${c}")
+    fi
+
+    local where="" cond
+    for cond in "${conds[@]}"; do
+        [[ -z "${where}" ]] && where="WHERE ${cond}" || where+=" AND ${cond}"
+    done
+
+    local tbl="${_KNIT_HISTORY_TABLE}"
+    if [[ -n "${last_val}" ]]; then
+        __knit_ret="SELECT command, ${col} FROM (SELECT command, ${col}, start_time, id FROM ${tbl} ${where} ORDER BY start_time DESC, id DESC LIMIT ${last_val}) ORDER BY start_time, id;"
+    elif [[ -n "${first_val}" ]]; then
+        __knit_ret="SELECT command, ${col} FROM ${tbl} ${where} ORDER BY start_time, id LIMIT ${first_val};"
+    else
+        __knit_ret="SELECT command, ${col} FROM ${tbl} ${where} ORDER BY start_time, id;"
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_history_show()
 #
 # Body of "knit history show": print the recorded top-level user invocations in
@@ -433,8 +566,11 @@ _knit_history_show() {
     local col="invoked"
     [[ "${resolved}" == "true" ]] && col="resolved"
 
+    local sql
+    _knit_history_row_sql sql "${col}" "$@"
+
     if [[ "${format}" == "json" ]]; then
-        _knit_history_show_json "${col}"
+        _knit_history_show_json "${sql}"
         return 0
     fi
 
@@ -448,8 +584,7 @@ _knit_history_show() {
             bash) printf './%s %s\n' "${KNIT_SCRIPT_NAME}" "${line}" ;;
             *)    printf '%s\n' "${line}" ;;
         esac
-    done < <(_knit_sqlite3 \
-        "SELECT command, ${col} FROM ${_KNIT_HISTORY_TABLE} ORDER BY start_time, id;")
+    done < <(_knit_sqlite3 "${sql}")
 }
 
 # ------------------------------------------------------------------------------
@@ -472,6 +607,20 @@ _knit_history_discover() {
         "Output format: default (one line per command), bash (a runnable replay script), or json."
     knit_with_flag "resolved" \
         "Render the resolved form (defaults, flags, and ENV[...] pinned) instead of the tokens as typed."
+    knit_with_optional "status:history_status" "success" \
+        "Which invocations to show by exit status: success (default), failure, or all."
+    knit_with_optional "command:string" "" \
+        "Only these commands (comma-separated, colon notation; a ':*' suffix also matches subcommands)."
+    knit_with_optional "since:string" "" \
+        "Only invocations at or after this point (a UUID or an ISO-8601 timestamp)."
+    knit_with_optional "until:string" "" \
+        "Only invocations before this point (a UUID or an ISO-8601 timestamp)."
+    knit_with_optional "id:string" "" \
+        "Only the invocation with this id."
+    knit_with_optional "first:integer" "" \
+        "Keep only the first N invocations after the other filters apply."
+    knit_with_optional "last:integer" "" \
+        "Keep only the last N invocations after the other filters apply."
     knit_done
 }
 
@@ -482,6 +631,9 @@ _knit_history_discover() {
 # does not build the subtree up front.
 # ------------------------------------------------------------------------------
 knit_enum "history_format" "default" "bash" "json"
+_knit_is_builtin
+
+knit_enum "history_status" "success" "failure" "all"
 _knit_is_builtin
 
 knit_register history knit_empty "Access the history of commands run in this experiment."
