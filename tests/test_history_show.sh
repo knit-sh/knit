@@ -123,6 +123,76 @@ _seed() {
     [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM __history__;")" -eq 1 ]
 }
 
+# ---------- json format (M4) ----------
+
+@test "json format emits name/args/extra objects in time order" {
+    _seed "id-1" "setup"  '["--name","base","--","somesetup"]' 1.0
+    _seed "id-2" "submit" '["--nodes","4"]'                    2.0
+
+    run knit history show --format json
+    [ "$status" -eq 0 ]
+    [ "$(printf '%s' "${output}" | jq 'length')" -eq 2 ]
+    [ "$(printf '%s' "${output}" | jq -r '.[0].name')" = "setup" ]
+    [ "$(printf '%s' "${output}" | jq -r '.[0].args.name')" = "base" ]
+    [ "$(printf '%s' "${output}" | jq -c '.[0].extra')" = '["somesetup"]' ]
+    [ "$(printf '%s' "${output}" | jq -r '.[1].name')" = "submit" ]
+    [ "$(printf '%s' "${output}" | jq -r '.[1].args.nodes')" = "4" ]
+    [ "$(printf '%s' "${output}" | jq -c '.[1].extra')" = '[]' ]
+}
+
+@test "json name uses colon notation for a nested command" {
+    _seed "id-1" "submit:drain" '["--group","mc"]' 1.0
+    run knit history show --format json
+    [ "$status" -eq 0 ]
+    [ "$(printf '%s' "${output}" | jq -r '.[0].name')" = "submit:drain" ]
+}
+
+@test "json renders a declared flag as a boolean" {
+    knit_register "flagcmd" _h_flag "F."
+    knit_with_flag "verbose" "V."
+    _h_flag() { :; }
+    knit_done
+
+    _seed "id-1" "flagcmd" '["--verbose","true"]' 1.0
+    run knit history show --format json
+    [ "$status" -eq 0 ]
+    [ "$(printf '%s' "${output}" | jq -r '.[0].args.verbose')" = "true" ]
+    [ "$(printf '%s' "${output}" | jq -r '.[0].args.verbose | type')" = "boolean" ]
+}
+
+@test "json format on an empty history is an empty array" {
+    run knit history show --format json
+    [ "$status" -eq 0 ]
+    [ "${output}" = "[]" ]
+}
+
+# ---------- --resolved (M4) ----------
+
+@test "--resolved renders the resolved column; default renders invoked" {
+    _knit_sqlite3_write \
+        "INSERT INTO __history__ (id, command, invoked, resolved, start_time, end_time, exit_status)
+         VALUES ('id-1', 'submit', '[\"--nodes\",\"4\"]', '[\"--nodes\",\"4\",\"--wait\",\"false\"]', 1.0, 1.0, 0);"
+
+    run knit history show --resolved
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "submit --nodes 4 --wait false" ]
+
+    run knit history show
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "submit --nodes 4" ]
+}
+
+@test "--resolved with json renders the resolved args" {
+    _knit_sqlite3_write \
+        "INSERT INTO __history__ (id, command, invoked, resolved, start_time, end_time, exit_status)
+         VALUES ('id-1', 'submit', '[\"--nodes\",\"4\"]', '[\"--nodes\",\"4\",\"--walltime\",\"1:00:00\"]', 1.0, 1.0, 0);"
+
+    run knit history show --format json --resolved
+    [ "$status" -eq 0 ]
+    [ "$(printf '%s' "${output}" | jq -r '.[0].args.walltime')" = "1:00:00" ]
+    [ "$(printf '%s' "${output}" | jq -r '.[0].args.nodes')" = "4" ]
+}
+
 # ---------- end to end: capture (M2) then show (M3) ----------
 
 @test "a real invocation is captured and then shown as invoked" {

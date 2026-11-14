@@ -309,39 +309,147 @@ _knit_history_render_line() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_history_flags_json()
+#
+# Build a JSON array of the flag (boolean) option names a command declared, used
+# by the JSON formatter to tell a flag from a value-bearing option. Read from the
+# live registration (_KNIT_CMD_<mangled>_flags); a command no longer registered,
+# or one with no flags, yields "[]". Flag names are plain identifiers
+# ([A-Za-z0-9_-]), so the array is built directly without escaping.
+#
+# @param[out] __knit_ret The JSON array of flag names (e.g. '["verbose"]').
+# @param[in]  command    The command name in colon notation.
+# ------------------------------------------------------------------------------
+_knit_history_flags_json() {
+    # shellcheck disable=SC2178 # scalar nameref output (shellcheck conflates the
+    # "__knit_ret" name with the array nameref in _knit_history_json_to_tokens).
+    local -n __knit_ret="$1"
+    local command="$2"
+    local mangled="${command//:/__1__}"
+    local set_var="_KNIT_CMD_${mangled}_flags"
+    local out="[" sep="" f
+    if declare -p "${set_var}" >/dev/null 2>&1; then
+        while IFS= read -r f; do
+            [[ -z "${f}" ]] && continue
+            out+="${sep}\"${f}\""
+            sep=","
+        done < <(_knit_set_iter "${set_var}")
+    fi
+    out+="]"
+    # shellcheck disable=SC2178 # scalar nameref output (see above).
+    __knit_ret="${out}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_history_show_json()
+#
+# Emit the history as a JSON array of {name, args, extra} objects, one per
+# invocation in time order. "name" is the command in colon notation; "args" is
+# the map of options before "--" (a value-bearing option maps to its string
+# value, a flag to a boolean); "extra" is the list of tokens after "--" (the
+# dispatched target and its arguments). The per-row token array, the command's
+# flag set, and the command name are fed to a single jq pass that does the
+# decomposition, so the flag/option distinction follows the live registration.
+#
+# @param[in] col The token column to render ("invoked" or "resolved").
+# ------------------------------------------------------------------------------
+_knit_history_show_json() {
+    local col="$1"
+    local input="" command tokens flags_json
+    while IFS='|' read -r command tokens; do
+        [[ -z "${command}" ]] && continue
+        _knit_history_flags_json flags_json "${command}"
+        input+="$(printf '{"command":"%s","tokens":%s,"flags":%s}' \
+            "${command}" "${tokens}" "${flags_json}")"$'\n'
+    done < <(_knit_sqlite3 \
+        "SELECT command, ${col} FROM ${_KNIT_HISTORY_TABLE} ORDER BY start_time, id;")
+
+    if [[ -z "${input}" ]]; then
+        printf '[]\n'
+        return 0
+    fi
+
+    # Per row: split the token array at the first "--" into the option head and
+    # the extra tail; fold the head into an args object (a flag -> boolean, an
+    # option -> its string value), carrying a pending option key across the token
+    # that holds its value.
+    # shellcheck disable=SC2016 # $name/$flags/$toks are jq variables, not shell.
+    local prog='map(
+      .command as $name | .flags as $flags | .tokens as $toks
+      | ($toks | index("--")) as $sep
+      | (if $sep == null then $toks else $toks[0:$sep] end) as $head
+      | (if $sep == null then [] else $toks[$sep+1:] end) as $extra
+      | (reduce $head[] as $t ({args:{}, key:null, isflag:false};
+          if ($t | startswith("--")) then
+            (if .key != null then .args[.key] = true else . end)
+            | ($t | ltrimstr("--")) as $raw
+            | if ($raw | contains("=")) then
+                ($raw | split("=")) as $kv
+                | .args[$kv[0]] = ($kv[1:] | join("=")) | .key = null | .isflag = false
+              else
+                .key = $raw | .isflag = (($flags | index($raw)) != null)
+              end
+          else
+            if .key == null then .
+            elif .isflag then .args[.key] = ($t == "true") | .key = null | .isflag = false
+            else .args[.key] = $t | .key = null | .isflag = false
+            end
+          end)) as $r
+      | ($r | if .key != null then .args[.key] = true else . end) as $r2
+      | {name: $name, args: $r2.args, extra: $extra}
+    )'
+    printf '%s' "${input}" | knit_jq -s "${prog}" 2>/dev/null || printf '[]\n'
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_history_show()
 #
 # Body of "knit history show": print the recorded top-level user invocations in
 # time order (by start_time, then id). "--format default" prints one
 # "command args..." line per invocation; "--format bash" prefixes a
 # "#!/usr/bin/env bash" header and each line with "./<script>", so piping the
-# output to a file produces a runnable replay script. The as-invoked form is
-# rendered (the tokens the user typed). The experiment is guaranteed bootstrapped
-# by the framework's central guard; a database predating this feature simply has
-# no table, which is treated as an empty history.
+# output to a file produces a runnable replay script; "--format json" prints a
+# JSON array of {name, args, extra} objects. The as-invoked form (the tokens the
+# user typed) is rendered by default; "--resolved" renders the resolved form
+# instead (defaults, flags, and ENV[...] pinned). The experiment is guaranteed
+# bootstrapped by the framework's central guard; a database predating this
+# feature simply has no table, which is treated as an empty history.
 # ------------------------------------------------------------------------------
 _knit_history_show() {
-    local format
+    local format resolved
     format="$(knit_get_parameter "format" "$@")" || format="default"
+    resolved="$(knit_get_parameter "resolved" "$@")" || resolved="false"
 
-    # A database bootstrapped before this feature has no table: nothing to show.
+    # A database bootstrapped before this feature has no table: nothing to show
+    # (an empty JSON array for the JSON format).
     local has_table
     has_table="$(_knit_sqlite3 \
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='${_KNIT_HISTORY_TABLE}';")"
-    [[ -n "${has_table}" ]] || return 0
+    if [[ -z "${has_table}" ]]; then
+        [[ "${format}" == "json" ]] && printf '[]\n'
+        return 0
+    fi
+
+    local col="invoked"
+    [[ "${resolved}" == "true" ]] && col="resolved"
+
+    if [[ "${format}" == "json" ]]; then
+        _knit_history_show_json "${col}"
+        return 0
+    fi
 
     [[ "${format}" == "bash" ]] && printf '#!/usr/bin/env bash\n'
 
-    local command invoked line
-    while IFS='|' read -r command invoked; do
+    local command tokens line
+    while IFS='|' read -r command tokens; do
         [[ -z "${command}" ]] && continue
-        _knit_history_render_line line "${command}" "${invoked}"
+        _knit_history_render_line line "${command}" "${tokens}"
         case "${format}" in
             bash) printf './%s %s\n' "${KNIT_SCRIPT_NAME}" "${line}" ;;
             *)    printf '%s\n' "${line}" ;;
         esac
     done < <(_knit_sqlite3 \
-        "SELECT command, invoked FROM ${_KNIT_HISTORY_TABLE} ORDER BY start_time, id;")
+        "SELECT command, ${col} FROM ${_KNIT_HISTORY_TABLE} ORDER BY start_time, id;")
 }
 
 # ------------------------------------------------------------------------------
@@ -361,7 +469,9 @@ _knit_history_discover() {
     _knit_is_builtin
     knit_without_provenance
     knit_with_optional "format:history_format" "default" \
-        "Output format: default (one line per command) or bash (a runnable replay script)."
+        "Output format: default (one line per command), bash (a runnable replay script), or json."
+    knit_with_flag "resolved" \
+        "Render the resolved form (defaults, flags, and ENV[...] pinned) instead of the tokens as typed."
     knit_done
 }
 
@@ -371,7 +481,7 @@ _knit_history_discover() {
 # subcommands are registered lazily by _knit_history_discover so sourcing knit.sh
 # does not build the subtree up front.
 # ------------------------------------------------------------------------------
-knit_enum "history_format" "default" "bash"
+knit_enum "history_format" "default" "bash" "json"
 _knit_is_builtin
 
 knit_register history knit_empty "Access the history of commands run in this experiment."
