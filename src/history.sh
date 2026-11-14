@@ -259,3 +259,123 @@ _knit_history_record() {
     _knit_history_insert "${id}" "${command}" "${start_time}" "${end_time}" \
         "${exit_status}" "${invoked_json}" "${resolved_json}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_history_json_to_tokens()
+#
+# Parse a stored JSON token array back into a bash array, returned through a
+# nameref. The inverse of _knit_history_json_array: jq emits each element
+# NUL-terminated so a token that itself contains a newline (or any byte but NUL,
+# which an argument cannot hold) is restored exactly. An empty or "[]" input
+# yields an empty array. Best-effort/quiet: a jq failure leaves the array empty.
+#
+# @param[out] __knit_ret The array to fill with the tokens.
+# @param[in]  json       The compact JSON array string to parse.
+# ------------------------------------------------------------------------------
+_knit_history_json_to_tokens() {
+    local -n __knit_ret="$1"
+    local json="$2"
+    __knit_ret=()
+    [[ -z "${json}" || "${json}" == "[]" ]] && return 0
+    mapfile -d '' -t __knit_ret < <(printf '%s' "${json}" \
+        | knit_jq -j '.[] + "\u0000"' 2>/dev/null)
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_history_render_line()
+#
+# Render one history entry as a command line: the command name with its nesting
+# colons turned to spaces (as the user types it at the shell), followed by the
+# argument tokens minimally shell-quoted (via _knit_str_render_cmd, so only
+# tokens that need it are quoted). Returned through a nameref.
+#
+# @param[out] __knit_ret The rendered "command args..." line.
+# @param[in]  command    The stored command name in colon notation.
+# @param[in]  json       The JSON token array (invoked or resolved) to render.
+# ------------------------------------------------------------------------------
+_knit_history_render_line() {
+    # shellcheck disable=SC2178 # scalar nameref output (shellcheck conflates the
+    # "__knit_ret" name with the array nameref in _knit_history_json_to_tokens).
+    local -n __knit_ret="$1"
+    local command="$2"
+    local json="$3"
+    local -a _knit_hrl_tokens
+    _knit_history_json_to_tokens _knit_hrl_tokens "${json}"
+    local path="${command//:/ }"
+    local rendered=""
+    (( ${#_knit_hrl_tokens[@]} )) && rendered="$(_knit_str_render_cmd _knit_hrl_tokens)"
+    # shellcheck disable=SC2178 # scalar nameref output (see above).
+    __knit_ret="${path}${rendered:+ ${rendered}}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_history_show()
+#
+# Body of "knit history show": print the recorded top-level user invocations in
+# time order (by start_time, then id). "--format default" prints one
+# "command args..." line per invocation; "--format bash" prefixes a
+# "#!/usr/bin/env bash" header and each line with "./<script>", so piping the
+# output to a file produces a runnable replay script. The as-invoked form is
+# rendered (the tokens the user typed). The experiment is guaranteed bootstrapped
+# by the framework's central guard; a database predating this feature simply has
+# no table, which is treated as an empty history.
+# ------------------------------------------------------------------------------
+_knit_history_show() {
+    local format
+    format="$(knit_get_parameter "format" "$@")" || format="default"
+
+    # A database bootstrapped before this feature has no table: nothing to show.
+    local has_table
+    has_table="$(_knit_sqlite3 \
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='${_KNIT_HISTORY_TABLE}';")"
+    [[ -n "${has_table}" ]] || return 0
+
+    [[ "${format}" == "bash" ]] && printf '#!/usr/bin/env bash\n'
+
+    local command invoked line
+    while IFS='|' read -r command invoked; do
+        [[ -z "${command}" ]] && continue
+        _knit_history_render_line line "${command}" "${invoked}"
+        case "${format}" in
+            bash) printf './%s %s\n' "${KNIT_SCRIPT_NAME}" "${line}" ;;
+            *)    printf '%s\n' "${line}" ;;
+        esac
+    done < <(_knit_sqlite3 \
+        "SELECT command, invoked FROM ${_KNIT_HISTORY_TABLE} ORDER BY start_time, id;")
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_history_discover()
+#
+# Lazily register the "history" subcommands the first time any of them is
+# reached, listed in "--help", or walked by "describe" (see
+# knit_with_subcommand_discovery). The commands read the database and never
+# record themselves (knit_without_provenance), so they never appear in their own
+# output.
+#
+# @param[in] parent The parent command's display name (unused).
+# ------------------------------------------------------------------------------
+_knit_history_discover() {
+    knit_register "history:show" _knit_history_show \
+        "Show a replayable history of the top-level commands you invoked."
+    _knit_is_builtin
+    knit_without_provenance
+    knit_with_optional "format:history_format" "default" \
+        "Output format: default (one line per command) or bash (a runnable replay script)."
+    knit_done
+}
+
+# ------------------------------------------------------------------------------
+# Registration of the history command. The output-format enum is registered
+# eagerly (it is resolved when "history:show" declares its --format option); the
+# subcommands are registered lazily by _knit_history_discover so sourcing knit.sh
+# does not build the subtree up front.
+# ------------------------------------------------------------------------------
+knit_enum "history_format" "default" "bash"
+_knit_is_builtin
+
+knit_register history knit_empty "Access the history of commands run in this experiment."
+_knit_is_builtin
+knit_without_provenance
+knit_with_subcommand_discovery _knit_history_discover
+knit_done
