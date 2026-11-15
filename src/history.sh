@@ -130,8 +130,11 @@ _knit_history_pop_frame() {
 # through a nameref. The tokens are fed to knit_jq NUL-delimited on stdin (not as
 # "--args", which jq would misread for any token that begins with "-", e.g. an
 # option like "--size"); a NUL cannot appear inside an argument token, so the
-# split is exact for any content. An empty array is rendered directly as "[]",
-# since a lone "printf '%s\0'" with no arguments still emits one NUL. Best-effort:
+# split is exact for any content. The trailing NUL is stripped (rtrimstr) before
+# the split so the result does not depend on whether a given jq keeps or drops
+# the empty field a trailing delimiter would otherwise produce. An empty array is
+# rendered directly as "[]", since a lone "printf '%s\0'" with no arguments still
+# emits one NUL. Best-effort:
 # returns non-zero (leaving the output untouched) if jq is unavailable or fails,
 # with its diagnostics suppressed, so a recording failure never pollutes a
 # command's output; the caller then skips the row.
@@ -148,7 +151,7 @@ _knit_history_json_array() {
     fi
     local json
     json="$(printf '%s\0' "${_knit_ja_tokens[@]}" \
-        | knit_jq -Rsc 'split("\u0000")[:-1]' 2>/dev/null)" || return 1
+        | knit_jq -Rsc 'rtrimstr("\u0000") | split("\u0000")' 2>/dev/null)" || return 1
     [[ -n "${json}" ]] || return 1
     __knit_ret="${json}"
 }

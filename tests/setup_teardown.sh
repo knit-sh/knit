@@ -70,6 +70,11 @@ knit_test_db_setup() {
 
     # Satisfy the bootstrap check — tests using this helper work with a live DB.
     _KNIT_IS_BOOTSTRAPPED="1"
+
+    # Generate strictly-increasing uuids so "ORDER BY id" equals creation order:
+    # on a fast host several entities can be created within one millisecond, where
+    # a real uuidv7's random bits give no ordering (see _KNIT_UUIDV7_MONOTONIC).
+    _KNIT_UUIDV7_MONOTONIC="1"
 }
 
 # Remove the throwaway database created by knit_test_db_setup and clear the
