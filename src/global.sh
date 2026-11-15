@@ -135,6 +135,19 @@ if [[ "${1:-}" == "bootstrap" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_UUIDV7_MONOTONIC
+#
+# Test-only opt-in. When non-empty, _knit_uuidv7 places the sub-millisecond part
+# of the current time into the id's high random bits instead of using
+# /dev/urandom, so ids generated within one millisecond still sort in creation
+# order (uuidv7 sorts lexically). This makes "ORDER BY id" equal creation order,
+# which several tests assert; uuidv7 gives no intra-millisecond ordering
+# guarantee otherwise. Left empty (random) for real runs.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_UUIDV7_MONOTONIC
+_KNIT_UUIDV7_MONOTONIC="${_KNIT_UUIDV7_MONOTONIC:-}"
+
+# ------------------------------------------------------------------------------
 # @var _KNIT_COLORS
 #
 # Associative array mapping color and style names to their ANSI escape

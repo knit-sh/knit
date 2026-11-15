@@ -56,12 +56,32 @@ _knit_uuidv7() {
     # Keep the low 48 bits (12 hex digits) in case of an unexpectedly wide value.
     ts_hex="${ts_hex: -12}"
 
-    local rand
-    rand="$(head -c 16 /dev/urandom 2>/dev/null | od -An -tx1 2>/dev/null \
-        | tr -d ' \n')"
-    while [[ "${#rand}" -lt 32 ]]; do
-        rand+="$(printf '%04x' "$(( RANDOM ))")"
-    done
+    local rand=""
+    # Test-only: when _KNIT_UUIDV7_MONOTONIC is set, place the sub-millisecond
+    # part of the current time (nanoseconds within the millisecond) into the high
+    # random bits instead of using /dev/urandom. uuidv7 sorts lexically and the
+    # 48-bit millisecond already orders ids across milliseconds; the sub-ms field
+    # orders ids generated within the same one, so "ORDER BY id" equals creation
+    # order for tests that assert it. This is stateless (no counter), so it works
+    # even though _knit_uuidv7 is always called in a command-substitution
+    # subshell. Falls through to the random path when nanosecond time is
+    # unavailable (e.g. a date(1) without %N); real runs always take that path.
+    if [[ -n "${_KNIT_UUIDV7_MONOTONIC:-}" ]]; then
+        local ns
+        ns="$(date +%s%N 2>/dev/null)"
+        if [[ "${ns}" =~ ^[0-9]{11,}$ ]]; then
+            # Sub-ms nanoseconds (0..999999) in the first five hex (rand[0:5]),
+            # the rest zero, so ids order by (millisecond, sub-ms).
+            printf -v rand '%05x%027d' "$(( 10#${ns} % 1000000 ))" 0
+        fi
+    fi
+    if [[ -z "${rand}" ]]; then
+        rand="$(head -c 16 /dev/urandom 2>/dev/null | od -An -tx1 2>/dev/null \
+            | tr -d ' \n')"
+        while [[ "${#rand}" -lt 32 ]]; do
+            rand+="$(printf '%04x' "$(( RANDOM ))")"
+        done
+    fi
 
     # Variant nibble: top two bits "10" -> one of 8, 9, a, b.
     local variant

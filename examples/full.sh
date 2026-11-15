@@ -20,7 +20,9 @@
 # manager (`knit spack`, plus Spack-backed setups), call-site aliasing of
 # provenance edges with `knit_as`, querying the database and its provenance
 # graph with `knit query` (read-only SQL, a schema catalog, and Cypher over the
-# recorded provenance), automatic recording of each command's exit status (so a
+# recorded provenance), a replayable, time-ordered history of the top-level
+# commands you ran with `knit history show` (as plain lines, a `bash` replay
+# script, or `json`), automatic recording of each command's exit status (so a
 # failed invocation stays queryable for diagnosis and prunable with `knit remove
 # --failed`), provenance-aware deletion of recorded entities and
 # everything that depended on them with `knit remove`, packing the whole
@@ -2027,6 +2029,23 @@ _about_discover() {
     }
     @done
 }
+
+# -----------------------------------------------------------------------------
+# Command history (knit history show).
+#
+# Every top-level command you run above is recorded, in time order, as a
+# replayable history — just the commands *you* invoked, not the work they spun
+# off (a submitted job's compute-side app, a drain's internal `submit next`, and
+# the like are left out). `knit history show` prints it. Try:
+#   ./full.sh history show                      # one line per command you ran
+#   ./full.sh history show --command submit:*   # only submissions and drains
+#   ./full.sh history show --status all         # include failed commands
+#   ./full.sh history show --format bash > replay.sh && bash replay.sh
+#
+# The last line turns the session into a script: a fresh checkout can replay the
+# whole tour. Add --resolved to pin the defaults each command actually ran with,
+# or --format json for a structured {name, args, extra} record per command.
+# -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
 # Call the main entry point of the knit framework (must come last).

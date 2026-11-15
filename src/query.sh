@@ -510,6 +510,14 @@ _knit_query_build_lens_preamble() {
             prov_present["${s}"]=1
             continue
         fi
+        # __history__ is a framework record table (the replayable command history),
+        # not a graph node table: keep it out of the lens so it gets neither a
+        # command-table view nor a synthesized "executed" edge (its rows reuse the
+        # jobs/runs/command ids, so an edge to them would both duplicate those
+        # nodes and dangle after the owning row is removed).
+        if [[ "${t}" == "__history__" ]]; then
+            continue
+        fi
         if [[ -z "${table_seen["${t}"]:-}" ]]; then
             table_seen["${t}"]=1
             table_order+=("${t}")

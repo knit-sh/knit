@@ -4230,6 +4230,7 @@ _knit_invoke_command() {
         _KNIT_EXECUTING_ROW_ID+=("$(_knit_resolve_row_id "${cmd}")")
         _KNIT_EXECUTING_START_TIME+=("$(_knit_prov_now)")
         _KNIT_EXECUTING_ALIAS+=("${_knit_call_alias}")
+        _knit_history_push_frame "$@"
         $func "$@"
         local wrapper_status=$?
         # Keep the command on the stack through the after-callbacks (see the
@@ -4240,11 +4241,16 @@ _knit_invoke_command() {
         # later milestone, resolves its parent from the frame below). Then pop.
         # The wrapper's row records the forwarded command's exit status.
         _KNIT_INVOCATION_EXIT_STATUS="${wrapper_status}"
+        # A wrapper forwards verbatim, so its invoked and resolved forms are the
+        # same tokens. Recorded separately from _knit_record_invocation so the
+        # data-row dedup cannot short-circuit the history write.
+        _knit_history_record "${_knit_wrapper_cmd}" "$@"
         _knit_record_invocation "${_knit_wrapper_cmd}" "$@"
         unset '_KNIT_EXECUTING_COMMAND[-1]'
         unset '_KNIT_EXECUTING_ROW_ID[-1]'
         unset '_KNIT_EXECUTING_START_TIME[-1]'
         unset '_KNIT_EXECUTING_ALIAS[-1]'
+        _knit_history_pop_frame
         return "${wrapper_status}"
     fi
     # check if the first argument is --help
@@ -4308,6 +4314,9 @@ _knit_invoke_command() {
     _KNIT_EXECUTING_ROW_ID+=("$(_knit_resolve_row_id "${cmd}")")
     _KNIT_EXECUTING_START_TIME+=("$(_knit_prov_now)")
     _KNIT_EXECUTING_ALIAS+=("${_knit_call_alias}")
+    # Stash the raw, as-invoked tokens for this frame (the resolved form is the
+    # expanded "args" the body receives); read back by _knit_history_record.
+    _knit_history_push_frame "$@"
     $func "${args[@]}"
     local func_status=$?
     # Expose the body's exit status to the after-callbacks so a callback can react
@@ -4327,6 +4336,12 @@ _knit_invoke_command() {
     # The body's exit status is recorded into the row's reserved "__exit_status__"
     # column (see _knit_record_invocation / _knit_db_record_invocation).
     _KNIT_INVOCATION_EXIT_STATUS="${func_status}"
+    # Record a history row for a top-level user invocation (a root). Done here,
+    # separately from _knit_record_invocation, so the data-row dedup (the eager
+    # "knit submit" record path) cannot short-circuit it; and unconditionally with
+    # respect to body success, since the user did invoke the command either way
+    # (the "--status" filter distinguishes success from failure at show time).
+    _knit_history_record "${cmd}" "${args[@]}"
     # Verify existence of and hash every checksummed file/directory output,
     # setting their companion checksum outputs before the row is written. On a
     # successful completion existence is enforced (a missing output is fatal); on
@@ -4350,6 +4365,7 @@ _knit_invoke_command() {
     unset '_KNIT_EXECUTING_ROW_ID[-1]'
     unset '_KNIT_EXECUTING_START_TIME[-1]'
     unset '_KNIT_EXECUTING_ALIAS[-1]'
+    _knit_history_pop_frame
     return "${func_status}"
 }
 

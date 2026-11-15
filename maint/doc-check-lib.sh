@@ -16,6 +16,12 @@
 # be installed on the host running the docs check.
 export _KNIT_DETECTED_JOB_MANAGER="<unknown>"
 
+# Generate strictly-increasing uuids so "ORDER BY id" equals creation order and
+# examples are deterministic even on a fast runner where several entities land in
+# one millisecond (see _KNIT_UUIDV7_MONOTONIC). Exported so it reaches the
+# experiment subprocess the drivers run.
+export _KNIT_UUIDV7_MONOTONIC="1"
+
 _dc_fail=0
 
 # @fn exp()
