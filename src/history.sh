@@ -219,6 +219,13 @@ _knit_history_record() {
     [[ "${KNIT_DISABLE_RECORDING:-}" == "true" ]] && return 0
     [[ -n "${_KNIT_RECORDING_SUPPRESSED}" ]] && return 0
     _knit_is_bootstrapped || return 0
+    # Record nothing while the bootstrap command itself runs: bootstrap provisions
+    # the experiment (and makes many internal metadata writes); it is
+    # infrastructure, not an experiment action, so it stays out of the history
+    # (a "knit history show" replay assumes an already-bootstrapped experiment).
+    # bootstrap remains a normal provenance node, so its nested calls stay
+    # non-root regardless.
+    [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
 
     # Only a provenance-participating command appears in the history; a hidden or
     # knit_without_provenance command is transparent here, as it is to the graph.

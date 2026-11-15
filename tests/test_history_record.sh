@@ -148,6 +148,18 @@ _hcount() {
     [ "$(_hcount)" -eq 0 ]
 }
 
+@test "nothing is recorded while the bootstrap command runs" {
+    knit_register "duringboot" _h_boot_fn "B."
+    _h_boot_fn() { :; }
+    knit_done
+
+    _KNIT_IS_BOOTSTRAPPING="true"
+    _knit_invoke_command "duringboot"
+    _KNIT_IS_BOOTSTRAPPING="false"
+
+    [ "$(_hcount)" -eq 0 ]
+}
+
 @test "a recording-suppressed rank records no history row" {
     knit_register "scmd" _h_s_fn "S."
     _h_s_fn() { :; }
