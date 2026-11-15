@@ -313,6 +313,25 @@ ${sql}"
     [[ "${preamble}" != *'CREATE TEMP VIEW "metadata"'* ]]
 }
 
+@test "lens preamble excludes __history__ (no view, no executed edge)" {
+    knit_test_require_sqlite
+    # __history__ reuses the ids of jobs/runs/command rows; it is a framework
+    # record table, not a graph node, so the lens must neither union it nor
+    # synthesize a platform "executed" edge to it (otherwise such an edge dangles
+    # after the owning row is removed).
+    _knit_sqlite3_write "CREATE TABLE jobs(id TEXT);
+        CREATE TABLE __history__(id TEXT, command TEXT, invoked TEXT, resolved TEXT,
+            start_time REAL, end_time REAL, exit_status INTEGER);"
+
+    local -a dbs=() tmps=()
+    _knit_query_resolve_extra dbs tmps
+    local preamble
+    _knit_query_build_lens_preamble preamble "${dbs[@]}"
+
+    [[ "${preamble}" != *'"__history__"'* ]]
+    [[ "${preamble}" != *"'__history__'"* ]]
+}
+
 @test "lens attaches extra databases read-only" {
     knit_test_require_sqlite
     _knit_sqlite3_write "CREATE TABLE jobs(id TEXT);"
