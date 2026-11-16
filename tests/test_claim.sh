@@ -223,3 +223,140 @@ _register_render_claim() {
     _knit_claim_render out "@{gpus-per-node} GPUs" "${cmd}"
     [ "${out}" = "4 GPUs" ]
 }
+
+# ---------- verdict mapping (_knit_claim_verdict_from_code) ----------
+
+@test "verdict: exit code 0 maps to holds" {
+    local v
+    _knit_claim_verdict_from_code v 0
+    [ "${v}" = "holds" ]
+}
+
+@test "verdict: exit code 1 maps to refuted" {
+    local v
+    _knit_claim_verdict_from_code v 1
+    [ "${v}" = "refuted" ]
+}
+
+@test "verdict: exit code 2 maps to insufficient" {
+    local v
+    _knit_claim_verdict_from_code v 2
+    [ "${v}" = "insufficient" ]
+}
+
+@test "verdict: any other exit code is not a verdict (empty)" {
+    local v
+    _knit_claim_verdict_from_code v 3
+    [ -z "${v}" ]
+}
+
+# ---------- claim check (read-only) ----------
+#
+# Three claims whose checkers deterministically hold, refute, and report
+# insufficient data, plus one whose checker errors. Each sets its output and
+# returns the verdict code.
+
+_register_check_claims() {
+    _hold_fn()  { knit_output s 18;  return 0; }
+    knit_register_claim "a-holds" "_hold_fn" "A beats B by @s percent on @d."
+    knit_with_required "d:string"  "Dataset."
+    knit_with_output   "s:integer" "0" "Margin."
+    knit_done
+
+    _refute_fn() { knit_output s -3; return 1; }
+    knit_register_claim "a-refutes" "_refute_fn" "A beats B by @s percent on @d."
+    knit_with_required "d:string"  "Dataset."
+    knit_with_output   "s:integer" "0" "Margin."
+    knit_done
+
+    _insuff_fn() { return 2; }
+    knit_register_claim "a-insuff" "_insuff_fn" "A beats B on @d"
+    knit_with_required "d:string" "Dataset."
+    knit_done
+
+    _error_fn() { return 3; }
+    knit_register_claim "a-errors" "_error_fn" "A beats B on @d"
+    knit_with_required "d:string" "Dataset."
+    knit_done
+}
+
+@test "claim check: a holding claim prints a green tick and exits 0" {
+    _register_check_claims
+    run knit claim check -- a-holds --d cifar10
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "✓ A beats B by 18 percent on cifar10." ]
+}
+
+@test "claim check: a refuted claim prints a cross and exits 1" {
+    _register_check_claims
+    run knit claim check -- a-refutes --d mnist
+    [ "$status" -eq 1 ]
+    [ "${lines[0]}" = "✗ A beats B by -3 percent on mnist." ]
+}
+
+@test "claim check: an insufficient claim notes it and exits 2" {
+    _register_check_claims
+    run knit claim check -- a-insuff --d tiny
+    [ "$status" -eq 2 ]
+    [ "${lines[0]}" = "? A beats B on tiny — insufficient data" ]
+}
+
+@test "claim check: a checker error is reported distinctly and propagates its code" {
+    _register_check_claims
+    run knit claim check -- a-errors --d tiny
+    [ "$status" -eq 3 ]
+    [[ "$output" == *"checker error"* ]]
+    [[ "$output" != *"✓"* ]]
+    [[ "$output" != *"✗"* ]]
+}
+
+@test "claim check: a plain check records no row" {
+    _register_check_claims
+    run knit claim check -- a-holds --d cifar10
+    [ "$status" -eq 0 ]
+    local count
+    count=$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM a_holds;")
+    [ "${count}" -eq 0 ]
+}
+
+@test "claim check: an unknown claim is fatal" {
+    _register_check_claims
+    run knit claim check -- no-such-claim --d x
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Unknown claim"* ]]
+}
+
+@test "claim check: a missing claim name is fatal" {
+    _register_check_claims
+    run knit claim check
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"requires a claim name"* ]]
+}
+
+@test "claim check: --help renders usage without evaluating" {
+    _register_check_claims
+    run knit claim check --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"check"* ]]
+    [[ "$output" == *"claim"* ]]
+}
+
+@test "claim check: the marker is colored when stdout is a terminal" {
+    _register_check_claims
+    # Force the terminal path (NO_COLOR unset, stdout a TTY) so the color branch
+    # is exercised deterministically.
+    _knit_stdout_is_terminal() { return 0; }
+    unset NO_COLOR
+    run knit claim check -- a-holds --d cifar10
+    [ "$status" -eq 0 ]
+    # The green SGR code precedes the tick; a reset follows it.
+    [[ "$output" == *$'\033[32m'"✓"$'\033[0m'* ]]
+}
+
+@test "claim check: NO_COLOR suppresses the marker color" {
+    _register_check_claims
+    _knit_stdout_is_terminal() { return 0; }
+    NO_COLOR=1 run knit claim check -- a-refutes --d mnist
+    [ "$status" -eq 1 ]
+    [ "${lines[0]}" = "✗ A beats B by -3 percent on mnist." ]
+}

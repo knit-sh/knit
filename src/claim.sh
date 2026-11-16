@@ -254,3 +254,143 @@ _knit_claim_render() {
 
     __knit_ret="${__knit_rendered}"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_claim_verdict_from_code()
+#
+# Map a checker's exit code to a claim verdict (design §3.4): 0 holds, 1 refuted,
+# 2 insufficient. Any other code is a checker error (the checker itself failed),
+# which is not a verdict; the result variable is left empty so the caller can
+# report it distinctly.
+#
+# @param[out] __knit_ret Name of the variable to hold the verdict label.
+# @param[in] code The checker's exit code.
+# ------------------------------------------------------------------------------
+_knit_claim_verdict_from_code() {
+    local -n __knit_ret=$1
+    case "$2" in
+        0) __knit_ret="holds" ;;
+        1) __knit_ret="refuted" ;;
+        2) __knit_ret="insufficient" ;;
+        *) __knit_ret="" ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_claim_print()
+#
+# Print a rendered claim statement prefixed with its verdict marker: a green "✓"
+# when the claim holds, a red "✗" when it is refuted, and an amber "?" with a
+# short "— insufficient data" note when there is not enough data to decide. The
+# marker is colored only when stdout is a terminal and NO_COLOR is unset (the same
+# gate as the rest of knit); otherwise the plain glyph is printed. The glyph
+# itself never changes, so a non-colored terminal still shows "✓" / "✗" / "?".
+#
+# @param[in] verdict  The verdict label (holds, refuted, or insufficient).
+# @param[in] sentence The rendered statement.
+# ------------------------------------------------------------------------------
+_knit_claim_print() {
+    local verdict="$1"
+    local sentence="$2"
+    local glyph color note=""
+    case "${verdict}" in
+        holds)        glyph="✓"; color="green" ;;
+        refuted)      glyph="✗"; color="red" ;;
+        insufficient) glyph="?"; color="yellow"; note=" — insufficient data" ;;
+        *)            glyph="?"; color="yellow" ;;
+    esac
+    if [[ -z "${NO_COLOR+x}" ]] && _knit_stdout_is_terminal; then
+        printf '%s%s%s %s%s\n' \
+            "${_KNIT_COLORS[${color}]}" "${glyph}" "${_KNIT_COLORS[reset]}" \
+            "${sentence}" "${note}"
+    else
+        printf '%s %s%s\n' "${glyph}" "${sentence}" "${note}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_claim_check()
+#
+# Body of the "claim check" dispatcher. Evaluates one claim binding against the
+# current database and reports the verdict: it reads the claim name and its
+# parameters after "--", runs the claim's checker read-only (recording nothing),
+# maps the checker's exit code to a verdict (design §3.4), renders the claim's
+# statement with the binding's parameters and the checker's measured outputs, and
+# prints the sentence with its verdict marker. The process exit code is set to the
+# checker's exit code, so a holding claim returns 0, a refuted one 1, an
+# insufficient one 2, and a checker error propagates its own code.
+#
+# The checker runs under KNIT_DISABLE_RECORDING, which suppresses the row write
+# (and only the row write — knit_output still populates the output store), so a
+# plain "claim check" observes and reports but stores nothing.
+# ------------------------------------------------------------------------------
+_knit_claim_check() {
+    # Everything after "--" is the claim name followed by its own parameters.
+    local -a args=("$@")
+    local extra_index
+    extra_index=$(knit_extra_index "${args[@]}")
+    local -a extra=("${args[@]:extra_index}")
+    if [[ ${#extra[@]} -eq 0 ]]; then
+        knit_fatal "claim check requires a claim name (pass it after \"--\")."
+    fi
+
+    # The claim name as typed (kept for the "unknown" error) and its canonical
+    # (underscore) form, which drives lookup and the registered command name.
+    local claim_typed="${extra[0]}"
+    local claim_name
+    _knit_name_normalize claim_name "${claim_typed}"
+    local -a claim_args=("${extra[@]:1}")
+
+    if [[ ! -v _KNIT_CLAIMS["${claim_name}"] ]]; then
+        knit_fatal "Unknown claim \"${claim_typed}\"."
+    fi
+
+    local claim_cmd
+    _knit_command_mangle claim_cmd "claim:${claim_name}"
+
+    # Evaluate the claim read-only: run its checker to populate the output store
+    # and yield a verdict exit code, but record no row. KNIT_DISABLE_RECORDING
+    # suppresses the row write without suppressing knit_output, so the measured
+    # outputs stay available to render the statement.
+    local verdict_code=0
+    KNIT_DISABLE_RECORDING=true \
+        _knit_invoke_command "claim" "${claim_name}" "${claim_args[@]}" \
+        || verdict_code=$?
+
+    local verdict
+    _knit_claim_verdict_from_code verdict "${verdict_code}"
+    if [[ -z "${verdict}" ]]; then
+        # The checker itself failed (an exit code other than 0/1/2); report it
+        # distinctly and never as a verdict, and propagate its code.
+        knit_error "claim \"%s\": checker exited with status %s (a checker error, not a verdict)." \
+            "${claim_typed}" "${verdict_code}"
+        return "${verdict_code}"
+    fi
+
+    # Render the statement with the binding's parameters (expanded so an omitted
+    # optional shows its default) and the checker's freshly-set outputs.
+    local -a render_args
+    readarray -d '' -t render_args < \
+        <(_knit_expand_command_arguments "${claim_cmd}" "${claim_args[@]}")
+    local statement_var="_KNIT_CLAIM_${claim_cmd}_statement"
+    local sentence
+    _knit_claim_render sentence "${!statement_var}" "${claim_cmd}" \
+        "${render_args[@]}"
+
+    _knit_claim_print "${verdict}" "${sentence}"
+    return "${verdict_code}"
+}
+
+# ------------------------------------------------------------------------------
+# The "claim check" dispatcher. A claim is evaluated through it rather than
+# directly: "claim check [OPTIONS] -- <claim> [parameters]" — no command takes a
+# positional argument, so the claim name and its parameters follow "--" (the same
+# shape as "submit"). It is a read-only builtin that records nothing and emits no
+# provenance; the verdict is its exit code.
+# ------------------------------------------------------------------------------
+knit_register "claim:check" _knit_claim_check \
+    "Evaluate a claim for one binding and report its verdict."
+_knit_is_builtin
+knit_without_provenance
+knit_with_dispatch "claim" "Claim name followed by its parameters."
+knit_done
