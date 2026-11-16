@@ -388,3 +388,91 @@ _register_check_claims() {
     [ "$status" -eq 1 ]
     [ "${lines[0]}" = "✗ A beats B by -3 percent on mnist." ]
 }
+
+# ---------- claim check --record ----------
+
+@test "claim check --record writes exactly one row with statement and verdict" {
+    _register_check_claims
+    run knit claim check --record -- a-holds --d cifar10
+    [ "$status" -eq 0 ]
+    local n
+    n=$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM a_holds;")
+    [ "${n}" -eq 1 ]
+    local row
+    row=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT d, s, __verdict__, __statement__ FROM a_holds;")
+    [ "${row}" = "cifar10|18|holds|A beats B by 18 percent on cifar10." ]
+}
+
+@test "claim check without --record writes no row" {
+    _register_check_claims
+    run knit claim check -- a-holds --d cifar10
+    [ "$status" -eq 0 ]
+    local n
+    n=$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM a_holds;")
+    [ "${n}" -eq 0 ]
+}
+
+@test "claim check --record appends on repeated records" {
+    _register_check_claims
+    knit claim check --record -- a-holds --d cifar10 >/dev/null
+    knit claim check --record -- a-holds --d mnist >/dev/null
+    local n
+    n=$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM a_holds;")
+    [ "${n}" -eq 2 ]
+}
+
+@test "claim check --record records the refuted verdict" {
+    _register_check_claims
+    run knit claim check --record -- a-refutes --d mnist
+    [ "$status" -eq 1 ]
+    local v
+    v=$(sqlite3 "${_KNIT_DATABASE}" "SELECT __verdict__ FROM a_refutes;")
+    [ "${v}" = "refuted" ]
+}
+
+@test "claim check --record records the insufficient verdict and statement" {
+    _register_check_claims
+    run knit claim check --record -- a-insuff --d tiny
+    [ "$status" -eq 2 ]
+    local v s
+    v=$(sqlite3 "${_KNIT_DATABASE}" "SELECT __verdict__ FROM a_insuff;")
+    s=$(sqlite3 "${_KNIT_DATABASE}" "SELECT __statement__ FROM a_insuff;")
+    [ "${v}" = "insufficient" ]
+    [ "${s}" = "A beats B on tiny" ]
+}
+
+@test "claim check --record with a checker error records no row" {
+    _register_check_claims
+    run knit claim check --record -- a-errors --d tiny
+    [ "$status" -eq 3 ]
+    local n
+    n=$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM a_errors;")
+    [ "${n}" -eq 0 ]
+}
+
+@test "claim check --record honors KNIT_DISABLE_RECORDING" {
+    _register_check_claims
+    KNIT_DISABLE_RECORDING=true run knit claim check --record -- a-holds --d cifar10
+    [ "$status" -eq 0 ]
+    local n
+    n=$(sqlite3 "${_KNIT_DATABASE}" "SELECT COUNT(*) FROM a_holds;")
+    [ "${n}" -eq 0 ]
+}
+
+@test "a claim cannot be invoked directly (only through claim check)" {
+    _register_check_claims
+    run knit claim a-holds --d cifar10
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not invoked directly"* ]]
+}
+
+@test "the claim table carries the framework columns but no __exit_status__" {
+    _register_check_claims
+    local cols
+    cols=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT name FROM pragma_table_info('a_holds');" | tr '\n' ',')
+    [[ "${cols}" == *"__statement__"* ]]
+    [[ "${cols}" == *"__verdict__"* ]]
+    [[ "${cols}" != *"__exit_status__"* ]]
+}

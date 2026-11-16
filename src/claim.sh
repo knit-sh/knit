@@ -33,6 +33,38 @@ declare -g KNIT_CLAIM_INSUFFICIENT
 KNIT_CLAIM_INSUFFICIENT=2
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_CLAIM_STATEMENT_COLUMN
+#
+# Name of the framework column holding a recorded evaluation's resolved English
+# statement. Declared as an output on every claim so the per-claim table carries
+# the column and the standard row recorder fills it.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_CLAIM_STATEMENT_COLUMN
+_KNIT_CLAIM_STATEMENT_COLUMN="__statement__"
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_CLAIM_VERDICT_COLUMN
+#
+# Name of the framework column holding a recorded evaluation's verdict (holds,
+# refuted, or insufficient). Declared as an output on every claim, like
+# _KNIT_CLAIM_STATEMENT_COLUMN.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_CLAIM_VERDICT_COLUMN
+_KNIT_CLAIM_VERDICT_COLUMN="__verdict__"
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_CLAIM_EVALUATING
+#
+# Set to "1" by "claim check" for the duration of a claim's evaluation, so the
+# claim's before-callback (_knit_claim_before_cb) can tell an evaluation through
+# "claim check" from a direct, unguarded invocation of the claim subcommand. A
+# direct invocation would auto-record a row and bypass the "--record" gate, so it
+# is refused.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_CLAIM_EVALUATING
+_KNIT_CLAIM_EVALUATING=""
+
+# ------------------------------------------------------------------------------
 # @var _KNIT_CLAIMS
 #
 # Associative array mapping registered claim names (normalized to underscores) to
@@ -126,6 +158,18 @@ knit_register_claim() {
     # SQL quoting of the colon. Recording a row is conditional on "--record" (see
     # the evaluation verb); declaring the table here only sets up its schema.
     knit_with_table "${normalized_name}"
+    # The claim's outcome lives in the "__verdict__" column (holds/refuted/
+    # insufficient), so a numeric exit status recorded alongside would be
+    # redundant: opt the table out of the reserved "__exit_status__" column.
+    _knit_without_exit_status
+    # Two framework columns carried by every claim table (design §5), declared as
+    # outputs so the table schema gains them and the standard row recorder fills
+    # them from the output store: the resolved English statement, and the verdict.
+    # They are written only on "claim check --record" (see _knit_claim_record).
+    knit_with_output "${_KNIT_CLAIM_STATEMENT_COLUMN}:string" "" \
+        "Resolved English statement of a recorded evaluation (framework-filled)."
+    knit_with_output "${_KNIT_CLAIM_VERDICT_COLUMN}:string" "" \
+        "Verdict of a recorded evaluation: holds, refuted, or insufficient (framework-filled)."
     _KNIT_CLAIMS["${normalized_name}"]=1
     printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_type" '%s' 'claim'
     # The raw statement template, stored per claim so the evaluation verbs can
@@ -134,6 +178,26 @@ knit_register_claim() {
     # A claim observes the database and is not part of the campaign DAG, so it
     # records no provenance edge. The author does not write this.
     knit_without_provenance
+    # A claim is evaluated only through "claim check"; a direct invocation of the
+    # subcommand would auto-record a row and bypass the "--record" gate, so refuse
+    # it (see _knit_claim_before_cb).
+    knit_run_before _knit_claim_before_cb
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_claim_before_cb()
+#
+# Before-callback installed on every claim by knit_register_claim. It refuses a
+# direct invocation of the claim subcommand: a claim is evaluated through
+# "claim check", which sets _KNIT_CLAIM_EVALUATING for the duration of the run
+# and controls whether a row is recorded ("--record"). Invoked directly, the
+# claim would run through the ordinary command path and auto-record a row,
+# defeating the read-only-by-default contract.
+# ------------------------------------------------------------------------------
+_knit_claim_before_cb() {
+    if [[ "${_KNIT_CLAIM_EVALUATING}" != "1" ]]; then
+        knit_fatal "A claim is evaluated via \"claim check [--record] -- <claim> [parameters]\", not invoked directly."
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -355,11 +419,18 @@ _knit_claim_print() {
 # checker's exit code, so a holding claim returns 0, a refuted one 1, an
 # insufficient one 2, and a checker error propagates its own code.
 #
-# The checker runs under KNIT_DISABLE_RECORDING, which suppresses the row write
-# (and only the row write — knit_output still populates the output store), so a
-# plain "claim check" observes and reports but stores nothing.
+# The checker always runs under KNIT_DISABLE_RECORDING, which suppresses the row
+# write (and only the row write — knit_output still populates the output store),
+# so evaluation itself stores nothing and the measured outputs stay available to
+# render the statement. With "--record", the evaluation is additionally persisted
+# as one row by _knit_claim_record after the verdict is known; a plain check
+# writes nothing.
 # ------------------------------------------------------------------------------
 _knit_claim_check() {
+    # Recording is off by default and on only with "--record".
+    local record
+    record=$(knit_get_parameter "record" "$@") || record="false"
+
     # Everything after "--" is the claim name followed by its own parameters.
     local -a args=("$@")
     local extra_index
@@ -384,19 +455,23 @@ _knit_claim_check() {
     _knit_command_mangle claim_cmd "claim:${claim_name}"
 
     # Evaluate the claim read-only: run its checker to populate the output store
-    # and yield a verdict exit code, but record no row. KNIT_DISABLE_RECORDING
-    # suppresses the row write without suppressing knit_output, so the measured
-    # outputs stay available to render the statement.
+    # and yield a verdict exit code, but record no row here. KNIT_DISABLE_RECORDING
+    # suppresses the row write without suppressing knit_output. _KNIT_CLAIM_EVALUATING
+    # lets the claim's before-callback allow this guarded invocation (a direct one
+    # is refused).
     local verdict_code=0
+    _KNIT_CLAIM_EVALUATING=1
     KNIT_DISABLE_RECORDING=true \
         _knit_invoke_command "claim" "${claim_name}" "${claim_args[@]}" \
         || verdict_code=$?
+    _KNIT_CLAIM_EVALUATING=""
 
     local verdict
     _knit_claim_verdict_from_code verdict "${verdict_code}"
     if [[ -z "${verdict}" ]]; then
         # The checker itself failed (an exit code other than 0/1/2); report it
-        # distinctly and never as a verdict, and propagate its code.
+        # distinctly and never as a verdict, record nothing (even with --record),
+        # and propagate its code.
         knit_error "claim \"%s\": checker exited with status %s (a checker error, not a verdict)." \
             "${claim_typed}" "${verdict_code}"
         return "${verdict_code}"
@@ -412,8 +487,60 @@ _knit_claim_check() {
     _knit_claim_render sentence "${!statement_var}" "${claim_cmd}" \
         "${render_args[@]}"
 
+    # Persist the evaluation when asked. Only a decided verdict reaches here, so a
+    # checker error never records (handled above).
+    if [[ "${record}" == "true" ]]; then
+        _knit_claim_record "${claim_cmd}" "${sentence}" "${verdict}" \
+            "${render_args[@]}"
+    fi
+
     _knit_claim_print "${verdict}" "${sentence}"
     return "${verdict_code}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_claim_record()
+#
+# Record one evaluation of a claim as a row in the claim's table. The row carries
+# what the standard recorder writes — the "id" (a fresh uuidv7), one column per
+# condition parameter (read from the expanded binding), one column per measured
+# output (read from the output store the checker just populated) — plus the two
+# framework columns: the resolved English statement and the verdict. The two are
+# stashed into the output store so the standard recorder emits them as their
+# declared output columns; no provenance edge is written (a claim is out of the
+# graph). The table is append-only, so repeated records append.
+#
+# Honors the global KNIT_DISABLE_RECORDING kill switch, like every other write.
+#
+# @param[in] cmd      The claim command (mangled name).
+# @param[in] sentence The resolved English statement.
+# @param[in] verdict  The verdict label (holds, refuted, or insufficient).
+# @param[in] ...      The expanded binding (condition parameters).
+# ------------------------------------------------------------------------------
+_knit_claim_record() {
+    local cmd="$1"
+    local sentence="$2"
+    local verdict="$3"
+    shift 3
+    [[ "${KNIT_DISABLE_RECORDING:-}" == "true" ]] && return 0
+
+    local table_var="_KNIT_CMD_${cmd}_table"
+    local table="${!table_var}"
+
+    # Stash the two framework values into the output store so the standard row
+    # recorder emits them as the "__statement__" / "__verdict__" output columns,
+    # alongside the checker's measured outputs already in the store.
+    # shellcheck disable=SC2178 # nameref to the command's output-value array
+    local -n _claim_store="_KNIT_CMD_${cmd}_output_value"
+    _claim_store["${_KNIT_CLAIM_STATEMENT_COLUMN}"]="${sentence}"
+    _claim_store["${_KNIT_CLAIM_VERDICT_COLUMN}"]="${verdict}"
+
+    local id
+    id=$(_knit_uuidv7)
+    # No provenance edge (empty edge_type) and no exit-status column (the claim
+    # table opted out): record the row on its own.
+    _knit_db_record_invocation "${cmd}" "${table}" "${id}" "" "" "" "" "" "" "" \
+        "$@"
 }
 
 # ------------------------------------------------------------------------------
@@ -427,5 +554,7 @@ knit_register "claim:check" _knit_claim_check \
     "Evaluate a claim for one binding and report its verdict."
 _knit_is_builtin
 knit_without_provenance
+knit_with_flag "record" \
+    "Also record the evaluation as a row in the claim's table (off by default)."
 knit_with_dispatch "claim" "Claim name followed by its parameters."
 knit_done
