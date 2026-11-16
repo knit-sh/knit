@@ -376,14 +376,59 @@ _knit_claim_verdict_from_code() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_claim_glyph()
+#
+# Map a verdict label to its marker glyph and color name: holds -> green "✓",
+# refuted -> red "✗", insufficient (and any unexpected label) -> amber "?". Shared
+# by the "claim check" report line and the "claim list" rows so the two cannot
+# drift.
+#
+# @param[out] __knit_ret1 Name of the variable to hold the glyph.
+# @param[out] __knit_ret2 Name of the variable to hold the color name.
+# @param[in] verdict The verdict label.
+# ------------------------------------------------------------------------------
+_knit_claim_glyph() {
+    local -n __knit_ret1=$1
+    local -n __knit_ret2=$2
+    case "$3" in
+        holds)        __knit_ret1="✓"; __knit_ret2="green" ;;
+        refuted)      __knit_ret1="✗"; __knit_ret2="red" ;;
+        insufficient) __knit_ret1="?"; __knit_ret2="yellow" ;;
+        *)            __knit_ret1="?"; __knit_ret2="yellow" ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_claim_paint()
+#
+# Render a glyph with its color, honoring the same gate as the rest of knit: the
+# color is applied only when stdout is a terminal and NO_COLOR is unset; otherwise
+# the plain glyph is returned unchanged. The glyph itself never changes, so a
+# non-colored terminal still shows "✓" / "✗" / "?".
+#
+# @param[out] __knit_ret Name of the variable to hold the (maybe colored) glyph.
+# @param[in] glyph The marker glyph.
+# @param[in] color The color name (a key of _KNIT_COLORS).
+# ------------------------------------------------------------------------------
+_knit_claim_paint() {
+    local -n __knit_ret=$1
+    local glyph="$2"
+    local color="$3"
+    if [[ -z "${NO_COLOR+x}" ]] && _knit_stdout_is_terminal; then
+        __knit_ret="${_KNIT_COLORS[${color}]}${glyph}${_KNIT_COLORS[reset]}"
+    else
+        __knit_ret="${glyph}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_claim_print()
 #
 # Print a rendered claim statement prefixed with its verdict marker: a green "✓"
 # when the claim holds, a red "✗" when it is refuted, and an amber "?" with a
 # short "— insufficient data" note when there is not enough data to decide. The
 # marker is colored only when stdout is a terminal and NO_COLOR is unset (the same
-# gate as the rest of knit); otherwise the plain glyph is printed. The glyph
-# itself never changes, so a non-colored terminal still shows "✓" / "✗" / "?".
+# gate as the rest of knit); otherwise the plain glyph is printed.
 #
 # @param[in] verdict  The verdict label (holds, refuted, or insufficient).
 # @param[in] sentence The rendered statement.
@@ -392,19 +437,11 @@ _knit_claim_print() {
     local verdict="$1"
     local sentence="$2"
     local glyph color note=""
-    case "${verdict}" in
-        holds)        glyph="✓"; color="green" ;;
-        refuted)      glyph="✗"; color="red" ;;
-        insufficient) glyph="?"; color="yellow"; note=" — insufficient data" ;;
-        *)            glyph="?"; color="yellow" ;;
-    esac
-    if [[ -z "${NO_COLOR+x}" ]] && _knit_stdout_is_terminal; then
-        printf '%s%s%s %s%s\n' \
-            "${_KNIT_COLORS[${color}]}" "${glyph}" "${_KNIT_COLORS[reset]}" \
-            "${sentence}" "${note}"
-    else
-        printf '%s %s%s\n' "${glyph}" "${sentence}" "${note}"
-    fi
+    _knit_claim_glyph glyph color "${verdict}"
+    [[ "${verdict}" == "insufficient" ]] && note=" — insufficient data"
+    local marker
+    _knit_claim_paint marker "${glyph}" "${color}"
+    printf '%s %s%s\n' "${marker}" "${sentence}" "${note}"
 }
 
 # ------------------------------------------------------------------------------
@@ -557,4 +594,151 @@ knit_without_provenance
 knit_with_flag "record" \
     "Also record the evaluation as a row in the claim's table (off by default)."
 knit_with_dispatch "claim" "Claim name followed by its parameters."
+knit_done
+
+# ------------------------------------------------------------------------------
+# @fn _knit_claim_row_time()
+#
+# Decode the creation time of a recorded claim row from its uuidv7 "id": the
+# leading 48 bits (the first 12 hex digits, ignoring dashes) are a big-endian Unix
+# millisecond timestamp. The result is a local "YYYY-MM-DD HH:MM:SS" string, empty
+# when the id does not start with 12 hex digits or when date(1) cannot format it.
+#
+# @param[out] __knit_ret Name of the variable to hold the formatted time.
+# @param[in] id The row id (a uuidv7).
+# ------------------------------------------------------------------------------
+_knit_claim_row_time() {
+    local -n __knit_ret=$1
+    local hex="${2//-/}"
+    hex="${hex:0:12}"
+    if [[ ! "${hex}" =~ ^[0-9a-fA-F]{12}$ ]]; then
+        __knit_ret=""
+        return 0
+    fi
+    local sec=$(( 16#${hex} / 1000 ))
+    __knit_ret="$(date -d "@${sec}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" \
+        || __knit_ret=""
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_claim_list_one()
+#
+# List one claim's recorded evaluations under a header line (the claim's
+# registered spelling). Each recorded row prints, newest-first (uuidv7 ids sort by
+# time, so "ORDER BY id DESC" is newest-first), as an indented line: the verdict
+# marker, the resolved statement, the binding (its condition parameters, as
+# "name=value"), and the row's time. A claim with no recorded rows (or whose table
+# is absent) prints "(no recorded evaluations)", so a declared-but-unevaluated
+# claim still appears.
+#
+# @param[in] claim The claim name (normalized to underscores).
+# ------------------------------------------------------------------------------
+_knit_claim_list_one() {
+    local claim="$1"
+    local cmd
+    _knit_command_mangle cmd "claim:${claim}"
+    local table_var="_KNIT_CMD_${cmd}_table"
+    local table="${!table_var}"
+
+    # Header: the claim's own name (its registered spelling), not the full
+    # "claim:<name>" command path — the leaf display basename set at registration.
+    local display_var="_KNIT_CMD_${cmd}_display"
+    printf '%s\n' "${!display_var}"
+
+    # Build a SQL expression for the binding: each condition parameter rendered as
+    # "name=value", joined with ", ". Empty (the SQL literal '') for a claim with
+    # no condition parameters.
+    local -a pcols=()
+    local p
+    while IFS= read -r p; do
+        [[ -z "${p}" ]] && continue
+        pcols+=("${p}")
+    done < <({ _knit_set_iter "_KNIT_CMD_${cmd}_required"
+               _knit_set_iter "_KNIT_CMD_${cmd}_optional"; } | sort)
+    local binding_expr="''"
+    if (( ${#pcols[@]} > 0 )); then
+        local ident c=0
+        binding_expr=""
+        for p in "${pcols[@]}"; do
+            _knit_db_sql_ident ident "${p}"
+            (( c > 0 )) && binding_expr+=" || ', ' || "
+            binding_expr+="'${p}=' || coalesce(${ident},'')"
+            (( ++c ))
+        done
+    fi
+
+    # One pipe-joined record per row: id, verdict, binding, then the statement
+    # LAST so a "|" inside the English statement is absorbed by the final read
+    # field rather than shifting columns.
+    local verdict_ident statement_ident table_ident sql
+    _knit_db_sql_ident verdict_ident "${_KNIT_CLAIM_VERDICT_COLUMN}"
+    _knit_db_sql_ident statement_ident "${_KNIT_CLAIM_STATEMENT_COLUMN}"
+    _knit_db_sql_ident table_ident "${table}"
+    sql="SELECT id || '|' || coalesce(${verdict_ident},'') || '|' || \
+(${binding_expr}) || '|' || coalesce(${statement_ident},'') \
+FROM ${table_ident} ORDER BY id DESC;"
+
+    local have_rows=0 id verdict binding statement glyph color marker time bindstr
+    while IFS='|' read -r id verdict binding statement; do
+        [[ -z "${id}" ]] && continue
+        have_rows=1
+        _knit_claim_glyph glyph color "${verdict}"
+        _knit_claim_paint marker "${glyph}" "${color}"
+        _knit_claim_row_time time "${id}"
+        bindstr=""
+        [[ -n "${binding}" ]] && bindstr="  [${binding}]"
+        printf '  %s %s%s  %s\n' "${marker}" "${statement}" "${bindstr}" "${time}"
+    done < <(_knit_sqlite3 "${sql}" 2>/dev/null)
+
+    (( have_rows )) || printf '  (no recorded evaluations)\n'
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_claim_list()
+#
+# Body of "claim list": print the recorded evaluations of every declared claim,
+# grouped per claim and newest-first within each (see _knit_claim_list_one). The
+# claim set is the in-memory _KNIT_CLAIMS registry, so a claim declared but never
+# recorded still appears. "--type <claim>" limits the listing to one claim type
+# (the registered claim name; an unknown type is fatal). It is "--type", not
+# "--name", because a claim is identified by its registered name, like "run" and
+# "command" in "knit remove" — "--name" is reserved for per-instance aliases.
+# ------------------------------------------------------------------------------
+_knit_claim_list() {
+    local type_filter
+    type_filter=$(knit_get_parameter "type" "$@") || type_filter=""
+
+    local -a claim_names=()
+    if [[ -n "${type_filter}" ]]; then
+        local normalized
+        _knit_name_normalize normalized "${type_filter}"
+        if [[ ! -v _KNIT_CLAIMS["${normalized}"] ]]; then
+            knit_fatal "Unknown claim \"${type_filter}\"."
+        fi
+        claim_names=("${normalized}")
+    else
+        if (( ${#_KNIT_CLAIMS[@]} == 0 )); then
+            printf 'No claims are declared.\n'
+            return 0
+        fi
+        mapfile -t claim_names < <(printf '%s\n' "${!_KNIT_CLAIMS[@]}" | sort)
+    fi
+
+    local first=1 claim
+    for claim in "${claim_names[@]}"; do
+        (( first )) || printf '\n'
+        first=0
+        _knit_claim_list_one "${claim}"
+    done
+}
+
+# ------------------------------------------------------------------------------
+# The "claim list" subcommand: an ordinary read-only builtin (records nothing,
+# emits no provenance) that lists the recorded evaluations of the declared claims.
+# ------------------------------------------------------------------------------
+knit_register "claim:list" _knit_claim_list \
+    "List the recorded evaluations of the declared claims."
+_knit_is_builtin
+knit_without_provenance
+knit_with_optional "type:string" "" "List only this claim type (its registered name)."
 knit_done

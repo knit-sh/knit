@@ -476,3 +476,97 @@ _register_check_claims() {
     [[ "${cols}" == *"__verdict__"* ]]
     [[ "${cols}" != *"__exit_status__"* ]]
 }
+
+# ---------- claim list ----------
+#
+# Uuidv7 ids embed a millisecond timestamp but are not strictly ordered within a
+# millisecond; _KNIT_UUIDV7_MONOTONIC makes them order by creation within one too,
+# so "newest-first" is deterministic in these tests.
+
+_seed_list_claims() {
+    export _KNIT_UUIDV7_MONOTONIC=1
+    _lh() { knit_output s 18; return 0; }
+    knit_register_claim "a-holds" "_lh" "A beats B by @s percent on @d."
+    knit_with_required "d:string"  "Dataset."
+    knit_with_output   "s:integer" "0" "Margin."
+    knit_done
+    _lr() { knit_output s -3; return 1; }
+    knit_register_claim "a-ref" "_lr" "A beats B by @s percent on @d."
+    knit_with_required "d:string"  "Dataset."
+    knit_with_output   "s:integer" "0" "Margin."
+    knit_done
+    _le() { :; }
+    knit_register_claim "never-run" "_le" "A never evaluated on @d."
+    knit_with_required "d:string" "Dataset."
+    knit_done
+}
+
+@test "claim list: a declared but unrecorded claim is shown" {
+    _seed_list_claims
+    run knit claim list --type never-run
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "never-run" ]
+    [[ "${lines[1]}" == *"(no recorded evaluations)"* ]]
+}
+
+@test "claim list: recorded rows show marker, statement, binding and group header" {
+    _seed_list_claims
+    knit claim check --record -- a-holds --d cifar10 >/dev/null
+    run knit claim list --type a-holds
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "a-holds" ]
+    [[ "${lines[1]}" == "  ✓ A beats B by 18 percent on cifar10.  [d=cifar10]  "* ]]
+}
+
+@test "claim list: rows are newest-first within a claim" {
+    _seed_list_claims
+    knit claim check --record -- a-holds --d first  >/dev/null
+    knit claim check --record -- a-holds --d second >/dev/null
+    run knit claim list --type a-holds
+    [ "$status" -eq 0 ]
+    # The later record (second) is listed before the earlier (first).
+    [[ "${lines[1]}" == *"on second."* ]]
+    [[ "${lines[2]}" == *"on first."* ]]
+}
+
+@test "claim list: a refuted row shows the cross marker" {
+    _seed_list_claims
+    run knit claim check --record -- a-ref --d mnist
+    [ "$status" -eq 1 ]
+    run knit claim list --type a-ref
+    [ "$status" -eq 0 ]
+    [[ "${lines[1]}" == "  ✗ A beats B by -3 percent on mnist."* ]]
+}
+
+@test "claim list: no --name lists every declared claim, grouped" {
+    _seed_list_claims
+    knit claim check --record -- a-holds --d cifar10 >/dev/null
+    run knit claim list
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"a-holds"* ]]
+    [[ "$output" == *"a-ref"* ]]
+    [[ "$output" == *"never-run"* ]]
+    [[ "$output" == *"(no recorded evaluations)"* ]]
+}
+
+@test "claim list: --name with an unknown claim is fatal" {
+    _seed_list_claims
+    run knit claim list --type no-such-claim
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Unknown claim"* ]]
+}
+
+@test "claim list: with no claims declared reports so" {
+    run knit claim list
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"No claims are declared"* ]]
+}
+
+@test "claim list: the time column is decoded from the row id" {
+    _seed_list_claims
+    knit claim check --record -- a-holds --d cifar10 >/dev/null
+    run knit claim list --type a-holds
+    [ "$status" -eq 0 ]
+    # A YYYY-MM-DD HH:MM:SS stamp ends the row line.
+    [[ "${lines[1]}" =~ [0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]
+}
