@@ -224,6 +224,34 @@ _register_render_claim() {
     [ "${out}" = "4 GPUs" ]
 }
 
+# ---------- verdict constants ----------
+
+@test "verdict constants have the documented values" {
+    [ "${KNIT_CLAIM_HOLDS}" -eq 0 ]
+    [ "${KNIT_CLAIM_REFUTED}" -eq 1 ]
+    [ "${KNIT_CLAIM_INSUFFICIENT}" -eq 2 ]
+}
+
+@test "a checker returning KNIT_CLAIM_REFUTED yields the refuted verdict" {
+    _ref_fn() { return "${KNIT_CLAIM_REFUTED}"; }
+    knit_register_claim "c-ref" "_ref_fn" "A beats B on @d"
+    knit_with_required "d:string" "Dataset."
+    knit_done
+    run knit claim check -- c-ref --d x
+    [ "$status" -eq 1 ]
+    [ "${lines[0]}" = "✗ A beats B on x" ]
+}
+
+@test "a checker returning KNIT_CLAIM_INSUFFICIENT yields the insufficient verdict" {
+    _ins_fn() { return "${KNIT_CLAIM_INSUFFICIENT}"; }
+    knit_register_claim "c-ins" "_ins_fn" "A beats B on @d"
+    knit_with_required "d:string" "Dataset."
+    knit_done
+    run knit claim check -- c-ins --d x
+    [ "$status" -eq 2 ]
+    [ "${lines[0]}" = "? A beats B on x — insufficient data" ]
+}
+
 # ---------- verdict mapping (_knit_claim_verdict_from_code) ----------
 
 @test "verdict: exit code 0 maps to holds" {

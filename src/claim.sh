@@ -3,6 +3,36 @@
 ## @file claim.sh
 
 # ------------------------------------------------------------------------------
+# @var KNIT_CLAIM_HOLDS
+#
+# Verdict exit code a claim checker returns when the finding holds for the
+# evaluated binding. Return it from a checker body instead of a bare 0, so the
+# verdict reads for itself: `return "${KNIT_CLAIM_HOLDS}"`. See the verdict table
+# in the claim documentation (design §3.4).
+# ------------------------------------------------------------------------------
+declare -g KNIT_CLAIM_HOLDS
+KNIT_CLAIM_HOLDS=0
+
+# ------------------------------------------------------------------------------
+# @var KNIT_CLAIM_REFUTED
+#
+# Verdict exit code a claim checker returns when the finding is false for the
+# evaluated binding: `return "${KNIT_CLAIM_REFUTED}"`.
+# ------------------------------------------------------------------------------
+declare -g KNIT_CLAIM_REFUTED
+KNIT_CLAIM_REFUTED=1
+
+# ------------------------------------------------------------------------------
+# @var KNIT_CLAIM_INSUFFICIENT
+#
+# Verdict exit code a claim checker returns when there is not enough data to
+# decide the finding yet: `return "${KNIT_CLAIM_INSUFFICIENT}"`. The honesty
+# signal — "you cannot make this claim yet" — distinct from a refutation.
+# ------------------------------------------------------------------------------
+declare -g KNIT_CLAIM_INSUFFICIENT
+KNIT_CLAIM_INSUFFICIENT=2
+
+# ------------------------------------------------------------------------------
 # @var _KNIT_CLAIMS
 #
 # Associative array mapping registered claim names (normalized to underscores) to
@@ -66,6 +96,11 @@ knit_done
 # knit_with_output   "p:integer" "0" "Measured margin, percent."
 # a_beats_b() {
 #   ...
+#   knit_output p "${margin}"
+#   if (( margin > 0 )); then
+#       return "${KNIT_CLAIM_HOLDS}"
+#   fi
+#   return "${KNIT_CLAIM_REFUTED}"
 # }
 # knit_done
 # ```
@@ -269,10 +304,10 @@ _knit_claim_render() {
 _knit_claim_verdict_from_code() {
     local -n __knit_ret=$1
     case "$2" in
-        0) __knit_ret="holds" ;;
-        1) __knit_ret="refuted" ;;
-        2) __knit_ret="insufficient" ;;
-        *) __knit_ret="" ;;
+        "${KNIT_CLAIM_HOLDS}")        __knit_ret="holds" ;;
+        "${KNIT_CLAIM_REFUTED}")      __knit_ret="refuted" ;;
+        "${KNIT_CLAIM_INSUFFICIENT}") __knit_ret="insufficient" ;;
+        *)                            __knit_ret="" ;;
     esac
 }
 
