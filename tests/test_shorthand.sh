@@ -136,6 +136,15 @@ setup() {
     [ "$(cat "${BATS_TEST_TMPDIR}/got")" = "sim sim_fn A sim." ]
 }
 
+@test "@claim forwards the discovered name to knit_register_claim" {
+    knit_register_claim() { printf '%s\n' "$*" > "${BATS_TEST_TMPDIR}/got"; }
+    local f="${BATS_TEST_TMPDIR}/exp.sh"
+    printf '%s\n' '@claim "a-beats-b" "A beats B by @p on @d."' 'ab_fn() { :; }' \
+        > "${f}"
+    source "${f}"
+    [ "$(cat "${BATS_TEST_TMPDIR}/got")" = "a-beats-b ab_fn A beats B by @p on @d." ]
+}
+
 @test "@job forwards the discovered name to knit_register_job (function keyword)" {
     knit_register_job() { printf '%s\n' "$*" > "${BATS_TEST_TMPDIR}/got"; }
     local f="${BATS_TEST_TMPDIR}/exp.sh"

@@ -83,6 +83,7 @@ declare -gA _KNIT_SHORTHAND_EXTRACTOR
 _KNIT_SHORTHAND_EXTRACTOR=(
     [command]=knit_register
     [app]=knit_register_app
+    [claim]=knit_register_claim
     [job]=knit_register_job
     [setup]=knit_register_setup
     [wrapper]=knit_register_wrapper
