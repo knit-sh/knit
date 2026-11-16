@@ -101,6 +101,11 @@ title = "Query"
 summary = "Discovering the schema and querying the provenance database with Cypher or read-only SQL."
 
 [[category]]
+slug = "claims"
+title = "Claims"
+summary = "Stating a plain-English finding as an executable claim, checking it against the recorded data, and recording the verdict."
+
+[[category]]
 slug = "ai"
 title = "AI"
 summary = "Configuring an AI provider and asking natural-language questions about the experiment."

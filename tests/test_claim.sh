@@ -224,6 +224,48 @@ _register_render_claim() {
     [ "${out}" = "4 GPUs" ]
 }
 
+@test "render: a flag token resolves to its value" {
+    _flag_fn() { :; }
+    knit_register_claim "flagclaim" "_flag_fn" "verbose is @v"
+    knit_with_flag "v" "Verbose flag."
+    knit_done
+    local cmd
+    _knit_command_mangle cmd "claim:flagclaim"
+    local out
+    _knit_claim_render out "verbose is @v" "${cmd}" --v true
+    [ "${out}" = "verbose is true" ]
+}
+
+# ---------- glyph / time helpers ----------
+
+@test "glyph: maps each verdict (and an unexpected label) to a marker" {
+    local g c
+    _knit_claim_glyph g c holds;        [ "${g}" = "✓" ]; [ "${c}" = "green" ]
+    _knit_claim_glyph g c refuted;      [ "${g}" = "✗" ]; [ "${c}" = "red" ]
+    _knit_claim_glyph g c insufficient; [ "${g}" = "?" ]; [ "${c}" = "yellow" ]
+    _knit_claim_glyph g c bogus;        [ "${g}" = "?" ]; [ "${c}" = "yellow" ]
+}
+
+@test "row time: a non-uuid id yields an empty time" {
+    local t
+    _knit_claim_row_time t "not-a-uuid"
+    [ -z "${t}" ]
+}
+
+@test "claim list: a claim with no condition parameters shows no binding bracket" {
+    export _KNIT_UUIDV7_MONOTONIC=1
+    _np_fn() { knit_output ok 1; return 0; }
+    knit_register_claim "noparam" "_np_fn" "Always true (@ok)."
+    knit_with_output "ok:integer" "0" "A measured flag."
+    knit_done
+    knit claim check --record -- noparam >/dev/null
+    run knit claim list --type noparam
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "noparam" ]
+    [[ "${lines[1]}" == "  ✓ Always true (1)."* ]]
+    [[ "${lines[1]}" != *"["* ]]
+}
+
 # ---------- verdict constants ----------
 
 @test "verdict constants have the documented values" {

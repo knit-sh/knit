@@ -20,7 +20,9 @@
 # manager (`knit spack`, plus Spack-backed setups), call-site aliasing of
 # provenance edges with `knit_as`, querying the database and its provenance
 # graph with `knit query` (read-only SQL, a schema catalog, and Cypher over the
-# recorded provenance), a replayable, time-ordered history of the top-level
+# recorded provenance), executable plain-English claims checked against the
+# recorded data with `@claim` and reported by `knit claim check` / `knit claim
+# list`, a replayable, time-ordered history of the top-level
 # commands you ran with `knit history show` (as plain lines, a `bash` replay
 # script, or `json`), automatic recording of each command's exit status (so a
 # failed invocation stays queryable for diagnosis and prunable with `knit remove
@@ -1320,7 +1322,46 @@
 # them.
 #
 # -----------------------------------------------------------------------------
-# 23. Clean up
+# 23. Make a verifiable claim (@claim)
+# -----------------------------------------------------------------------------
+#   ./full.sh claim check -- pi-accurate --tol 0.05
+#   ./full.sh claim check --record -- pi-accurate --tol 0.05
+#   ./full.sh claim list
+#
+# A *claim* is a plain-English finding about the experiment, paired with a checker
+# that decides whether it holds against the recorded data. Declare one with
+# `@claim <name> "<statement>"`: the statement is a template whose `@tokens`
+# interpolate the claim's parameters and measured outputs. Condition parameters
+# (@with_required / @with_optional) bind the claim to one slice; measured outputs
+# (@with_output) are quantities the checker computes and the sentence reports. The
+# checker queries the database and returns a three-valued verdict through the
+# KNIT_CLAIM_* constants: KNIT_CLAIM_HOLDS (0), KNIT_CLAIM_REFUTED (1), or
+# KNIT_CLAIM_INSUFFICIENT (2).
+#
+# The `pi-accurate` claim conditions on a tolerance --tol, measures the absolute
+# error of the averaged pi estimate (an output), and holds when the error is within
+# the tolerance:
+#
+#   ./full.sh claim check -- pi-accurate --tol 0.05
+#   ✓ Monte-Carlo estimates pi to within 0.05 (measured error 0.004).
+#
+# `claim check` is read-only: it evaluates the binding against the CURRENT database,
+# prints the sentence with a verdict marker (green ✓ holds, red ✗ refuted, amber ?
+# insufficient), and sets its exit code to the verdict. Nothing is stored. Add
+# --record to also persist the evaluation as a row in the claim's table (the
+# resolved statement and the verdict are among the columns):
+#
+#   ./full.sh claim check --record -- pi-accurate --tol 0.05
+#
+# `claim list` shows the recorded findings, grouped by claim and newest-first — the
+# manifest a reviewer re-checks to reproduce your findings. `claim list --type
+# pi-accurate` limits it to one claim.
+#
+# A claim never launches work: it observes and reports. Run it before --tol is met
+# and it is refuted; run it before any montecarlo job exists and it is insufficient.
+#
+# -----------------------------------------------------------------------------
+# 24. Clean up
 # -----------------------------------------------------------------------------
 #   rm -rf .knit setups jobs artifacts
 #
@@ -1615,6 +1656,49 @@ analyze() {
         err = (a > pi ? a - pi : pi - a)
         printf "mean pi ~= %.*f over %d run(s)  (abs error %.*f)\n", d, a, n, d, err
     }'
+}
+@done
+
+# -----------------------------------------------------------------------------
+# pi-accurate — an executable claim (@claim).
+#
+# A claim pairs a plain-English finding with a checker that decides it against the
+# recorded data. This one asks whether the averaged Monte-Carlo estimate of pi is
+# within a tolerance. Its statement interpolates the condition parameter --tol and
+# the measured output `error`; the checker queries the montecarlo table, computes
+# the absolute error of the mean estimate, reports it with knit_output, and returns
+# a three-valued verdict via the KNIT_CLAIM_* constants. With no montecarlo runs
+# yet it cannot decide, so it returns KNIT_CLAIM_INSUFFICIENT rather than guessing.
+#
+# Evaluate it with `knit claim check` (read-only) or `knit claim check --record`
+# (also store the finding); `knit claim list` shows what you recorded. A claim is
+# evaluated only through `claim check`, never invoked directly. See guided-tour
+# section 23.
+# -----------------------------------------------------------------------------
+@claim "pi-accurate" \
+    "Monte-Carlo estimates pi to within @tol (measured error @error)."
+@with_optional "tol:real"   "0.01" "Absolute-error tolerance for the pi estimate."
+@with_output   "error:real" "0"    "Measured absolute error of the mean estimate."
+_pi_accurate() {
+    local tol count avg
+    tol=$(knit_get_parameter "tol" "$@")
+    count=$(knit query sql --exec "SELECT count(*) FROM montecarlo;" 2>/dev/null) \
+        || count=0
+    # No recorded estimate yet: the claim cannot be decided either way.
+    if [[ "${count:-0}" -eq 0 ]]; then
+        return "${KNIT_CLAIM_INSUFFICIENT}"
+    fi
+    avg=$(knit query sql --exec "SELECT avg(pi) FROM montecarlo;")
+    # Measure the absolute error against pi, report it as the claim's output, and
+    # decide the verdict: holds when the error is within the tolerance.
+    local err
+    err=$(awk -v a="${avg}" \
+        'BEGIN { pi = 4*atan2(1,1); printf "%.6f", (a > pi ? a-pi : pi-a) }')
+    knit_output "error" "${err}"
+    if awk -v e="${err}" -v t="${tol}" 'BEGIN { exit !(e <= t) }'; then
+        return "${KNIT_CLAIM_HOLDS}"
+    fi
+    return "${KNIT_CLAIM_REFUTED}"
 }
 @done
 
