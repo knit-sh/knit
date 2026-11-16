@@ -113,3 +113,113 @@ teardown() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"reserved"* ]]
 }
+
+# ---------- statement rendering (_knit_claim_render) ----------
+#
+# A claim with a condition parameter "d" and an output "s" is registered, and its
+# output store is seeded, so the renderer resolves both kinds of token.
+
+_register_render_claim() {
+    _render_fn() { :; }
+    knit_register_claim "a-beats-b" "_render_fn" "unused template"
+    knit_with_required "d:string"  "Dataset name."
+    knit_with_output   "s:real" "0" "Speedup factor."
+    knit_done
+    _knit_command_mangle _CLAIM_CMD "claim:a-beats-b"
+}
+
+@test "render: a bare token is interpolated with its output value" {
+    _register_render_claim
+    local -n store="_KNIT_CMD_${_CLAIM_CMD}_output_value"
+    store["s"]="1.8"
+    local out
+    _knit_claim_render out "@s faster" "${_CLAIM_CMD}"
+    [ "${out}" = "1.8 faster" ]
+}
+
+@test "render: punctuation ends a token, so a statement can end in one" {
+    _register_render_claim
+    local -n store="_KNIT_CMD_${_CLAIM_CMD}_output_value"
+    store["s"]="1.8"
+    local out
+    _knit_claim_render out "@s." "${_CLAIM_CMD}"
+    [ "${out}" = "1.8." ]
+    _knit_claim_render out "by @s%" "${_CLAIM_CMD}"
+    [ "${out}" = "by 1.8%" ]
+}
+
+@test "render: an undeclared bare token is a fatal error" {
+    _register_render_claim
+    run _knit_claim_render out "@sx faster" "${_CLAIM_CMD}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"@sx"* ]]
+    [[ "$output" == *"not a declared parameter or output"* ]]
+}
+
+@test "render: the brace form lets a value abut an identifier character" {
+    _register_render_claim
+    local -n store="_KNIT_CMD_${_CLAIM_CMD}_output_value"
+    store["s"]="1.8"
+    local out
+    _knit_claim_render out "@{s}x faster" "${_CLAIM_CMD}"
+    [ "${out}" = "1.8x faster" ]
+}
+
+@test "render: @@ renders a single literal @" {
+    _register_render_claim
+    local out
+    _knit_claim_render out "cost @@ scale" "${_CLAIM_CMD}"
+    [ "${out}" = "cost @ scale" ]
+}
+
+@test "render: an output with no recorded value falls back to its default" {
+    _register_render_claim
+    local out
+    _knit_claim_render out "speedup @s" "${_CLAIM_CMD}"
+    [ "${out}" = "speedup 0" ]
+}
+
+@test "render: a statement mixes a condition parameter and an output" {
+    _register_render_claim
+    local -n store="_KNIT_CMD_${_CLAIM_CMD}_output_value"
+    store["s"]="18"
+    local out
+    _knit_claim_render out "A beats B by @s percent on @d." "${_CLAIM_CMD}" \
+        --d cifar10
+    [ "${out}" = "A beats B by 18 percent on cifar10." ]
+}
+
+@test "render: a condition parameter absent from the arguments renders empty" {
+    _register_render_claim
+    local out
+    _knit_claim_render out "on @d" "${_CLAIM_CMD}"
+    [ "${out}" = "on " ]
+}
+
+@test "render: an empty token name is a fatal error" {
+    _register_render_claim
+    run _knit_claim_render out "ends at @" "${_CLAIM_CMD}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"empty"* ]]
+}
+
+@test "render: an unterminated brace token is a fatal error" {
+    _register_render_claim
+    run _knit_claim_render out "starts @{s here" "${_CLAIM_CMD}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"unterminated"* ]]
+}
+
+@test "render: the brace form accepts a hyphenated name" {
+    _gpn_fn() { :; }
+    knit_register_claim "gpn" "_gpn_fn" "unused"
+    knit_with_output "gpus-per-node:integer" "0" "GPUs per node."
+    knit_done
+    local cmd
+    _knit_command_mangle cmd "claim:gpn"
+    local -n store="_KNIT_CMD_${cmd}_output_value"
+    store["gpus_per_node"]="4"
+    local out
+    _knit_claim_render out "@{gpus-per-node} GPUs" "${cmd}"
+    [ "${out}" = "4 GPUs" ]
+}
