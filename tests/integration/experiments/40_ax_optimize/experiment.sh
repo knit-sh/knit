@@ -15,9 +15,12 @@
 
 source knit.sh
 
-# Import the Ax plugin (it imports knit-uv in turn). Pinned to the released
-# tag; the resolved commit is frozen in knit-plugins.lock on first import.
-knit_import ax@v1.0.0
+# Import the Ax plugin (it imports knit-uv in turn). Temporarily pinned to the
+# nullable-output migration branch (the released v1.0.0 tag still uses the old
+# knit_with_output API); revert to ax@v1.0.0 once that branch merges and the
+# v1.0.0 tag is moved. The resolved commit is frozen in knit-plugins.lock on
+# first import.
+knit_import ax@mdorier/nullable-output
 
 knit_set_program_description "knit-ax Bayesian-optimization integration test experiment."
 
