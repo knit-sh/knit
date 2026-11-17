@@ -204,24 +204,54 @@ _knit_pilot_build_nodelist() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_pilot_socket_dir()
+#
+# Pick the directory to hold the knit-pilotd control socket. A unix-domain socket
+# must live on a node-local filesystem: binding one on a parallel filesystem
+# (GPFS/Lustre) is a slow metadata operation that can block for seconds under
+# load, and the AF_UNIX sun_path limit (~108 bytes) rules out long shared paths.
+# Prefer the scheduler's per-job node-local TMPDIR, then /dev/shm, then /tmp,
+# taking the first that exists and is writable.
+#
+# @param[out] ret Nameref set to the chosen directory.
+# ------------------------------------------------------------------------------
+_knit_pilot_socket_dir() {
+    local -n __knit_ret=$1
+    local d
+    for d in "${TMPDIR:-}" /dev/shm /tmp; do
+        [[ -n "${d}" && -d "${d}" && -w "${d}" ]] || continue
+        __knit_ret="${d}"
+        return 0
+    done
+    __knit_ret="/tmp"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_pilot_before_cb()
 #
 # Before-callback installed by knit_with_pilot, run after the generic job
 # before-callback (so the allocation's hostnames are already discoverable). It
 # builds the resource inventory — the node pool (knit_job_hostnames, less the
 # launch host when --exclude-launch-host) plus the per-node core/GPU counts from
-# bootstrap metadata — starts knit-pilotd on a control socket under the job
-# directory, waits for the socket to appear, and exports KNIT_PILOT /
-# KNIT_PILOT_SOCK so the body's `knit submit` calls reach the daemon. The node
-# pool is built before KNIT_PILOT is exported so host discovery still resolves
-# the real scheduler backend. Daemon output goes to <jobdir>/pilot.log.
+# bootstrap metadata — starts knit-pilotd on a control socket on a node-local
+# filesystem (see _knit_pilot_socket_dir), waits for the socket to appear, and
+# exports KNIT_PILOT / KNIT_PILOT_SOCK so the body's `knit submit` calls reach
+# the daemon. The node pool is built before KNIT_PILOT is exported so host
+# discovery still resolves the real scheduler backend. Daemon output goes to
+# <jobdir>/pilot.log.
 #
 # @param[in] exclude_launch_host Non-empty to drop the local host from the pool.
 # @param[in] ... The job's own runtime arguments (ignored).
 # ------------------------------------------------------------------------------
 _knit_pilot_before_cb() {
     local exclude_launch_host="$1"
-    local sock="${KNIT_JOB_PREFIX}/pilot.sock"
+
+    # Put the control socket on a node-local filesystem, not in the job directory
+    # (which is on a parallel filesystem on an HPC site) — see
+    # _knit_pilot_socket_dir. A stable per-job name keeps the sun_path short.
+    local sockdir; _knit_pilot_socket_dir sockdir
+    local uuid; uuid="$(basename "${KNIT_JOB_PREFIX}")"
+    local sock="${sockdir}/knit-pilot-${uuid}.sock"
 
     local nodes
     nodes="$(_knit_pilot_build_nodelist "${exclude_launch_host}")"
@@ -241,9 +271,10 @@ _knit_pilot_before_cb() {
     _KNIT_PILOT_DAEMON_PID=$!
 
     # Wait (bounded) for the daemon to bind its control socket, bailing out early
-    # if it dies before it does.
+    # if it dies before it does. bind() on the node-local socket is fast, but
+    # keep a generous budget (30 s) as defense in depth for a loaded node.
     local i
-    for (( i = 0; i < 100; i++ )); do
+    for (( i = 0; i < 600; i++ )); do
         [[ -S "${sock}" ]] && break
         kill -0 "${_KNIT_PILOT_DAEMON_PID}" 2>/dev/null || break
         sleep 0.05
@@ -375,6 +406,9 @@ _knit_pilot_after_cb() {
     if [[ -n "${_KNIT_PILOT_DAEMON_PID:-}" ]]; then
         wait "${_KNIT_PILOT_DAEMON_PID}" 2>/dev/null || true
     fi
+    # The socket lives on node-local storage, outside the shared job dir, so
+    # remove it ourselves rather than leaving it for the job-dir cleanup.
+    rm -f "${KNIT_PILOT_SOCK}"
     unset KNIT_PILOT KNIT_PILOT_SOCK
 }
 
