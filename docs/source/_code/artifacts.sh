@@ -12,7 +12,7 @@ knit_set_program_description "A results and artifacts demo."
 # START result
 @command "measure" "Square a value and mark the result."
 @with_required "x:integer" "The value to square."
-@with_output   "square:integer" "The squared value (the result)." --result --unset "0"
+@with_output   "square:integer" "The squared value (the result)." --result
 @with_output   "note:string" "An intermediate note (not a result)."
 @with_table
 _measure() {
@@ -27,7 +27,7 @@ _measure() {
 
 # START declare
 @command "tabulate" "Write a data table as an artifact."
-@with_output   "rows:integer" "How many rows were written." --result --unset "0"
+@with_output   "rows:integer" "How many rows were written." --result
 @with_output_artifact "table:file" "The data table (CSV)." --result
 @with_table
 _tabulate() {

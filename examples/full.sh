@@ -355,7 +355,12 @@
 #       "SELECT id, samples, seed, format, pi FROM estimate"
 #
 # Each `estimate` run is one row: its parameters, its declared output (pi), and
-# a time-ordered UUID id. The file/directory parameters land here too: --notes,
+# a time-ordered UUID id. An output the body never emitted records SQL NULL (the
+# honest "not produced") rather than a made-up default, so `pi` is NULL only for a
+# run that failed before computing it. `knit query` shows NULL as an empty cell in
+# csv and as the literal `NULL` in a display mode; add --nullvalue <text> to pick
+# your own (e.g. --nullvalue '' to blank it, or --nullvalue n/a). The
+# file/directory parameters land here too: --notes,
 # --report and --scratch each store their path, and the checksummed ones store a
 # sha256 in a companion column (notes_checksum, report_checksum) — --scratch,
 # declared --no-checksum, has a scratch column but no scratch_checksum:
@@ -968,7 +973,7 @@
 # declares three file artifacts with @with_output_artifact, binding each a
 # different way:
 #
-#   @with_output   "mean:real" "..." --result       # a value result --unset "0"
+#   @with_output   "mean:real" "..." --result       # a value result (NULL if unset)
 #   @with_output_artifact "table:csvfile" "..." --result # artifact + result
 #   @with_output_artifact "figure:file"   "..." --result # artifact + result
 #   @with_output_artifact "dump:file"     "..."          # artifact, not a result
@@ -1478,7 +1483,13 @@ preflight() {
 @with_optional "notes:file" ""         "Optional notes file embedded in the report (path + sha256 recorded)."
 @with_flag     "verbose"               "Print progress information on stderr."
 @with_table                            # record every run as a DB row
-@with_output   "pi:real" "The estimated value of pi." --unset "0"
+# An output records whatever the body emits with knit_output. A body that never
+# emits one records SQL NULL — the honest "not produced" — so a crashed or
+# half-finished run never leaves a fabricated value behind. Prefer that for a
+# measured quantity like pi. Declare @with_output "x:T" "..." --unset <value>
+# only when a fixed fallback is genuinely meaningful (e.g. a retry counter that
+# is honestly 0 before the first retry).
+@with_output   "pi:real" "The estimated value of pi."
 # A file/directory OUTPUT is checked for existence on success and fingerprinted
 # after the body returns (off the timed path). The report is checksummed; the
 # scratch tree opts out with --no-checksum, so only its path is recorded.
@@ -1581,7 +1592,7 @@ _mcenv_setup() {
 @with_setup    "mcenv"                             # requires an `mcenv` setup
 @with_optional "samples:integer" "ENV[MC_SAMPLES]" "Sample count (default: MC_SAMPLES from the setup)."
 @with_optional "seed:integer"    "ENV[MC_SEED]"    "PRNG seed (default: MC_SEED from the setup)."
-@with_output   "pi:real" "The estimated value of pi." --unset "0"
+@with_output   "pi:real" "The estimated value of pi."
 _montecarlo_job() {
     # --samples and --seed are already resolved: either the values passed on the
     # command line, or (via their ENV[...] defaults) the ones exported by the
@@ -1678,7 +1689,7 @@ analyze() {
 @claim "pi-accurate" \
     "Monte-Carlo estimates pi to within @tol (measured error @error)."
 @with_optional "tol:real"   "0.01" "Absolute-error tolerance for the pi estimate."
-@with_output   "error:real" "Measured absolute error of the mean estimate." --unset "0"
+@with_output   "error:real" "Measured absolute error of the mean estimate."
 _pi_accurate() {
     local tol count avg
     tol=$(knit_get_parameter "tol" "$@")
@@ -1724,7 +1735,7 @@ _pi_accurate() {
 @app "mcrank" "One rank of a parallel Monte-Carlo pi estimate."
 @with_optional "samples:integer" "ENV[MC_SAMPLES]" "Total samples across all ranks (default: MC_SAMPLES)."
 @with_optional "seed:integer"    "ENV[MC_SEED]"    "Base PRNG seed (default: MC_SEED)."
-@with_output   "pi:real" "Rank 0's partial pi estimate." --unset "0"
+@with_output   "pi:real" "Rank 0's partial pi estimate."
 _mcrank_app() {
     local samples seed
     samples=$(knit_get_parameter "samples" "$@")
@@ -1792,7 +1803,7 @@ _mcparallel_job() {
 @without_setup
 @with_optional "samples:integer" "200000" "Samples for this worker."
 @with_optional "seed:integer"    "1"      "PRNG seed for this worker."
-@with_output   "pi:real" "This worker's pi estimate." --unset "0"
+@with_output   "pi:real" "This worker's pi estimate."
 _worker_job() {
     local samples seed pi
     samples=$(knit_get_parameter "samples" "$@")
@@ -1951,7 +1962,7 @@ _batch() {
 @command "tabulate" "Tabulate pi estimates into exportable artifacts."
 @with_optional "runs:integer" "3"     "How many quick estimates to tabulate."
 @with_table
-@with_output   "mean:real" "Mean of the tabulated estimates (the headline result)." --result --unset "0"
+@with_output   "mean:real" "Mean of the tabulated estimates (the headline result)." --result
 @with_output_artifact "table:csvfile" "The tabulated estimates (CSV)." --result
 @with_output_artifact "figure:file" "A one-line textual summary."    --result
 @with_output_artifact "dump:file"   "Raw run log, referenced in place (not the headline result)."
@@ -2019,7 +2030,7 @@ _tabulate() {
 @command "plot" "Summarize a tabulated CSV artifact produced by tabulate."
 @with_input_artifact "table:csvfile" "Artifacts-relative path of the CSV table to read." --verify-checksum
 @with_table
-@with_output "rows:integer" "Number of data rows in the consumed table." --result --unset "0"
+@with_output "rows:integer" "Number of data rows in the consumed table." --result
 _plot() {
     local csv
     csv="$(knit_input_artifact_path "$(knit_get_parameter table "$@")")"
@@ -2064,7 +2075,7 @@ _shard() {
 @command "merge" "Merge every shard matched by a glob (a + input)."
 @with_input_artifact "shards:csvfile+" "Artifacts-relative glob of the shards to merge (one or more)."
 @with_table
-@with_output "rows:integer" "Total data rows across the merged shards." --result --unset "0"
+@with_output "rows:integer" "Total data rows across the merged shards." --result
 _merge() {
     local -a paths=()
     knit_input_artifact_paths paths "$(knit_get_parameter "shards" "$@")"

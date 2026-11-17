@@ -69,7 +69,7 @@ knit_set_program_description "Tune a CNN image classifier on CIFAR-10."
 @with_optional "base-channels:integer" "32"      "Channels in the first block." --domain '{16,32,64}'
 @with_optional "kernel-size:integer"   "3"       "Convolution kernel size."     --domain '{3,5}'
 @with_optional "epochs:integer"        "3"       "Training epochs (not searched)."
-@with_output   "val_accuracy:real" "Final-epoch validation accuracy (%)." --unset "0"
+@with_output   "val_accuracy:real" "Final-epoch validation accuracy (%)."
 _train_job() {
     local datadir dataset out acc
     datadir="$(knit_resource_path "$(knit_get_parameter data "$@")")"

@@ -164,9 +164,10 @@ Emitting an output
 ------------------
 
 A command can declare one or more **outputs**: a named, typed result it computes.
-``@with_output "name:type" <default> <description>`` declares it (the default
-is used if the command exits before setting it), and ``knit_output <name>
-<value>`` emits it from the body:
+``@with_output "name:type" <description>`` declares it and ``knit_output <name>
+<value>`` emits it from the body. An output the body never emits records SQL
+``NULL`` (the honest "not produced"); add ``--unset <value>`` only when a fixed
+fallback is genuinely meaningful:
 
 .. knit-code:: _code/quickstart.sh
    :language: bash
