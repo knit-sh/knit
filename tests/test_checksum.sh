@@ -153,6 +153,23 @@ _has_col() {
     [[ "$output" == *"was not produced"* ]]
 }
 
+@test "an unset file output with no --unset fallback is skipped, not enforced" {
+    # The body succeeds but never calls knit_output, and the output declares no
+    # --unset fallback: there is no path to check or hash, so existence is NOT
+    # enforced (no "was not produced" fatal) and the column records SQL NULL.
+    knit_register "cs_out_unset" fn_cs_out_unset "Test."
+    knit_with_table
+    knit_with_output "result:file" "The output."
+    fn_cs_out_unset() { :; }
+    knit_done
+    run _knit_invoke_command "cs_out_unset"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"was not produced"* ]]
+    # The output column is NULL (no value, no checksum).
+    [ "$(_col "result IS NULL" cs_out_unset)" = "1" ]
+    [ "$(_col result_checksum cs_out_unset)" = "" ]
+}
+
 @test "a directory output is hashed recursively" {
     local d="${BATS_TEST_TMPDIR}/otree"
     knit_register "cs_dout" fn_cs_dout "Test."

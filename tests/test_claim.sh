@@ -179,6 +179,35 @@ _register_render_claim() {
     [ "${out}" = "speedup 0" ]
 }
 
+# A claim whose statement references an output that the checker never sets AND
+# that declares no --unset fallback: the token must render as the visible
+# "<unset>" marker (never a fabricated value), and claim check must warn.
+
+_register_unmeasured_claim() {
+    _unmeasured_fn() { :; }
+    knit_register_claim "needs-measure" "_unmeasured_fn" "unused template"
+    knit_with_output "m:real" "A measured margin, percent."
+    knit_done
+    _knit_command_mangle _UNMEASURED_CMD "claim:needs-measure"
+}
+
+@test "render: a fallback-less unset output renders the <unset> marker" {
+    _register_unmeasured_claim
+    local out
+    _knit_claim_render out "margin @m percent" "${_UNMEASURED_CMD}"
+    [ "${out}" = "margin <unset> percent" ]
+}
+
+@test "render: a fallback-less unset output warns when rendered" {
+    _register_unmeasured_claim
+    # _knit_claim_render returns via nameref, so it prints nothing on stdout; the
+    # only output `run` captures is the warning on stderr.
+    run _knit_claim_render out "margin @m percent" "${_UNMEASURED_CMD}"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"was never set by the checker"* ]]
+    [[ "$output" == *"<unset>"* ]]
+}
+
 @test "render: a statement mixes a condition parameter and an output" {
     _register_render_claim
     local -n store="_KNIT_CMD_${_CLAIM_CMD}_output_value"

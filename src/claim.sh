@@ -232,18 +232,27 @@ _knit_claim_token_value() {
     local name
     _knit_name_normalize name "${raw_name}"
 
-    # An output: its recorded value, else its declared "--unset" fallback (empty
-    # when none was declared). A visible "never measured" marker and a claim-check
-    # warning for an unset, fallback-less token are a later milestone.
+    # An output. In order: the value the checker recorded via knit_output; else the
+    # author's declared "--unset" fallback; else a visible "never measured" marker,
+    # with a warning. The marker is "<unset>" — distinct from the "<unknown>"
+    # not-detected sentinel (unset is "the checker produced nothing", not "we looked
+    # and could not tell"). Interpolating a fabricated or empty value instead would
+    # read as a plausible-but-false sentence, which is the bug this fixes.
     if _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${name}"; then
         # shellcheck disable=SC2178 # nameref to the command's output-value array
         local -n _claim_outvals="_KNIT_CMD_${cmd}_output_value"
         if [[ -v _claim_outvals["${name}"] ]]; then
             __knit_ret="${_claim_outvals["${name}"]}"
-        else
+        elif _knit_output_has_unset "${cmd}" "${name}"; then
             local def
             _knit_output_unset_value def "${cmd}" "${name}"
             __knit_ret="${def}"
+        else
+            local display
+            _knit_command_display display "${cmd}"
+            knit_warning "claim \"%s\": output \"@%s\" was never set by the checker and has no --unset fallback; rendering it as \"<unset>\"." \
+                "${display}" "${raw_name}"
+            __knit_ret="<unset>"
         fi
         return 0
     fi

@@ -110,12 +110,12 @@ _register_fixture() {
 
 # ---------- outputs table ----------
 
-@test "the Outputs sub-section is an h4 table with a blank empty default" {
+@test "the Outputs sub-section is an h4 table; a fallback-less output shows null" {
     run knit describe --format markdown --only greet
     [ "$status" -eq 0 ]
     [[ "${output}" == *$'#### Outputs\n'* ]]
-    [[ "${output}" == *'| Name | Type | Default | Result | Description |'* ]]
-    [[ "${output}" == *'| `greeting` | string |  |  | The produced greeting. |'* ]]
+    [[ "${output}" == *'| Name | Type | Unset | Result | Description |'* ]]
+    [[ "${output}" == *'| `greeting` | string | null |  | The produced greeting. |'* ]]
 }
 
 # ---------- extra ----------

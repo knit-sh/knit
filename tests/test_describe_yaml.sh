@@ -19,6 +19,7 @@ _register_fixture() {
         --when "count > 1"
     knit_with_flag "capitalize" "Make the output upper-case."
     knit_with_output "greeting:string" "The produced greeting."
+    knit_with_output "note:string" "A side note." --unset ""
     knit_with_table
     knit_done
 
@@ -136,10 +137,18 @@ _require_yq() {
     [[ "${output}" == *'default: "1"'* ]]
 }
 
-@test "an empty default is quoted" {
+@test "an empty unset sentinel is quoted" {
     run _knit_describe_yaml
     [ "$status" -eq 0 ]
-    [[ "${output}" == *'default: ""'* ]]
+    [[ "${output}" == *'unset: ""'* ]]
+}
+
+@test "an output with no --unset fallback renders a bare null" {
+    run _knit_describe_yaml
+    [ "$status" -eq 0 ]
+    # greeting declares no --unset, so its fallback is literal null (records SQL
+    # NULL), distinct from the quoted empty-string sentinel of "note".
+    [[ "${output}" == *'unset: null'* ]]
 }
 
 @test "an enum type inlines its values as a flow sequence" {
