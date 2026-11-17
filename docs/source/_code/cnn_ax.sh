@@ -30,7 +30,7 @@ knit_set_program_description "Tune a CNN image classifier with Bayesian optimiza
 @done
 
 @resource "cifar" "The CIFAR-10 dataset, downloaded and unpacked."
-@with_url "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
+@with_url "https://github.com/knit-sh/image-classifier-example/releases/download/datasets-v1/cifar-10-python.tar.gz"
 @done
 
 # The train job is the one from Step 1 with five more search parameters, so the

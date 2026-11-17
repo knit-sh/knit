@@ -34,7 +34,7 @@ knit_set_program_description \
 # --- Resource ---------------------------------------------------------------
 # The CIFAR-10 dataset, downloaded and unpacked by `knit fetch`.
 @resource "cifar" "The CIFAR-10 dataset, downloaded and unpacked."
-@with_url "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
+@with_url "https://github.com/knit-sh/image-classifier-example/releases/download/datasets-v1/cifar-10-python.tar.gz"
 @done
 
 # --- Job: train -------------------------------------------------------------
