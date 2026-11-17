@@ -6,26 +6,43 @@
 # @fn _knit_query_read_output_opts()
 #
 # Read the OUTPUT-OPTS shared by `knit query graph` and `knit query sql` out of a
-# command invocation into three caller-named variables. Factored here so both
-# query commands parse `--format`/`--header`/`--separator` identically; both then
-# translate the values into sqlite3 dot-commands (the lens runs every query
-# through sqlite3). The format defaults to `list` and the header defaults OFF
-# (query output is most often piped elsewhere, where a header is noise); the
-# separator defaults to empty (the output mode's own default).
+# command invocation into five caller-named variables. Factored here so both
+# query commands parse `--format`/`--header`/`--separator`/`--nullvalue`
+# identically; both then translate the values into sqlite3 dot-commands (the lens
+# runs every query through sqlite3). The format defaults to `list` and the header
+# defaults OFF (query output is most often piped elsewhere, where a header is
+# noise); the separator defaults to empty (the output mode's own default).
+#
+# The nullvalue PRESENCE flag is read from the raw invocation tokens
+# (_KNIT_INVOCATION_RAW_ARGS), not from the spliced args, because an explicit
+# empty value ("--nullvalue ''") must be told apart from the unset default (both
+# look empty once the default is spliced in) to let it override a display mode's
+# "NULL" rendering.
 #
 # @param[out] __knit_ret1 Name of the variable to hold the format value.
 # @param[out] __knit_ret2 Name of the variable to hold the header flag ("true"/"false").
 # @param[out] __knit_ret3 Name of the variable to hold the separator value.
+# @param[out] __knit_ret4 Name of the variable to hold the --nullvalue value.
+# @param[out] __knit_ret5 Name of the variable to hold the nullvalue presence flag
+#             ("true" when --nullvalue was given explicitly).
 # @param[in] ... The command invocation arguments to read the options from.
 # ------------------------------------------------------------------------------
 _knit_query_read_output_opts() {
     local -n __knit_ret1=$1
     local -n __knit_ret2=$2
     local -n __knit_ret3=$3
-    shift 3
+    local -n __knit_ret4=$4
+    local -n __knit_ret5=$5
+    shift 5
     __knit_ret1="$(knit_get_parameter "format" "$@")"    || __knit_ret1="list"
     __knit_ret2="$(knit_get_parameter "header" "$@")"    || __knit_ret2="false"
     __knit_ret3="$(knit_get_parameter "separator" "$@")" || __knit_ret3=""
+    __knit_ret4="$(knit_get_parameter "nullvalue" "$@")" || __knit_ret4=""
+    if _knit_arg_was_provided "nullvalue" "${_KNIT_INVOCATION_RAW_ARGS[@]}"; then
+        __knit_ret5="true"
+    else
+        __knit_ret5="false"
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -851,8 +868,8 @@ _knit_query_graph() {
         return "$?"
     fi
 
-    local fmt hdr sep
-    _knit_query_read_output_opts fmt hdr sep "${args[@]}"
+    local fmt hdr sep nullvalue nullvalue_present
+    _knit_query_read_output_opts fmt hdr sep nullvalue nullvalue_present "${args[@]}"
 
     local names_spec
     _knit_query_build_names names_spec
@@ -903,7 +920,8 @@ _knit_query_graph() {
     local no_header="true"
     [[ "${hdr}" == "true" ]] && no_header="false"
     local -a mode_args=()
-    _knit_ai_query_mode_args mode_args "${fmt}" "${no_header}" "${sep}"
+    _knit_ai_query_mode_args mode_args "${fmt}" "${no_header}" "${sep}" \
+        "${nullvalue}" "${nullvalue_present}"
 
     _knit_query_exec_over_lens lens_dbs "${generated_sql}" "${mode_args[@]}" || status=$?
     _knit_query_cleanup_tmps lens_tmps
@@ -943,14 +961,15 @@ _knit_query_sql() {
         knit_fatal "knit query sql: only read-only statements are allowed (leading SELECT/WITH/EXPLAIN/PRAGMA, no write keywords)."
     fi
 
-    local fmt hdr sep
-    _knit_query_read_output_opts fmt hdr sep "${args[@]}"
+    local fmt hdr sep nullvalue nullvalue_present
+    _knit_query_read_output_opts fmt hdr sep nullvalue nullvalue_present "${args[@]}"
 
     local no_header="true"
     [[ "${hdr}" == "true" ]] && no_header="false"
 
     local -a mode_args=()
-    _knit_ai_query_mode_args mode_args "${fmt}" "${no_header}" "${sep}"
+    _knit_ai_query_mode_args mode_args "${fmt}" "${no_header}" "${sep}" \
+        "${nullvalue}" "${nullvalue_present}"
 
     # shellcheck disable=SC2034 # lens_dbs/lens_tmps are filled and read by nameref
     local -a lens_dbs=() lens_tmps=()
@@ -997,6 +1016,9 @@ _knit_query_discover() {
     knit_with_optional "separator:string" "" \
         "Column separator (defaults to the output mode's default)." \
         --when '.explain != "true" and .ast != "true"'
+    knit_with_optional "nullvalue:string" "" \
+        "String shown for a NULL cell. Defaults per mode: empty for csv/tabs/ascii, native null for json, \"NULL\" for the display modes." \
+        --when '.explain != "true" and .ast != "true"'
     knit_with_flag "explain" \
         "Print the generated SQL without running it."
     knit_with_flag "ast" \
@@ -1019,5 +1041,7 @@ _knit_query_discover() {
         "Add a header row (off by default)."
     knit_with_optional "separator:string" "" \
         "Column separator (defaults to sqlite3's default)."
+    knit_with_optional "nullvalue:string" "" \
+        "String shown for a NULL cell. Defaults per mode: empty for csv/tabs/ascii, native null for json, \"NULL\" for the display modes."
     knit_done
 }
