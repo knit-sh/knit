@@ -12,6 +12,14 @@ setup() {
 
     knit_test_db_setup
 
+    # Order prepared jobs deterministically. _ordered_uuids sorts by the uuidv7
+    # "id", whose leading bits are a millisecond timestamp; the two jobs a matrix
+    # block creates land in the same millisecond, so without a sub-millisecond
+    # tiebreaker their "ORDER BY id" is random (the /dev/urandom tail). This flag
+    # makes that tail order by creation within a millisecond, so combination order
+    # is stable --- on a fast CI runner as much as locally.
+    export _KNIT_UUIDV7_MONOTONIC=1
+
     _KNIT_JQ_EXE="jq"
     _KNIT_TEST_TMPDIR="$(mktemp -d)"
 
