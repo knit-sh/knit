@@ -761,8 +761,8 @@ knit_register_resource() {
     # Every instance records its name and on-disk directory (filled by the `knit
     # fetch` dispatcher after the download body runs), so the row identifies the
     # instance without reconstructing the path from the name.
-    knit_with_output "name:string" "" "The resource instance name (from knit fetch --name)."
-    knit_with_output "directory:string" "" "The instance's on-disk directory."
+    knit_with_output "name:string" "The resource instance name (from knit fetch --name)."
+    knit_with_output "directory:string" "The instance's on-disk directory."
     _KNIT_RESOURCES["${normalized_type}"]=1
     # Push the method check last so it runs first at knit_done (done callbacks run
     # in reverse order of installation): a type that declared no download method
@@ -796,7 +796,7 @@ knit_with_git() {
     _knit_resource_set_method "git"
     knit_with_optional "url:string" "${url}" "Git repository URL to clone."
     knit_with_optional "ref:string" "${ref}" "Git ref (branch, tag, or commit) to check out."
-    knit_with_output "commit:string" "" \
+    knit_with_output "commit:string" \
         "The commit SHA the ref resolved to at fetch time (git rev-parse HEAD)."
 }
 

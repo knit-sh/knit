@@ -64,7 +64,7 @@ knit_done
 # --------------------------------------------------------------------------
 knit_register "merge" _merge "Merge a glob of csvfile artifacts (one or more)."
 knit_with_input_artifact "shards:csvfile+" "Glob or comma list of shards to merge."
-knit_with_output "rows:integer" "0" "Total data rows across the merged shards." --result
+knit_with_output "rows:integer" "Total data rows across the merged shards." --result --unset "0"
 knit_with_table
 _merge() {
     local -a paths=()

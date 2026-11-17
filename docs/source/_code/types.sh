@@ -57,8 +57,8 @@ _convert() {
 @command "report" "Summarize a data file into a report."
 @with_table
 @with_required "input:file" "The data file to summarize."
-@with_output "summary:file" "" "The written summary (path + sha256 recorded)."
-@with_output "workdir:directory" "" "Scratch tree, recorded by path only." --no-checksum
+@with_output "summary:file" "The written summary (path + sha256 recorded)."
+@with_output "workdir:directory" "Scratch tree, recorded by path only." --no-checksum
 _report() {
     local input
     input=$(knit_get_parameter "input" "$@")

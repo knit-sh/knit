@@ -90,7 +90,7 @@ _julia() {
 @with_optional "max-iter:integer" "1000"   "Maximum iterations per pixel."
 @with_optional "colormap:string"  "fire"   "Palette: grayscale | fire | ocean."
 @with_required "output:string"             "Absolute PNG path (the job supplies one per run)."
-@with_output   "inside:integer"   "0"      "Grid points inside the set (recorded by rank 0)."
+@with_output   "inside:integer" "Grid points inside the set (recorded by rank 0)."
 _render_app() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")

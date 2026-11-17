@@ -13,14 +13,14 @@ setup() {
 # so its Artifacts section must not appear.
 _register_fixture() {
     knit_register "tabulate" knit_empty "Tabulate results."
-    knit_with_output "pi:real" "0" "Estimated value of pi." --result
-    knit_with_output "scratch:string" "" "Intermediate note."
+    knit_with_output "pi:real" "Estimated value of pi." --result --unset "0"
+    knit_with_output "scratch:string" "Intermediate note."
     knit_with_output_artifact "table:file" "Computed dataset (CSV)." --result
     knit_with_output_artifact "dump:file" "Environment capture."
     knit_done
 
     knit_register "greet" knit_empty "Say hello."
-    knit_with_output "msg:string" "" "The message."
+    knit_with_output "msg:string" "The message."
     knit_done
 }
 
@@ -59,6 +59,20 @@ _yaml() {
     run _knit_describe_json
     [ "$status" -eq 0 ]
     [ "$(_json "$(_out scratch)['result']")" = "False" ]
+}
+
+@test "json: an output's --unset sentinel is reported under 'unset'" {
+    run _knit_describe_json
+    [ "$status" -eq 0 ]
+    # pi declares --unset "0": the sentinel is a string value.
+    [ "$(_json "$(_out pi)['unset']")" = "0" ]
+}
+
+@test "json: a fallback-less output reports unset as JSON null" {
+    run _knit_describe_json
+    [ "$status" -eq 0 ]
+    # scratch declares no --unset: its fallback is JSON null (records SQL NULL).
+    [ "$(_json "$(_out scratch)['unset'] is None")" = "True" ]
 }
 
 @test "json: an artifact appears in the artifacts array, not the outputs array" {
@@ -121,7 +135,7 @@ _yaml() {
 @test "default: a value result carries the 'result' tag in its bracket" {
     run knit describe --format default --only tabulate --no-color
     [ "$status" -eq 0 ]
-    [[ "${output}" == *"pi"*"[real, default: '0', result]"* ]]
+    [[ "${output}" == *"pi"*"[real, unset: '0', result]"* ]]
 }
 
 @test "default: a plain output has no 'result' tag" {
@@ -129,7 +143,7 @@ _yaml() {
     [ "$status" -eq 0 ]
     local line
     line=$(printf '%s\n' "${output}" | grep -E '^ +scratch ')
-    [[ "${line}" == *"[string, default: '']"* ]]
+    [[ "${line}" == *"[string, unset: null]"* ]]
     [[ "${line}" != *"result"* ]]
 }
 
@@ -161,7 +175,7 @@ _yaml() {
 @test "markdown: the Outputs table has a Result column filled for a result" {
     run knit describe --format markdown --only tabulate
     [ "$status" -eq 0 ]
-    [[ "${output}" == *"| Name | Type | Default | Result | Description |"* ]]
+    [[ "${output}" == *"| Name | Type | Unset | Result | Description |"* ]]
     [[ "${output}" == *'| `pi` | real | `0` | result | Estimated value of pi. |'* ]]
 }
 

@@ -123,7 +123,7 @@ _register_render_claim() {
     _render_fn() { :; }
     knit_register_claim "a-beats-b" "_render_fn" "unused template"
     knit_with_required "d:string"  "Dataset name."
-    knit_with_output   "s:real" "0" "Speedup factor."
+    knit_with_output   "s:real" "Speedup factor." --unset "0"
     knit_done
     _knit_command_mangle _CLAIM_CMD "claim:a-beats-b"
 }
@@ -179,6 +179,35 @@ _register_render_claim() {
     [ "${out}" = "speedup 0" ]
 }
 
+# A claim whose statement references an output that the checker never sets AND
+# that declares no --unset fallback: the token must render as the visible
+# "<unset>" marker (never a fabricated value), and claim check must warn.
+
+_register_unmeasured_claim() {
+    _unmeasured_fn() { :; }
+    knit_register_claim "needs-measure" "_unmeasured_fn" "unused template"
+    knit_with_output "m:real" "A measured margin, percent."
+    knit_done
+    _knit_command_mangle _UNMEASURED_CMD "claim:needs-measure"
+}
+
+@test "render: a fallback-less unset output renders the <unset> marker" {
+    _register_unmeasured_claim
+    local out
+    _knit_claim_render out "margin @m percent" "${_UNMEASURED_CMD}"
+    [ "${out}" = "margin <unset> percent" ]
+}
+
+@test "render: a fallback-less unset output warns when rendered" {
+    _register_unmeasured_claim
+    # _knit_claim_render returns via nameref, so it prints nothing on stdout; the
+    # only output `run` captures is the warning on stderr.
+    run _knit_claim_render out "margin @m percent" "${_UNMEASURED_CMD}"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"was never set by the checker"* ]]
+    [[ "$output" == *"<unset>"* ]]
+}
+
 @test "render: a statement mixes a condition parameter and an output" {
     _register_render_claim
     local -n store="_KNIT_CMD_${_CLAIM_CMD}_output_value"
@@ -213,7 +242,7 @@ _register_render_claim() {
 @test "render: the brace form accepts a hyphenated name" {
     _gpn_fn() { :; }
     knit_register_claim "gpn" "_gpn_fn" "unused"
-    knit_with_output "gpus-per-node:integer" "0" "GPUs per node."
+    knit_with_output "gpus-per-node:integer" "GPUs per node." --unset "0"
     knit_done
     local cmd
     _knit_command_mangle cmd "claim:gpn"
@@ -256,7 +285,7 @@ _register_render_claim() {
     export _KNIT_UUIDV7_MONOTONIC=1
     _np_fn() { knit_output ok 1; return 0; }
     knit_register_claim "noparam" "_np_fn" "Always true (@ok)."
-    knit_with_output "ok:integer" "0" "A measured flag."
+    knit_with_output "ok:integer" "A measured flag." --unset "0"
     knit_done
     knit claim check --record -- noparam >/dev/null
     run knit claim list --type noparam
@@ -330,13 +359,13 @@ _register_check_claims() {
     _hold_fn()  { knit_output s 18;  return 0; }
     knit_register_claim "a-holds" "_hold_fn" "A beats B by @s percent on @d."
     knit_with_required "d:string"  "Dataset."
-    knit_with_output   "s:integer" "0" "Margin."
+    knit_with_output   "s:integer" "Margin." --unset "0"
     knit_done
 
     _refute_fn() { knit_output s -3; return 1; }
     knit_register_claim "a-refutes" "_refute_fn" "A beats B by @s percent on @d."
     knit_with_required "d:string"  "Dataset."
-    knit_with_output   "s:integer" "0" "Margin."
+    knit_with_output   "s:integer" "Margin." --unset "0"
     knit_done
 
     _insuff_fn() { return 2; }
@@ -530,12 +559,12 @@ _seed_list_claims() {
     _lh() { knit_output s 18; return 0; }
     knit_register_claim "a-holds" "_lh" "A beats B by @s percent on @d."
     knit_with_required "d:string"  "Dataset."
-    knit_with_output   "s:integer" "0" "Margin."
+    knit_with_output   "s:integer" "Margin." --unset "0"
     knit_done
     _lr() { knit_output s -3; return 1; }
     knit_register_claim "a-ref" "_lr" "A beats B by @s percent on @d."
     knit_with_required "d:string"  "Dataset."
-    knit_with_output   "s:integer" "0" "Margin."
+    knit_with_output   "s:integer" "Margin." --unset "0"
     knit_done
     _le() { :; }
     knit_register_claim "never-run" "_le" "A never evaluated on @d."

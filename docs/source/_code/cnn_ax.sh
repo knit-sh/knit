@@ -50,7 +50,7 @@ knit_set_program_description "Tune a CNN image classifier with Bayesian optimiza
 @with_optional "batch-size:integer"    "128"     "Mini-batch size."                    --domain '{32,64,128,256}'
 # END newparams
 @with_optional "epochs:integer"        "3"       "Training epochs (not searched)."
-@with_output   "val_accuracy:real"     "0"       "Final-epoch validation accuracy (%)."
+@with_output   "val_accuracy:real" "Final-epoch validation accuracy (%)."
 _train_job() {
     local datadir dataset residual out acc
     datadir="$(knit_resource_path "$(knit_get_parameter data "$@")")"

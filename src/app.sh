@@ -80,8 +80,8 @@ knit_with_subcommand_title "Apps"
 # Record every run as a row in the "runs" table. The placement options above are
 # recorded as-requested columns; the "app" output records the launched app name.
 knit_with_table "${_KNIT_RUNS_TABLE}"
-knit_with_output "app:string" "" "Name of the app that was run (the token after --)."
-knit_with_output "native-cmd:string" "" \
+knit_with_output "app:string" "Name of the app that was run (the token after --)."
+knit_with_output "native-cmd:string" \
     "The resolved launcher command that was issued (launcher flags plus worker)."
 
 # ------------------------------------------------------------------------------

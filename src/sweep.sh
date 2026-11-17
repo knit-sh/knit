@@ -62,13 +62,13 @@ knit_with_flag "dry-run" \
 knit_with_dispatch "downstream" \
     "A knit command (submit/prepare/run, or a command) with sweep-syntax values."
 knit_with_table "${_KNIT_SWEEPS_TABLE}"
-knit_with_output "target:string" "" \
+knit_with_output "target:string" \
     "The downstream target: the job, app, or command name."
-knit_with_output "dispatcher:string" "" \
+knit_with_output "dispatcher:string" \
     "The downstream dispatcher: submit, prepare, run, or the command itself."
-knit_with_output "dimensions:string" "" \
+knit_with_output "dimensions:string" \
     "JSON object of the swept axes and their value lists."
-knit_with_output "count:integer" "0" \
+knit_with_output "count:integer" \
     "Number of points in the cartesian product."
 
 # ------------------------------------------------------------------------------

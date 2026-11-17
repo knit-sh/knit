@@ -340,8 +340,8 @@ _juliaenv_setup() {
 @with_optional "center-y:real"    "0"       "Imaginary-axis center of the view."
 @with_optional "zoom:real"        "1"       "Zoom factor (higher = closer in)."
 @with_required "output:string"              "PNG path (the render job supplies a per-run path)."
-@with_output   "inside:integer" "0"         "Grid points inside the set (recorded by rank 0)."
-@with_output   "image:string"   ""          "Path to the produced PNG (recorded by rank 0)."
+@with_output   "inside:integer" "Grid points inside the set (recorded by rank 0)." --unset "0"
+@with_output   "image:string" "Path to the produced PNG (recorded by rank 0)."
 _julia_app() {
     local width height c_re c_im max_iter colormap center_x center_y zoom output
     width=$(knit_get_parameter "width" "$@")

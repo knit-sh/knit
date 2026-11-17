@@ -498,7 +498,7 @@ teardown() {
     _ic_after_out() { knit_output "note" "from-after-cb"; }
     knit_register "ic_ocb" fn_ic_ocb "Test."
     knit_with_table
-    knit_with_output "note:string" "" "A note."
+    knit_with_output "note:string" "A note."
     knit_run_after _ic_after_out
     fn_ic_ocb() { :; }
     knit_done
@@ -512,7 +512,7 @@ teardown() {
     _ic_after_bad() { knit_output "num" "not-an-int"; }
     knit_register "ic_ocb2" fn_ic_ocb2 "Test."
     knit_with_table
-    knit_with_output "num:integer" "0" "A number."
+    knit_with_output "num:integer" "A number." --unset "0"
     knit_run_after _ic_after_bad
     fn_ic_ocb2() { :; }
     knit_done
@@ -525,7 +525,7 @@ teardown() {
     _ic_after_sup() { knit_output "note" "should-be-dropped"; }
     knit_register "ic_ocb3" fn_ic_ocb3 "Test."
     knit_with_table
-    knit_with_output "note:string" "" "A note."
+    knit_with_output "note:string" "A note."
     knit_run_after _ic_after_sup
     fn_ic_ocb3() { :; }
     knit_done

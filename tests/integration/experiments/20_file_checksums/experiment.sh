@@ -32,9 +32,9 @@ knit_set_program_description "file/directory checksum integration test experimen
 # --------------------------------------------------------------------------
 knit_register_job "process" __process_job_fn "Process a file into checksummed outputs."
 knit_with_required "input:file"           "Input data file (existence + sha256 recorded)."
-knit_with_output   "result:file"      ""  "The written result file (path + sha256 recorded)."
-knit_with_output   "tree:directory"   ""  "A directory tree, hashed recursively."
-knit_with_output   "scratch:directory" "" "Scratch tree, recorded by path only." --no-checksum
+knit_with_output   "result:file" "The written result file (path + sha256 recorded)."
+knit_with_output   "tree:directory" "A directory tree, hashed recursively."
+knit_with_output   "scratch:directory" "Scratch tree, recorded by path only." --no-checksum
 __process_job_fn() {
     local input
     input=$(knit_get_parameter "input" "$@")
@@ -63,7 +63,7 @@ knit_done
 # --------------------------------------------------------------------------
 knit_register_app "transform" __transform_app_fn "Transform a file on rank 0."
 knit_with_required "input:file"      "Input data file (hashed once by the dispatcher)."
-knit_with_output   "out:file"    ""  "The written output (checksum filled post-launch)."
+knit_with_output   "out:file" "The written output (checksum filled post-launch)."
 __transform_app_fn() {
     local input
     input=$(knit_get_parameter "input" "$@")

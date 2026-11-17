@@ -13,7 +13,7 @@ setup() {
 _register_fixture() {
     knit_register "greet" knit_empty "Say hello to someone."
     knit_with_optional "count:integer" "1" "Number of times to greet."
-    knit_with_output "greeting:string" "" "The produced greeting."
+    knit_with_output "greeting:string" "The produced greeting."
     knit_done
 
     knit_register "greet:formal" knit_empty "Greet formally."

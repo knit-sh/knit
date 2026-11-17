@@ -257,7 +257,7 @@ __test_register_cmd() {
 
 @test "setup table includes output as column" {
     knit_register "mycmd" knit_empty "A test command."
-    knit_with_output "result:real" "0.0" "The result."
+    knit_with_output "result:real" "The result." --unset "0.0"
     knit_with_table
     knit_done
     local names
@@ -360,7 +360,7 @@ __test_register_cmd() {
     knit_register "reccmd" _t_rec_fn "Rec."
     knit_with_optional "label:string" "def" "A label."
     knit_with_flag "verbose" "Verbose."
-    knit_with_output "result:string" "" "The result."
+    knit_with_output "result:string" "The result."
     knit_with_table "recs"
     _t_rec_fn() { knit_output "result" "computed"; }
     knit_done
@@ -379,7 +379,7 @@ __test_register_cmd() {
 @test "recording uses declared defaults for omitted optionals and unset outputs" {
     knit_register "defcmd" _t_def_fn "Def."
     knit_with_optional "label:string" "thedefault" "A label."
-    knit_with_output "result:string" "noresult" "The result."
+    knit_with_output "result:string" "The result." --unset "noresult"
     knit_with_table "defs"
     _t_def_fn() { :; }
     knit_done
@@ -388,6 +388,33 @@ __test_register_cmd() {
 
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT label FROM defs;")" = "thedefault" ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT result FROM defs;")" = "noresult" ]
+}
+
+@test "recording stores SQL NULL for an unset output with no --unset fallback" {
+    knit_register "nullcmd" _t_null_fn "Null."
+    knit_with_output "result:string" "The result."
+    knit_with_table "nulls"
+    _t_null_fn() { :; }
+    knit_done
+
+    _knit_invoke_command "nullcmd"
+
+    # The cell is a genuine SQL NULL, not the empty string.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT result IS NULL FROM nulls;")" = "1" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT count(*) FROM nulls WHERE result = '';")" = "0" ]
+}
+
+@test "recording stores a set output's value even when no --unset is declared" {
+    knit_register "setcmd" _t_set_fn "Set."
+    knit_with_output "result:string" "The result."
+    knit_with_table "setvals"
+    _t_set_fn() { knit_output "result" "produced"; }
+    knit_done
+
+    _knit_invoke_command "setcmd"
+
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT result FROM setvals;")" = "produced" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT result IS NULL FROM setvals;")" = "0" ]
 }
 
 @test "invoking a visible command without a table records an edge but no data row" {

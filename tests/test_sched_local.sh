@@ -292,6 +292,37 @@ teardown() {
         "SELECT native_cmd FROM jobs WHERE id='${ret_uuid}';")" ]
 }
 
+@test "_knit_prepare_build with an empty state records the <unknown> default" {
+    # The direct-submit case: build runs with an empty target state, so the row
+    # must fall to the declared "<unknown>" fallback rather than claim "submitted"
+    # before the scheduler has seen the job. _knit_submit_dispatch owns the
+    # "submitted" transition.
+    local setup="${_KNIT_TEST_SETUP_ROOT}/setup"
+    mkdir -p "${setup}"
+    printf 'mcenv\n' > "${setup}/.setup.type"
+    KNIT_SCRIPT_PATH="/fake/exp.sh"
+
+    _submit_myjob_fn() { :; }
+    knit_register_job "myjob" _submit_myjob_fn "test job"
+    knit_with_setup "mcenv"
+    knit_done
+    _knit_db_setup_table "submit" "jobs"
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+    _KNIT_EXECUTING_ROW_ID=("$(_knit_resolve_row_id submit)")
+
+    local ret_uuid ret_jobdir ret_alias ret_jobname
+    _knit_prepare_build ret_uuid ret_jobdir ret_alias ret_jobname \
+        "" --setup "setup" --nodes 2 -- myjob
+
+    # The row exists (so a blocking --wait dispatch has something to transition)
+    # but its state is the honest "<unknown>", not "submitted" or "prepared".
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='${ret_uuid}';")" = "<unknown>" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT job FROM jobs WHERE id='${ret_uuid}';")" = "myjob" ]
+}
+
 @test "_knit_submit_dispatch releases using the frozen .submit, not re-resolution" {
     _knit_db_setup_table "submit" "jobs"
 

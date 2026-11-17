@@ -66,11 +66,41 @@ _sql_resp() {
 
 @test "mode args map the format, headers, and separator" {
     local -a args
-    _knit_ai_query_mode_args args "box" "false" ""
-    [ "${args[*]}" = "-cmd .mode box -cmd .headers on" ]
+    _knit_ai_query_mode_args args "box" "false" "" "" "false"
+    [ "${args[*]}" = '-cmd .mode box -cmd .headers on -cmd .nullvalue "NULL"' ]
 
-    _knit_ai_query_mode_args args "csv" "true" ";"
-    [ "${args[*]}" = "-cmd .mode csv -cmd .headers off -cmd .separator ;" ]
+    _knit_ai_query_mode_args args "csv" "true" ";" "" "false"
+    [ "${args[*]}" = '-cmd .mode csv -cmd .headers off -cmd .separator ; -cmd .nullvalue ""' ]
+}
+
+@test "mode args pick the per-mode default NULL rendering" {
+    local -a args
+    # Display modes render a visible "NULL".
+    for m in list box table markdown column line html; do
+        _knit_ai_query_mode_args args "${m}" "false" "" "" "false"
+        [ "${args[*]}" = "-cmd .mode ${m} -cmd .headers on -cmd .nullvalue \"NULL\"" ]
+    done
+    # json is appended unconditionally (sqlite's json mode ignores .nullvalue).
+    _knit_ai_query_mode_args args "json" "false" "" "" "false"
+    [ "${args[*]}" = '-cmd .mode json -cmd .headers on -cmd .nullvalue "NULL"' ]
+    # Interchange modes render NULL as an empty field.
+    for m in csv tabs ascii; do
+        _knit_ai_query_mode_args args "${m}" "false" "" "" "false"
+        [ "${args[*]}" = "-cmd .mode ${m} -cmd .headers on -cmd .nullvalue \"\"" ]
+    done
+}
+
+@test "mode args honor an explicit --nullvalue override for any mode" {
+    local -a args
+    # Override wins on a display mode.
+    _knit_ai_query_mode_args args "box" "false" "" "N/A" "true"
+    [ "${args[*]}" = '-cmd .mode box -cmd .headers on -cmd .nullvalue "N/A"' ]
+    # An explicit empty override forces empty even on a display mode.
+    _knit_ai_query_mode_args args "list" "false" "" "" "true"
+    [ "${args[*]}" = '-cmd .mode list -cmd .headers on -cmd .nullvalue ""' ]
+    # Override also replaces the empty default of an interchange mode.
+    _knit_ai_query_mode_args args "csv" "false" "" "NIL" "true"
+    [ "${args[*]}" = '-cmd .mode csv -cmd .headers on -cmd .nullvalue "NIL"' ]
 }
 
 # ---------- _knit_ai_extract_query ----------

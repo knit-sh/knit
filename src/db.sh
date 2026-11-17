@@ -467,23 +467,30 @@ _knit_db_record_invocation() {
             done < <(_knit_set_iter "_KNIT_CMD_${cmd}_${group}" | sort)
         done
 
-        # Outputs: values come from the in-memory store, else the declared
-        # default. An artifact is not an output column (it is recorded in the
+        # Outputs: an output the body set with knit_output records that value; an
+        # output it did not set records its declared "--unset" fallback, or SQL
+        # NULL when none was declared (the honest "never produced" state). NULL is
+        # emitted unquoted — the only value in the row that is not a quoted
+        # literal. An artifact is not an output column (it is recorded in the
         # artifacts table with a "produced" edge and kept out of the outputs set),
         # so this loop never sees one.
         # shellcheck disable=SC2178 # nameref to the command's output-value array
         local -n outvals="_KNIT_CMD_${cmd}_output_value"
+        local unset_val
         while IFS= read -r name; do
             [[ -z "${name}" ]] && continue
-            if [[ -v outvals["${name}"] ]]; then
-                value="${outvals["${name}"]}"
-            else
-                _knit_output_default value "${cmd}" "${name}"
-            fi
             _knit_db_sql_ident col_ident "${name}"
             cols+=("${col_ident}")
-            _knit_sql_escape val_esc "${value}"
-            vals+=("'${val_esc}'")
+            if [[ -v outvals["${name}"] ]]; then
+                _knit_sql_escape val_esc "${outvals["${name}"]}"
+                vals+=("'${val_esc}'")
+            elif _knit_output_has_unset "${cmd}" "${name}"; then
+                _knit_output_unset_value unset_val "${cmd}" "${name}"
+                _knit_sql_escape val_esc "${unset_val}"
+                vals+=("'${val_esc}'")
+            else
+                vals+=("NULL")
+            fi
         done < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
     fi
 

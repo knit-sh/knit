@@ -31,8 +31,8 @@ _sample() {
 @claim "mean-above" \
     "The mean sample is at least @floor (mean @mean over @n samples)."
 @with_optional "floor:real"  "0" "Lower bound the mean must meet."
-@with_output   "mean:real"   "0" "Mean of the recorded samples."
-@with_output   "n:integer"   "0" "Number of recorded samples."
+@with_output   "mean:real" "Mean of the recorded samples."
+@with_output   "n:integer" "Number of recorded samples."
 _mean_above() {
     local floor n mean
     floor="$(knit_get_parameter "floor" "$@")"

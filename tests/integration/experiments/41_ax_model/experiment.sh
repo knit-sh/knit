@@ -11,13 +11,15 @@
 # path is exercised over both axis kinds at once. The objective is a closed-form
 # surrogate so trials are fast anywhere: score = 100 - (x-6)^2 - (k-2)^2.
 #
-# The plugin is pinned to the released tag (which ships the --model / ax predict
-# / ax show --diagnostics surface); the resolved commit freezes in
+# The plugin is temporarily pinned to the nullable-output migration branch (the
+# released v1.0.0 tag still uses the old knit_with_output API, but ships the
+# --model / ax predict / ax show --diagnostics surface); revert to ax@v1.0.0 once
+# that branch merges and the v1.0.0 tag is moved. The resolved commit freezes in
 # knit-plugins.lock on first import.
 
 source knit.sh
 
-knit_import ax@v1.0.0
+knit_import ax@mdorier/nullable-output
 
 knit_set_program_description "knit-ax surrogate-model (active-learning) integration test."
 
@@ -25,7 +27,7 @@ knit_register_job "surf" __surf_job_fn "Evaluate a 2-D closed-form surrogate (ra
 knit_without_setup
 knit_with_optional "x:real"    "0" "Continuous knob over [0..12]." --domain '[0..12]'
 knit_with_optional "k:integer" "1" "Discrete knob, varied over a {...} choice set."
-knit_with_output   "score:real" "0" "Surrogate score = 100 - (x-6)^2 - (k-2)^2."
+knit_with_output   "score:real" "Surrogate score = 100 - (x-6)^2 - (k-2)^2." --unset "0"
 __surf_job_fn() {
     local x k score
     x=$(knit_get_parameter "x" "$@")

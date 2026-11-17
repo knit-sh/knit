@@ -27,7 +27,7 @@ knit_set_program_description \
 knit_register_app "boom" __boom_app_fn "An app that opts out of recording on failure."
 knit_no_record_on_failure
 knit_with_optional "mode:string" "ok" "ok = succeed and record; fail = return non-zero."
-knit_with_output "observed:integer" "0" "World size observed by rank 0 (ok mode only)."
+knit_with_output "observed:integer" "World size observed by rank 0 (ok mode only)." --unset "0"
 __boom_app_fn() {
     local mode
     mode=$(knit_get_parameter "mode" "$@")

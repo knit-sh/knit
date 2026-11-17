@@ -15,9 +15,12 @@
 
 source knit.sh
 
-# Import the Ax plugin (it imports knit-uv in turn). Pinned to the released
-# tag; the resolved commit is frozen in knit-plugins.lock on first import.
-knit_import ax@v1.0.0
+# Import the Ax plugin (it imports knit-uv in turn). Temporarily pinned to the
+# nullable-output migration branch (the released v1.0.0 tag still uses the old
+# knit_with_output API); revert to ax@v1.0.0 once that branch merges and the
+# v1.0.0 tag is moved. The resolved commit is frozen in knit-plugins.lock on
+# first import.
+knit_import ax@mdorier/nullable-output
 
 knit_set_program_description "knit-ax Bayesian-optimization integration test experiment."
 
@@ -28,7 +31,7 @@ knit_with_optional "x:real"         "0" "The knob to optimize." --domain '[0..12
 # (named "quad" after the job). A bare knit_with_table would re-point it at the
 # "submit:quad" command name, splitting recording from where the objective is
 # read and leaving the optimizer unable to see each trial's score.
-knit_with_output   "score:real"     "0" "Surrogate score = 100 - (x - 6)^2 (max 100 at x = 6)."
+knit_with_output   "score:real" "Surrogate score = 100 - (x - 6)^2 (max 100 at x = 6)." --unset "0"
 __quad_job_fn() {
     local x score
     x=$(knit_get_parameter "x" "$@")

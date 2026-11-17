@@ -98,14 +98,17 @@ knit_with_flag "wait" "Block until the job completes; return its exit code."
 # not get the reserved "__exit_status__" column.
 knit_with_table "${_KNIT_JOBS_TABLE}"
 _knit_without_exit_status
-knit_with_output "job:string" "" "Name of the submitted job (the token after --)."
-knit_with_output "state:string" "submitted" "Lifecycle state of the submitted job (submitted, running, completed, failed, or killed)."
-knit_with_output "hostnames:string" "" \
+knit_with_output "job:string" "Name of the submitted job (the token after --)."
+knit_with_output "state:string" \
+    "Lifecycle state of the submitted job (submitted, running, completed, failed, or killed)." \
+    --unset "<unknown>"
+knit_with_output "hostnames:string" \
     "Comma-separated deduplicated nodes the job ran on (recorded at start)."
-knit_with_output "native-cmd:string" "" \
+knit_with_output "native-cmd:string" \
     "The resolved scheduler command that was issued to submit the job."
-knit_with_output "retries:integer" "0" \
-    "Number of times this job has been reset (re-queued) for a retry."
+knit_with_output "retries:integer" \
+    "Number of times this job has been reset (re-queued) for a retry." \
+    --unset "0"
 
 # ------------------------------------------------------------------------------
 # @fn _knit_submit()
@@ -136,8 +139,11 @@ _knit_submit() {
     # internal locals (uuid/jobdir/alias_link/job_name), or the nameref outputs
     # would be shadowed (see the nameref-shadow-collision convention).
     local out_uuid out_jobdir out_alias out_jobname
+    # The empty build-phase state leaves the row at its honest "<unknown>" default:
+    # the job is not submitted until _knit_submit_dispatch issues it (and that call
+    # sets state=submitted, or erases the row if the scheduler rejects it).
     _knit_prepare_build out_uuid out_jobdir out_alias out_jobname \
-        "submitted" "$@"
+        "" "$@"
     # _knit_submit_dispatch prints the job UUID (the canonical,
     # scheduler-independent identifier) as soon as the scheduler accepts the job —
     # before any --wait blocks — and then waits if requested. The
@@ -153,7 +159,7 @@ knit_done
 # Build a submission without dispatching it: the shared first phase of `submit`
 # and `prepare`. It validates the request (job known, usability, setup type,
 # argument check), creates the job directory <job-root>/<uuid> (and any --name
-# alias), records the jobs row in the target lifecycle state with an empty
+# alias), records the jobs row in the build-phase lifecycle state with an empty
 # native-cmd, emits the setup "used_by" provenance edge, resolves the scheduler
 # options and backend, generates the batch script .job.sh, and freezes the
 # resolved backend and options into a .submit metadata file so a later release
@@ -170,7 +176,11 @@ knit_done
 # @param[out] __knit_ret2  Out: the job directory <job-root>/<uuid>.
 # @param[out] __knit_ret3  Out: the --name alias symlink path (empty when none).
 # @param[out] __knit_ret4  Out: the job name (the token after --).
-# @param[in] target_state Lifecycle state to record ("submitted" or "prepared").
+# @param[in] target_state Lifecycle state to record at build. "prepared" for
+#                      `prepare` (affirmatively true, and matched by the drain
+#                      path). Empty for a direct `submit`, which leaves the state
+#                      at its "<unknown>" default until _knit_submit_dispatch
+#                      advances it to "submitted".
 # @param[in] ...          The submit CLI arguments (everything, including -- job args).
 # ------------------------------------------------------------------------------
 _knit_prepare_build() {
@@ -331,17 +341,28 @@ _knit_prepare_build() {
     # frame so the recording below (and any nested callee) sees it as the row id.
     knit_set_row_id "${uuid}"
 
-    # The two tracked outputs. knit_output would target the executing frame,
-    # which for `prepare` is not `submit`, so write them straight to submit's
-    # output map (both values are trivially valid for their declared string
-    # type). The --name alias and the other submission parameters are recorded
-    # automatically from the CLI args as their own columns. The state is the
-    # caller-chosen target state ("submitted" for a direct submit, "prepared" for
-    # `prepare`); native-cmd is left at its declared default (empty) and filled by
-    # _knit_submit_dispatch on release.
+    # The tracked "job" output. knit_output would target the executing frame,
+    # which for `prepare` is not `submit`, so write it straight to submit's output
+    # map (the value is trivially valid for its declared string type). The --name
+    # alias and the other submission parameters are recorded automatically from the
+    # CLI args as their own columns. native-cmd is left at its declared default
+    # (NULL) and filled by _knit_submit_dispatch on release.
     local -n _owner_outputs="_KNIT_CMD_${owner}_output_value"
     _owner_outputs["job"]="${job_name}"
-    _owner_outputs["state"]="${target_state}"
+
+    # Record the build-phase lifecycle state. `prepare` passes "prepared": that is
+    # affirmatively true once the batch script and .submit metadata are written,
+    # and it is also the state the drain path matches to find a job to release. A
+    # direct `submit` passes the empty string: at the end of build the job is NOT
+    # yet submitted (the scheduler has not seen it), so recording "submitted" here
+    # would claim a success that has not happened. Leaving the state unset records
+    # the honest "<unknown>" fallback instead; _knit_submit_dispatch advances the
+    # row to "submitted" when it issues the submission (and erases the row on a
+    # scheduler rejection). Keeping it unset rather than "prepared" also keeps an
+    # in-flight direct submit out of the drain path, which only claims "prepared".
+    if [[ -n "${target_state}" ]]; then
+        _owner_outputs["state"]="${target_state}"
+    fi
 
     # Record a "used_by" edge from the setup this job references (if any) to this
     # submission, so the setup can be reached from the job by id. Emitted here on

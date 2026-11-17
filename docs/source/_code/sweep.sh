@@ -17,7 +17,7 @@ knit_set_program_description "Sweep a job over a product of parameter values."
 @without_setup
 @with_optional "n:integer"      "1" "Number of steps." --domain '{1,2,4}'
 @with_table
-@with_output   "result:integer" "0" "Twice the step count (a stand-in result)."
+@with_output   "result:integer" "Twice the step count (a stand-in result)."
 _sim() {
     local n
     n=$(knit_get_parameter "n" "$@")

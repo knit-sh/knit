@@ -675,18 +675,38 @@ _knit_output_description() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_output_default()
+# @fn _knit_output_has_unset()
 #
-# This function returns the default value of an output for a given command.
+# Return 0 when an output declared an explicit "--unset <value>" fallback, 1 when
+# it did not (in which case an unset output records SQL NULL). Only the recording
+# path needs to tell these apart; a reader that just wants the fallback value uses
+# _knit_output_unset_value, which yields the empty string when none was declared.
 #
-# @param[out] __knit_ret Name of the variable to hold the default value.
 # @param[in] cmd Command to which the output belongs (must be mangled).
 # @param[in] output Name of the output (must be normalized).
 # ------------------------------------------------------------------------------
-_knit_output_default() {
+_knit_output_has_unset() {
+    local __has_var="_KNIT_CMD_${1}_3_${2}_has_unset"
+    [[ "${!__has_var}" == "true" ]]
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_output_unset_value()
+#
+# This function returns the "--unset <value>" fallback of an output for a given
+# command — the value to record when the body did not set the output. When the
+# output declared no fallback the result is the empty string; use
+# _knit_output_has_unset to tell "no fallback" (record NULL) apart from an empty
+# fallback.
+#
+# @param[out] __knit_ret Name of the variable to hold the fallback value.
+# @param[in] cmd Command to which the output belongs (must be mangled).
+# @param[in] output Name of the output (must be normalized).
+# ------------------------------------------------------------------------------
+_knit_output_unset_value() {
     local -n __knit_ret=$1
-    local __var="_KNIT_CMD_${2}_3_${3}_default"
-    __knit_ret="${!__var}"
+    local __val_var="_KNIT_CMD_${2}_3_${3}_unset"
+    __knit_ret="${!__val_var}"
 }
 
 # ------------------------------------------------------------------------------
@@ -2365,18 +2385,27 @@ _knit_pset_import_skip() {
 # must include a type annotation using the "name:type" syntax (e.g.
 # "result:integer").
 #
+# An output the command body never sets with knit_output records SQL NULL, the
+# honest "never produced" state. The optional "--unset <value>" declares a
+# fallback to record instead of NULL when the body does not set the output; the
+# value must match the declared type. Prefer NULL (no --unset) over an optimistic
+# fallback: a fallback is only honest when it genuinely holds for a body that
+# measured nothing.
+#
 # Example:
 # ```
 # knit_register "compute" "compute" "Compute something."
-# knit_with_output "result:real" "0.0" "The computed result."
+# knit_with_output "result:real" "The computed result."
 # compute() {
 #    ...
+#    knit_output result "${value}"
 # }
 # ```
 #
 # @param[in] param Output name followed by ":type".
-# @param[in] default Default value.
 # @param[in] description Description of the output.
+# @param[in] --unset Optional "--unset <value>"; value to record when the body
+#        does not set the output (default: SQL NULL). Must match the output type.
 # @param[in] --no-checksum Optional flag; for a file/directory output, disable the
 #        content checksum and its companion column.
 # @param[in] --result Optional flag; mark the output as a result (what the
@@ -2387,8 +2416,8 @@ knit_with_output() {
         knit_fatal "knit_with_output should be used after a call to \"knit_register\"."
     fi
     knit_reject_if_wrapper "knit_with_output"
-    knit_check_arguments "" "no-checksum result" "${@:4}" \
-        || knit_fatal "knit_with_output takes an output, a default, a description, and an optional --no-checksum and --result."
+    knit_check_arguments "unset" "no-checksum result" "${@:3}" \
+        || knit_fatal "knit_with_output takes an output, a description, and an optional --unset <value>, --no-checksum and --result."
     local param_spec="$1"
     if [[ "${param_spec}" != *:* ]]; then
         knit_fatal "Output \"${param_spec}\" is missing a type annotation (expected \"name:type\")."
@@ -2401,8 +2430,19 @@ knit_with_output() {
     if ! knit_type_exists "${param_type}"; then
         knit_fatal "Output \"${param_name}\" has unknown type \"${param_type}\"."
     fi
-    if [ -z "$3" ]; then
+    if [ -z "$2" ]; then
         knit_warning "Not describing output \"${param_name}\" undermines its understandability."
+    fi
+    # The --unset fallback is opt-in: without it, an unset output records NULL.
+    # When present, its value is type-checked here (like knit_output does for a
+    # recorded value) so a declaration-time mismatch is caught at registration.
+    local has_unset="false" unset_value=""
+    if _knit_decl_flag_present "unset" "${@:3}"; then
+        has_unset="true"
+        unset_value=$(knit_get_parameter "unset" "$@") || unset_value=""
+        if ! knit_type_check "${param_type}" "${unset_value}"; then
+            knit_fatal "Output \"${param_name}\" --unset expects type \"${param_type}\" but got \"${unset_value}\"."
+        fi
     fi
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local demangled_cmd="${_KNIT_CURRENT_COMMAND_DEMANGLED}"
@@ -2413,14 +2453,15 @@ knit_with_output() {
     # is rejected uniformly.
     _knit_reserve_name "_KNIT_CMD_${cmd}" "${demangled_cmd}" "Output" "${param_name}" "${output}"
     knit_trace "Adding output \"${param_name}\" (type: ${param_type}) to command \"${demangled_cmd}\"."
-    printf -v "_KNIT_CMD_${cmd}_3_${output}_description" '%s' "$3"
-    printf -v "_KNIT_CMD_${cmd}_3_${output}_default"     '%s' "$2"
+    printf -v "_KNIT_CMD_${cmd}_3_${output}_description" '%s' "$2"
+    printf -v "_KNIT_CMD_${cmd}_3_${output}_has_unset"   '%s' "${has_unset}"
+    printf -v "_KNIT_CMD_${cmd}_3_${output}_unset"       '%s' "${unset_value}"
     printf -v "_KNIT_CMD_${cmd}_3_${output}_type"        '%s' "${param_type}"
     _knit_set_add "_KNIT_CMD_${cmd}_outputs" "${output}"
     local no_checksum="false"
-    _knit_decl_flag_present "no-checksum" "${@:4}" && no_checksum="true"
+    _knit_decl_flag_present "no-checksum" "${@:3}" && no_checksum="true"
     _knit_register_checksum "output" "${param_type}" "${param_name}" "${no_checksum}"
-    if _knit_decl_flag_present "result" "${@:4}"; then
+    if _knit_decl_flag_present "result" "${@:3}"; then
         _knit_register_result "${param_name}"
     fi
 }
@@ -3924,7 +3965,9 @@ _knit_checksum_outputs() {
         if [[ -v _knit_co_out["${param}"] ]]; then
             value="${_knit_co_out["${param}"]}"
         else
-            _knit_output_default value "${cmd}" "${param}"
+            # Unset by the body: use its "--unset" fallback path, if any (the empty
+            # string when none — an output recording NULL has no path to hash).
+            _knit_output_unset_value value "${cmd}" "${param}"
         fi
         # An output left with no value has no path to check or hash.
         [[ -z "${value}" ]] && continue

@@ -17,8 +17,8 @@ teardown() {
 @test "knit_command_outputs returns declared outputs in declaration order" {
     knit_register "alpha" _alpha_fn "Alpha."
     knit_with_table "alphas"
-    knit_with_output "score:real" "0.0" "The score."
-    knit_with_output "label:string" "" "The label."
+    knit_with_output "score:real" "The score." --unset "0.0"
+    knit_with_output "label:string" "The label."
     _alpha_fn() { :; }
     knit_done
 
@@ -45,7 +45,7 @@ teardown() {
     knit_done
 
     knit_register "gamma:delta" _gd_fn "Nested."
-    knit_with_output "value:integer" "0" "A value."
+    knit_with_output "value:integer" "A value." --unset "0"
     _gd_fn() { :; }
     knit_done
 

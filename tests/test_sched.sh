@@ -62,9 +62,25 @@ _use_profile() {
 }
 
 @test "_knit_uuidv7 values are lexically time-ordered" {
+    # Deterministic ordering, independent of host date precision and scheduling:
+    # a date stub returns a strictly increasing millisecond on each call, so the
+    # uuidv7 timestamp prefix always advances between two ids. (The real wall-clock
+    # form — generate, sleep, generate — is flaky when the runner's `date` lacks
+    # millisecond (%3N) precision, e.g. under the coverage harness, where the ms
+    # prefix stops advancing and ordering collapses onto the random suffix.)
+    local counter="${BATS_TEST_TMPDIR}/uuidv7_ms"
+    printf '%s' 1000000000000 > "${counter}"
+    date() {
+        if [[ "$1" == "+%s%3N" ]]; then
+            local ms; ms="$(<"${counter}")"
+            printf '%s' "$(( ms + 1 ))" > "${counter}"
+            printf '%s' "${ms}"
+        else
+            command date "$@"
+        fi
+    }
     local a b
     a="$(_knit_uuidv7)"
-    sleep 0.01
     b="$(_knit_uuidv7)"
     [[ "${a}" < "${b}" ]]
 }

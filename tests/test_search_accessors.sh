@@ -267,7 +267,7 @@ setup() {
 
 @test "knit_output_type reads a declared output type" {
     knit_register "ot_cmd" knit_empty "A command."
-    knit_with_output "val-loss:real" "" "the loss"
+    knit_with_output "val-loss:real" "the loss"
     knit_done
     local t
     knit_output_type t "ot_cmd" "val_loss"
@@ -276,7 +276,7 @@ setup() {
 
 @test "knit_output_type normalizes hyphens and underscores" {
     knit_register "ot_norm" knit_empty "A command."
-    knit_with_output "best-acc:real" "" "accuracy"
+    knit_with_output "best-acc:real" "accuracy"
     knit_done
     local t
     knit_output_type t "ot_norm" "best-acc"

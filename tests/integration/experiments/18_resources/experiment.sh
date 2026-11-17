@@ -44,7 +44,7 @@ knit_register "combine" _combine "Read a fetched source tree and dataset."
 knit_with_resource "src:srctree"  "Name of the fetched source tree instance."
 knit_with_resource "data:dataset" "Name of the fetched dataset instance."
 knit_with_table
-knit_with_output "records:integer" "0" "Number of dataset records read."
+knit_with_output "records:integer" "Number of dataset records read." --unset "0"
 _combine() {
     local srcdir datadir
     srcdir="$(knit_resource_path "$(knit_get_parameter src "$@")")"

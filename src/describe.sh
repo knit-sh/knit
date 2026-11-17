@@ -587,18 +587,26 @@ _knit_describe_json_output() {
     local indent="$3"
     local inner="${indent}${_KNIT_DESCRIBE_JSON_IND}"
     local cs="${_KNIT_DESCRIBE_JSON_CS}"
-    local dname type dflt desc
+    local dname type desc
     _knit_str_underscores_to_hyphens dname "${output}"
     _knit_output_type type "${cmd}" "${output}"
-    _knit_output_default dflt "${cmd}" "${output}"
     _knit_output_description desc "${cmd}" "${output}"
     local entries=() s e
     _knit_describe_json_str s "${dname}"
     printf -v e '%s"name":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     _knit_describe_json_str s "${type}"
     printf -v e '%s"type":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
-    _knit_describe_json_str s "${dflt}"
-    printf -v e '%s"default":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
+    # The "--unset" fallback: the sentinel string when declared, else literal JSON
+    # null (an unset output records SQL NULL). A sentinel literally "null" stays a
+    # quoted JSON string, distinct from this bare null.
+    if _knit_output_has_unset "${cmd}" "${output}"; then
+        local uval
+        _knit_output_unset_value uval "${cmd}" "${output}"
+        _knit_describe_json_str s "${uval}"
+    else
+        s="null"
+    fi
+    printf -v e '%s"unset":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     _knit_describe_json_str s "${desc}"
     printf -v e '%s"description":%s%s' "${inner}" "${cs}" "${s}"; entries+=("${e}")
     local is_result=false
@@ -1129,17 +1137,25 @@ _knit_describe_yaml_output() {
     local cmd="$1" output="$2" item_indent="$3"
     local key="${item_indent}  "
     local cont="${key}  "
-    local dname type dflt desc sc
+    local dname type desc sc
     _knit_str_underscores_to_hyphens dname "${output}"
     _knit_output_type type "${cmd}" "${output}"
-    _knit_output_default dflt "${cmd}" "${output}"
     _knit_output_description desc "${cmd}" "${output}"
     _knit_describe_yaml_scalar sc "${dname}" "${cont}"
     printf '%s- name: %s\n' "${item_indent}" "${sc}"
     _knit_describe_yaml_scalar sc "${type}" "${cont}"
     printf '%stype: %s\n' "${key}" "${sc}"
-    _knit_describe_yaml_scalar sc "${dflt}" "${cont}"
-    printf '%sdefault: %s\n' "${key}" "${sc}"
+    # The "--unset" fallback: the sentinel scalar when declared, else bare null (an
+    # unset output records SQL NULL). A sentinel literally "null" is emitted quoted
+    # by _knit_describe_yaml_scalar, so it stays distinct from this bare null.
+    if _knit_output_has_unset "${cmd}" "${output}"; then
+        local uval
+        _knit_output_unset_value uval "${cmd}" "${output}"
+        _knit_describe_yaml_scalar sc "${uval}" "${cont}"
+    else
+        sc="null"
+    fi
+    printf '%sunset: %s\n' "${key}" "${sc}"
     _knit_describe_yaml_scalar sc "${desc}" "${cont}"
     printf '%sdescription: %s\n' "${key}" "${sc}"
     local is_result=false
@@ -1571,9 +1587,10 @@ _knit_describe_default_options() {
 # @fn _knit_describe_default_outputs()
 #
 # Print a command's "Outputs" section for the human-readable format (name, then
-# "[type, default: '…'] description", with a trailing ", result" in the bracket
-# for an output that carries "--result"). An artifact is not an output column, so
-# it is not listed here; it gets its own "Artifacts" section.
+# "[type, unset: '…'] description", or "[type, unset: null]" for an output with no
+# "--unset" fallback, with a trailing ", result" in the bracket for an output that
+# carries "--result"). An artifact is not an output column, so it is not listed
+# here; it gets its own "Artifacts" section.
 #
 # @param[in] cmd       Mangled command name.
 # @param[in] use_color "true" to emit ANSI styling in the header.
@@ -1596,13 +1613,21 @@ _knit_describe_default_outputs() {
     done
 
     _knit_describe_default_heading "Outputs" "${use_color}" "${indent}"
-    local type dflt desc ann
+    local type desc ann
     for o in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens o2 "${o}"
         _knit_output_type type "${cmd}" "${o}"
-        _knit_output_default dflt "${cmd}" "${o}"
         _knit_output_description desc "${cmd}" "${o}"
-        ann="${type}, default: '${dflt}'"
+        # The "--unset" fallback: the sentinel (quoted) when declared, else bare
+        # "null" (an unset output records SQL NULL). A sentinel literally "null"
+        # stays quoted, so it reads differently from this bare null.
+        if _knit_output_has_unset "${cmd}" "${o}"; then
+            local uval
+            _knit_output_unset_value uval "${cmd}" "${o}"
+            ann="${type}, unset: '${uval}'"
+        else
+            ann="${type}, unset: null"
+        fi
         _knit_describe_is_result "${cmd}" "${o}" && ann+=", result"
         printf '%s%-*s  [%s] %s\n' "${cind}" "${max}" "${o2}" "${ann}" "${desc}"
     done
@@ -1960,17 +1985,25 @@ _knit_describe_md_outputs() {
     local cmd="$1"
     printf '#### Outputs\n\n'
     local -a rows=()
-    local o dname type dflt desc dcell row c_name c_type c_desc res
+    local o dname type desc dcell row c_name c_type c_desc res
     local -a __items
     _knit_set_array __items "_KNIT_CMD_${cmd}_outputs"
     for o in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens dname "${o}"
         _knit_output_type type "${cmd}" "${o}"
-        _knit_output_default dflt "${cmd}" "${o}"
         _knit_output_description desc "${cmd}" "${o}"
         res=""
         _knit_describe_is_result "${cmd}" "${o}" && res="result"
-        _knit_describe_md_code dcell "${dflt}"
+        # The "--unset" fallback: the sentinel as a code cell when declared, else a
+        # bare "null" (an unset output records SQL NULL). A sentinel literally
+        # "null" renders as `null` (code), distinct from this bare null.
+        if _knit_output_has_unset "${cmd}" "${o}"; then
+            local uval
+            _knit_output_unset_value uval "${cmd}" "${o}"
+            _knit_describe_md_code dcell "${uval}"
+        else
+            dcell="null"
+        fi
         _knit_describe_md_code c_name "${dname}"
         _knit_describe_md_cell c_type "${type}"
         _knit_describe_md_cell c_desc "${desc}"
@@ -1983,8 +2016,8 @@ _knit_describe_md_outputs() {
         printf '*None.*\n'
         return
     fi
-    printf '| Name | Type | Default | Result | Description |\n'
-    printf '|------|------|---------|--------|-------------|\n'
+    printf '| Name | Type | Unset | Result | Description |\n'
+    printf '|------|------|-------|--------|-------------|\n'
     local r
     for r in "${rows[@]}"; do printf '%s\n' "${r}"; done
 }

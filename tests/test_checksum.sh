@@ -132,7 +132,7 @@ _has_col() {
     local f="${BATS_TEST_TMPDIR}/out.txt"
     knit_register "cs_out" fn_cs_out "Test."
     knit_with_table
-    knit_with_output "result:file" "" "The output."
+    knit_with_output "result:file" "The output."
     fn_cs_out() { printf 'produced\n' > "${f}"; knit_output "result" "${f}"; }
     knit_done
     _knit_invoke_command "cs_out"
@@ -145,7 +145,7 @@ _has_col() {
 @test "a declared output missing on a successful completion is fatal" {
     knit_register "cs_out_miss" fn_cs_out_miss "Test."
     knit_with_table
-    knit_with_output "result:file" "" "The output."
+    knit_with_output "result:file" "The output."
     fn_cs_out_miss() { knit_output "result" "${BATS_TEST_TMPDIR}/never.txt"; }
     knit_done
     run _knit_invoke_command "cs_out_miss"
@@ -153,11 +153,28 @@ _has_col() {
     [[ "$output" == *"was not produced"* ]]
 }
 
+@test "an unset file output with no --unset fallback is skipped, not enforced" {
+    # The body succeeds but never calls knit_output, and the output declares no
+    # --unset fallback: there is no path to check or hash, so existence is NOT
+    # enforced (no "was not produced" fatal) and the column records SQL NULL.
+    knit_register "cs_out_unset" fn_cs_out_unset "Test."
+    knit_with_table
+    knit_with_output "result:file" "The output."
+    fn_cs_out_unset() { :; }
+    knit_done
+    run _knit_invoke_command "cs_out_unset"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"was not produced"* ]]
+    # The output column is NULL (no value, no checksum).
+    [ "$(_col "result IS NULL" cs_out_unset)" = "1" ]
+    [ "$(_col result_checksum cs_out_unset)" = "" ]
+}
+
 @test "a directory output is hashed recursively" {
     local d="${BATS_TEST_TMPDIR}/otree"
     knit_register "cs_dout" fn_cs_dout "Test."
     knit_with_table
-    knit_with_output "result:directory" "" "The output tree."
+    knit_with_output "result:directory" "The output tree."
     fn_cs_dout() {
         mkdir -p "${d}/sub"
         printf 'x\n' > "${d}/x.txt"
@@ -174,7 +191,7 @@ _has_col() {
 @test "output existence is not checked when the body fails" {
     knit_register "cs_fail" fn_cs_fail "Test."
     knit_with_table
-    knit_with_output "result:file" "" "The output."
+    knit_with_output "result:file" "The output."
     fn_cs_fail() { return 3; }
     knit_done
     run _knit_invoke_command "cs_fail"
@@ -190,7 +207,7 @@ _has_col() {
     local f="${BATS_TEST_TMPDIR}/partial.txt"
     knit_register "cs_fail_out" fn_cs_fail_out "Test."
     knit_with_table
-    knit_with_output "result:file" "" "The output."
+    knit_with_output "result:file" "The output."
     # A failed body that still produced its output: the partial result is
     # recorded and hashed, capturing what the failure left behind.
     fn_cs_fail_out() { printf 'partial\n' > "${f}"; knit_output "result" "${f}"; return 5; }
@@ -207,7 +224,7 @@ _has_col() {
 @test "a missing output declared by a failed body does not fatal" {
     knit_register "cs_fail_miss" fn_cs_fail_miss "Test."
     knit_with_table
-    knit_with_output "result:file" "" "The output."
+    knit_with_output "result:file" "The output."
     # The body names an output it never produced, then fails: skipped (not fatal),
     # so the row is still recorded with the path but no checksum.
     fn_cs_fail_miss() { knit_output "result" "${BATS_TEST_TMPDIR}/never.txt"; return 4; }

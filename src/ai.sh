@@ -680,22 +680,37 @@ _knit_ai_ask() {
 # @fn _knit_ai_query_mode_args()
 #
 # Translate an `ai query --format` value (a `query_format` enum value) plus the
-# `--no-header`/`--separator` options into the sequence of sqlite3 `-cmd ".mode
-# …"` arguments that select the requested output mode, filled into the caller's
-# array by nameref. The enum values map 1:1 onto sqlite3 `.mode` names, so no
-# lookup table is needed. Headers are on by default (`.headers on`) and turned
-# off by `--no-header`; a non-empty separator overrides the mode default.
+# `--no-header`/`--separator`/`--nullvalue` options into the sequence of sqlite3
+# `-cmd ".mode …"` arguments that select the requested output mode, filled into
+# the caller's array by nameref. The enum values map 1:1 onto sqlite3 `.mode`
+# names, so no lookup table is needed. Headers are on by default (`.headers on`)
+# and turned off by `--no-header`; a non-empty separator overrides the mode
+# default.
+#
+# A `.nullvalue` dot-command is always appended so SQL NULL renders deliberately.
+# sqlite's `.mode json` emits native JSON `null` regardless of `.nullvalue`; every
+# text mode obeys it. The rendering is chosen so NULL reads sensibly per mode: an
+# explicit --nullvalue (nullvalue_present "true") wins for any mode; otherwise the
+# interchange modes (csv/tabs/ascii) render NULL as an empty field — their
+# convention for a missing value — and the display modes render the literal
+# "NULL", since a visible null beats a blank when a human reads raw rows. The
+# value is double-quoted in the dot-command so an empty or space-bearing value is
+# passed through intact (a value containing a double quote is not supported).
 #
 # @param[out] __knit_ret Name of the array variable to fill with the sqlite3 args.
 # @param[in] format The query_format enum value (e.g. "box", "csv").
 # @param[in] no_header "true" to omit column headers.
 # @param[in] separator Optional column separator for csv/list modes.
+# @param[in] nullvalue The --nullvalue override (used only when present is "true").
+# @param[in] nullvalue_present "true" when the user gave --nullvalue explicitly.
 # ------------------------------------------------------------------------------
 _knit_ai_query_mode_args() {
     local -n __knit_ret=$1
     local format="$2"
     local no_header="$3"
     local separator="$4"
+    local nullvalue="$5"
+    local nullvalue_present="$6"
 
     __knit_ret=(-cmd ".mode ${format}")
     if [[ "${no_header}" == "true" ]]; then
@@ -704,6 +719,17 @@ _knit_ai_query_mode_args() {
         __knit_ret+=(-cmd ".headers on")
     fi
     [[ -n "${separator}" ]] && __knit_ret+=(-cmd ".separator ${separator}")
+
+    local nv
+    if [[ "${nullvalue_present}" == "true" ]]; then
+        nv="${nullvalue}"
+    else
+        case "${format}" in
+            csv|tabs|ascii) nv="" ;;
+            *)              nv="NULL" ;;
+        esac
+    fi
+    __knit_ret+=(-cmd ".nullvalue \"${nv}\"")
     return 0
 }
 
@@ -949,6 +975,8 @@ ${summary}"
 # @param[in] separator Optional column separator for csv/list modes.
 # @param[in] lang Pinned language ("auto"/"sql"/"cypher"); "auto" defers to the
 #             per-statement detection, sql/cypher override it.
+# @param[in] nullvalue The --nullvalue override (used only when present is "true").
+# @param[in] nullvalue_present "true" when --nullvalue was given explicitly.
 # @param[in] lens_array Optional name of the resolved lens database array (current
 #             first, extras after). When given, generated SQL runs over that
 #             read-only lens; when empty, SQL runs directly on the read path (used
@@ -968,7 +996,9 @@ _knit_ai_query_loop() {
     local no_header="${10}"
     local separator="${11}"
     local lang_pinned="${12}"
-    local lens_array="${13:-}"
+    local nullvalue="${13:-}"
+    local nullvalue_present="${14:-false}"
+    local lens_array="${15:-}"
 
     local messages
     # shellcheck disable=SC2016 # $system/$question are jq variables, not shell
@@ -978,7 +1008,8 @@ _knit_ai_query_loop() {
         '[{role: "system", content: $system}, {role: "user", content: $question}]')
 
     local -a mode_args=()
-    _knit_ai_query_mode_args mode_args "${format}" "${no_header}" "${separator}"
+    _knit_ai_query_mode_args mode_args "${format}" "${no_header}" "${separator}" \
+        "${nullvalue}" "${nullvalue_present}"
 
     # Cypher backend prep (loop-invariant; built once). The live name<->table map
     # lets a node label be written as either a table name or its command name.
@@ -1172,6 +1203,13 @@ _knit_ai_query() {
     format="$(knit_get_parameter "format" "$@")"
     no_header="$(knit_get_parameter "no-header" "$@")" || no_header="false"
     separator="$(knit_get_parameter "separator" "$@")"
+    # The --nullvalue override, and whether it was given at all: an explicit empty
+    # value ("--nullvalue ''") must override a display mode's "NULL" default, which
+    # the spliced-in default cannot express, so presence is read from the raw args.
+    local nullvalue nullvalue_present="false"
+    nullvalue="$(knit_get_parameter "nullvalue" "$@")" || nullvalue=""
+    _knit_arg_was_provided "nullvalue" "${_KNIT_INVOCATION_RAW_ARGS[@]}" \
+        && nullvalue_present="true"
     max_iterations="$(knit_get_parameter "max-iterations" "$@")"
     model="$(knit_get_parameter "model" "$@")"
     query_only="$(knit_get_parameter "query-only" "$@")" || query_only="false"
@@ -1200,7 +1238,7 @@ _knit_ai_query() {
     _knit_ai_query_loop "${base_url}" "${api_key}" "${resolved_model}" \
         "${question}" "${system_prompt}" "${max_iterations}" "${verbose}" \
         "${query_only}" "${format}" "${no_header}" "${separator}" "${lang}" \
-        lens_dbs || status=$?
+        "${nullvalue}" "${nullvalue_present}" lens_dbs || status=$?
     _knit_query_cleanup_tmps lens_tmps
     return "${status}"
 }
@@ -1251,6 +1289,8 @@ _knit_ai_discover() {
         "Omit column headers (tabular/CSV modes)."
     knit_with_optional "separator:string" "" \
         "Column separator for csv/list modes (defaults to the sqlite default)."
+    knit_with_optional "nullvalue:string" "" \
+        "String shown for a NULL cell. Defaults per mode: empty for csv/tabs/ascii, native null for json, \"NULL\" for the display modes."
     knit_with_optional "max-iterations:integer" "3" \
         "Cap on generate -> run -> fix rounds."
     knit_with_optional "model:string" "" \

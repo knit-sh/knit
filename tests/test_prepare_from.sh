@@ -12,14 +12,6 @@ setup() {
 
     knit_test_db_setup
 
-    # Order prepared jobs deterministically. _ordered_uuids sorts by the uuidv7
-    # "id", whose leading bits are a millisecond timestamp; the two jobs a matrix
-    # block creates land in the same millisecond, so without a sub-millisecond
-    # tiebreaker their "ORDER BY id" is random (the /dev/urandom tail). This flag
-    # makes that tail order by creation within a millisecond, so combination order
-    # is stable --- on a fast CI runner as much as locally.
-    export _KNIT_UUIDV7_MONOTONIC=1
-
     _KNIT_JQ_EXE="jq"
     _KNIT_TEST_TMPDIR="$(mktemp -d)"
 
@@ -168,10 +160,14 @@ _zoom_of() {
     [[ "${script}" =~ --zoom\ ([^\ ]+) ]] && printf '%s' "${BASH_REMATCH[1]}"
 }
 
-# Prepared job UUIDs in ascending id order (uuidv7 => prepare order).
+# Prepared job UUIDs in preparation order. Ordering is by SQLite's implicit
+# "rowid", which increases with each INSERT, so this is exactly the order
+# "prepare from" created the rows --- deterministic without depending on the
+# uuidv7 "id" being time-monotonic (which flakes when many rows land in the same
+# millisecond and the host clock has coarse sub-millisecond resolution).
 _ordered_uuids() {
     sqlite3 "${_KNIT_DATABASE}" \
-        "SELECT id FROM jobs WHERE state='prepared' ORDER BY id ASC;"
+        "SELECT id FROM jobs WHERE state='prepared' ORDER BY rowid ASC;"
 }
 
 @test "prepare from renders object args as --key value" {

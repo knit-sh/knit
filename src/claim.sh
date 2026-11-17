@@ -125,7 +125,7 @@ knit_done
 # knit_register_claim "a-beats-b" "a_beats_b" \
 #     "Algo A beats algo B by @p percent on @d."
 # knit_with_required "d:string"  "Dataset name."
-# knit_with_output   "p:integer" "0" "Measured margin, percent."
+# knit_with_output   "p:integer" "Measured margin, percent."
 # a_beats_b() {
 #   ...
 #   knit_output p "${margin}"
@@ -166,9 +166,9 @@ knit_register_claim() {
     # outputs so the table schema gains them and the standard row recorder fills
     # them from the output store: the resolved English statement, and the verdict.
     # They are written only on "claim check --record" (see _knit_claim_record).
-    knit_with_output "${_KNIT_CLAIM_STATEMENT_COLUMN}:string" "" \
+    knit_with_output "${_KNIT_CLAIM_STATEMENT_COLUMN}:string" \
         "Resolved English statement of a recorded evaluation (framework-filled)."
-    knit_with_output "${_KNIT_CLAIM_VERDICT_COLUMN}:string" "" \
+    knit_with_output "${_KNIT_CLAIM_VERDICT_COLUMN}:string" \
         "Verdict of a recorded evaluation: holds, refuted, or insufficient (framework-filled)."
     _KNIT_CLAIMS["${normalized_name}"]=1
     printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_type" '%s' 'claim'
@@ -232,16 +232,27 @@ _knit_claim_token_value() {
     local name
     _knit_name_normalize name "${raw_name}"
 
-    # An output: its recorded value, else its declared default.
+    # An output. In order: the value the checker recorded via knit_output; else the
+    # author's declared "--unset" fallback; else a visible "never measured" marker,
+    # with a warning. The marker is "<unset>" — distinct from the "<unknown>"
+    # not-detected sentinel (unset is "the checker produced nothing", not "we looked
+    # and could not tell"). Interpolating a fabricated or empty value instead would
+    # read as a plausible-but-false sentence, which is the bug this fixes.
     if _knit_set_find "_KNIT_CMD_${cmd}_outputs" "${name}"; then
         # shellcheck disable=SC2178 # nameref to the command's output-value array
         local -n _claim_outvals="_KNIT_CMD_${cmd}_output_value"
         if [[ -v _claim_outvals["${name}"] ]]; then
             __knit_ret="${_claim_outvals["${name}"]}"
-        else
+        elif _knit_output_has_unset "${cmd}" "${name}"; then
             local def
-            _knit_output_default def "${cmd}" "${name}"
+            _knit_output_unset_value def "${cmd}" "${name}"
             __knit_ret="${def}"
+        else
+            local display
+            _knit_command_display display "${cmd}"
+            knit_warning "claim \"%s\": output \"@%s\" was never set by the checker and has no --unset fallback; rendering it as \"<unset>\"." \
+                "${display}" "${raw_name}"
+            __knit_ret="<unset>"
         fi
         return 0
     fi

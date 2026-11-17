@@ -124,7 +124,7 @@ teardown() {
         --value "${_KNIT_TEST_TMPDIR}/artifacts"
     knit_register "art_cols" fn_art_cols "Test."
     knit_with_table
-    knit_with_output "note:string" "" "A plain output."
+    knit_with_output "note:string" "A plain output."
     knit_with_output_artifact "table:file" "The results table."
     fn_art_cols() {
         local out; out="$(knit_artifact_dir)"
@@ -263,7 +263,7 @@ teardown() {
     knit_with_output_artifact "table:file" "The results table."
     # An artifact shares the command's name space, so the name is taken even though
     # the artifact is not itself an output column.
-    run knit_with_output "table:string" "" "Collides."
+    run knit_with_output "table:string" "Collides."
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"collides with a declared artifact"* ]]
     knit_done
@@ -271,7 +271,7 @@ teardown() {
 
 @test "knit_with_output_artifact rejects a name already used by an output" {
     knit_register "art_cmd_18" knit_empty "A test command."
-    knit_with_output "table:string" "" "An ordinary output."
+    knit_with_output "table:string" "An ordinary output."
     run knit_with_output_artifact "table:file" "Collides."
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"collides with a declared output"* ]]
@@ -621,7 +621,7 @@ _use_artifacts_root() {
     _use_artifacts_root
     knit_register "bind_undecl" fn_bind_undecl "Test."
     knit_with_table
-    knit_with_output "value:string" "" "An ordinary output."
+    knit_with_output "value:string" "An ordinary output."
     fn_bind_undecl() {
         local out; out="$(knit_artifact_dir)"
         mkdir -p "${out}"

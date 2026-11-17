@@ -18,7 +18,7 @@ _register_fixture() {
     knit_with_optional "shade:color" "red" "Color of the greeting." \
         --when "count > 1"
     knit_with_flag "capitalize" "Make the output upper-case."
-    knit_with_output "greeting:string" "" "The produced greeting."
+    knit_with_output "greeting:string" "The produced greeting."
     knit_with_table
     knit_done
 
@@ -141,11 +141,12 @@ _force_no_color() { _knit_stdout_is_terminal() { return 1; }; }
     [[ "${output}" == *'when: count > 1'* ]]
 }
 
-@test "outputs are listed with type and default" {
+@test "outputs are listed with type and unset fallback" {
     _force_no_color
     run knit describe --format default --only greet
     [ "$status" -eq 0 ]
-    [[ "${output}" == *"[string, default: '']"* ]]
+    # greeting declares no --unset, so its fallback is literal null (records NULL).
+    [[ "${output}" == *"[string, unset: null]"* ]]
 }
 
 @test "a subcommand is printed as its own block by full name" {

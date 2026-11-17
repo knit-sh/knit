@@ -148,7 +148,7 @@ teardown() {
 @test "worker suppresses recording on non-root ranks (output ignored)" {
     _app_fn() { knit_output "result" "42"; }
     knit_register_app "myapp" "_app_fn" "A test app."
-    knit_with_output "result:integer" "0" "The result."
+    knit_with_output "result:integer" "The result." --unset "0"
     knit_done
     export KNIT_JOB_PREFIX="${BATS_TEST_TMPDIR}/job"
     export OMPI_COMM_WORLD_RANK=1
@@ -162,7 +162,7 @@ teardown() {
 @test "worker records on rank 0 (output kept)" {
     _app_fn() { knit_output "result" "42"; }
     knit_register_app "myapp" "_app_fn" "A test app."
-    knit_with_output "result:integer" "0" "The result."
+    knit_with_output "result:integer" "The result." --unset "0"
     knit_done
     export KNIT_JOB_PREFIX="${BATS_TEST_TMPDIR}/job"
     export OMPI_COMM_WORLD_RANK=0

@@ -16,16 +16,20 @@ teardown() {
 # ---------- _knit_query_read_output_opts ----------
 
 @test "read output opts applies defaults (list, header off, empty separator)" {
-    local fmt hdr sep
-    _knit_query_read_output_opts fmt hdr sep
+    local fmt hdr sep nv nvp
+    _KNIT_INVOCATION_RAW_ARGS=()
+    _knit_query_read_output_opts fmt hdr sep nv nvp
     [ "${fmt}" = "list" ]
     [ "${hdr}" = "false" ]
     [ -z "${sep}" ]
+    [ -z "${nv}" ]
+    [ "${nvp}" = "false" ]
 }
 
 @test "read output opts reads provided --format/--header/--separator" {
-    local fmt hdr sep
-    _knit_query_read_output_opts fmt hdr sep \
+    local fmt hdr sep nv nvp
+    _KNIT_INVOCATION_RAW_ARGS=()
+    _knit_query_read_output_opts fmt hdr sep nv nvp \
         --format json --header true --separator ","
     [ "${fmt}" = "json" ]
     [ "${hdr}" = "true" ]
@@ -33,10 +37,26 @@ teardown() {
 }
 
 @test "read output opts keeps header off when the flag is absent" {
-    local fmt hdr sep
-    _knit_query_read_output_opts fmt hdr sep --format csv
+    local fmt hdr sep nv nvp
+    _KNIT_INVOCATION_RAW_ARGS=()
+    _knit_query_read_output_opts fmt hdr sep nv nvp --format csv
     [ "${fmt}" = "csv" ]
     [ "${hdr}" = "false" ]
+}
+
+@test "read output opts reads --nullvalue value and presence from raw args" {
+    local fmt hdr sep nv nvp
+    # Presence is read from the raw invocation tokens, so an explicit empty value
+    # is still detected as provided (distinct from the unset default).
+    _KNIT_INVOCATION_RAW_ARGS=(--nullvalue "")
+    _knit_query_read_output_opts fmt hdr sep nv nvp --nullvalue ""
+    [ -z "${nv}" ]
+    [ "${nvp}" = "true" ]
+
+    _KNIT_INVOCATION_RAW_ARGS=(--nullvalue "N/A")
+    _knit_query_read_output_opts fmt hdr sep nv nvp --nullvalue "N/A"
+    [ "${nv}" = "N/A" ]
+    [ "${nvp}" = "true" ]
 }
 
 # ---------- _knit_query_table_alias ----------
@@ -462,6 +482,50 @@ _seed_two_platforms() {
         "${BATS_TEST_TMPDIR}/x.db"
     [ "$status" -eq 0 ]
     [ "${lines[0]}" = "used_by:j1" ]
+}
+
+# ---------- query sql NULL rendering (end to end) ----------
+
+@test "query sql renders NULL as the literal NULL in a display mode" {
+    knit_test_require_sqlite
+    _KNIT_INVOCATION_RAW_ARGS=()
+    run _knit_query_sql --exec "SELECT NULL AS v;" --format list
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "NULL" ]
+}
+
+@test "query sql renders NULL as an empty field in csv" {
+    knit_test_require_sqlite
+    _KNIT_INVOCATION_RAW_ARGS=()
+    run _knit_query_sql --exec "SELECT NULL AS a, 1 AS b;" --format csv
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = ",1" ]
+}
+
+@test "query sql renders NULL as JSON null in json mode" {
+    knit_test_require_sqlite
+    _KNIT_INVOCATION_RAW_ARGS=()
+    run _knit_query_sql --exec "SELECT NULL AS a;" --format json
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *'"a":null'* ]]
+}
+
+@test "query sql --nullvalue overrides the per-mode default" {
+    knit_test_require_sqlite
+    # Presence is read from the raw invocation tokens, so set them to match the
+    # direct body call (normally _knit_invoke_command publishes these).
+    _KNIT_INVOCATION_RAW_ARGS=(--exec "SELECT NULL AS v;" --format list --nullvalue "N/A")
+    run _knit_query_sql --exec "SELECT NULL AS v;" --format list --nullvalue "N/A"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "N/A" ]
+}
+
+@test "query sql --nullvalue empty forces a blank in a display mode" {
+    knit_test_require_sqlite
+    _KNIT_INVOCATION_RAW_ARGS=(--exec "SELECT NULL AS v;" --format list --nullvalue "")
+    run _knit_query_sql --exec "SELECT NULL AS v;" --format list --nullvalue ""
+    [ "$status" -eq 0 ]
+    [ -z "${lines[0]}" ]
 }
 
 # ---------- query sql --extra (end to end) ----------

@@ -52,11 +52,11 @@ knit_done
 knit_register_job "probe" __probe_job \
     "Report the environment composed by the setup."
 knit_with_setup "toolenv"
-knit_with_output "greeting:string"  "" "TOOL_GREETING declared by the setup."
-knit_with_output "banner:string"    "" "TOOL_BANNER built by the activate line."
-knit_with_output "data_path:string" "" "TOOL_DATA_PATH appended by the setup."
-knit_with_output "legacy:string"    "" "TOOL_LEGACY (set then unset by the setup)."
-knit_with_output "path:string"      "" "The job's PATH after activation."
+knit_with_output "greeting:string" "TOOL_GREETING declared by the setup."
+knit_with_output "banner:string" "TOOL_BANNER built by the activate line."
+knit_with_output "data_path:string" "TOOL_DATA_PATH appended by the setup."
+knit_with_output "legacy:string" "TOOL_LEGACY (set then unset by the setup)."
+knit_with_output "path:string" "The job's PATH after activation."
 __probe_job() {
     # The setup's environment is already composed onto this job's own shell: its
     # variables are set and its PATH entry is prepended to the job's own PATH.

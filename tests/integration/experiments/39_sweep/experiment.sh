@@ -20,7 +20,7 @@ knit_with_optional "n:integer"      "1"  "Number of steps to run." --domain '{1,
 # test gives it an inline value set instead.
 knit_with_optional "nodes:integer"  "1"  "Graph node count (not the scheduler's)."
 knit_with_table
-knit_with_output   "result:integer" "0"  "Twice the step count (a stand-in result)."
+knit_with_output   "result:integer" "Twice the step count (a stand-in result)." --unset "0"
 __sim_job_fn() {
     local n
     n=$(knit_get_parameter "n" "$@")

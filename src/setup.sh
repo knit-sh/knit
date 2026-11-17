@@ -515,8 +515,8 @@ knit_register_setup() {
     # setup` dispatcher after the setup body runs), so the row identifies the
     # instance without reconstructing the path from the name — parity with the
     # `fetch` resource dispatcher.
-    knit_with_output "name:string" "" "The setup instance name (from knit setup --name)."
-    knit_with_output "directory:string" "" "The instance's on-disk directory."
+    knit_with_output "name:string" "The setup instance name (from knit setup --name)."
+    knit_with_output "directory:string" "The instance's on-disk directory."
     # Key the registry by the canonical (underscore) name so a later `knit setup
     # -- <name>` resolves the setup whether it is typed with hyphens or
     # underscores (the registered spelling is preserved for display).
@@ -696,8 +696,8 @@ _knit_is_builtin
 knit_with_table
 # The builtin default setup is a normal setup in the DB, so it records its
 # instance name and directory like any user setup (filled by _knit_setup).
-knit_with_output "name:string" "" "The setup instance name (from knit setup --name)."
-knit_with_output "directory:string" "" "The instance's on-disk directory."
+knit_with_output "name:string" "The setup instance name (from knit setup --name)."
+knit_with_output "directory:string" "The instance's on-disk directory."
 _KNIT_SETUPS["default"]=1
 knit_run_before _knit_setup_before_cb
 knit_run_after  _knit_setup_default_after_cb
@@ -1104,7 +1104,7 @@ knit_provides_launcher() {
 
     knit_run_after _knit_setup_provides_launcher_after_cb
 
-    knit_with_output "__mpi_launcher__:string" "" \
+    knit_with_output "__mpi_launcher__:string" \
         "The MPI launcher (openmpi/mpich/pals/flux) this setup detected and froze."
 
     # shellcheck disable=SC2178 # nameref to the command's notes array

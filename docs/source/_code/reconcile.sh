@@ -21,7 +21,7 @@ knit_set_program_description "Reconcile stuck jobs and retry them."
 @without_setup
 @with_optional "n:integer"      "1"  "Number of steps to run."
 @with_table
-@with_output   "result:integer" "0"  "Twice the step count (a stand-in result)."
+@with_output   "result:integer" "Twice the step count (a stand-in result)."
 _sim() {
     local n
     n=$(knit_get_parameter "n" "$@")
