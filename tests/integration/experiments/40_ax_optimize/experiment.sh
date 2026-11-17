@@ -28,7 +28,7 @@ knit_with_optional "x:real"         "0" "The knob to optimize." --domain '[0..12
 # (named "quad" after the job). A bare knit_with_table would re-point it at the
 # "submit:quad" command name, splitting recording from where the objective is
 # read and leaving the optimizer unable to see each trial's score.
-knit_with_output   "score:real"     "0" "Surrogate score = 100 - (x - 6)^2 (max 100 at x = 6)."
+knit_with_output   "score:real" "Surrogate score = 100 - (x - 6)^2 (max 100 at x = 6)." --unset "0"
 __quad_job_fn() {
     local x score
     x=$(knit_get_parameter "x" "$@")

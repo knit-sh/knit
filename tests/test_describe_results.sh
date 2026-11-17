@@ -13,14 +13,14 @@ setup() {
 # so its Artifacts section must not appear.
 _register_fixture() {
     knit_register "tabulate" knit_empty "Tabulate results."
-    knit_with_output "pi:real" "0" "Estimated value of pi." --result
-    knit_with_output "scratch:string" "" "Intermediate note."
+    knit_with_output "pi:real" "Estimated value of pi." --result --unset "0"
+    knit_with_output "scratch:string" "Intermediate note."
     knit_with_output_artifact "table:file" "Computed dataset (CSV)." --result
     knit_with_output_artifact "dump:file" "Environment capture."
     knit_done
 
     knit_register "greet" knit_empty "Say hello."
-    knit_with_output "msg:string" "" "The message."
+    knit_with_output "msg:string" "The message."
     knit_done
 }
 

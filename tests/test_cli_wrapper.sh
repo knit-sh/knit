@@ -64,7 +64,7 @@ teardown() {
 @test "knit_with_output is fatal on a wrapper" {
     wrap_fn() { :; }
     knit_register_wrapper "wrap" "wrap_fn" "A wrapper."
-    run knit_with_output "result:string" "" "Nope."
+    run knit_with_output "result:string" "Nope."
     [ "$status" -ne 0 ]
     [[ "$output" == *"cannot be used with a wrapper command"* ]]
     knit_done

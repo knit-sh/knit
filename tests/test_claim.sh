@@ -123,7 +123,7 @@ _register_render_claim() {
     _render_fn() { :; }
     knit_register_claim "a-beats-b" "_render_fn" "unused template"
     knit_with_required "d:string"  "Dataset name."
-    knit_with_output   "s:real" "0" "Speedup factor."
+    knit_with_output   "s:real" "Speedup factor." --unset "0"
     knit_done
     _knit_command_mangle _CLAIM_CMD "claim:a-beats-b"
 }
@@ -213,7 +213,7 @@ _register_render_claim() {
 @test "render: the brace form accepts a hyphenated name" {
     _gpn_fn() { :; }
     knit_register_claim "gpn" "_gpn_fn" "unused"
-    knit_with_output "gpus-per-node:integer" "0" "GPUs per node."
+    knit_with_output "gpus-per-node:integer" "GPUs per node." --unset "0"
     knit_done
     local cmd
     _knit_command_mangle cmd "claim:gpn"
@@ -256,7 +256,7 @@ _register_render_claim() {
     export _KNIT_UUIDV7_MONOTONIC=1
     _np_fn() { knit_output ok 1; return 0; }
     knit_register_claim "noparam" "_np_fn" "Always true (@ok)."
-    knit_with_output "ok:integer" "0" "A measured flag."
+    knit_with_output "ok:integer" "A measured flag." --unset "0"
     knit_done
     knit claim check --record -- noparam >/dev/null
     run knit claim list --type noparam
@@ -330,13 +330,13 @@ _register_check_claims() {
     _hold_fn()  { knit_output s 18;  return 0; }
     knit_register_claim "a-holds" "_hold_fn" "A beats B by @s percent on @d."
     knit_with_required "d:string"  "Dataset."
-    knit_with_output   "s:integer" "0" "Margin."
+    knit_with_output   "s:integer" "Margin." --unset "0"
     knit_done
 
     _refute_fn() { knit_output s -3; return 1; }
     knit_register_claim "a-refutes" "_refute_fn" "A beats B by @s percent on @d."
     knit_with_required "d:string"  "Dataset."
-    knit_with_output   "s:integer" "0" "Margin."
+    knit_with_output   "s:integer" "Margin." --unset "0"
     knit_done
 
     _insuff_fn() { return 2; }
@@ -530,12 +530,12 @@ _seed_list_claims() {
     _lh() { knit_output s 18; return 0; }
     knit_register_claim "a-holds" "_lh" "A beats B by @s percent on @d."
     knit_with_required "d:string"  "Dataset."
-    knit_with_output   "s:integer" "0" "Margin."
+    knit_with_output   "s:integer" "Margin." --unset "0"
     knit_done
     _lr() { knit_output s -3; return 1; }
     knit_register_claim "a-ref" "_lr" "A beats B by @s percent on @d."
     knit_with_required "d:string"  "Dataset."
-    knit_with_output   "s:integer" "0" "Margin."
+    knit_with_output   "s:integer" "Margin." --unset "0"
     knit_done
     _le() { :; }
     knit_register_claim "never-run" "_le" "A never evaluated on @d."

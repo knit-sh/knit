@@ -78,7 +78,7 @@ knit_done
 # records the observed world size.
 # -----------------------------------------------------------------------------
 knit_register_app "hello" _hello_app "Run one MPI rank of the hello-world binary."
-knit_with_output "size:integer" "0" "World size observed by rank 0."
+knit_with_output "size:integer" "World size observed by rank 0."
 _hello_app() {
     # mpi_hello is on PATH via the build setup's .activate.sh, forwarded to
     # every rank by the launcher. It prints "RANK=.. SIZE=.. HOST=..".

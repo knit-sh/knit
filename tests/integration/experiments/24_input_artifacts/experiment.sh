@@ -63,7 +63,7 @@ knit_done
 knit_register "consume" _consume "Read a csvfile artifact and count its data rows."
 knit_with_input_artifact "table:csvfile" "Artifacts-relative path of the CSV table to read." --verify-checksum
 knit_with_table
-knit_with_output "rows:integer" "0" "Number of data rows read." --result
+knit_with_output "rows:integer" "Number of data rows read." --result --unset "0"
 _consume() {
     local csv
     csv="$(knit_input_artifact_path "$(knit_get_parameter table "$@")")"

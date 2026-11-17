@@ -37,7 +37,7 @@ _tabulate() {
 # re-hashes the bytes and refuses a table that changed since it was produced.
 @command "summarize" "Consume a csvfile artifact and count its data rows."
 @with_input_artifact "table:csvfile" "Artifacts-relative path of the CSV to read." --verify-checksum
-@with_output "rows:integer" "0" "Number of data rows in the consumed table." --result
+@with_output "rows:integer" "Number of data rows in the consumed table." --result --unset "0"
 @with_table
 _summarize() {
     # Resolve the recorded artifacts-relative path to the on-disk file.

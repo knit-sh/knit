@@ -20,7 +20,7 @@ knit_set_program_description "Prepare jobs now and release them later."
 @with_optional "n:integer"      "10"   "Number of steps to run."
 @with_optional "label:string"   "run"  "A label recorded with the run."
 @with_table
-@with_output   "result:integer" "0"    "Twice the step count (a stand-in result)."
+@with_output   "result:integer" "Twice the step count (a stand-in result)." --unset "0"
 _sim() {
     local n label
     n=$(knit_get_parameter "n" "$@")

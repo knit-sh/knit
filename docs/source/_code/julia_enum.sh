@@ -105,7 +105,7 @@ _julia() {
 @app "render" "Render one MPI-parallel Julia-set image."
 @with_parameter_set "julia-params"
 @with_required "output:string"           "Absolute PNG path (the job supplies one per run)."
-@with_output   "inside:integer"   "0"    "Grid points inside the set (recorded by rank 0)."
+@with_output   "inside:integer" "Grid points inside the set (recorded by rank 0)." --unset "0"
 _render_app() {
     local width height c_re c_im max_iter colormap output
     width=$(knit_get_parameter "width" "$@")

@@ -42,8 +42,8 @@ knit_done
 # Rank-aware probe app: reports which MPI launched it.
 # --------------------------------------------------------------------------
 knit_register_app "probe" __probe_app_fn "Report each rank's MPI flavor and launcher path."
-knit_with_output "size:integer" "0" "World size observed by rank 0."
-knit_with_output "flavor:string" "" "KNIT_MPI_FLAVOR observed by rank 0 (empty = system MPI)."
+knit_with_output "size:integer" "World size observed by rank 0." --unset "0"
+knit_with_output "flavor:string" "KNIT_MPI_FLAVOR observed by rank 0 (empty = system MPI)."
 __probe_app_fn() {
     local mpiexec_path
     mpiexec_path="$(command -v mpiexec 2>/dev/null \

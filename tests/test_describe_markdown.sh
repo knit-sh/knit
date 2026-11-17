@@ -19,7 +19,7 @@ _register_fixture() {
     knit_with_optional "shade:color" "red" "Color of the greeting." \
         --when "count > 1"
     knit_with_flag "capitalize" "Make the output upper-case."
-    knit_with_output "greeting:string" "" "The produced greeting."
+    knit_with_output "greeting:string" "The produced greeting."
     knit_with_table
     knit_done
 

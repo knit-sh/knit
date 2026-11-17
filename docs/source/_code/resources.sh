@@ -31,7 +31,7 @@ knit_set_program_description "Fetch an input dataset, then summarize it."
 @command "summarize" "Summarize a fetched dataset."
 @with_resource "data:dataset" "Name of the dataset instance to read."
 @with_table
-@with_output "lines:integer" "0" "Number of lines in the dataset."
+@with_output "lines:integer" "Number of lines in the dataset." --unset "0"
 _summarize() {
     local dir
     dir="$(knit_resource_path "$(knit_get_parameter data "$@")")"

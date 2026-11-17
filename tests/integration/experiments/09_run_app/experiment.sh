@@ -37,7 +37,7 @@ __env_setup_fn() {
 knit_done
 
 knit_register_app "ranks" __ranks_app_fn "Print each rank's MPI coordinates."
-knit_with_output "size:integer" "0" "World size observed by rank 0."
+knit_with_output "size:integer" "World size observed by rank 0." --unset "0"
 __ranks_app_fn() {
     printf 'RANK=%s SIZE=%s LOCAL=%s HOST=%s MARKER=%s\n' \
         "${KNIT_MPI_RANK}" "${KNIT_MPI_SIZE}" "${KNIT_MPI_LOCAL_RANK}" \

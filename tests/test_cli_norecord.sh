@@ -18,7 +18,7 @@ setup() {
     knit_with_optional "ctrl:integer" "1" "A control option." --no-record
     knit_with_flag "loud" "A control flag." --no-record
     knit_with_table "nr_demos"
-    knit_with_output "count:integer" "0" "A recorded output."
+    knit_with_output "count:integer" "A recorded output." --unset "0"
     _nr_demo() {
         knit_output "count" "7"
         printf 'keep=%s ctrl=%s loud=%s\n' \

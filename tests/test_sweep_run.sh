@@ -20,7 +20,7 @@ setup() {
     knit_register "render" _render "A plain command."
     knit_with_optional "width:integer" "256" "width"
     knit_with_table "renders"
-    knit_with_output "doubled:integer" "0" "twice the width"
+    knit_with_output "doubled:integer" "twice the width" --unset "0"
     _render() {
         local w
         w=$(knit_get_parameter width "$@")

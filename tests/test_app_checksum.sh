@@ -46,8 +46,8 @@ setup() {
     knit_register_app "outapp" "_ck_out_fn" "An output checksum test app."
     knit_with_optional "out:path" "" "Where the body writes its result."
     knit_with_optional "scratch:path" "" "Where the body writes its scratch tree."
-    knit_with_output "result:file" "" "The produced result file."
-    knit_with_output "work:directory" "" "The produced scratch tree." --no-checksum
+    knit_with_output "result:file" "The produced result file."
+    knit_with_output "work:directory" "The produced scratch tree." --no-checksum
     knit_done
 
     _knit_command_mangle OUTAPP "run:outapp"

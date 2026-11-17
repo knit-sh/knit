@@ -68,7 +68,7 @@ knit_done
 # forwarded marker; rank 0 records the observed world size.
 # --------------------------------------------------------------------------
 knit_register_app "compute" _compute_app "Print each rank's coordinates and the marker."
-knit_with_output "size:integer" "0" "World size observed by rank 0."
+knit_with_output "size:integer" "World size observed by rank 0." --unset "0"
 _compute_app() {
     printf 'RANK=%s SIZE=%s MARKER=%s\n' \
         "${KNIT_MPI_RANK}" "${KNIT_MPI_SIZE}" "${REMOVE_MARKER:-<empty>}"

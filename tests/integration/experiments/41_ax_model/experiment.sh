@@ -25,7 +25,7 @@ knit_register_job "surf" __surf_job_fn "Evaluate a 2-D closed-form surrogate (ra
 knit_without_setup
 knit_with_optional "x:real"    "0" "Continuous knob over [0..12]." --domain '[0..12]'
 knit_with_optional "k:integer" "1" "Discrete knob, varied over a {...} choice set."
-knit_with_output   "score:real" "0" "Surrogate score = 100 - (x-6)^2 - (k-2)^2."
+knit_with_output   "score:real" "Surrogate score = 100 - (x-6)^2 - (k-2)^2." --unset "0"
 __surf_job_fn() {
     local x k score
     x=$(knit_get_parameter "x" "$@")

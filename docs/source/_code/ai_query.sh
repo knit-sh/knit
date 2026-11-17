@@ -17,7 +17,7 @@ knit_set_program_description "A tiny experiment for querying with ai query."
 @command "montecarlo" "Estimate pi and record the run."
 @with_required "samples:integer" "How many samples to draw."
 @with_optional "seed:integer" "1" "Random seed."
-@with_output "pi:real" "0" "The estimate produced by this run."
+@with_output "pi:real" "The estimate produced by this run." --unset "0"
 @with_table
 _montecarlo() {
     local samples seed estimate

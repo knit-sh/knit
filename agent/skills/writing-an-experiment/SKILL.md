@@ -68,8 +68,10 @@ Each command's parameters and behavior are declared before `knit_done`:
   call time (handy for inheriting a setup's exported values).
 - `knit_with_flag "name" "<desc>"` — a boolean flag.
 - `knit_with_extra "<desc>"` — opaque `--` passthrough arguments.
-- `knit_with_output "name:type" "<default>" "<desc>"` — a recorded result the
-  body emits with `knit_output "name" "<value>"`.
+- `knit_with_output "name:type" "<desc>" [--unset <value>]` — a recorded result the
+  body emits with `knit_output "name" "<value>"`. An output the body never emits
+  records SQL NULL (the honest "not produced"); `--unset <value>` declares a
+  fallback to record instead.
 - `knit_with_table` — record every run as a row in the command's DB table (needed
   for history, analysis, and provenance edges).
 - `knit_with_setup "<type>"` — require a setup of that type before running.
@@ -91,7 +93,7 @@ knit_with_required "samples:integer"        "Number of random samples."
 knit_with_optional "seed:integer" "42"      "PRNG seed (fixed for reproducibility)."
 knit_with_flag     "verbose"                "Print progress on stderr."
 knit_with_table                             # record every run as a DB row
-knit_with_output   "pi:real" "0"            "The estimated value of pi."
+knit_with_output   "pi:real"                "The estimated value of pi."
 estimate() {
     local samples seed
     samples=$(knit_get_parameter "samples" "$@")

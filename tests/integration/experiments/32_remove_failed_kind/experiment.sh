@@ -35,7 +35,7 @@ knit_done
 # An app that can fail, recording its exit status on its per-app row.
 knit_register_app "rank" __rank_fn "A rank that can fail, recording its exit status."
 knit_with_optional "mode:string" "ok" "ok = succeed; fail = rank 0 returns non-zero."
-knit_with_output "size:integer" "0" "World size observed by rank 0."
+knit_with_output "size:integer" "World size observed by rank 0." --unset "0"
 __rank_fn() {
     local mode
     mode=$(knit_get_parameter "mode" "$@")

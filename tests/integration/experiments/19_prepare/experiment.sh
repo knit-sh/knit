@@ -18,7 +18,7 @@ knit_without_setup
 knit_with_optional "n:integer"      "10"  "Number of steps to run."
 knit_with_optional "label:string"   "run" "A label recorded with the run."
 knit_with_table
-knit_with_output   "result:integer" "0"   "Twice the step count (a stand-in result)."
+knit_with_output   "result:integer" "Twice the step count (a stand-in result)." --unset "0"
 __sim_job_fn() {
     local n label
     n=$(knit_get_parameter "n" "$@")

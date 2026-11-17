@@ -57,7 +57,7 @@ _greet() {
 @command "scale" "Multiply an integer by a factor."
 @with_required "value:integer" "The value to scale."
 @with_optional "factor:integer" "2" "The multiplier (defaults to 2)."
-@with_output "result:integer" "0" "value * factor."
+@with_output "result:integer" "value * factor." --unset "0"
 _scale() {
     local value factor
     value="$(knit_get_parameter "value" "$@")"
@@ -72,7 +72,7 @@ _scale() {
 @command "add" "Add two integers and record the run."
 @with_required "x:integer" "First value."
 @with_required "y:integer" "Second value."
-@with_output "total:integer" "0" "x + y."
+@with_output "total:integer" "x + y." --unset "0"
 @with_table
 _add() {
     local x y

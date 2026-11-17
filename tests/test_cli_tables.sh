@@ -106,7 +106,7 @@ teardown() {
     knit_with_required "iters:integer" "Iterations."
     knit_with_optional "label:string" "none" "A label."
     knit_with_flag "verbose" "Verbose mode."
-    knit_with_output "score:real" "0.0" "The score."
+    knit_with_output "score:real" "The score." --unset "0.0"
     knit_with_table
     knit_done
     local names

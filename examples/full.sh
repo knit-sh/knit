@@ -968,7 +968,7 @@
 # declares three file artifacts with @with_output_artifact, binding each a
 # different way:
 #
-#   @with_output   "mean:real" "0" "..." --result       # a value result
+#   @with_output   "mean:real" "..." --result       # a value result --unset "0"
 #   @with_output_artifact "table:csvfile" "..." --result # artifact + result
 #   @with_output_artifact "figure:file"   "..." --result # artifact + result
 #   @with_output_artifact "dump:file"     "..."          # artifact, not a result
@@ -1478,12 +1478,12 @@ preflight() {
 @with_optional "notes:file" ""         "Optional notes file embedded in the report (path + sha256 recorded)."
 @with_flag     "verbose"               "Print progress information on stderr."
 @with_table                            # record every run as a DB row
-@with_output   "pi:real" "0"           "The estimated value of pi."
+@with_output   "pi:real" "The estimated value of pi." --unset "0"
 # A file/directory OUTPUT is checked for existence on success and fingerprinted
 # after the body returns (off the timed path). The report is checksummed; the
 # scratch tree opts out with --no-checksum, so only its path is recorded.
-@with_output   "report:file" ""        "A written report of this estimate (path + sha256 recorded)."
-@with_output   "scratch:directory" ""  "Scratch tree of intermediate data (path recorded, no checksum)." --no-checksum
+@with_output   "report:file" "A written report of this estimate (path + sha256 recorded)."
+@with_output   "scratch:directory" "Scratch tree of intermediate data (path recorded, no checksum)." --no-checksum
 estimate() {
     local samples seed format verbose notes
     samples=$(knit_get_parameter "samples" "$@")
@@ -1581,7 +1581,7 @@ _mcenv_setup() {
 @with_setup    "mcenv"                             # requires an `mcenv` setup
 @with_optional "samples:integer" "ENV[MC_SAMPLES]" "Sample count (default: MC_SAMPLES from the setup)."
 @with_optional "seed:integer"    "ENV[MC_SEED]"    "PRNG seed (default: MC_SEED from the setup)."
-@with_output   "pi:real" "0"                       "The estimated value of pi."
+@with_output   "pi:real" "The estimated value of pi." --unset "0"
 _montecarlo_job() {
     # --samples and --seed are already resolved: either the values passed on the
     # command line, or (via their ENV[...] defaults) the ones exported by the
@@ -1678,7 +1678,7 @@ analyze() {
 @claim "pi-accurate" \
     "Monte-Carlo estimates pi to within @tol (measured error @error)."
 @with_optional "tol:real"   "0.01" "Absolute-error tolerance for the pi estimate."
-@with_output   "error:real" "0"    "Measured absolute error of the mean estimate."
+@with_output   "error:real" "Measured absolute error of the mean estimate." --unset "0"
 _pi_accurate() {
     local tol count avg
     tol=$(knit_get_parameter "tol" "$@")
@@ -1724,7 +1724,7 @@ _pi_accurate() {
 @app "mcrank" "One rank of a parallel Monte-Carlo pi estimate."
 @with_optional "samples:integer" "ENV[MC_SAMPLES]" "Total samples across all ranks (default: MC_SAMPLES)."
 @with_optional "seed:integer"    "ENV[MC_SEED]"    "Base PRNG seed (default: MC_SEED)."
-@with_output   "pi:real" "0"                       "Rank 0's partial pi estimate."
+@with_output   "pi:real" "Rank 0's partial pi estimate." --unset "0"
 _mcrank_app() {
     local samples seed
     samples=$(knit_get_parameter "samples" "$@")
@@ -1792,7 +1792,7 @@ _mcparallel_job() {
 @without_setup
 @with_optional "samples:integer" "200000" "Samples for this worker."
 @with_optional "seed:integer"    "1"      "PRNG seed for this worker."
-@with_output   "pi:real" "0"              "This worker's pi estimate."
+@with_output   "pi:real" "This worker's pi estimate." --unset "0"
 _worker_job() {
     local samples seed pi
     samples=$(knit_get_parameter "samples" "$@")
@@ -1951,7 +1951,7 @@ _batch() {
 @command "tabulate" "Tabulate pi estimates into exportable artifacts."
 @with_optional "runs:integer" "3"     "How many quick estimates to tabulate."
 @with_table
-@with_output   "mean:real" "0"        "Mean of the tabulated estimates (the headline result)." --result
+@with_output   "mean:real" "Mean of the tabulated estimates (the headline result)." --result --unset "0"
 @with_output_artifact "table:csvfile" "The tabulated estimates (CSV)." --result
 @with_output_artifact "figure:file" "A one-line textual summary."    --result
 @with_output_artifact "dump:file"   "Raw run log, referenced in place (not the headline result)."
@@ -2019,7 +2019,7 @@ _tabulate() {
 @command "plot" "Summarize a tabulated CSV artifact produced by tabulate."
 @with_input_artifact "table:csvfile" "Artifacts-relative path of the CSV table to read." --verify-checksum
 @with_table
-@with_output "rows:integer" "0" "Number of data rows in the consumed table." --result
+@with_output "rows:integer" "Number of data rows in the consumed table." --result --unset "0"
 _plot() {
     local csv
     csv="$(knit_input_artifact_path "$(knit_get_parameter table "$@")")"
@@ -2064,7 +2064,7 @@ _shard() {
 @command "merge" "Merge every shard matched by a glob (a + input)."
 @with_input_artifact "shards:csvfile+" "Artifacts-relative glob of the shards to merge (one or more)."
 @with_table
-@with_output "rows:integer" "0" "Total data rows across the merged shards." --result
+@with_output "rows:integer" "Total data rows across the merged shards." --result --unset "0"
 _merge() {
     local -a paths=()
     knit_input_artifact_paths paths "$(knit_get_parameter "shards" "$@")"

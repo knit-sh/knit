@@ -537,9 +537,9 @@ _knit_env_record_contribution() {
         knit_run_before _knit_env_setup_before_cb "${nm}"
         knit_run_after  _knit_env_setup_after_cb  "${nm}"
 
-        knit_with_output "__${nm}_manifest__:string" "" \
+        knit_with_output "__${nm}_manifest__:string" \
             "gzip+base64 of the environment's concrete manifest."
-        knit_with_output "__${nm}_lock__:string" "" \
+        knit_with_output "__${nm}_lock__:string" \
             "gzip+base64 of the environment's lockfile."
 
         # shellcheck disable=SC2178 # nameref to the command's notes array

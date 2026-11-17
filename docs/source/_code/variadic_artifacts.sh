@@ -45,7 +45,7 @@ _shard() {
 # fills a bash array with the resolved on-disk paths, in order, de-duplicated.
 @command "merge" "Merge every shard matched by a glob into one row count."
 @with_input_artifact "shards:csvfile+" "Artifacts-relative glob of the shards to merge (one or more)."
-@with_output "rows:integer" "0" "Total data rows across the merged shards." --result
+@with_output "rows:integer" "Total data rows across the merged shards." --result --unset "0"
 @with_table
 _merge() {
     local -a paths=()

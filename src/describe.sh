@@ -590,7 +590,7 @@ _knit_describe_json_output() {
     local dname type dflt desc
     _knit_str_underscores_to_hyphens dname "${output}"
     _knit_output_type type "${cmd}" "${output}"
-    _knit_output_default dflt "${cmd}" "${output}"
+    _knit_output_unset_value dflt "${cmd}" "${output}"
     _knit_output_description desc "${cmd}" "${output}"
     local entries=() s e
     _knit_describe_json_str s "${dname}"
@@ -1132,7 +1132,7 @@ _knit_describe_yaml_output() {
     local dname type dflt desc sc
     _knit_str_underscores_to_hyphens dname "${output}"
     _knit_output_type type "${cmd}" "${output}"
-    _knit_output_default dflt "${cmd}" "${output}"
+    _knit_output_unset_value dflt "${cmd}" "${output}"
     _knit_output_description desc "${cmd}" "${output}"
     _knit_describe_yaml_scalar sc "${dname}" "${cont}"
     printf '%s- name: %s\n' "${item_indent}" "${sc}"
@@ -1600,7 +1600,7 @@ _knit_describe_default_outputs() {
     for o in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens o2 "${o}"
         _knit_output_type type "${cmd}" "${o}"
-        _knit_output_default dflt "${cmd}" "${o}"
+        _knit_output_unset_value dflt "${cmd}" "${o}"
         _knit_output_description desc "${cmd}" "${o}"
         ann="${type}, default: '${dflt}'"
         _knit_describe_is_result "${cmd}" "${o}" && ann+=", result"
@@ -1966,7 +1966,7 @@ _knit_describe_md_outputs() {
     for o in "${__items[@]}"; do
         _knit_str_underscores_to_hyphens dname "${o}"
         _knit_output_type type "${cmd}" "${o}"
-        _knit_output_default dflt "${cmd}" "${o}"
+        _knit_output_unset_value dflt "${cmd}" "${o}"
         _knit_output_description desc "${cmd}" "${o}"
         res=""
         _knit_describe_is_result "${cmd}" "${o}" && res="result"

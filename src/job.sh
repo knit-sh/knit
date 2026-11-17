@@ -98,14 +98,17 @@ knit_with_flag "wait" "Block until the job completes; return its exit code."
 # not get the reserved "__exit_status__" column.
 knit_with_table "${_KNIT_JOBS_TABLE}"
 _knit_without_exit_status
-knit_with_output "job:string" "" "Name of the submitted job (the token after --)."
-knit_with_output "state:string" "submitted" "Lifecycle state of the submitted job (submitted, running, completed, failed, or killed)."
-knit_with_output "hostnames:string" "" \
+knit_with_output "job:string" "Name of the submitted job (the token after --)."
+knit_with_output "state:string" \
+    "Lifecycle state of the submitted job (submitted, running, completed, failed, or killed)." \
+    --unset "<unknown>"
+knit_with_output "hostnames:string" \
     "Comma-separated deduplicated nodes the job ran on (recorded at start)."
-knit_with_output "native-cmd:string" "" \
+knit_with_output "native-cmd:string" \
     "The resolved scheduler command that was issued to submit the job."
-knit_with_output "retries:integer" "0" \
-    "Number of times this job has been reset (re-queued) for a retry."
+knit_with_output "retries:integer" \
+    "Number of times this job has been reset (re-queued) for a retry." \
+    --unset "0"
 
 # ------------------------------------------------------------------------------
 # @fn _knit_submit()
