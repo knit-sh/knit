@@ -462,10 +462,10 @@ new ``prepared`` state and stops before the scheduler:
    $ ./exp.sh prepare --setup mympienv --group julia-sweep -- julia --c-re -0.123 --c-im 0.745
    018f9c3a-7b2e-7c41-9d0a-1f2e3d4c5b6a
 
-The whole submission spec --- setup, nodes, walltime, queue, and the job's own
-arguments --- is frozen at prepare time and baked into the batch script, so
-releasing the job never re-opens those options. The UUID it prints is the same
-stable identifier ``submit`` would have given it.
+The whole submission spec --- the target backend, setup, nodes, walltime, queue,
+and the job's own arguments --- is frozen at prepare time and baked into the batch
+script, so releasing the job never re-opens those options. The UUID it prints is
+the same stable identifier ``submit`` would have given it.
 
 **Prepare the whole sweep from a plan.** Typing one ``prepare`` per constant is
 no better than typing one ``submit`` per constant. ``prepare from`` reads the

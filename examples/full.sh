@@ -1329,13 +1329,15 @@
 # You can also PREPARE a batch of sub-jobs on the login node and DRAIN them from
 # inside the pilot. `prepare` freezes the target scheduler where you run it, so a
 # job prepared on a login node freezes for Slurm/PBS — wrong for a pilot sub-job.
-# Pass `--backend pilot` to freeze it for the in-allocation daemon instead (no
-# site queue, no separate wall-clock cap). `knit sweep -- prepare` forwards the
-# flag, so a whole sweep can be staged this way:
+# Pass `--backend pilot` to `prepare` to freeze it for the in-allocation daemon
+# instead (no site queue, no separate wall-clock cap). It is a `prepare` option,
+# so with `knit sweep` it goes on the prepare line (after `-- prepare`), and a
+# whole sweep is staged this way:
 #
 #   # On the login node: stage the backlog for the pilot.
-#   ./full.sh sweep --backend pilot \
-#       -- prepare --setup env --group pi-sweep -- montecarlo --samples '{20000,50000}'
+#   ./full.sh sweep \
+#       -- prepare --backend pilot --setup env --group pi-sweep \
+#       -- montecarlo --samples '{20000,50000}'
 #
 #   # Inside the pilot body: drain the backlog onto the daemon.
 #   ./full.sh submit drain --group pi-sweep --max-inflight 4
