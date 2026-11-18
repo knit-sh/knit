@@ -16,7 +16,7 @@
 source knit.sh
 
 # Import the Ax plugin (it imports knit-uv in turn). Pinned to the released
-# tag; the resolved commit is frozen in knit-plugins.lock on first import.
+# tag; the resolved commit is frozen in .knit/plugins.lock on first import.
 knit_import ax@v1.0.0
 
 knit_set_program_description "knit-ax Bayesian-optimization integration test experiment."

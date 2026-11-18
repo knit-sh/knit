@@ -142,7 +142,7 @@ of the experiment, right after ``source knit.sh``:
 That single line is what makes the ``@with_spack_*`` directives --- and a
 ``spack`` command you meet in Step 8 --- available. Importing it unpinned is fine
 for the tutorial; ``bootstrap`` freezes the exact version in
-``knit-plugins.lock``. Other environment managers can be imported the same way;
+``.knit/plugins.lock``. Other environment managers can be imported the same way;
 this tutorial uses Spack as the worked example.
 
 Two things make this reproducible. ``@with_spack_specs`` declares a

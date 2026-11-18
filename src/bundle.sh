@@ -352,6 +352,11 @@ _knit_bundle_collect() {
     # (.knit/spack, .knit/sqlite, .knit/jq), which bootstrap re-provisions.
     [[ "${__knit_opts[no_db]:-false}" != "true" ]] && __knit_ret+=(".knit/knit.db")
 
+    # The plugin lockfile pins every imported plugin to an exact commit; it must
+    # travel so a reproducer resolves the same plugin code. Added only when it
+    # exists — an experiment that imports no plugin has none.
+    [[ -f "${root}/.knit/plugins.lock" ]] && __knit_ret+=(".knit/plugins.lock")
+
     # The extra files the user declared, validated and glob-expanded. The user's
     # own list is strict (a bad path is fatal); the list Knit auto-required on the
     # experiment's behalf (environment manifest files) is lenient (a bad path warns).

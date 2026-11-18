@@ -10,7 +10,7 @@ source knit.sh
 
 # Import the template plugin, pinned to a release tag. The first run resolves the
 # tag to a commit and fetches it; later runs are offline cache hits. The resolved
-# commit and checksum are frozen in knit-plugins.lock, and bootstrap records the
+# commit and checksum are frozen in .knit/plugins.lock, and bootstrap records the
 # plugin in the "plugins" table and materializes its tree under .knit/plugins/.
 knit_import github.com/knit-sh/knit-template-plugin@v1.0.0
 

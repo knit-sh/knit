@@ -38,15 +38,16 @@ _KNIT_PLUGIN_COMMITS=()
 # ------------------------------------------------------------------------------
 # @var _KNIT_PLUGIN_LOCKFILE
 #
-# Path to the committed lockfile that pins every imported plugin (canonical id ->
-# resolved commit + checksum). It lives next to the experiment script and ships
-# in the experiment's VCS, so a fresh checkout resolves the exact commits before
-# bootstrap, for both introspection and reproduction. A resolution prefers a
-# lockfile pin over the ref; a mutable ref with no pin is resolved once and
-# written back here. A test or reproducer may override the path.
+# Path to the lockfile that pins every imported plugin (canonical id -> resolved
+# commit + checksum). It lives under .knit, alongside the rest of knit's managed
+# state, and is carried inside an exported bundle (see _knit_bundle_required_paths)
+# so a reproducer resolves the exact commits before bootstrap, for both
+# introspection and reproduction. A resolution prefers a lockfile pin over the
+# ref; a mutable ref with no pin is resolved once and written back here. A test
+# or reproducer may override the path.
 # ------------------------------------------------------------------------------
 declare -g _KNIT_PLUGIN_LOCKFILE
-_KNIT_PLUGIN_LOCKFILE="$(dirname "${_KNIT_SCRIPT_PATH}")/knit-plugins.lock"
+_KNIT_PLUGIN_LOCKFILE="${_KNIT_PREFIX}/plugins.lock"
 
 # ------------------------------------------------------------------------------
 # @var _KNIT_PLUGIN_DEFERRED
@@ -207,8 +208,8 @@ _knit_plugin_lock_set() {
     local -a keys
     mapfile -t keys < <(printf '%s\n' "${!entries[@]}" | sort)
     {
-        printf '# knit-plugins.lock: pinned plugin versions '
-        printf '(id commit checksum). Generated; commit to VCS.\n'
+        printf '# plugins.lock: pinned plugin versions '
+        printf '(id commit checksum). Generated; travels inside a bundle.\n'
         local k
         for k in "${keys[@]}"; do
             printf '%s %s\n' "${k}" "${entries[${k}]}"
@@ -287,7 +288,7 @@ _knit_plugin_print_deferred_footer() {
         done
         printf 'Their commands and decorators appear once fetched. Run with '
         # shellcheck disable=SC2016 # literal backticks in a user-facing message
-        printf 'network access, commit knit-plugins.lock, or run `knit bootstrap`.\n'
+        printf 'network access, provide a .knit/plugins.lock pin, or run `knit bootstrap`.\n'
     } >&2
 }
 
@@ -466,14 +467,14 @@ _knit_plugin_resolve_commit() {
         if _knit_plugin_cached_commit __knit_commit "${host}/${org}/${repo}"; then
             knit_warning "knit_import: could not resolve \"${ref:-HEAD}\" in \
 ${org}/${repo} (rate-limited or offline); falling back to the cached commit \
-${__knit_commit}. Set GITHUB_TOKEN or commit a knit-plugins.lock pin to resolve \
-the current tip."
+${__knit_commit}. Set GITHUB_TOKEN or provide a .knit/plugins.lock pin to \
+resolve the current tip."
             __knit_ret1="${__knit_commit}"
             return 0
         fi
         knit_fatal "knit_import: could not resolve \"${ref:-HEAD}\" to a commit \
 in ${org}/${repo}. Check the ref and network access (set GITHUB_TOKEN if \
-rate-limited), or commit a knit-plugins.lock pin."
+rate-limited), or provide a .knit/plugins.lock pin."
     fi
     __knit_ret1="${__knit_commit}"
     __knit_ret2="true"
@@ -1003,7 +1004,7 @@ _knit_plugins_discover() {
     knit_done
 
     knit_register "plugins:lock" _knit_plugins_lock \
-        "(Re)write knit-plugins.lock from the imported plugins, without a full bootstrap."
+        "(Re)write .knit/plugins.lock from the imported plugins, without a full bootstrap."
     _knit_is_builtin
     knit_usable_before_bootstrap
     knit_done

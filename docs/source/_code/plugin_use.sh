@@ -12,7 +12,7 @@ source knit.sh
 knit_import spack
 
 # Pin a ref (tag, branch, or commit). A mutable ref is resolved to a commit on
-# the first bootstrap and frozen in knit-plugins.lock.
+# the first bootstrap and frozen in .knit/plugins.lock.
 knit_import spack@v1.2.0
 
 # Full form names the host, owner, and repository.

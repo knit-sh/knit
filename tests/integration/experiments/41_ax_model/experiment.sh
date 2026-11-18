@@ -13,7 +13,7 @@
 #
 # The plugin is pinned to the released tag (which ships the --model / ax predict
 # / ax show --diagnostics surface); the resolved commit freezes in
-# knit-plugins.lock on first import.
+# .knit/plugins.lock on first import.
 
 source knit.sh
 

@@ -13,7 +13,7 @@ setup() {
 
     __TEST_TMPDIR="$(mktemp -d)"
     _KNIT_PLUGIN_CACHE_ROOT="${__TEST_TMPDIR}/cache"
-    _KNIT_PLUGIN_LOCKFILE="${__TEST_TMPDIR}/knit-plugins.lock"
+    _KNIT_PLUGIN_LOCKFILE="${__TEST_TMPDIR}/plugins.lock"
     MARKER="${__TEST_TMPDIR}/sourced.log"
     : > "${MARKER}"
     unset KNIT_OFFLINE

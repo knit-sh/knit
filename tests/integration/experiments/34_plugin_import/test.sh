@@ -4,7 +4,7 @@
 # Exercises:
 #   - knit_import fetching a plugin live from github.com (ref -> commit via the
 #     host API, tarball download, checksum verify, cache, source)
-#   - bootstrap recording the plugin: the committed knit-plugins.lock, the
+#   - bootstrap recording the plugin: the .knit/plugins.lock lockfile, the
 #     "plugins" provenance table row, and the materialized tree under
 #     .knit/plugins/<host>/<org>/<repo>/<commit>/
 #   - running a command the plugin defines (template hello), including its
@@ -45,10 +45,10 @@ check_dir  ".knit"            ".knit directory created"
 check_file ".knit/knit.db"    ".knit/knit.db file created"
 
 # --------------------------------------------------------------------------
-# The committed lockfile pins the plugin.
+# The lockfile under .knit pins the plugin.
 # --------------------------------------------------------------------------
-check_file "knit-plugins.lock"                "knit-plugins.lock written"
-check_grep "${PLUGIN_ID}" "knit-plugins.lock" "lockfile pins the plugin"
+check_file ".knit/plugins.lock"                ".knit/plugins.lock written"
+check_grep "${PLUGIN_ID}" ".knit/plugins.lock" "lockfile pins the plugin"
 
 # --------------------------------------------------------------------------
 # The plugins table records one row for the plugin, with a resolved commit.

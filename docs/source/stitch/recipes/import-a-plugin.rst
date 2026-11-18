@@ -17,7 +17,7 @@ before using what the plugin provides:
 
 The short form expands to ``github.com/knit-sh/knit-<name>``. A mutable ref such
 as a branch resolves to a commit on the first bootstrap and is frozen in
-``knit-plugins.lock``, so a later run and a fresh checkout use the same code.
+``.knit/plugins.lock``, so a later run (and a bundle) use the same code.
 Bootstrap also records each plugin in the ``plugins`` table and materializes its
 pinned tree under ``.knit/plugins/`` for a self-contained experiment directory.
 
