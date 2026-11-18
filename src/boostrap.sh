@@ -492,7 +492,7 @@ knit_with_optional "account:string" "" \
 knit_with_optional "default-walltime:string" "" \
     "Project-wide default job wall-clock limit as HH:MM:SS. Empty (the default) lets each submission fall back to the selected queue's profile default_walltime."
 knit_with_optional "default-queue:string" "" \
-    "Project-wide default queue/partition. \"auto\" selects the first profile queue that accepts each job. Empty (the default) uses the machine profile's default_queue."
+    "Project-wide default queue. \"auto\" selects the first profile queue that accepts each job. Empty (the default) uses the machine profile's default_queue."
 knit_with_optional "default-cpus-per-node:string" "" \
     "Cores per node for whole-node allocation (default: profile hardware, else live detection)."
 knit_with_optional "default-nodefile:string" "" \
