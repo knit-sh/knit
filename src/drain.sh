@@ -382,7 +382,7 @@ _knit_drain_dry_run_json() {
 # List the prepared jobs that would be released, in release order, without
 # claiming or releasing anything. The peek mirrors _knit_prepare_claim_next: the
 # same state='prepared' filter (plus optional job / group), the same
-# ORDER BY id ASC, and --count applied as a LIMIT. It is a read-only SELECT (no
+# ORDER BY rowid ASC, and --count applied as a LIMIT. It is a read-only SELECT (no
 # write lock), so it never advances a job's state. Each matching job prints as
 # "<uuid>  <job>" (with "  [<group>]" appended when the job has a group); with
 # json_summary the peeked list is printed as JSON instead. A count of matches is
@@ -417,7 +417,9 @@ _knit_drain_dry_run() {
     _knit_db_sql_ident id_ident "id"
     local limit=""
     [[ -n "${count}" ]] && limit=" LIMIT ${count}"
-    local sql="SELECT ${id_ident}, job, ${group_ident} FROM ${jobs_ident} WHERE ${where} ORDER BY ${id_ident} ASC${limit};"
+    # Order by rowid (insertion order), matching _knit_prepare_claim_next: the
+    # uuidv7 id is wall-clock derived and not a reliable proxy for prepare order.
+    local sql="SELECT ${id_ident}, job, ${group_ident} FROM ${jobs_ident} WHERE ${where} ORDER BY rowid ASC${limit};"
 
     if [[ "${json_summary}" == "true" ]]; then
         _knit_drain_dry_run_json "${sql}"

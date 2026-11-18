@@ -635,8 +635,9 @@ _knit_claim_row_time() {
 # @fn _knit_claim_list_one()
 #
 # List one claim's recorded evaluations under a header line (the claim's
-# registered spelling). Each recorded row prints, newest-first (uuidv7 ids sort by
-# time, so "ORDER BY id DESC" is newest-first), as an indented line: the verdict
+# registered spelling). Each recorded row prints, newest-first (rowid is the
+# table's insertion order, so "ORDER BY rowid DESC" is newest-first), as an
+# indented line: the verdict
 # marker, the resolved statement, the binding (its condition parameters, as
 # "name=value"), and the row's time. A claim with no recorded rows (or whose table
 # is absent) prints "(no recorded evaluations)", so a declared-but-unevaluated
@@ -687,7 +688,7 @@ _knit_claim_list_one() {
     _knit_db_sql_ident table_ident "${table}"
     sql="SELECT id || '|' || coalesce(${verdict_ident},'') || '|' || \
 (${binding_expr}) || '|' || coalesce(${statement_ident},'') \
-FROM ${table_ident} ORDER BY id DESC;"
+FROM ${table_ident} ORDER BY rowid DESC;"
 
     local have_rows=0 id verdict binding statement glyph color marker time bindstr
     while IFS='|' read -r id verdict binding statement; do

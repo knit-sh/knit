@@ -134,7 +134,9 @@ _knit_job_list() {
         printf -v where ' AND %s' "${conditions[@]}"
         statement="${statement} WHERE ${where# AND }"
     fi
-    statement="${statement} ORDER BY id;"
+    # rowid (insertion order), not the uuidv7 id: the id is wall-clock derived and
+    # not a reliable proxy for creation order (see _knit_prepare_claim_next).
+    statement="${statement} ORDER BY rowid;"
 
     if [[ "${json}" == "true" ]]; then
         local out
@@ -459,7 +461,7 @@ _knit_job_reset_apply() {
         reset_count=$(( reset_count + 1 ))
     done < <(_knit_sqlite3 -separator $'\x1f' \
         "SELECT ${id_ident}, state, COALESCE(${retries_ident}, 0) \
-           FROM ${jobs_ident} WHERE ${where} ORDER BY ${id_ident} ASC;")
+           FROM ${jobs_ident} WHERE ${where} ORDER BY rowid ASC;")
 
     if (( skipped > 0 )); then
         knit_info "Reset %s job(s) to prepared; skipped %s at the retry cap." \
@@ -626,7 +628,7 @@ _knit_job_reconcile_apply() {
         fi
         changed=$(( changed + 1 ))
     done < <(_knit_sqlite3 -separator $'\x1f' \
-        "SELECT ${id_ident}, state FROM ${jobs_ident} WHERE ${where} ORDER BY ${id_ident} ASC;")
+        "SELECT ${id_ident}, state FROM ${jobs_ident} WHERE ${where} ORDER BY rowid ASC;")
 
     knit_info "Reconciled %s job(s); left %s running." "${changed}" "${left_running}"
 }

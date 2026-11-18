@@ -270,7 +270,8 @@ _stub_dispatch_ok() {
     u2="$(_knit_invoke_command prepare --setup setup -- myjob)"
     u3="$(_knit_invoke_command prepare --setup setup -- myjob)"
 
-    # uuidv7 ids are time-ordered, so oldest-prepared releases first.
+    # Claim order is the table's rowid (insertion order), so the oldest-prepared
+    # job releases first regardless of the uuidv7 ids' wall-clock ordering.
     [ "$(_knit_invoke_command submit next)" = "${u1}" ]
     [ "$(_knit_invoke_command submit next)" = "${u2}" ]
     [ "$(_knit_invoke_command submit next)" = "${u3}" ]

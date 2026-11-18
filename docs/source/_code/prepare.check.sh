@@ -69,13 +69,13 @@ check_eq "${n4}" "1" "include appended the nodes=4 combination"
 
 # ---- release one by id, cancel another ------------------------------------
 target="$(exp query sql --exec \
-    "SELECT id FROM jobs WHERE state='prepared' ORDER BY id ASC LIMIT 1" \
+    "SELECT id FROM jobs WHERE state='prepared' ORDER BY rowid ASC LIMIT 1" \
     2>/dev/null | tr -d '[:space:]')"
 exp submit prepared --id "${target}" --wait >/dev/null
 check_eq "$(state_of "${target}")" "completed" "submit prepared --id releases that job"
 
 doomed="$(exp query sql --exec \
-    "SELECT id FROM jobs WHERE state='prepared' ORDER BY id ASC LIMIT 1" \
+    "SELECT id FROM jobs WHERE state='prepared' ORDER BY rowid ASC LIMIT 1" \
     2>/dev/null | tr -d '[:space:]')"
 exp job cancel --id "${doomed}" >/dev/null
 check_eq "$(state_of "${doomed}")" "" "job cancel removes a prepared job's row"

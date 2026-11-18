@@ -550,9 +550,8 @@ _register_check_claims() {
 
 # ---------- claim list ----------
 #
-# Uuidv7 ids embed a millisecond timestamp but are not strictly ordered within a
-# millisecond; _KNIT_UUIDV7_MONOTONIC makes them order by creation within one too,
-# so "newest-first" is deterministic in these tests.
+# "newest-first" is ordered by rowid (the table's insertion order), so it is
+# deterministic regardless of how the uuidv7 ids happen to sort.
 
 _seed_list_claims() {
     export _KNIT_UUIDV7_MONOTONIC=1

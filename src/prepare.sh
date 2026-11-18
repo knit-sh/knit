@@ -97,11 +97,16 @@ _knit_prepare_claim_next() {
     # UPDATE ... RETURNING, which needs sqlite >= 3.35 (a knit-symlinked system
     # sqlite may be older). The TEMP table already filtered on state='prepared',
     # so it is the claim guard; it is dropped when the connection closes.
+    # Order by rowid (SQLite's insertion order) rather than the uuidv7 id: the id
+    # is wall-clock derived, so it is not a reliable proxy for prepare order (ties
+    # within a millisecond, and a clock that can move backwards between the
+    # separate prepare processes). The earlier-prepared job's row was inserted
+    # first, so rowid is the true FIFO order.
     _knit_sqlite3_write \
         "CREATE TEMP TABLE _knit_claim AS
            SELECT ${id_ident} FROM ${jobs_ident}
              WHERE ${where}
-             ORDER BY ${id_ident} ASC LIMIT 1;
+             ORDER BY rowid ASC LIMIT 1;
          UPDATE ${jobs_ident} SET state='submitting'
            WHERE ${id_ident} IN (SELECT ${id_ident} FROM _knit_claim);
          SELECT ${id_ident} FROM _knit_claim;"
