@@ -305,14 +305,25 @@ pilot:
 
 The pilot trains nothing itself, so it declares ``@without_setup``; each
 ``train`` job it drains still carries the ``--setup cnnenv`` frozen into it at
-prepare time. Prepare the sweep as in Step 5, then submit the pilot over as many
-nodes as you want the jobs to pack onto:
+prepare time. Prepare the sweep as in Step 5 --- but add ``--backend pilot`` ---
+then submit the pilot over as many nodes as you want the jobs to pack onto:
 
 .. code-block:: console
 
-   $ ./exp.sh sweep -- prepare --group grid --setup cnnenv -- train \
+   $ ./exp.sh sweep -- prepare --backend pilot --group grid --setup cnnenv -- train \
          --data cifar --num-blocks '{2,3,4}' --kernel-size '{3,5}'
    $ ./exp.sh submit --nodes 4 --wait -- sweep-pilot --group grid
+
+``--backend pilot`` is the one change from Step 5, and it matters. ``prepare``
+freezes the *target scheduler* along with the rest of the spec, and it freezes
+whatever scheduler it detects where it runs --- on a login node, the batch
+scheduler. But these jobs will not run on the batch scheduler; they will run on
+the pilot's daemon. ``--backend pilot`` freezes that target instead (which is also
+why no site queue or wall-clock limit is attached: a pilot sub-job runs for as
+long as the allocation lasts). A job is released only where its frozen backend
+matches the one that is live, so without this flag the pilot's ``submit drain``
+would find a backlog frozen for the batch scheduler, skip all of it as a mismatch,
+and run nothing. With it, the drain inside the pilot claims exactly these jobs.
 
 The ``submit drain`` call is the part that does the draining. The two calls
 before it --- ``job reconcile`` and ``job reset`` --- are there for a different
@@ -542,26 +553,52 @@ eight-parameter ``train`` job, and the two pilots (``sweep-pilot`` for the grid,
    :language: bash
 
 From a cluster login node, the full arc is: provision, fetch the data, build the
-environment, prepare and drain a grid inside a pilot, then prepare and run a
-Bayesian campaign inside a pilot, and read the result:
+environment, run the grid, run the Bayesian campaign, and read the result. The
+grid can be run two ways --- straight on the machine's scheduler, or packed into
+one pilot allocation --- and the only command that changes is the ``--backend`` of
+the ``prepare`` step:
 
 .. code-block:: console
 
    $ ./exp.sh bootstrap  # on a cluster, add --profile <machine>
    $ ./exp.sh fetch --name cifar -- cifar --uncompress
    $ ./exp.sh setup --name cnnenv -- cnnenv
+
+   # The grid sweep: prepare the product once, then drain it. Pick ONE of (a)/(b)
+   # --- the prepare's backend has to match where the drain runs.
+
+   # (a) Native scheduler: prepare for the machine's own scheduler (the default),
+   #     then drain straight to it. Each job waits its own turn in the batch queue.
    $ ./exp.sh sweep -- prepare --group grid --setup cnnenv -- train \
          --data cifar --num-blocks '{2,3,4}' --kernel-size '{3,5}'
+   $ ./exp.sh submit drain --group grid --max-inflight 4
+
+   # (b) Pilot: prepare for the in-allocation daemon (--backend pilot), then let a
+   #     single pilot drain the whole grid onto its own nodes -- one queue wait,
+   #     the jobs packed N-at-a-time across the allocation.
+   $ ./exp.sh sweep -- prepare --backend pilot --group grid --setup cnnenv -- train \
+         --data cifar --num-blocks '{2,3,4}' --kernel-size '{3,5}'
    $ ./exp.sh submit --nodes 4 --wait -- sweep-pilot --group grid
+
+   # The Bayesian campaign. `ax prepare` records the campaign only -- it runs no
+   # jobs -- so, unlike `sweep -- prepare`, it takes no --backend: `ax optimize`
+   # generates each trial and submits it on the fly (a direct submit), so a trial
+   # simply adopts whatever backend is live where it runs.
    $ ./exp.sh ax prepare --campaign tune --objective val_accuracy --maximize \
          --max-trials 40 --sobol-trials 8 --seed 1 \
          -- submit --setup cnnenv -- train --data cifar \
             --num-blocks @domain --base-channels @domain --kernel-size @domain \
             --dropout @domain --activation @domain --residual @domain \
             --lr @domain --batch-size @domain
+   # (a) Native scheduler: ax optimize submits each trial straight to the queue.
+   $ ./exp.sh ax optimize --campaign tune --max-inflight 4
+   # (b) Pilot: run the campaign inside one allocation (tune-pilot calls ax optimize,
+   #     so its trials land on the daemon -- no --backend needed either way).
    $ ./exp.sh submit --nodes 4 --wait -- tune-pilot --campaign tune --max-inflight 4
+
    $ ./exp.sh ax show --campaign tune
 
-On a laptop it is the same script with no pilots: drain the grid directly with
-``submit drain --group grid`` and run the campaign with ``ax optimize --campaign
-tune``. The experiment script never changes.
+On a laptop there are no pilots at all: use form (a) throughout --- ``prepare``
+(no ``--backend``) freezes the local backend and ``submit drain`` /
+``ax optimize`` run the jobs directly on the one host. The experiment script never
+changes --- only whether you route the work through a pilot does.

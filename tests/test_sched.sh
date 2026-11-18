@@ -889,6 +889,58 @@ _use_profile_json() {
     [[ "$output" == *"flux"* ]]
 }
 
+# ---------- _knit_sched_resolve : --backend override (pilot) ----------
+
+@test "resolve on the pilot backend leaves the queue empty despite a profile default" {
+    # A pilot sub-job runs inside the allocation with no site queue, so the profile
+    # default queue must NOT be recorded for it.
+    _use_profile polaris
+    _knit_sched_backend() { local -n __r=$1; __r='pilot'; }
+    declare -A r
+    _knit_sched_resolve r
+    [ -z "${r[queue]}" ]
+}
+
+@test "resolve on the pilot backend defaults the walltime to none, not a guess" {
+    _use_profile polaris
+    _knit_metadata_store --key "__default_walltime__" --value "03:00:00"
+    _knit_sched_backend() { local -n __r=$1; __r='pilot'; }
+    declare -A r
+    _knit_sched_resolve r
+    [ "${r[walltime]}" = "none" ]
+    [ "${r[walltime-defaulted]}" = "false" ]
+}
+
+@test "resolve on the pilot backend keeps an explicit --queue and --walltime" {
+    _use_profile polaris
+    _knit_sched_backend() { local -n __r=$1; __r='pilot'; }
+    declare -A r
+    _knit_sched_resolve r --queue debug --walltime 00:30:00
+    [ "${r[queue]}" = "debug" ]
+    [ "${r[walltime]}" = "00:30:00" ]
+}
+
+@test "resolve --backend pilot overrides a detected batch backend" {
+    # Detection would say slurm, but an explicit --backend pilot resolves the
+    # pilot way: no queue default, walltime none.
+    _use_profile polaris
+    _knit_sched_backend() { local -n __r=$1; __r='slurm'; }
+    declare -A r
+    _knit_sched_resolve r --backend pilot
+    [ -z "${r[queue]}" ]
+    [ "${r[walltime]}" = "none" ]
+}
+
+@test "resolve --backend native keeps the detected backend's queue/walltime defaults" {
+    # native is the explicit spelling of "detect": same result as no --backend.
+    _use_profile polaris
+    _knit_sched_backend() { local -n __r=$1; __r='slurm'; }
+    declare -A r
+    _knit_sched_resolve r --backend native
+    [ "${r[queue]}" = "prod" ]
+    [ "${r[walltime-defaulted]}" = "true" ]
+}
+
 @test "resolve job-name defaults to the experiment script name" {
     declare -A r
     _knit_sched_resolve r

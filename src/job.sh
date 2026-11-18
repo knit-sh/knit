@@ -106,6 +106,8 @@ knit_with_output "hostnames:string" \
     "Comma-separated deduplicated nodes the job ran on (recorded at start)."
 knit_with_output "native-cmd:string" \
     "The resolved scheduler command that was issued to submit the job."
+knit_with_output "backend:string" \
+    "Scheduler backend this job targets, frozen at build time. A prepared job is released only where the ambient backend matches, so a job prepared for \"pilot\" is drained inside the pilot, not on the login node's scheduler."
 knit_with_output "retries:integer" \
     "Number of times this job has been reset (re-queued) for a retry." \
     --unset "0"
@@ -388,10 +390,35 @@ _knit_prepare_build() {
     declare -A opts
     _knit_sched_resolve opts "$@"
 
-    # Pick the scheduler backend: bootstrap metadata, else live detection, with
-    # "none" mapping to the local (no-scheduler) backend.
+    # Pick the scheduler backend. `prepare --backend` names the target the prepared
+    # job will be released against. Only two values make sense: "native" (whatever
+    # this platform detects — the default) and "pilot" (the in-allocation daemon).
+    # Pilot is the one backend detection cannot see at prepare time: KNIT_PILOT is
+    # set only inside the allocation, but `prepare` runs on the login node. Every
+    # other backend is a static property of the machine that detection reads
+    # correctly at both prepare and release, so forcing one (e.g. "pbs" on a Slurm
+    # box) would only freeze a jobscript with no valid release environment. A bad
+    # value is fatal here, before the jobscript is written. "native" (and the empty
+    # default for a direct `submit`, which never sets --backend) resolves to the
+    # detected backend; "none" maps to local inside _knit_sched_backend.
     local backend
-    _knit_sched_backend backend
+    backend="$(knit_get_parameter "backend" "$@")" || backend=""
+    case "${backend}" in
+        native | "") _knit_sched_backend backend ;;
+        pilot) ;;
+        *)
+            knit_fatal "Unknown --backend \"%s\". Valid backends: native, pilot." \
+                "${backend}"
+            ;;
+    esac
+
+    # Record the concrete target backend on the row. A later release claims a
+    # prepared job only where the ambient backend matches this value (see
+    # _knit_prepare_claim_next and `submit prepared`), so a job prepared for the
+    # pilot is drained inside the pilot, not replayed against the login node's
+    # scheduler. Written straight to submit's output map for the same reason the
+    # "job" output is (the executing frame for `prepare` is not `submit`).
+    _owner_outputs["backend"]="${backend}"
 
     # When the walltime was defaulted (no --walltime, no project default), warn so
     # the user knows a limit was chosen for them and can set it explicitly. Only

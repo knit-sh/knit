@@ -4,6 +4,12 @@ setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
     knit_test_require_sqlite
     knit_test_db_setup
+    # Force the local backend regardless of the host scheduler: detection's
+    # "<unknown>" degrades to local, so the backend-aware claim/dry-run/total
+    # filters resolve to a deterministic ambient backend ("local"). The metadata
+    # table backs _knit_sched_backend's detection (read by those filters).
+    _KNIT_DETECTED_JOB_MANAGER="<unknown>"
+    _knit_create_metadata_table
     _reconcile_tmpdir=""
     # Used by the --json-summary path and the --when guard; harmless when unset
     # (only the JSON tests exercise it, and they skip when jq is unavailable).
@@ -251,12 +257,12 @@ _drain_json() { printf '%s\n' "$1" | grep '^{'; }
 # the dry run lists prepared jobs by ascending id).
 _seed_jobs() {
     sqlite3 "${_KNIT_DATABASE}" \
-        "CREATE TABLE jobs (id TEXT, job TEXT, \"group\" TEXT, state TEXT);
+        "CREATE TABLE jobs (id TEXT, job TEXT, \"group\" TEXT, state TEXT, backend TEXT);
          INSERT INTO jobs VALUES
-           ('j01','alpha','g1','prepared'),
-           ('j02','beta','','prepared'),
-           ('j03','gamma','g1','submitted'),
-           ('j04','alpha','g2','prepared');"
+           ('j01','alpha','g1','prepared','local'),
+           ('j02','beta','','prepared','local'),
+           ('j03','gamma','g1','submitted','local'),
+           ('j04','alpha','g2','prepared','local');"
 }
 
 _prepared_count() {
@@ -350,8 +356,11 @@ _setup_reconcile() {
 
 _make_running_job() {
     local id="$1" grp="${2:-}"
+    # Name the columns so this works against both the 4-column reconcile table and
+    # the 5-column _seed_jobs table (a running job needs no "backend" value — the
+    # backend filter only applies to prepared rows).
     sqlite3 "${_KNIT_DATABASE}" \
-        "INSERT INTO jobs VALUES ('${id}','myjob','${grp}','running');"
+        "INSERT INTO jobs (id, job, \"group\", state) VALUES ('${id}','myjob','${grp}','running');"
     local d="${_reconcile_tmpdir}/jobs/${id}"
     mkdir -p "${d}"
     printf 'launcher_%s\n' "${id}" > "${d}/.job.id"
@@ -524,4 +533,38 @@ _drain_job_state() {
     local n=5
     _knit_drain_total n "" "" ""
     [ "$n" -eq 0 ]
+}
+
+# ---------- backend mismatch (skip + report) ----------
+
+@test "total counts only the jobs this backend can release" {
+    # Two prepared jobs frozen for the pilot, one for local; ambient is local.
+    sqlite3 "${_KNIT_DATABASE}" \
+        "CREATE TABLE jobs (id TEXT, job TEXT, \"group\" TEXT, state TEXT, backend TEXT);
+         INSERT INTO jobs VALUES
+           ('p1','myjob','','prepared','pilot'),
+           ('p2','myjob','','prepared','pilot'),
+           ('l1','myjob','','prepared','local');"
+    local n=9
+    _knit_drain_total n "" "" ""
+    [ "$n" -eq 1 ]
+}
+
+@test "submit drain skips jobs frozen for another backend and reports the count" {
+    # Ambient backend is local; both prepared jobs target the pilot, so none is
+    # releasable here. The loop releases nothing and the drain reports them skipped.
+    sqlite3 "${_KNIT_DATABASE}" \
+        "CREATE TABLE jobs (id TEXT, job TEXT, \"group\" TEXT, state TEXT, backend TEXT);
+         INSERT INTO jobs VALUES
+           ('p1','myjob','','prepared','pilot'),
+           ('p2','myjob','','prepared','pilot');"
+    _drain_program
+    run _knit_submit_drain --max-inflight 0
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Skipped 2 prepared job(s)"* ]]
+    [[ "$output" == *"pilot"* ]]
+    [[ "$output" == *"local"* ]]
+    # The mismatched rows stay prepared for a drain where the pilot backend is live.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM jobs WHERE state='prepared';")" = "2" ]
 }

@@ -48,3 +48,10 @@ sub-jobs still outstanding when the body returns instead of the default, which
 sub-tree down: every running sub-job is signalled and every queued one dropped,
 and all are recorded ``killed`` --- a killed pilot never leaves a sub-job running
 or lost.
+
+Instead of fanning the sub-jobs out from the body, you can **prepare** them on the
+login node and **drain** them from inside the pilot. Prepare with
+``--backend pilot`` so each job freezes for the in-allocation daemon (see *Prepare
+a job instead of submitting it*), then run ``submit drain`` in the pilot body: it
+releases exactly the ``--backend pilot`` jobs, and a drain run anywhere else skips
+them.

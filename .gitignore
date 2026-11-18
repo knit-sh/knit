@@ -1,4 +1,5 @@
 /knit.sh
+/.worktrees/
 
 # Generated documentation
 /docs/build/

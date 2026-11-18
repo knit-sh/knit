@@ -78,13 +78,24 @@ failed or killed jobs*):
    # 1. prepare the product once (durable, grouped -- --group on prepare labels
    #    the prepared jobs so the drain can select them):
    $ ./exp.sh sweep -- prepare --group mc -- sim --n '{1,2,4}'
-   # 2. drain it -- from the login node, or inside a pilot job:
+   # 2. drain it from the login node:
+   $ ./exp.sh submit drain --group mc --max-inflight 8 --reconcile --retry killed,failed
+
+``prepare`` freezes the *target scheduler* where it runs, and a job is released
+only where its frozen backend is live. The command above prepares for the login
+node's scheduler, so it must be drained there. To instead drain **inside a pilot
+job** --- packing the swept jobs onto the pilot's nodes with no second queue wait
+--- prepare for the pilot and run the drain in the pilot's body:
+
+.. code-block:: console
+
+   $ ./exp.sh sweep -- prepare --backend pilot --group mc -- sim --n '{1,2,4}'
+   # ... then, inside a knit_with_pilot job body:
    $ ./exp.sh submit drain --group mc --max-inflight 8 --reconcile --retry killed,failed
 
 Resumability is not a sweep feature at all --- it is a property of the
-prepare/drain queue the sweep writes into. Draining inside a ``knit_with_pilot``
-job packs the swept jobs onto the pilot's nodes with no second queue wait; a
-pilot killed at walltime is resumed by re-submitting it, where ``--reconcile``
-first corrects the sub-jobs the hard kill stranded at ``running`` and ``--retry``
-re-queues them. The sweep's own ``--max-inflight`` / ``--on-failure`` govern only the
-ephemeral forms; durable concurrency, recovery, and failure policy are drain's.
+prepare/drain queue the sweep writes into. A pilot killed at walltime is resumed
+by re-submitting it, where ``--reconcile`` first corrects the sub-jobs the hard
+kill stranded at ``running`` and ``--retry`` re-queues them. The sweep's own
+``--max-inflight`` / ``--on-failure`` govern only the ephemeral forms; durable
+concurrency, recovery, and failure policy are drain's.

@@ -132,6 +132,39 @@ _register_myjob_with_setup() {
         "SELECT walltime FROM jobs WHERE id='${uuid}';")" = "01:00:00" ]
 }
 
+@test "prepare records the detected backend when no --backend is given" {
+    _register_myjob_with_setup
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
+    # The setup forces detection to "<unknown>" -> local.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT backend FROM jobs WHERE id='${uuid}';")" = "local" ]
+}
+
+@test "prepare --backend pilot records the pilot backend and no queue" {
+    _register_myjob_with_setup
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup --backend pilot -- myjob)"
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT backend FROM jobs WHERE id='${uuid}';")" = "pilot" ]
+    # A pilot sub-job carries no site queue and an unbounded walltime.
+    [ -z "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT queue FROM jobs WHERE id='${uuid}';")" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT walltime FROM jobs WHERE id='${uuid}';")" = "none" ]
+}
+
+@test "prepare rejects an unknown --backend" {
+    _register_myjob_with_setup
+
+    run _knit_invoke_command prepare --setup setup --backend bogus -- myjob
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Unknown --backend"* ]]
+    [[ "$output" == *"native, pilot"* ]]
+}
+
 @test "prepare records a used_by edge labelled for the submit table owner" {
     _register_myjob_with_setup
 
@@ -354,6 +387,53 @@ _stub_dispatch_ok() {
         "SELECT COUNT(*) FROM jobs WHERE state='submitted';")" = "1" ]
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT COUNT(*) FROM jobs WHERE state='prepared';")" = "1" ]
+}
+
+@test "submit prepared --id is fatal on a backend mismatch and leaves the job prepared" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+
+    # Prepared for the pilot, but this environment's backend is local.
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup --backend pilot -- myjob)"
+
+    run _knit_invoke_command submit prepared --id "${uuid}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"prepared for the \"pilot\" backend"* ]]
+    [[ "$output" == *"local"* ]]
+    # The row is untouched: still claimable where the pilot backend is active.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='${uuid}';")" = "prepared" ]
+}
+
+@test "submit next skips a backend-mismatched job and releases a matching one" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+
+    # Oldest is a pilot job (not releasable here); next is a native/local one.
+    local u_pilot u_local
+    u_pilot="$(_knit_invoke_command prepare --setup setup --backend pilot -- myjob)"
+    u_local="$(_knit_invoke_command prepare --setup setup -- myjob)"
+
+    # submit next skips the mismatched pilot job and releases the local one.
+    [ "$(_knit_invoke_command submit next)" = "${u_local}" ]
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='${u_local}';")" = "submitted" ]
+    # The pilot job stays prepared (never claimed here, never stranded).
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT state FROM jobs WHERE id='${u_pilot}';")" = "prepared" ]
+}
+
+@test "submit next is fatal when only backend-mismatched jobs remain" {
+    _register_myjob_with_setup
+    _stub_dispatch_ok
+
+    _knit_invoke_command prepare --setup setup --backend pilot -- myjob >/dev/null
+
+    run _knit_invoke_command submit next
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"No prepared job to release on the \"local\" backend"* ]]
+    [[ "$output" == *"pilot"* ]]
 }
 
 @test "submit prepared --wait threads the wait flag to the backend" {

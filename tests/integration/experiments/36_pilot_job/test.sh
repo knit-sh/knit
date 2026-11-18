@@ -24,6 +24,15 @@
 #     login node while they run. The driver asserts the pilot and both of its
 #     sub-jobs end "killed" — a killed pilot never leaves a sub-job running.
 #
+#   Part C — prepare on the login node, drain inside the pilot.
+#     A backlog of workers is prepared on the login node with --backend pilot, so
+#     each freezes for the in-allocation daemon. The driver asserts: each prepared
+#     row froze backend "pilot"; a login-node drain skips the whole backlog (a
+#     backend mismatch) and leaves it prepared; and a "drainer" pilot, whose body
+#     runs `submit drain`, releases the backlog onto the daemon so every prepared
+#     worker completes. This is the cross-environment path the backend freeze
+#     exists for.
+#
 # Run from inside the cluster login node as hpcuser:
 #   bash /shared/knit/tests/integration/experiments/36_pilot_job/test.sh
 # ------------------------------------------------------------------------------
@@ -228,6 +237,50 @@ for w in "${kworkers[@]}"; do
     wait_killed "${w}" || fail "sub-job ${w:0:8} did not reach a terminal state"
     check_eq "$(job_state "${w}")" "killed" \
         "sub-job ${w:0:8} recorded killed when the pilot was cancelled"
+done
+
+# ==========================================================================
+# Part C: prepare on the login node for the pilot, drain inside the pilot.
+#   A backlog is prepared on the login node with --backend pilot, so each job
+#   freezes for the in-allocation daemon rather than the login node's scheduler.
+#   A drain on the login node then cannot release them (backend mismatch) and
+#   skips them; a pilot whose body drains the group releases them onto the
+#   daemon. This is the cross-environment path the backend freeze exists for.
+# ==========================================================================
+GRP="drain-backlog"
+prep_uuids=()
+for s in 1 2 3; do
+    prep_uuids+=("$(./experiment.sh prepare --backend pilot --group "${GRP}" \
+        -- worker --seed "${s}" --sleep 2)")
+done
+check_eq "${#prep_uuids[@]}" "3" "prepared 3 worker jobs for the pilot backend"
+
+# Each prepared row froze the pilot backend.
+for u in "${prep_uuids[@]}"; do
+    check_eq \
+        "$(${__ASSERT_SQLITE3} "${DB}" "SELECT backend FROM jobs WHERE id='${u}';")" \
+        "pilot" "prepared job ${u:0:8} froze the pilot backend"
+done
+
+# Negative: a drain on the LOGIN node (a batch backend) cannot release
+# pilot-frozen jobs. It skips them, releases nothing, and leaves them prepared.
+./experiment.sh submit drain --group "${GRP}" --max-inflight 0 \
+    > login-drain.out 2>&1 || true
+check_grep "Skipped 3" "login-drain.out" \
+    "login-node drain skips the pilot-frozen backlog with a count"
+check_sqlite "${DB}" \
+    "SELECT COUNT(*) FROM jobs WHERE \"group\"='${GRP}' AND state='prepared';" \
+    "3" "pilot-frozen jobs stay prepared after a login-node drain"
+
+# Positive: a pilot whose body drains the group releases the backlog onto the
+# in-allocation daemon; by --wait the whole backlog is terminal.
+drain_uuid=$(./experiment.sh submit --nodes 2 --wait -- drainer --group "${GRP}")
+check_sqlite "${DB}" "SELECT state FROM jobs WHERE id='${drain_uuid}';" \
+    "completed" "draining pilot completed after --wait"
+
+for u in "${prep_uuids[@]}"; do
+    check_eq "$(job_state "${u}")" "completed" \
+        "prepared worker ${u:0:8} ran on the pilot daemon and completed"
 done
 
 assert_summary
