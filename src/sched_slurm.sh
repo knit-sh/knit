@@ -9,7 +9,10 @@
 # exclusively, so --exclusive is always set and --ntasks-per-node is pinned to the
 # derived per-node core count (when known) so every core is a launchable slot.
 # Job stdout/stderr are fixed to <jobdir>/.stdout and <jobdir>/.stderr. Optional
-# fields (account, project/wckey, partition, gpus) are emitted only when set.
+# fields (account, project/wckey, queue, gpus) are emitted only when set. The
+# queue value is written to the directive(s) named by the resolved "queue-as"
+# list ("partition" and/or "qos"; empty is treated as "partition"), so a site
+# whose queues are Slurm QOS classes emits --qos instead of --partition.
 #
 # @param[in] arr_name Name of the resolved-options associative array.
 # @param[in] jobdir   Job directory (for the --output/--error paths).
@@ -26,7 +29,12 @@ _knit_sched_slurm_directives() {
         printf '#SBATCH --wckey=%s\n' "${resolved[project]}"
     fi
     if [[ -n "${resolved[queue]}" ]]; then
-        printf '#SBATCH --partition=%s\n' "${resolved[queue]}"
+        local queue_as="${resolved[queue-as]:-partition}"
+        local flag
+        # shellcheck disable=SC2086 # word-split the validated directive-name list
+        for flag in ${queue_as}; do
+            printf '#SBATCH --%s=%s\n' "${flag}" "${resolved[queue]}"
+        done
     fi
     printf '#SBATCH --nodes=%s\n' "${resolved[nodes]}"
     if [[ -n "${resolved[cpus-per-node]}" ]]; then
