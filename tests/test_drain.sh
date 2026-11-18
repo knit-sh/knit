@@ -534,3 +534,37 @@ _drain_job_state() {
     _knit_drain_total n "" "" ""
     [ "$n" -eq 0 ]
 }
+
+# ---------- backend mismatch (skip + report) ----------
+
+@test "total counts only the jobs this backend can release" {
+    # Two prepared jobs frozen for the pilot, one for local; ambient is local.
+    sqlite3 "${_KNIT_DATABASE}" \
+        "CREATE TABLE jobs (id TEXT, job TEXT, \"group\" TEXT, state TEXT, backend TEXT);
+         INSERT INTO jobs VALUES
+           ('p1','myjob','','prepared','pilot'),
+           ('p2','myjob','','prepared','pilot'),
+           ('l1','myjob','','prepared','local');"
+    local n=9
+    _knit_drain_total n "" "" ""
+    [ "$n" -eq 1 ]
+}
+
+@test "submit drain skips jobs frozen for another backend and reports the count" {
+    # Ambient backend is local; both prepared jobs target the pilot, so none is
+    # releasable here. The loop releases nothing and the drain reports them skipped.
+    sqlite3 "${_KNIT_DATABASE}" \
+        "CREATE TABLE jobs (id TEXT, job TEXT, \"group\" TEXT, state TEXT, backend TEXT);
+         INSERT INTO jobs VALUES
+           ('p1','myjob','','prepared','pilot'),
+           ('p2','myjob','','prepared','pilot');"
+    _drain_program
+    run _knit_submit_drain --max-inflight 0
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Skipped 2 prepared job(s)"* ]]
+    [[ "$output" == *"pilot"* ]]
+    [[ "$output" == *"local"* ]]
+    # The mismatched rows stay prepared for a drain where the pilot backend is live.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM jobs WHERE state='prepared';")" = "2" ]
+}

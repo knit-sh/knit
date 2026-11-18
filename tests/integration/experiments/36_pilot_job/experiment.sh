@@ -18,6 +18,11 @@
 #     whole batch with `knit job wait --id`. `--sleep` is forwarded to each worker
 #     so the kill test can make them outlast an external cancel.
 #
+#   - Job "drainer" is a pilot whose body runs `knit submit drain` for a --group.
+#     It releases a backlog prepared on the login node (with --backend pilot) onto
+#     the in-allocation daemon, exercising the cross-environment prepare/drain
+#     path: prepare where you build the jobs, drain where they run.
+#
 # The worker lines are "WORKER seed=<s> assigned=<h,...> start=<t> end=<t>" so the
 # driver can parse them field by field.
 
@@ -58,6 +63,23 @@ __campaign_job_fn() {
     done
     # Block until every sub-job is terminal (non-zero if any failed/killed).
     knit job wait --id "${ids}"
+}
+knit_done
+
+knit_register_job "drainer" __drainer_job_fn \
+    "Release a prepared backlog onto this allocation (pilot)."
+knit_with_pilot
+knit_with_optional "group:string" "" "Only drain prepared jobs in this group."
+__drainer_job_fn() {
+    local group
+    group=$(knit_get_parameter "group" "$@")
+    # Release the backlog prepared on the login node (with --backend pilot) onto
+    # the in-allocation daemon. A bounded pool waits for every released sub-job, so
+    # the body returns only once the whole backlog is terminal. The claim releases
+    # only the jobs frozen for the pilot backend; it is the cross-environment path
+    # (prepare on the login node, drain inside the pilot) that the backend freeze
+    # exists for.
+    knit submit drain --group "${group}" --max-inflight 2
 }
 knit_done
 
