@@ -44,15 +44,25 @@ _knit_drain_release_next() {
     local wait_flag="$1"
     shift
     local uuid
+    # Re-enter the experiment from the directory holding its script (and knit.sh).
+    # A drain run from inside a pilot job body executes with the cwd set to that
+    # job's directory, so a bare `source knit.sh` in the re-executed experiment
+    # would not resolve from there; cd'ing to the script's directory first makes
+    # the re-entry work regardless of the caller's cwd. The script path is
+    # absolute, so the cd does not affect how it (or the DB) is located.
+    local script_dir
+    script_dir="$(dirname "${_KNIT_SCRIPT_PATH}")"
     # Probe the queue quietly: on the loop's final (empty) call, submit next would
     # otherwise log "No prepared job to release." right before drain's own
     # end-of-run summary. _KNIT_SUBMIT_NEXT_QUIET suppresses only that benign
     # empty-queue line (a real dispatch error still fatals and prints).
-    uuid="$(_KNIT_SUBMIT_NEXT_QUIET=true "${_KNIT_SCRIPT_PATH}" submit next "$@")" || true
+    uuid="$(cd "${script_dir}" && _KNIT_SUBMIT_NEXT_QUIET=true \
+        "${_KNIT_SCRIPT_PATH}" submit next "$@")" || true
     [[ -z "${uuid}" ]] && return 1
     printf '%s\n' "${uuid}"
     [[ "${wait_flag}" != "true" ]] && return 0
-    "${_KNIT_SCRIPT_PATH}" job wait --id "${uuid}" >/dev/null 2>&1
+    ( cd "${script_dir}" && "${_KNIT_SCRIPT_PATH}" job wait --id "${uuid}" ) \
+        >/dev/null 2>&1
 }
 
 # ------------------------------------------------------------------------------
