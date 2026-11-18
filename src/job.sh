@@ -554,11 +554,15 @@ _knit_submit_dispatch() {
     knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" \
         "native-cmd=${native_cmd}" "state=submitted"
 
-    # Log the resolved command before issuing it, then submit.
+    # Log the resolved command before issuing it, then submit. The backend
+    # command's stderr is captured to a file so a rejection can report *why* the
+    # scheduler refused (its own error message), not just the command that failed;
+    # its stdout (the job id) is captured as usual.
     knit_trace "Submitting job \"${job_display}\": ${native_cmd}"
     local jobid submit_status=0
-    jobid="$(_knit_sched_submit "${backend}" opts "${script}" "${jobdir}")" \
-        || submit_status=$?
+    local submit_err_file="${jobdir}/.submit.err"
+    jobid="$(_knit_sched_submit "${backend}" opts "${script}" "${jobdir}" \
+        2>"${submit_err_file}")" || submit_status=$?
     if (( submit_status != 0 )); then
         # The submission command exited non-zero. Because the submission is issued
         # non-blocking (the wait is a separate step below), a failure here is the
@@ -575,11 +579,21 @@ _knit_submit_dispatch() {
             "SELECT state FROM ${_KNIT_JOBS_TABLE} WHERE id='${uuid_esc}';" \
             2>/dev/null)" || cur_state=""
         if [[ -z "${cur_state}" || "${cur_state}" == "submitted" ]]; then
+            # Read the scheduler's own message before cleanup removes the job dir,
+            # and fold it into the fatal so the cause is actionable.
+            local scheduler_msg scheduler_detail=""
+            scheduler_msg="$(< "${submit_err_file}")"
+            [[ -n "${scheduler_msg}" ]] \
+                && scheduler_detail=$'\n'"The scheduler reported:"$'\n'"${scheduler_msg}"
             _knit_submit_cleanup_rejected "${uuid}" "${jobdir}" "${alias_link}"
-            knit_fatal "Job submission failed for \"%s\": the scheduler rejected the request (%s). The job was not recorded." \
-                "${job_name}" "${native_cmd}"
+            knit_fatal "Job submission failed for \"%s\": the scheduler rejected the request (%s).%s\nThe job was not recorded." \
+                "${job_name}" "${native_cmd}" "${scheduler_detail}"
         fi
     fi
+    # Submission succeeded. Forward any scheduler stderr (warnings) that the
+    # capture would otherwise swallow, then drop the now-empty capture file.
+    [[ -s "${submit_err_file}" ]] && cat "${submit_err_file}" >&2
+    rm -f "${submit_err_file}"
 
     # Record the implementation-dependent launcher id in .job.id, tagged with the
     # backend that minted it ("<backend>:<id>"), so every reader routes the id to

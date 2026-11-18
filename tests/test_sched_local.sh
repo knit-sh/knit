@@ -376,6 +376,43 @@ EOF
     [ "$(cat "${jobdir}/.job.id")" = "slurm:1234" ]
 }
 
+@test "_knit_submit_dispatch reports the scheduler's error on a rejection" {
+    _knit_db_setup_table "submit" "jobs"
+
+    local jobdir="${_KNIT_TEST_TMPDIR}/jobs/rej"
+    mkdir -p "${jobdir}"
+    printf '#!/bin/bash\n' > "${jobdir}/.job.sh"
+    cat > "${jobdir}/.submit" <<'EOF'
+backend=slurm
+opt:nodes=3
+EOF
+    sqlite3 "${_KNIT_DATABASE}" \
+        "INSERT INTO jobs (id, job, state) VALUES ('rej', 'myjob', 'prepared');"
+
+    _knit_sched_submit_cmdline() {
+        local argv_name="$4"; local -n _argv="${argv_name}"
+        _argv=(sbatch "$3")
+    }
+    # Stand in for a scheduler that rejects the request: write its reason to
+    # stderr (as sbatch/qsub do) and exit non-zero.
+    _knit_sched_submit() {
+        printf 'sbatch: error: QOSMaxNodePerUserLimit\n' >&2
+        return 1
+    }
+
+    _KNIT_EXECUTING_COMMAND=("submit")
+
+    run _knit_submit_dispatch "rej" "${jobdir}" "myjob" ""
+    [ "$status" -ne 0 ]
+    # The fatal names the job, the issued command, and the scheduler's own reason.
+    [[ "$output" == *"the scheduler rejected the request"* ]]
+    [[ "$output" == *"The scheduler reported:"* ]]
+    [[ "$output" == *"QOSMaxNodePerUserLimit"* ]]
+    # The rejected submission left no trace: row and job dir are gone.
+    [ -z "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM jobs WHERE id='rej';")" ]
+    [ ! -d "${jobdir}" ]
+}
+
 # ---------- _knit_sched_local_cancel ----------
 
 @test "_knit_sched_local_cancel signals a running process" {
