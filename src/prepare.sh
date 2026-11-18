@@ -65,6 +65,117 @@ _knit_prepare() {
 knit_done
 
 # ------------------------------------------------------------------------------
+# @fn _knit_prepare_releasable_where()
+#
+# Build the SQL WHERE clause selecting the prepared jobs THIS environment can
+# release: state 'prepared', frozen target backend equal to the ambient backend
+# (_knit_sched_backend), and the optional job/group filters. A job frozen for a
+# different backend (for example prepared for "pilot" but looked at from the
+# login node) is excluded — its batch script is backend-specific and cannot
+# replay here. Shared by the claim, the drain backlog count, and the dry-run peek
+# so all three agree on exactly which jobs are releasable here; a mismatched job
+# is therefore skipped, never stranded in "submitting" or re-claimed in a loop.
+#
+# @param[out] __knit_ret Name of the variable to receive the WHERE clause.
+# @param[in]  job   Optional job-name filter (the "job" column; empty means any).
+# @param[in]  group Optional group filter (the "group" column; empty means any).
+# ------------------------------------------------------------------------------
+_knit_prepare_releasable_where() {
+    local -n __knit_ret=$1
+    local job="$2" group="$3"
+
+    local -a conds=("state='prepared'")
+    local esc
+
+    local ambient backend_ident
+    _knit_sched_backend ambient
+    _knit_sql_escape esc "${ambient}"
+    _knit_db_sql_ident backend_ident "backend"
+    conds+=("${backend_ident}='${esc}'")
+
+    if [[ -n "${job}" ]]; then
+        _knit_sql_escape esc "${job}"
+        conds+=("job='${esc}'")
+    fi
+    if [[ -n "${group}" ]]; then
+        _knit_sql_escape esc "${group}"
+        local group_ident
+        _knit_db_sql_ident group_ident "group"
+        conds+=("${group_ident}='${esc}'")
+    fi
+
+    # Not named "where": callers pass their own "where" as the output nameref, so a
+    # local of that name here would alias the nameref to itself (shadow collision).
+    local clause
+    printf -v clause '%s AND ' "${conds[@]}"
+    __knit_ret="${clause% AND }"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_prepare_mismatched()
+#
+# Summarize the prepared jobs this environment CANNOT release: those whose frozen
+# backend differs from the ambient backend, within the optional job/group scope.
+# Returns the count and a comma-separated list of the distinct target backends.
+# A `submit drain` reports these as skipped; a direct `submit next` names them in
+# its fatal when it finds nothing else to release.
+#
+# @param[out] __knit_ret1 Name of the variable to receive the count.
+# @param[out] __knit_ret2 Name of the variable to receive the comma-joined list
+#                     of distinct frozen backends (empty when the count is 0).
+# @param[in]  job   Optional job-name filter (empty means any).
+# @param[in]  group Optional group filter (empty means any).
+# ------------------------------------------------------------------------------
+_knit_prepare_mismatched() {
+    local -n __knit_ret1=$1
+    local -n __knit_ret2=$2
+    local job="$3" group="$4"
+
+    local -a conds=("state='prepared'")
+    local esc
+
+    local ambient backend_ident
+    _knit_sched_backend ambient
+    _knit_sql_escape esc "${ambient}"
+    _knit_db_sql_ident backend_ident "backend"
+    # A NULL backend (a legacy row predating the column) is not counted: it has no
+    # declared target to mismatch against.
+    conds+=("${backend_ident} IS NOT NULL" "${backend_ident}<>'${esc}'")
+
+    if [[ -n "${job}" ]]; then
+        _knit_sql_escape esc "${job}"
+        conds+=("job='${esc}'")
+    fi
+    if [[ -n "${group}" ]]; then
+        _knit_sql_escape esc "${group}"
+        local group_ident
+        _knit_db_sql_ident group_ident "group"
+        conds+=("${group_ident}='${esc}'")
+    fi
+
+    local where
+    printf -v where '%s AND ' "${conds[@]}"
+    where="${where% AND }"
+
+    local jobs_ident
+    _knit_db_sql_ident jobs_ident "${_KNIT_JOBS_TABLE}"
+
+    # This is a best-effort report, run at the end of every drain and after an
+    # empty `submit next`. Suppress stderr: before any job is prepared the "jobs"
+    # table may not exist yet, which simply means zero mismatched jobs rather than
+    # an error to surface.
+    local count list
+    count="$(_knit_sqlite3 "SELECT COUNT(*) FROM ${jobs_ident} WHERE ${where};" \
+        2>/dev/null)"
+    [[ "${count}" =~ ^[0-9]+$ ]] || count=0
+    list="$(_knit_sqlite3 \
+        "SELECT DISTINCT ${backend_ident} FROM ${jobs_ident} WHERE ${where} ORDER BY ${backend_ident};" \
+        2>/dev/null)"
+    __knit_ret1="${count}"
+    __knit_ret2="${list//$'\n'/,}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_prepare_claim_next()
 #
 # Atomically claim the oldest prepared job matching optional filters, moving it
@@ -83,21 +194,13 @@ knit_done
 _knit_prepare_claim_next() {
     local job="$1" group="$2"
 
-    local -a conds=("state='prepared'")
-    local esc
-    if [[ -n "${job}" ]]; then
-        _knit_sql_escape esc "${job}"
-        conds+=("job='${esc}'")
-    fi
-    if [[ -n "${group}" ]]; then
-        _knit_sql_escape esc "${group}"
-        local group_ident
-        _knit_db_sql_ident group_ident "group"
-        conds+=("${group_ident}='${esc}'")
-    fi
+    # Claim only a job this environment can release: state 'prepared', frozen
+    # backend == ambient backend, within the optional type/group scope (see
+    # _knit_prepare_releasable_where). Filtering here — not after dispatch — is
+    # what lets a drain skip a job frozen for another backend without stranding
+    # or re-claiming it: the row simply stays "prepared".
     local where
-    printf -v where '%s AND ' "${conds[@]}"
-    where="${where% AND }"
+    _knit_prepare_releasable_where where "${job}" "${group}"
 
     local jobs_ident id_ident
     _knit_db_sql_ident jobs_ident "${_KNIT_JOBS_TABLE}"
@@ -275,6 +378,20 @@ _knit_submit_prepared() {
             "${id}" "${state}"
     fi
 
+    # The frozen target backend must match the backend of this environment: the
+    # batch script is backend-specific and cannot replay elsewhere. For an explicit
+    # single release (a named --id) a mismatch is fatal — the user chose this job,
+    # so stop and say why rather than silently skip it (as a bulk drain does).
+    local frozen_backend ambient_backend
+    frozen_backend="$(_knit_sqlite3 \
+        "SELECT backend FROM ${_KNIT_JOBS_TABLE} WHERE id='${esc}';")"
+    _knit_sched_backend ambient_backend
+    if [[ -n "${frozen_backend}" && "${frozen_backend}" != "${ambient_backend}" ]]; then
+        knit_fatal "Job \"%s\" was prepared for the \"%s\" backend but this is the \"%s\" backend. Release it where the \"%s\" backend is active, or re-prepare it with --backend for \"%s\"." \
+            "${id}" "${frozen_backend}" "${ambient_backend}" \
+            "${frozen_backend}" "${ambient_backend}"
+    fi
+
     local claimed
     claimed="$(_knit_prepare_claim_id "${id}")"
     if [[ -z "${claimed}" ]]; then
@@ -322,7 +439,22 @@ _knit_submit_next() {
     local claimed
     claimed="$(_knit_prepare_claim_next "${type}" "${group}")"
     if [[ -z "${claimed}" ]]; then
+        # Nothing was claimable here. In quiet mode (a `submit drain` probe) just
+        # report the drained queue by returning non-zero; drain names any skipped,
+        # backend-mismatched jobs in its own summary. For a direct call, if the
+        # only prepared jobs in scope target a different backend, say so (and name
+        # both) rather than the misleading "No prepared job to release": this is a
+        # single release, so a mismatch is fatal, matching `submit prepared --id`.
         if [[ "${_KNIT_SUBMIT_NEXT_QUIET:-false}" != "true" ]]; then
+            local mismatch_count mismatch_backends ambient
+            _knit_prepare_mismatched mismatch_count mismatch_backends \
+                "${type}" "${group}"
+            if (( mismatch_count > 0 )); then
+                _knit_sched_backend ambient
+                knit_fatal "No prepared job to release on the \"%s\" backend, but %s prepared job(s) target \"%s\". Release them where that backend is active, or re-prepare them with --backend for \"%s\"." \
+                    "${ambient}" "${mismatch_count}" "${mismatch_backends}" \
+                    "${ambient}"
+            fi
             knit_info "No prepared job to release."
         fi
         return 1

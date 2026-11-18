@@ -396,21 +396,12 @@ _knit_drain_dry_run_json() {
 _knit_drain_dry_run() {
     local count="$1" json_summary="$2" job="$3" group="$4"
 
-    local -a conds=("state='prepared'")
-    local esc
-    if [[ -n "${job}" ]]; then
-        _knit_sql_escape esc "${job}"
-        conds+=("job='${esc}'")
-    fi
+    # Same releasable filter as the claim (state 'prepared', ambient backend,
+    # optional type/group), so the peek lists exactly what the loop would claim.
+    local where
+    _knit_prepare_releasable_where where "${job}" "${group}"
     local group_ident
     _knit_db_sql_ident group_ident "group"
-    if [[ -n "${group}" ]]; then
-        _knit_sql_escape esc "${group}"
-        conds+=("${group_ident}='${esc}'")
-    fi
-    local where
-    printf -v where '%s AND ' "${conds[@]}"
-    where="${where% AND }"
 
     local jobs_ident id_ident
     _knit_db_sql_ident jobs_ident "${_KNIT_JOBS_TABLE}"
@@ -459,21 +450,11 @@ _knit_drain_total() {
     local -n __knit_ret=$1
     local count="$2" job="$3" group="$4"
 
-    local -a conds=("state='prepared'")
-    local esc
-    if [[ -n "${job}" ]]; then
-        _knit_sql_escape esc "${job}"
-        conds+=("job='${esc}'")
-    fi
-    local group_ident
-    _knit_db_sql_ident group_ident "group"
-    if [[ -n "${group}" ]]; then
-        _knit_sql_escape esc "${group}"
-        conds+=("${group_ident}='${esc}'")
-    fi
+    # Same releasable filter as the claim/dry-run (state 'prepared', ambient
+    # backend, optional type/group), so the bar is anchored to exactly the backlog
+    # the loop will release.
     local where
-    printf -v where '%s AND ' "${conds[@]}"
-    where="${where% AND }"
+    _knit_prepare_releasable_where where "${job}" "${group}"
 
     local jobs_ident
     _knit_db_sql_ident jobs_ident "${_KNIT_JOBS_TABLE}"
@@ -652,15 +633,31 @@ _knit_submit_drain() {
         _knit_drain_total total "${count}" "${type}" "${group}"
     fi
 
+    local drain_rc=0
     if (( max_inflight == 0 )); then
         _knit_drain_nolimit "${count}" "${json_summary}" "${show_progress}" \
-            "${total}" "${filters[@]}"
+            "${total}" "${filters[@]}" || drain_rc=$?
     elif (( max_inflight == 1 )); then
         _knit_drain_serial "${stop_on_failure}" "${count}" "${json_summary}" \
-            "${show_progress}" "${total}" "${filters[@]}"
+            "${show_progress}" "${total}" "${filters[@]}" || drain_rc=$?
     else
         _knit_drain_pool "${max_inflight}" "${stop_on_failure}" "${count}" \
-            "${json_summary}" "${show_progress}" "${total}" "${filters[@]}"
+            "${json_summary}" "${show_progress}" "${total}" "${filters[@]}" || drain_rc=$?
     fi
+
+    # Report jobs this environment could not release: those frozen for a different
+    # backend (for example a queue prepared on the login node, drained inside a
+    # pilot). The claim never grabs them, so they stay "prepared" for a later
+    # drain where their backend is active. A bulk drain skips them with a warning
+    # and a count rather than aborting, so one mismatched job does not stop the
+    # pass (unlike a single `submit next` / `submit prepared`, which is fatal).
+    local skipped skipped_backends ambient
+    _knit_prepare_mismatched skipped skipped_backends "${type}" "${group}"
+    if (( skipped > 0 )); then
+        _knit_sched_backend ambient
+        knit_warning "Skipped %s prepared job(s) frozen for \"%s\" (this is the \"%s\" backend); release them where that backend is active, or re-prepare them." \
+            "${skipped}" "${skipped_backends}" "${ambient}"
+    fi
+    return "${drain_rc}"
 }
 knit_done
