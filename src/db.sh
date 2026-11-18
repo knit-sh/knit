@@ -301,6 +301,7 @@ _knit_db_setup_table() {
 
     local specs=()
     local param type_var type
+    local -a sorted_params
 
     # Reserved "__exit_status__" column, recorded right after "id" for a command
     # whose table has it (see _knit_db_command_has_exit_status).
@@ -328,35 +329,39 @@ _knit_db_setup_table() {
         # Required parameters. A parameter declared with "--no-record" is parsed
         # and validated as an ordinary option but carries no column (see
         # _knit_param_is_norecord), so skip it here and in the row recorder.
-        while IFS= read -r param; do
+        _knit_set_sorted_array sorted_params "_KNIT_CMD_${cmd}_required"
+        for param in "${sorted_params[@]}"; do
             _knit_param_is_norecord "${cmd}" "${param}" && continue
             type_var="_KNIT_CMD_${cmd}_2_${param}_type"
             type="${!type_var}"
             specs+=("${param}:${type}")
-        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_required" | sort)
+        done
 
         # Optional parameters
-        while IFS= read -r param; do
+        _knit_set_sorted_array sorted_params "_KNIT_CMD_${cmd}_optional"
+        for param in "${sorted_params[@]}"; do
             _knit_param_is_norecord "${cmd}" "${param}" && continue
             type_var="_KNIT_CMD_${cmd}_2_${param}_type"
             type="${!type_var}"
             specs+=("${param}:${type}")
-        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_optional" | sort)
+        done
 
         # Flags (always boolean)
-        while IFS= read -r param; do
+        _knit_set_sorted_array sorted_params "_KNIT_CMD_${cmd}_flags"
+        for param in "${sorted_params[@]}"; do
             _knit_param_is_norecord "${cmd}" "${param}" && continue
             specs+=("${param}:boolean")
-        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_flags" | sort)
+        done
 
         # Outputs. An artifact is not an output column: it is recorded in the
         # artifacts table with a "produced" edge and is kept out of the outputs
         # set (in the artifacts set instead), so this loop never sees one.
-        while IFS= read -r param; do
+        _knit_set_sorted_array sorted_params "_KNIT_CMD_${cmd}_outputs"
+        for param in "${sorted_params[@]}"; do
             type_var="_KNIT_CMD_${cmd}_3_${param}_type"
             type="${!type_var}"
             specs+=("${param}:${type}")
-        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
+        done
     fi
 
     # Skip the database round-trip when this command's table was already ensured
@@ -474,9 +479,10 @@ _knit_db_record_invocation() {
     else
         # Parameters and flags: values come from the expanded invocation args.
         local group name value
+        local -a sorted_names
         for group in required optional flags; do
-            while IFS= read -r name; do
-                [[ -z "${name}" ]] && continue
+            _knit_set_sorted_array sorted_names "_KNIT_CMD_${cmd}_${group}"
+            for name in "${sorted_names[@]}"; do
                 # A "--no-record" option carries no column; skip it (matches the
                 # schema built by _knit_db_setup_table).
                 _knit_param_is_norecord "${cmd}" "${name}" && continue
@@ -485,7 +491,7 @@ _knit_db_record_invocation() {
                 cols+=("${col_ident}")
                 _knit_sql_escape val_esc "${value}"
                 vals+=("'${val_esc}'")
-            done < <(_knit_set_iter "_KNIT_CMD_${cmd}_${group}" | sort)
+            done
         done
 
         # Outputs: an output the body set with knit_output records that value; an
@@ -498,8 +504,8 @@ _knit_db_record_invocation() {
         # shellcheck disable=SC2178 # nameref to the command's output-value array
         local -n outvals="_KNIT_CMD_${cmd}_output_value"
         local unset_val
-        while IFS= read -r name; do
-            [[ -z "${name}" ]] && continue
+        _knit_set_sorted_array sorted_names "_KNIT_CMD_${cmd}_outputs"
+        for name in "${sorted_names[@]}"; do
             _knit_db_sql_ident col_ident "${name}"
             cols+=("${col_ident}")
             if [[ -v outvals["${name}"] ]]; then
@@ -512,7 +518,7 @@ _knit_db_record_invocation() {
             else
                 vals+=("NULL")
             fi
-        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
+        done
     fi
 
     local cols_sql vals_sql row_sql table_ident

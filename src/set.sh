@@ -145,6 +145,46 @@ _knit_set_array() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_set_sorted_array()
+#
+# Return a set's elements sorted in the shell's locale collation order, as an
+# indexed array written through a nameref output parameter. This is the fork-free
+# replacement for `_knit_set_iter … | sort`: the comparison uses the shell's "<"
+# (strcoll), which yields the same order as sort(1) under the same locale, so a
+# caller that fed a set through `| sort` keeps byte-identical ordering with no
+# `sort` process and no process-substitution subshell. A set's elements are
+# unique, so the order is total (no ties). The sets are small (a command's
+# parameters), so a plain insertion sort is used.
+#
+# Example:
+# ```
+# local -a members
+# _knit_set_sorted_array members MY_SET
+# ```
+#
+# @param[out] out Name of the array variable to populate (nameref output).
+# @param[in] set_name Name of the set to read.
+# ------------------------------------------------------------------------------
+_knit_set_sorted_array() {
+    # shellcheck disable=SC2178 # nameref output populated as an indexed array
+    local -n __knit_ret=$1
+    # shellcheck disable=SC2178 # nameref to indexed array
+    local -n _knit_set_order="${2}__order"
+    local -a sorted=()
+    local key i
+    for key in "${_knit_set_order[@]}"; do
+        # Shift the already-sorted prefix right until "key" is in place.
+        i=${#sorted[@]}
+        while (( i > 0 )) && [[ "${sorted[i-1]}" > "${key}" ]]; do
+            sorted[i]="${sorted[i-1]}"
+            (( i-- ))
+        done
+        sorted[i]="${key}"
+    done
+    __knit_ret=("${sorted[@]}")
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_set_remove()
 #
 # Remove one or more elements from a set, keeping the companion order array
