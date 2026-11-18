@@ -179,6 +179,12 @@ _knit_plugin_lock_get() {
 # its entries sorted by canonical id for a stable, review-friendly diff. An empty
 # checksum is written as a two-field line; a present checksum as three fields.
 #
+# The lockfile lives under .knit, so this is a no-op until that directory exists:
+# writing it must never create .knit itself, because a bare .knit (no database)
+# makes bootstrap mistake the experiment for an existing install. Pre-bootstrap
+# the pin is held in memory (_KNIT_PLUGIN_COMMITS) and written by
+# _knit_plugin_bootstrap once bootstrap has created .knit.
+#
 # @param[in] id       Canonical id ("<host>/<org>/<repo>").
 # @param[in] commit   Resolved commit SHA.
 # @param[in] checksum Tarball sha256 (may be empty).
@@ -187,6 +193,8 @@ _knit_plugin_lock_set() {
     local id="$1"
     local commit="$2"
     local checksum="$3"
+    # Never create the lockfile's parent directory (.knit); skip until it exists.
+    [[ -d "${_KNIT_PLUGIN_LOCKFILE%/*}" ]] || return 0
     local -A entries=()
     if [[ -f "${_KNIT_PLUGIN_LOCKFILE}" ]]; then
         local lid lcommit lsum
@@ -668,8 +676,10 @@ knit_import() {
         fi
     fi
 
-    # Freshly resolved a mutable ref (no prior pin): record it so a later run and
-    # a fresh checkout resolve to the same commit.
+    # Freshly resolved a mutable ref (no prior pin): record it so a later run
+    # resolves to the same commit. A no-op before bootstrap (the lockfile lives
+    # under .knit; _knit_plugin_lock_set skips until .knit exists, and
+    # _knit_plugin_bootstrap writes the held-in-memory pin once it does).
     if [[ "${writeback}" == "true" ]]; then
         _knit_plugin_lock_set "${id}" "${commit}" "${checksum}"
     fi
@@ -852,6 +862,11 @@ _knit_plugin_bootstrap() {
 _knit_plugins_lock() {
     if (( ${#_KNIT_PLUGIN_ORDER[@]} == 0 )); then
         knit_info "No plugins imported; nothing to lock."
+        return 0
+    fi
+    # The lockfile lives under .knit, so it can only be written once .knit exists.
+    if [[ ! -d "${_KNIT_PLUGIN_LOCKFILE%/*}" ]]; then
+        knit_info "plugins lock: run bootstrap first; the lockfile lives under .knit."
         return 0
     fi
     _knit_plugin_write_lockfile
