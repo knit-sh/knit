@@ -22,6 +22,18 @@ _knit_is_builtin
 # dispatcher itself contributes no provenance node of its own.
 knit_without_provenance
 _knit_declare_submit_options
+# Target scheduler backend to freeze for the prepared job. `prepare` runs where
+# the job is built (often a login node), but a prepared job may be released in a
+# different environment — notably `submit drain` from inside a pilot job, where
+# the real backend is the in-allocation pilot daemon, not the machine scheduler.
+# Only two values make sense: "native" (whatever this platform detects — the
+# default) and "pilot" (the in-allocation daemon). Pilot is the one backend
+# detection cannot see at prepare time, so it is the only one worth forcing;
+# naming any specific machine scheduler would just freeze a jobscript with no
+# valid release environment. This option is prepare-only: a direct `submit` builds
+# and dispatches in one environment, so its backend is always right.
+knit_with_optional "backend:string" "native" \
+    "Target scheduler backend to freeze: \"native\" (whatever this platform uses; the default) or \"pilot\" (prepare for release inside a pilot allocation)."
 
 # ------------------------------------------------------------------------------
 # @fn _knit_prepare()

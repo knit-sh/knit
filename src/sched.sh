@@ -263,6 +263,16 @@ _knit_sched_resolve() {
 
     local v
 
+    # Resolve the target backend first: the queue and walltime resolution below
+    # branch on it. `prepare --backend pilot` forces the pilot target; "native" and
+    # the empty default (a direct `submit` never sets --backend) detect the
+    # platform backend. A pilot sub-job runs inside an allocation with no site queue
+    # and no separate wall-clock cap, so it resolves without a queue default and
+    # with an unbounded walltime.
+    local backend
+    backend="$(knit_get_parameter "backend" "${cli[@]}")" || backend=""
+    [[ -z "${backend}" || "${backend}" == "native" ]] && _knit_sched_backend backend
+
     # Identity ------------------------------------------------------------------
     v="$(knit_get_parameter "job-name" "${cli[@]}")" || v=""
     [[ -z "${v}" ]] && v="${KNIT_SCRIPT_NAME}"
@@ -276,9 +286,14 @@ _knit_sched_resolve() {
     [[ -z "${v}" ]] && _knit_metadata_get v "__project__"
     resolved["project"]="${v}"
 
+    # The pilot backend ignores the queue (it launches sub-jobs itself, emitting
+    # no queue directive), so recording a site queue for it would be misinformation:
+    # keep the queue empty unless the user named one explicitly.
     v="$(knit_get_parameter "queue" "${cli[@]}")" || v=""
-    [[ -z "${v}" ]] && _knit_metadata_get v "__default_queue__"
-    [[ -z "${v}" ]] && _knit_sched_profile_field v "${profile}" '.scheduler.default_queue'
+    if [[ -z "${v}" && "${backend}" != "pilot" ]]; then
+        _knit_metadata_get v "__default_queue__"
+        [[ -z "${v}" ]] && _knit_sched_profile_field v "${profile}" '.scheduler.default_queue'
+    fi
     resolved["queue"]="${v}"
 
     # Resources -----------------------------------------------------------------
@@ -298,13 +313,6 @@ _knit_sched_resolve() {
     [[ -z "${v}" ]] && v="0"
     resolved["gpus-per-node"]="${v}"
 
-    # Resolve the target backend once: both automatic queue selection and the
-    # walltime resolution below branch on it (local/none/pilot run jobs without a
-    # queue walltime cap, so "none" walltime is honored there; batch backends run
-    # under a queue cap).
-    local backend
-    _knit_sched_backend backend
-
     # Automatic queue selection -------------------------------------------------
     # Resolve the "auto" strategy (an explicit --queue auto, or a site default of
     # "auto" arriving through the precedence above) to a concrete queue now,
@@ -314,7 +322,8 @@ _knit_sched_resolve() {
     # explicitly. The concrete name replaces "auto", so every downstream consumer
     # (directives, native-cmd, the recorded row) sees the real queue, never "auto".
     if [[ "${resolved["queue"]}" == "auto" ]]; then
-        if [[ "${backend}" == "local" || "${backend}" == "none" ]]; then
+        if [[ "${backend}" == "local" || "${backend}" == "none" \
+              || "${backend}" == "pilot" ]]; then
             # These backends ignore the queue entirely (they emit no queue
             # directive), so there is nothing to select.
             resolved["queue"]=""
@@ -364,6 +373,12 @@ _knit_sched_resolve() {
         esac
         v="none"
     else
+        # A pilot sub-job runs for as long as the pilot allocation lasts; it has no
+        # queue wall-clock cap of its own. With no explicit --walltime, record no
+        # limit rather than guessing a site/profile default.
+        if [[ -z "${v}" && "${backend}" == "pilot" ]]; then
+            v="none"
+        fi
         if [[ -z "${v}" ]]; then
             _knit_metadata_get v "__default_walltime__"
         fi

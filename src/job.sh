@@ -388,10 +388,27 @@ _knit_prepare_build() {
     declare -A opts
     _knit_sched_resolve opts "$@"
 
-    # Pick the scheduler backend: bootstrap metadata, else live detection, with
-    # "none" mapping to the local (no-scheduler) backend.
+    # Pick the scheduler backend. `prepare --backend` names the target the prepared
+    # job will be released against. Only two values make sense: "native" (whatever
+    # this platform detects — the default) and "pilot" (the in-allocation daemon).
+    # Pilot is the one backend detection cannot see at prepare time: KNIT_PILOT is
+    # set only inside the allocation, but `prepare` runs on the login node. Every
+    # other backend is a static property of the machine that detection reads
+    # correctly at both prepare and release, so forcing one (e.g. "pbs" on a Slurm
+    # box) would only freeze a jobscript with no valid release environment. A bad
+    # value is fatal here, before the jobscript is written. "native" (and the empty
+    # default for a direct `submit`, which never sets --backend) resolves to the
+    # detected backend; "none" maps to local inside _knit_sched_backend.
     local backend
-    _knit_sched_backend backend
+    backend="$(knit_get_parameter "backend" "$@")" || backend=""
+    case "${backend}" in
+        native | "") _knit_sched_backend backend ;;
+        pilot) ;;
+        *)
+            knit_fatal "Unknown --backend \"%s\". Valid backends: native, pilot." \
+                "${backend}"
+            ;;
+    esac
 
     # When the walltime was defaulted (no --walltime, no project default), warn so
     # the user knows a limit was chosen for them and can set it explicitly. Only
