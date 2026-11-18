@@ -721,6 +721,53 @@ _seed_default_setup() {
     [ "$status" -eq 0 ]
 }
 
+# ---------- _knit_sched_resolve : queue_as ----------
+
+# Configure a profile from an inline scheduler object: sets both the gate
+# (__profile__) and the frozen JSON (__profile_json__) the field reads go through.
+_use_profile_json() {
+    _knit_metadata_store --key "__profile__" --value "inline"
+    _knit_metadata_store --key "__profile_json__" --value "$1"
+}
+
+@test "resolve defaults queue-as to partition when the profile omits it" {
+    _use_profile polaris
+    declare -A r
+    _knit_sched_resolve r
+    [ "${r[queue-as]}" = "partition" ]
+}
+
+@test "resolve defaults queue-as to partition with no profile at all" {
+    declare -A r
+    _knit_sched_resolve r
+    [ "${r[queue-as]}" = "partition" ]
+}
+
+@test "resolve reads a scalar queue_as from the profile" {
+    _use_profile_json '{"scheduler":{"type":"slurm","queue_as":"qos"}}'
+    declare -A r
+    _knit_sched_resolve r
+    [ "${r[queue-as]}" = "qos" ]
+}
+
+@test "resolve reads a list queue_as from the profile" {
+    _use_profile_json '{"scheduler":{"type":"slurm","queue_as":["partition","qos"]}}'
+    declare -A r
+    _knit_sched_resolve r
+    [ "${r[queue-as]}" = "partition qos" ]
+}
+
+@test "resolve fatals on an invalid queue_as value" {
+    _use_profile_json '{"scheduler":{"type":"slurm","queue_as":"reservation"}}'
+    declare -A r
+    run _knit_sched_resolve r
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"queue_as"* ]]
+    [[ "$output" == *"reservation"* ]]
+    [[ "$output" == *"partition"* ]]
+    [[ "$output" == *"qos"* ]]
+}
+
 # ---------- _knit_sched_resolve : specific options ----------
 
 @test "resolve derives walltime from the resolved queue's profile default" {

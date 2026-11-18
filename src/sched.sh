@@ -243,9 +243,11 @@ _knit_sched_pick_queue() {
 #
 # The array is keyed by canonical option name (job-name, account, project,
 # queue, nodes, cpus-per-node, walltime, gpus-per-node, wait) plus "extra-args"
-# for the site-mandatory scheduler arguments captured at bootstrap, and
+# for the site-mandatory scheduler arguments captured at bootstrap,
 # "walltime-defaulted" ("true"/"false") recording whether the walltime was
-# chosen by knit rather than requested (so the submit path can warn). The per-node
+# chosen by knit rather than requested (so the submit path can warn), and
+# "queue-as" (a space-separated list of Slurm directive names the queue value is
+# emitted as, see the queue_as resolution below). The per-node
 # core count (cpus-per-node) is derived rather than requested (knit allocates
 # whole nodes). Job stdout/stderr are fixed to <job-dir>/.stdout and
 # <job-dir>/.stderr by the backend, so they are not resolved here.
@@ -394,6 +396,26 @@ _knit_sched_resolve() {
     [[ -z "${v}" ]] && _knit_sched_profile_field v "${profile}" \
         '(.scheduler.default_args // []) | join(" ")'
     resolved["extra-args"]="${v}"
+
+    # Slurm queue directive flavour ---------------------------------------------
+    # The abstract queue value is written to one or more Slurm directives named
+    # here. A profile declares .scheduler.queue_as as a directive name or a list
+    # of them; the jq below normalizes a scalar, a list, or an absent field to a
+    # space-separated token string, defaulting to "partition" (today's behaviour).
+    # Consumed only by the Slurm emitter; harmless for other backends.
+    _knit_sched_profile_field v "${profile}" \
+        '[(.scheduler.queue_as // "partition")] | flatten | join(" ")'
+    [[ -z "${v}" ]] && v="partition"
+    local flag
+    # shellcheck disable=SC2086 # word-split the resolved token list intentionally
+    for flag in ${v}; do
+        case "${flag}" in
+            partition|qos) ;;
+            *) knit_fatal 'invalid scheduler.queue_as value "%s" in the machine profile; expected "partition" or "qos".' \
+                "${flag}" ;;
+        esac
+    done
+    resolved["queue-as"]="${v}"
 }
 
 # ------------------------------------------------------------------------------

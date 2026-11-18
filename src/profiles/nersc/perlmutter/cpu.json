@@ -5,6 +5,7 @@
     "scheduler": {
         "type": "slurm",
         "command": "sbatch",
+        "queue_as": "qos",
         "default_queue": "regular",
         "default_args": ["-C cpu"],
         "queues": {

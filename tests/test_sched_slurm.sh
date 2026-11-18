@@ -82,6 +82,49 @@ _mk_opts() {
     [[ "${out}" == *"#SBATCH --partition=debug"* ]]
 }
 
+@test "slurm directives default the queue directive to partition when queue-as is empty" {
+    declare -A o
+    _mk_opts o
+    o[queue]="debug"
+    local out
+    out="$(_knit_sched_slurm_directives o /jobs/x)"
+    [[ "${out}" == *"#SBATCH --partition=debug"* ]]
+    [[ "${out}" != *"--qos="* ]]
+}
+
+@test "slurm directives emit the queue as --qos when queue-as is qos" {
+    declare -A o
+    _mk_opts o
+    o[queue]="regular"
+    o[queue-as]="qos"
+    local out
+    out="$(_knit_sched_slurm_directives o /jobs/x)"
+    [[ "${out}" == *"#SBATCH --qos=regular"* ]]
+    [[ "${out}" != *"--partition="* ]]
+}
+
+@test "slurm directives emit both --partition and --qos for a two-directive queue-as" {
+    declare -A o
+    _mk_opts o
+    o[queue]="gpu"
+    o[queue-as]="partition qos"
+    local out
+    out="$(_knit_sched_slurm_directives o /jobs/x)"
+    [[ "${out}" == *"#SBATCH --partition=gpu"* ]]
+    [[ "${out}" == *"#SBATCH --qos=gpu"* ]]
+}
+
+@test "slurm directives emit no queue directive when the queue is empty" {
+    declare -A o
+    _mk_opts o
+    o[queue]=""
+    o[queue-as]="qos"
+    local out
+    out="$(_knit_sched_slurm_directives o /jobs/x)"
+    [[ "${out}" != *"--qos="* ]]
+    [[ "${out}" != *"--partition="* ]]
+}
+
 @test "slurm directives pin ntasks-per-node to the derived core count" {
     declare -A o
     _mk_opts o

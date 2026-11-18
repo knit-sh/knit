@@ -24,7 +24,14 @@ Reading it top to bottom:
   ``queues`` records each queue's node/walltime bounds so ``submit`` can validate
   a request against the queue before it reaches the scheduler. Setting
   ``default_queue`` to ``"auto"`` (or passing ``submit --queue auto``) makes knit
-  choose the first queue in ``queues`` whose bounds accept the job.
+  choose the first queue in ``queues`` whose bounds accept the job. On Slurm, the
+  companion field ``queue_as`` chooses which directive carries the queue value:
+  ``"partition"`` (the default) emits ``#SBATCH --partition=<queue>``, ``"qos"``
+  emits ``#SBATCH --qos=<queue>``, and a list such as
+  ``["partition", "qos"]`` emits both. Set it to ``"qos"`` on sites whose queues
+  are Slurm QOS classes rather than partitions (for example NERSC Perlmutter,
+  where the pool is selected separately with a ``-C cpu`` / ``-C gpu`` constraint
+  in ``default_args``).
 - ``launcher`` --- how MPI ranks are launched. ``type`` (``pals``) picks the
   launcher backend for ``knit run``, and ``command`` is its binary
   (``mpiexec``).
