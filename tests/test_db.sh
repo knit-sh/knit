@@ -321,6 +321,66 @@ __test_register_cmd() {
     [ "$preserved" -eq 9 ]
 }
 
+@test "setup table orders columns alphabetically within each group" {
+    # Declare parameters out of alphabetical order across every group; the schema
+    # must still order them alphabetically within required/optional/flags/outputs.
+    knit_register "mycmd" knit_empty "A test command."
+    knit_with_required "zulu:integer" "z"
+    knit_with_required "alpha:integer" "a"
+    knit_with_optional "yankee:string" "dy" "y"
+    knit_with_optional "bravo:string" "db" "b"
+    knit_with_flag "xray" "x"
+    knit_with_flag "charlie" "c"
+    knit_with_output "oscar:string" "o" --unset "u"
+    knit_with_output "delta:string" "d" --unset "u"
+    knit_with_table
+    knit_done
+    local names
+    names=$(sqlite3 "${_KNIT_DATABASE}" \
+        "PRAGMA table_info('mycmd');" | cut -d'|' -f2 | tr '\n' ',')
+    [ "$names" = "id,__exit_status__,alpha,zulu,bravo,yankee,charlie,xray,delta,oscar," ]
+}
+
+# ---------- ensure-once guard ----------
+
+@test "setup table skips the schema check on an identical repeat in the same process" {
+    knit_register "mycmd" knit_empty "A test command."
+    knit_with_required "count:integer" "A count."
+    knit_with_table
+    knit_done   # ensures the table once and memoizes its signature
+
+    # Drop the table behind knit's back. A second setup with the SAME declaration
+    # is skipped by the per-process guard, so the table stays gone — proof the
+    # database round-trip (and re-create) did not run.
+    sqlite3 "${_KNIT_DATABASE}" "DROP TABLE mycmd;"
+    _knit_db_setup_table "mycmd" "mycmd"
+    local exists
+    exists=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='mycmd';")
+    [ "$exists" -eq 0 ]
+}
+
+@test "setup table re-ensures a missing table when the database path changes" {
+    knit_register "mycmd" knit_empty "A test command."
+    knit_with_required "count:integer" "A count."
+    knit_with_table
+    knit_done   # ensures in the original database, memoizes (dbpath, table, specs)
+
+    # Point at a fresh database: the signature differs on the database path, so the
+    # guard must NOT skip — the genuinely missing table has to be created here.
+    local other="${_KNIT_DATABASE}.other"
+    rm -f "${other}"
+    local saved="${_KNIT_DATABASE}"
+    _KNIT_DATABASE="${other}"
+    _knit_db_setup_table "mycmd" "mycmd"
+    local exists
+    exists=$(sqlite3 "${other}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='mycmd';")
+    _KNIT_DATABASE="${saved}"
+    rm -f "${other}"
+    [ "$exists" -eq 1 ]
+}
+
 # ---------- bootstrap guard ----------
 
 @test "setup table is a no-op when bootstrapping and experiment is not yet bootstrapped" {
