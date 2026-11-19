@@ -64,6 +64,49 @@ teardown() {
     [ "$count" = "1" ]
 }
 
+# ---------- metadata read-through cache (memo) ----------
+
+@test "metadata get serves a cached value for the rest of the process" {
+    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO metadata (key, value) VALUES ('k', 'first');"
+    local v1 v2
+    _knit_metadata_get v1 "k"
+    [ "$v1" = "first" ]
+    # Change the row behind knit's back so the cache is not invalidated; a second
+    # read must return the memoized value, proving it did not re-query.
+    sqlite3 "${_KNIT_DATABASE}" "UPDATE metadata SET value='second' WHERE key='k';"
+    _knit_metadata_get v2 "k"
+    [ "$v2" = "first" ]
+}
+
+@test "metadata get caches an absent key so it is not re-queried" {
+    local v1 v2
+    _knit_metadata_get v1 "missing"
+    [ -z "$v1" ]
+    # Insert the key behind knit's back: the cached "absent" result must stand.
+    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO metadata (key, value) VALUES ('missing', 'now-here');"
+    _knit_metadata_get v2 "missing"
+    [ -z "$v2" ]
+}
+
+@test "metadata store invalidates the cached value" {
+    sqlite3 "${_KNIT_DATABASE}" "INSERT INTO metadata (key, value) VALUES ('k', 'first');"
+    local v1 v2
+    _knit_metadata_get v1 "k"
+    [ "$v1" = "first" ]
+    _knit_metadata_store --key "k" --value "second" --force true
+    _knit_metadata_get v2 "k"
+    [ "$v2" = "second" ]
+}
+
+@test "metadata store makes a previously-absent key readable" {
+    local v1 v2
+    _knit_metadata_get v1 "later"
+    [ -z "$v1" ]
+    _knit_metadata_store --key "later" --value "value" --force true
+    _knit_metadata_get v2 "later"
+    [ "$v2" = "value" ]
+}
+
 # ---------- _knit_metadata_load ----------
 
 @test "metadata load returns the value for an existing key" {

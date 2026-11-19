@@ -405,3 +405,28 @@ teardown() {
 
     [ -z "$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM eagers;")" ]
 }
+
+# ---------- recorded-row column alignment ----------
+
+@test "a recorded row places every value in its column despite out-of-order declaration" {
+    # Declare parameters and outputs out of alphabetical order; the recorder sorts
+    # columns like the schema, so each value must still land in its own column.
+    knit_register "ordercmd" _p_order_fn "Order."
+    knit_with_required "zulu:integer" "z"
+    knit_with_required "alpha:integer" "a"
+    knit_with_optional "yankee:string" "dy" "y"
+    knit_with_optional "bravo:string" "db" "b"
+    knit_with_flag "xray" "x"
+    knit_with_output "oscar:string" "o" --unset "u"
+    knit_with_output "delta:string" "d" --unset "u"
+    knit_with_table "ordercmd"
+    _p_order_fn() { knit_output oscar "OSC"; knit_output delta "DEL"; }
+    knit_done
+
+    _knit_invoke_command "ordercmd" --zulu 9 --alpha 1 --yankee YY --bravo BB --xray
+
+    local row
+    row=$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT alpha,zulu,bravo,yankee,xray,delta,oscar FROM ordercmd;")
+    [ "$row" = "1|9|BB|YY|true|DEL|OSC" ]
+}

@@ -11,6 +11,20 @@
 declare -gA _KNIT_DB_REGISTERED_TABLES
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_DB_ENSURED
+#
+# Per-process memo for _knit_db_setup_table, mapping a mangled command name to a
+# signature of the last schema it ensured (the database path, the table name, and
+# the column set). A command's declared columns do not change within a process,
+# so once its table is ensured the signature matches on every later invocation and
+# the schema check (a COUNT over sqlite_master and a PRAGMA table_info) is skipped.
+# The signature re-triggers the check only when the declaration genuinely changes
+# (e.g. a later knit_with_output grows the column set) or the database path does.
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_DB_ENSURED
+_KNIT_DB_ENSURED=()
+
+# ------------------------------------------------------------------------------
 # @fn _knit_db_sql_ident()
 #
 # Wrap an SQL identifier (table or column name) in double quotes, escaping any
@@ -287,6 +301,7 @@ _knit_db_setup_table() {
 
     local specs=()
     local param type_var type
+    local -a sorted_params
 
     # Reserved "__exit_status__" column, recorded right after "id" for a command
     # whose table has it (see _knit_db_command_has_exit_status).
@@ -302,52 +317,63 @@ _knit_db_setup_table() {
             specs+=("__exit_status__:integer")
         fi
         specs+=("args:string")
-        _knit_db_ensure_table "${table_name}" "${specs[@]}"
+    else
+        # Always-present id column
+        specs+=("id:uuid")
+
+        # Reserved exit-status column (see the note above), right after "id".
+        if [[ "${include_exit_status}" -eq 1 ]]; then
+            specs+=("__exit_status__:integer")
+        fi
+
+        # Required parameters. A parameter declared with "--no-record" is parsed
+        # and validated as an ordinary option but carries no column (see
+        # _knit_param_is_norecord), so skip it here and in the row recorder.
+        _knit_set_sorted_array sorted_params "_KNIT_CMD_${cmd}_required"
+        for param in "${sorted_params[@]}"; do
+            _knit_param_is_norecord "${cmd}" "${param}" && continue
+            type_var="_KNIT_CMD_${cmd}_2_${param}_type"
+            type="${!type_var}"
+            specs+=("${param}:${type}")
+        done
+
+        # Optional parameters
+        _knit_set_sorted_array sorted_params "_KNIT_CMD_${cmd}_optional"
+        for param in "${sorted_params[@]}"; do
+            _knit_param_is_norecord "${cmd}" "${param}" && continue
+            type_var="_KNIT_CMD_${cmd}_2_${param}_type"
+            type="${!type_var}"
+            specs+=("${param}:${type}")
+        done
+
+        # Flags (always boolean)
+        _knit_set_sorted_array sorted_params "_KNIT_CMD_${cmd}_flags"
+        for param in "${sorted_params[@]}"; do
+            _knit_param_is_norecord "${cmd}" "${param}" && continue
+            specs+=("${param}:boolean")
+        done
+
+        # Outputs. An artifact is not an output column: it is recorded in the
+        # artifacts table with a "produced" edge and is kept out of the outputs
+        # set (in the artifacts set instead), so this loop never sees one.
+        _knit_set_sorted_array sorted_params "_KNIT_CMD_${cmd}_outputs"
+        for param in "${sorted_params[@]}"; do
+            type_var="_KNIT_CMD_${cmd}_3_${param}_type"
+            type="${!type_var}"
+            specs+=("${param}:${type}")
+        done
+    fi
+
+    # Skip the database round-trip when this command's table was already ensured
+    # with the same declaration in this process (see _KNIT_DB_ENSURED). Across a
+    # sweep's many in-process points the signature is identical every time, so the
+    # schema check runs once rather than once per point.
+    local signature="${_KNIT_DATABASE}"$'\n'"${table_name}"$'\n'"${specs[*]}"
+    if [[ "${_KNIT_DB_ENSURED[${cmd}]:-}" == "${signature}" ]]; then
         return 0
     fi
-
-    # Always-present id column
-    specs+=("id:uuid")
-
-    # Reserved exit-status column (see the note above), right after "id".
-    if [[ "${include_exit_status}" -eq 1 ]]; then
-        specs+=("__exit_status__:integer")
-    fi
-
-    # Required parameters. A parameter declared with "--no-record" is parsed and
-    # validated as an ordinary option but carries no column (see
-    # _knit_param_is_norecord), so skip it here and in the row recorder.
-    while IFS= read -r param; do
-        _knit_param_is_norecord "${cmd}" "${param}" && continue
-        type_var="_KNIT_CMD_${cmd}_2_${param}_type"
-        type="${!type_var}"
-        specs+=("${param}:${type}")
-    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_required" | sort)
-
-    # Optional parameters
-    while IFS= read -r param; do
-        _knit_param_is_norecord "${cmd}" "${param}" && continue
-        type_var="_KNIT_CMD_${cmd}_2_${param}_type"
-        type="${!type_var}"
-        specs+=("${param}:${type}")
-    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_optional" | sort)
-
-    # Flags (always boolean)
-    while IFS= read -r param; do
-        _knit_param_is_norecord "${cmd}" "${param}" && continue
-        specs+=("${param}:boolean")
-    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_flags" | sort)
-
-    # Outputs. An artifact is not an output column: it is recorded in the
-    # artifacts table with a "produced" edge and is kept out of the outputs set
-    # (in the artifacts set instead), so this loop never sees one.
-    while IFS= read -r param; do
-        type_var="_KNIT_CMD_${cmd}_3_${param}_type"
-        type="${!type_var}"
-        specs+=("${param}:${type}")
-    done < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
-
     _knit_db_ensure_table "${table_name}" "${specs[@]}"
+    _KNIT_DB_ENSURED[${cmd}]="${signature}"
 }
 
 # ------------------------------------------------------------------------------
@@ -453,9 +479,10 @@ _knit_db_record_invocation() {
     else
         # Parameters and flags: values come from the expanded invocation args.
         local group name value
+        local -a sorted_names
         for group in required optional flags; do
-            while IFS= read -r name; do
-                [[ -z "${name}" ]] && continue
+            _knit_set_sorted_array sorted_names "_KNIT_CMD_${cmd}_${group}"
+            for name in "${sorted_names[@]}"; do
                 # A "--no-record" option carries no column; skip it (matches the
                 # schema built by _knit_db_setup_table).
                 _knit_param_is_norecord "${cmd}" "${name}" && continue
@@ -464,7 +491,7 @@ _knit_db_record_invocation() {
                 cols+=("${col_ident}")
                 _knit_sql_escape val_esc "${value}"
                 vals+=("'${val_esc}'")
-            done < <(_knit_set_iter "_KNIT_CMD_${cmd}_${group}" | sort)
+            done
         done
 
         # Outputs: an output the body set with knit_output records that value; an
@@ -477,8 +504,8 @@ _knit_db_record_invocation() {
         # shellcheck disable=SC2178 # nameref to the command's output-value array
         local -n outvals="_KNIT_CMD_${cmd}_output_value"
         local unset_val
-        while IFS= read -r name; do
-            [[ -z "${name}" ]] && continue
+        _knit_set_sorted_array sorted_names "_KNIT_CMD_${cmd}_outputs"
+        for name in "${sorted_names[@]}"; do
             _knit_db_sql_ident col_ident "${name}"
             cols+=("${col_ident}")
             if [[ -v outvals["${name}"] ]]; then
@@ -491,7 +518,7 @@ _knit_db_record_invocation() {
             else
                 vals+=("NULL")
             fi
-        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_outputs" | sort)
+        done
     fi
 
     local cols_sql vals_sql row_sql table_ident

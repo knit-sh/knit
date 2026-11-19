@@ -3,6 +3,20 @@
 ## @file metadata.sh
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_METADATA_CACHE
+#
+# In-process read-through cache of metadata key/value pairs. A key is present in
+# this map once it has been read (or written) in the current process; a present
+# key with an empty value records a key that is absent from the table, so a
+# missing key is not re-queried either. The cache is per-process memory only:
+# every fresh knit invocation starts empty and reads the current table on first
+# access, so there is no cross-process staleness. _knit_metadata_store drops the
+# affected key to keep the cache honest after a write.
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_METADATA_CACHE
+_KNIT_METADATA_CACHE=()
+
+# ------------------------------------------------------------------------------
 # Registration of the metadata command. Its subcommands (store / load / show)
 # are registered lazily by _knit_metadata_discover the first time any of them is
 # reached, so sourcing knit.sh does not build the subtree up front.
@@ -35,7 +49,12 @@ _knit_metadata_store() {
     local esc_key esc_value
     _knit_sql_escape esc_key "${key}"
     _knit_sql_escape esc_value "${value}"
-    _knit_sqlite3_write "${verb} INTO metadata (key, value) VALUES ('${esc_key}', '${esc_value}');"
+    local status=0
+    _knit_sqlite3_write "${verb} INTO metadata (key, value) VALUES ('${esc_key}', '${esc_value}');" || status=$?
+    # Drop any cached read of this key: a plain INSERT may have been rejected by
+    # the uniqueness constraint, so the next read must consult the table again.
+    unset '_KNIT_METADATA_CACHE[${key}]'
+    return "${status}"
 }
 
 # ------------------------------------------------------------------------------
@@ -53,9 +72,17 @@ _knit_metadata_store() {
 _knit_metadata_get() {
     local -n __knit_ret=$1
     local key="$2"
+    # A key already read (or explicitly recorded absent) in this process is
+    # served from memory, so repeated reads of the same key (e.g. the profile
+    # JSON across many fields) do not re-open the database.
+    if [[ -v '_KNIT_METADATA_CACHE[${key}]' ]]; then
+        __knit_ret="${_KNIT_METADATA_CACHE[${key}]}"
+        return 0
+    fi
     local esc_key
     _knit_sql_escape esc_key "${key}"
     __knit_ret=$(_knit_sqlite3 "SELECT value FROM metadata WHERE key = '${esc_key}';")
+    _KNIT_METADATA_CACHE[${key}]="${__knit_ret}"
 }
 
 # ------------------------------------------------------------------------------
