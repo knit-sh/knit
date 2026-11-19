@@ -553,10 +553,8 @@ eight-parameter ``train`` job, and the two pilots (``sweep-pilot`` for the grid,
    :language: bash
 
 From a cluster login node, the full arc is: provision, fetch the data, build the
-environment, run the grid, run the Bayesian campaign, and read the result. The
-grid can be run two ways --- straight on the machine's scheduler, or packed into
-one pilot allocation --- and the only command that changes is the ``--backend`` of
-the ``prepare`` step:
+environment, run the grid, run the Bayesian campaign, and read the result. Start
+by provisioning the experiment, fetching the data, and building the environment:
 
 .. code-block:: console
 
@@ -564,37 +562,63 @@ the ``prepare`` step:
    $ ./exp.sh fetch --name cifar -- cifar --uncompress
    $ ./exp.sh setup --name cnnenv -- cnnenv
 
-   # The grid sweep: prepare the product once, then drain it. Pick ONE of (a)/(b)
-   # --- the prepare's backend has to match where the drain runs.
+**The grid sweep.** Prepare the product once, then drain it. The grid can be run
+two ways --- straight on the machine's scheduler, or packed into one pilot
+allocation --- and the only command that changes is the ``--backend`` of the
+``prepare`` step. Pick one of (a) or (b): the prepare's backend has to match where
+the drain runs.
 
-   # (a) Native scheduler: prepare for the machine's own scheduler (the default),
-   #     then drain straight to it. Each job waits its own turn in the batch queue.
+(a) *Native scheduler.* Prepare for the machine's own scheduler (the default),
+then drain straight to it. Each job waits its own turn in the batch queue:
+
+.. code-block:: console
+
    $ ./exp.sh sweep -- prepare --group grid --setup cnnenv -- train \
          --data cifar --num-blocks '{2,3,4}' --kernel-size '{3,5}'
    $ ./exp.sh submit drain --group grid --max-inflight 4
 
-   # (b) Pilot: prepare for the in-allocation daemon (--backend pilot), then let a
-   #     single pilot drain the whole grid onto its own nodes -- one queue wait,
-   #     the jobs packed N-at-a-time across the allocation.
+(b) *Pilot.* Prepare for the in-allocation daemon (``--backend pilot``), then let a
+single pilot drain the whole grid onto its own nodes --- one queue wait, the jobs
+packed N-at-a-time across the allocation:
+
+.. code-block:: console
+
    $ ./exp.sh sweep -- prepare --backend pilot --group grid --setup cnnenv -- train \
          --data cifar --num-blocks '{2,3,4}' --kernel-size '{3,5}'
    $ ./exp.sh submit --nodes 4 --wait -- sweep-pilot --group grid
 
-   # The Bayesian campaign. `ax prepare` records the campaign only -- it runs no
-   # jobs -- so, unlike `sweep -- prepare`, it takes no --backend: `ax optimize`
-   # generates each trial and submits it on the fly (a direct submit), so a trial
-   # simply adopts whatever backend is live where it runs.
+**The Bayesian campaign.** ``ax prepare`` records the campaign only --- it runs no
+jobs --- so, unlike ``sweep -- prepare``, it takes no ``--backend``. ``ax optimize``
+generates each trial and submits it on the fly (a direct submit), so a trial
+simply adopts whatever backend is live where it runs:
+
+.. code-block:: console
+
    $ ./exp.sh ax prepare --campaign tune --objective val_accuracy --maximize \
          --max-trials 40 --sobol-trials 8 --seed 1 \
          -- submit --setup cnnenv -- train --data cifar \
             --num-blocks @domain --base-channels @domain --kernel-size @domain \
             --dropout @domain --activation @domain --residual @domain \
             --lr @domain --batch-size @domain
-   # (a) Native scheduler: ax optimize submits each trial straight to the queue.
+
+Then drive the campaign one of two ways, as with the grid. (a) On the native
+scheduler, ``ax optimize`` submits each trial straight to the queue:
+
+.. code-block:: console
+
    $ ./exp.sh ax optimize --campaign tune --max-inflight 4
-   # (b) Pilot: run the campaign inside one allocation (tune-pilot calls ax optimize,
-   #     so its trials land on the daemon -- no --backend needed either way).
+
+(b) Or run the campaign inside one allocation --- ``tune-pilot`` calls
+``ax optimize``, so its trials land on the daemon (no ``--backend`` needed either
+way):
+
+.. code-block:: console
+
    $ ./exp.sh submit --nodes 4 --wait -- tune-pilot --campaign tune --max-inflight 4
+
+Finally, read the result back:
+
+.. code-block:: console
 
    $ ./exp.sh ax show --campaign tune
 
