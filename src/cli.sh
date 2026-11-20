@@ -294,24 +294,28 @@ _knit_name_normalize() {
 # ------------------------------------------------------------------------------
 # @fn _knit_arg_name()
 #
-# Extract the normalized parameter name from a command-line token. The token may
-# be given as "--name" or "--name=value"; the leading "--" and any "=value"
-# suffix are stripped and hyphens are converted to underscores. This is the
-# single place where the "=value" form is recognized, so registered commands and
-# plain helper functions (via knit_get_parameter / knit_check_arguments) accept
-# it consistently.
+# Extract the normalized parameter name from a command-line token into a nameref
+# output. The token may be given as "--name" or "--name=value"; the leading "--"
+# and any "=value" suffix are stripped and hyphens are converted to underscores.
+# This is the single place where the "=value" form is recognized, so registered
+# commands and plain helper functions (via knit_get_parameter /
+# knit_check_arguments) accept it consistently.
 #
 # The caller is responsible for only passing tokens that start with "--"; bare
 # values must not be passed, otherwise they may be mistaken for parameter names.
 #
-# @param[in] token A raw argument token starting with "--".
+# Returns through a nameref rather than stdout: it is called once per scanned
+# argument on hot paths (registration, argument expansion), so the stdout form
+# forked a subshell per call.
+#
+# @param[out] __knit_ret Variable receiving the normalized name.
+# @param[in]  token      A raw argument token starting with "--".
 # ------------------------------------------------------------------------------
 _knit_arg_name() {
-    local name="${1#--}"
+    local -n __knit_ret=$1
+    local name="${2#--}"
     name="${name%%=*}"
-    local __ret
-    _knit_str_hyphens_to_underscores __ret "${name}"
-    printf '%s\n' "${__ret}"
+    __knit_ret="${name//-/_}"
 }
 
 # ------------------------------------------------------------------------------
@@ -342,7 +346,8 @@ _knit_arg_was_provided() {
     for a in "$@"; do
         [[ "${a}" == "--" ]] && break
         [[ "${a}" == --* ]] || continue
-        [[ "$(_knit_arg_name "${a}")" == "${wanted}" ]] && return 0
+        local aname; _knit_arg_name aname "${a}"
+        [[ "${aname}" == "${wanted}" ]] && return 0
     done
     return 1
 }
@@ -1793,7 +1798,8 @@ _knit_decl_flag_present() {
     for a in "$@"; do
         [[ "${a}" == "--" ]] && break
         [[ "${a}" == --* ]] || continue
-        [[ "$(_knit_arg_name "${a}")" == "${flag}" ]] && return 0
+        local aname; _knit_arg_name aname "${a}"
+        [[ "${aname}" == "${flag}" ]] && return 0
     done
     return 1
 }
@@ -3038,7 +3044,8 @@ knit_set_parameter() {
     for (( i = 0; i < ${#_KNIT_INVOCATION_ARGS[@]}; i++ )); do
         local tok="${_KNIT_INVOCATION_ARGS[i]}"
         [[ "${tok}" == --* ]] || continue
-        [[ "$(_knit_arg_name "${tok}")" == "${name}" ]] || continue
+        local aname; _knit_arg_name aname "${tok}"
+        [[ "${aname}" == "${name}" ]] || continue
         if [[ "${tok}" == --*=* ]]; then
             _KNIT_INVOCATION_ARGS[i]="--${name}=${value}"
         else
@@ -3132,7 +3139,7 @@ _knit_check_command_arguments() {
             knit_fatal "Unexpected argument \"${arg}\" passed to \"${demangled_cmd}\" command."
         fi
         local name
-        name="$(_knit_arg_name "${arg}")"
+        _knit_arg_name name "${arg}"
         # Required/optional parameters consume the following token as their
         # value, unless the value was supplied inline as "--name=value". Flags
         # never consume a token. The consumed value is checked against the
@@ -3174,7 +3181,7 @@ _knit_check_command_arguments() {
 # ------------------------------------------------------------------------------
 _knit_find_flag() {
     local flag
-    flag=$(_knit_arg_name "$1")
+    _knit_arg_name flag "$1"
     shift
     local list=("$@")
 
@@ -3186,7 +3193,8 @@ _knit_find_flag() {
         if [[ "${item}" != --* ]]; then
             continue
         fi
-        if [[ "$(_knit_arg_name "${item}")" == "${flag}" ]]; then
+        local aname; _knit_arg_name aname "${item}"
+        if [[ "${aname}" == "${flag}" ]]; then
             return 0
         fi
     done
@@ -3244,8 +3252,9 @@ _knit_expand_command_arguments() {
             for i in "${!args[@]}"; do
                 # Match by normalized name so a flag registered as "no_setup"
                 # is found whether the user wrote --no-setup or --no_setup.
-                if [[ "${args[$i]}" == --* ]] \
-                    && [[ "$(_knit_arg_name "${args[$i]}")" == "${flag}" ]]; then
+                [[ "${args[$i]}" == --* ]] || continue
+                local aname; _knit_arg_name aname "${args[$i]}"
+                if [[ "${aname}" == "${flag}" ]]; then
                     # Insert "true" after the flag
                     args=("${args[@]:0:i+1}" "true" "${args[@]:i+1}")
                     break
@@ -3683,7 +3692,7 @@ _knit_build_constraint_json() {
         local token="${!i}"
         [[ "${token}" == "--" ]] && break
         local key val
-        key=$(_knit_arg_name "${token}")
+        _knit_arg_name key "${token}"
         if [[ "${token}" == --*=* ]]; then
             # Inline "--name=value": value is part of the token.
             val="${token#*=}"
@@ -4486,7 +4495,8 @@ knit_get_parameter() {
         if [[ "${item}" != --* ]]; then
             continue
         fi
-        if [[ "$(_knit_arg_name "${item}")" != "${param}" ]]; then
+        local aname; _knit_arg_name aname "${item}"
+        if [[ "${aname}" != "${param}" ]]; then
             continue
         fi
         # Inline "--name=value": the value is part of the token.
@@ -5022,7 +5032,7 @@ knit_check_arguments() {
             return 1
         fi
         local name
-        name="$(_knit_arg_name "${arg}")"
+        _knit_arg_name name "${arg}"
         # An option in "--name value" form consumes the following token as its
         # value, so skip it without validating it (a value may legitimately
         # start with "--"). In "--name=value" form the value is inline.
