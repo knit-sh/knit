@@ -646,6 +646,7 @@ _knit_ai_loop() {
 knit_register ai knit_empty "Talk to your experiment in natural language."
 _knit_is_builtin
 knit_without_provenance
+knit_without_history
 knit_with_subcommand_discovery _knit_ai_discover
 knit_done
 

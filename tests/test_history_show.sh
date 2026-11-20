@@ -86,10 +86,12 @@ _seedx() {
 
     run knit history show --format bash
     [ "$status" -eq 0 ]
+    # Shebang, then a 6-line warning comment block, then the ./<script> lines.
     [ "${lines[0]}" = "#!/usr/bin/env bash" ]
-    [ "${lines[1]}" = "./exp.sh setup --name base" ]
-    [ "${lines[2]}" = "./exp.sh submit --nodes 4" ]
-    [ "${#lines[@]}" -eq 3 ]
+    [[ "${output}" == *"guide only"* ]]
+    [ "${lines[7]}" = "./exp.sh setup --name base" ]
+    [ "${lines[8]}" = "./exp.sh submit --nodes 4" ]
+    [ "${#lines[@]}" -eq 9 ]
 }
 
 # ---------- empty history ----------
@@ -100,10 +102,14 @@ _seedx() {
     [ -z "${output}" ]
 }
 
-@test "an empty history prints only the shebang in bash format" {
+@test "an empty history prints only the header (shebang + warning) in bash format" {
     run knit history show --format bash
     [ "$status" -eq 0 ]
-    [ "${output}" = "#!/usr/bin/env bash" ]
+    [ "${lines[0]}" = "#!/usr/bin/env bash" ]
+    [[ "${output}" == *"guide only"* ]]
+    # The header is present but no command lines follow.
+    [ "${#lines[@]}" -eq 7 ]
+    [ "$(printf '%s\n' "${lines[@]}" | grep -c '^\./')" -eq 0 ]
 }
 
 # ---------- ordering ----------
@@ -391,9 +397,10 @@ _seedx() {
     KNIT_SCRIPT_NAME="exp.sh"
     _seedx "the-id" "setup" '["--name","base"]' 1700000000 0
     run knit history show --format bash --annotate
+    # Shebang + 6-line warning block (indices 0-6), then the annotation + line.
     [ "${lines[0]}" = "#!/usr/bin/env bash" ]
-    [[ "${lines[1]}" == "# the-id "*"(exit 0)" ]]
-    [ "${lines[2]}" = "./exp.sh setup --name base" ]
+    [[ "${lines[7]}" == "# the-id "*"(exit 0)" ]]
+    [ "${lines[8]}" = "./exp.sh setup --name base" ]
 }
 
 @test "--annotate adds id/time/exit fields in json" {
@@ -445,6 +452,7 @@ _seedx() {
     [ "$status" -eq 0 ]
     [ -z "${output}" ]
     [ "$(head -1 "${f}")" = "#!/usr/bin/env bash" ]
+    grep -q "This script is a guide only" "${f}"
     grep -qx "./exp.sh setup --name base" "${f}"
     grep -qx "./exp.sh submit --nodes 4" "${f}"
     rm -f "${f}"

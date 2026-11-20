@@ -24,16 +24,20 @@ failures (or ``--status failure`` for just those). Narrow the list with
 subcommands), a ``--since``/``--until`` time window (a UUID or an ISO-8601
 timestamp), ``--first``/``--last N``, or ``--id``.
 
-**Replay the session.** ``--format bash`` turns the history into a runnable
-script --- a shebang followed by one ``./<script> ...`` line per command --- so
-piping it to a file reproduces the whole session:
+**Replay the session.** ``--format bash`` turns the history into an *indicative*
+replay script --- a shebang, a warning comment block, then one ``./<script>
+...`` line per command. It is a guide, not a guaranteed-runnable script: the
+history records each command you typed, but not the shell steps you took between
+them (for example, a job id you kept from a ``submit`` in a variable and reused
+in a later command). Examine and edit the script before you run it:
 
 .. code-block:: console
 
    $ ./exp.sh history show --format bash > replay.sh
+   $ less replay.sh        # review it first --- note the warning in the header
    $ bash replay.sh
 
-The lines record the arguments exactly as you typed them. Add ``--resolved`` to
+The command lines record the arguments exactly as you typed them. Add ``--resolved`` to
 pin instead the values each command actually ran with (optional defaults filled,
 flags normalized, ``ENV[...]`` defaults resolved), so a replay reproduces the
 original behavior even if a default later changes. Knit does not resolve the

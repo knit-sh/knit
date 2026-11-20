@@ -118,6 +118,7 @@ knit_register query knit_empty \
     "Query the experiment's provenance database (Cypher or SQL)."
 _knit_is_builtin
 knit_without_provenance
+knit_without_history
 knit_with_subcommand_discovery _knit_query_discover
 knit_done
 

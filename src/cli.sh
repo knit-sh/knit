@@ -1620,6 +1620,50 @@ knit_without_provenance() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_with_history()
+#
+# Mark the command being registered as eligible for the replayable command
+# history: a top-level (root) user invocation of it is recorded in the
+# "__history__" table. This is an explicit override of the default (every
+# command is history-eligible unless marked otherwise — see
+# _knit_history_enabled), so it restores eligibility to a command whose lexical
+# ancestor opted out. The mark also propagates to unmarked lexical descendants
+# (e.g. "a" marked "with" makes an unmarked "a:b" eligible).
+#
+# History eligibility is independent of provenance (knit_with_provenance) and of
+# data-row recording (knit_with_table): the three are orthogonal recording axes.
+# ------------------------------------------------------------------------------
+knit_with_history() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_with_history should be used after a call to \"knit_register\"."
+    fi
+    knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as history-eligible."
+    printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_history" '%s' 'with'
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_without_history()
+#
+# Mark the command being registered as excluded from the replayable command
+# history: no "__history__" row is recorded for it, even as a root user
+# invocation. This is an explicit override of the default (every command is
+# history-eligible — see _knit_history_enabled), so it silences a command that
+# only reads, inspects, or repairs. The mark also propagates to unmarked lexical
+# descendants (e.g. "a" marked "without" silences an unmarked "a:b").
+#
+# History eligibility is independent of provenance (knit_without_provenance) and
+# of data-row recording (knit_with_table): the three are orthogonal recording
+# axes.
+# ------------------------------------------------------------------------------
+knit_without_history() {
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]]; then
+        knit_fatal "knit_without_history should be used after a call to \"knit_register\"."
+    fi
+    knit_trace "Marking command ${_KNIT_CURRENT_COMMAND_DEMANGLED} as not history-eligible."
+    printf -v "_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_history" '%s' 'without'
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_without_exit_status()
 #
 # Mark the command being registered so its table does not get the reserved
@@ -4667,6 +4711,49 @@ _knit_provenance_enabled() {
     # 3. Default by visibility.
     local hidden_var="_KNIT_CMD_${cmd}_is_hidden"
     [[ "${!hidden_var:-false}" != "true" ]]
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_history_enabled()
+#
+# Decide whether a root (top-level) invocation of a command is recorded in the
+# replayable command history ("__history__"). This is an independent recording
+# axis from provenance (_knit_provenance_enabled) and data-row recording
+# (knit_with_table).
+#
+# The effective setting is resolved in this order (innermost/most-specific wins):
+#
+#   1. the command's own explicit mark (knit_with_history -> "with",
+#      knit_without_history -> "without"), if any;
+#   2. otherwise the nearest marked lexical ancestor's mark, walking the
+#      colon-nested command name up via _knit_command_get_parents (e.g.
+#      "a:b:c" -> "a:b" -> "a"), so one mark on a parent governs a whole subtree;
+#   3. otherwise the default: ON (every command is history-eligible). Unlike
+#      provenance, visibility does not change the default — a hidden or nested
+#      command is kept out of the history by the root gate in
+#      _knit_history_record, not by this predicate.
+#
+# Inheritance is over the lexical command hierarchy (the names), not the runtime
+# call stack. Data-row recording (knit_with_table) is orthogonal to this.
+#
+# Returns 0 (success) when the command is history-eligible, 1 otherwise.
+#
+# @param[in] cmd Mangled command name.
+# ------------------------------------------------------------------------------
+_knit_history_enabled() {
+    local cmd="$1"
+    # 1./2. Own explicit mark, then the nearest marked lexical ancestor.
+    local c="${cmd}"
+    while [[ -n "${c}" ]]; do
+        local mark_var="_KNIT_CMD_${c}_history"
+        case "${!mark_var:-}" in
+            with)    return 0 ;;
+            without) return 1 ;;
+        esac
+        _knit_command_get_parents c "${c}"
+    done
+    # 3. Default on, independent of visibility.
+    return 0
 }
 
 # ------------------------------------------------------------------------------

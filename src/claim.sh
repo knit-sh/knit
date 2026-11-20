@@ -87,6 +87,7 @@ knit_register claim knit_empty \
     "Evaluate and list executable claims about the experiment."
 _knit_is_builtin
 knit_without_provenance
+knit_without_history
 knit_done
 
 # ------------------------------------------------------------------------------
@@ -178,6 +179,9 @@ knit_register_claim() {
     # A claim observes the database and is not part of the campaign DAG, so it
     # records no provenance edge. The author does not write this.
     knit_without_provenance
+    # Evaluating a claim is a user action worth replaying, so it stays
+    # history-eligible even though its "claim" parent opts the subtree out.
+    knit_with_history
     # A claim is evaluated only through "claim check"; a direct invocation of the
     # subcommand would auto-record a row and bypass the "--record" gate, so refuse
     # it (see _knit_claim_before_cb).
@@ -602,6 +606,7 @@ knit_register "claim:check" _knit_claim_check \
     "Evaluate a claim for one binding and report its verdict."
 _knit_is_builtin
 knit_without_provenance
+knit_with_history
 knit_with_flag "record" \
     "Also record the evaluation as a row in the claim's table (off by default)."
 knit_with_dispatch "claim" "Claim name followed by its parameters."

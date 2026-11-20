@@ -997,6 +997,7 @@ knit_register "bundle" _knit_bundle \
     "Pack the experiment into one shippable archive."
 _knit_is_builtin
 knit_without_provenance
+knit_without_history
 knit_with_optional "output:path" "" \
     "Archive path (default ./<project>-bundle.tar.gz, or .zip with --zip)."
 knit_with_flag "zip" \

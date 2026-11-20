@@ -629,6 +629,8 @@ _knit_render_platform_files() {
 # ------------------------------------------------------------------------------
 knit_register profile knit_empty "List and inspect machine profiles."
 _knit_is_builtin
+knit_without_provenance
+knit_without_history
 knit_usable_before_bootstrap
 knit_with_subcommand_discovery _knit_profile_discover
 knit_done

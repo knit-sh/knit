@@ -198,8 +198,9 @@ EOF
 # @fn _knit_history_record()
 #
 # Record one history row for the current invocation, but only when it is a
-# top-level user invocation (a root: no provenance source) of a
-# provenance-participating command. Called from _knit_invoke_command's
+# top-level user invocation (a root: no provenance source) of a history-eligible
+# command (knit_with_history / knit_without_history — see _knit_history_enabled;
+# an independent axis from provenance). Called from _knit_invoke_command's
 # after-phase while the frame is still on the executing stacks, separately from
 # _knit_record_invocation so the data-row dedup (the eager "knit submit" record
 # path) cannot short-circuit it, and with the body's exit status and end time
@@ -230,9 +231,11 @@ _knit_history_record() {
     # non-root regardless.
     [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
 
-    # Only a provenance-participating command appears in the history; a hidden or
-    # knit_without_provenance command is transparent here, as it is to the graph.
-    _knit_provenance_enabled "${cmd}" || return 0
+    # Only a history-eligible command appears in the history: an independent
+    # recording axis from provenance (a command may record no provenance edge yet
+    # still belong in the replayable history, e.g. "metadata store", or vice
+    # versa). Eligibility defaults on and is turned off with knit_without_history.
+    _knit_history_enabled "${cmd}" || return 0
 
     # Root only: a non-empty source means an in-process caller or a context
     # carried across a process boundary (knit_resolve_source_context), i.e. an
@@ -564,9 +567,10 @@ _knit_history_row_sql() {
 # @fn _knit_history_emit()
 #
 # Emit the history to standard output in the requested format. For "default" and
-# "bash", one line per invocation (bash prefixes a shebang and "./<script>");
-# with --annotate, each line is preceded by a "# <id>  <iso-time>  (exit N)"
-# comment. For "json", delegate to _knit_history_show_json. An absent table
+# "bash", one line per invocation (bash prefixes a shebang, a warning comment
+# block, and "./<script>"); with --annotate, each line is preceded by a
+# "# <id>  <iso-time>  (exit N)" comment. For "json", delegate to
+# _knit_history_show_json. An absent table
 # (a database predating this feature) is an empty history (an empty JSON array
 # for the JSON format).
 #
@@ -588,7 +592,20 @@ _knit_history_emit() {
         return 0
     fi
 
-    [[ "${format}" == "bash" ]] && printf '#!/usr/bin/env bash\n'
+    # The bash format is an indicative replay script, not a guaranteed-runnable
+    # one: the history records each top-level command but not the shell steps
+    # between them (for example, a job id kept from a "submit" in a variable and
+    # reused in a later command). A header comment block states this.
+    if [[ "${format}" == "bash" ]]; then
+        printf '%s\n' \
+            '#!/usr/bin/env bash' \
+            '#' \
+            '# WARNING: This script is a guide only. It is not guaranteed to run as-is.' \
+            '# Knit records each top-level command, but not the shell steps between them.' \
+            '# For example, a job id kept from a "submit" and used in a later command is' \
+            '# not captured here. Examine and edit the script before you run it.' \
+            '#'
+    fi
 
     local id command start exitv tokens line iso
     while IFS='|' read -r id command start exitv tokens; do
@@ -614,8 +631,9 @@ _knit_history_emit() {
 # Body of "knit history show": print the recorded top-level user invocations in
 # time order (by start_time, then id). "--format default" prints one
 # "command args..." line per invocation; "--format bash" prefixes a
-# "#!/usr/bin/env bash" header and each line with "./<script>", so piping the
-# output to a file produces a runnable replay script; "--format json" prints a
+# "#!/usr/bin/env bash" header plus a warning comment block, and each line with
+# "./<script>", so piping the output to a file produces an indicative (not
+# guaranteed-runnable) replay script; "--format json" prints a
 # JSON array of {name, args, extra} objects. The as-invoked form (the tokens the
 # user typed) is rendered by default; "--resolved" renders the resolved form
 # instead (defaults, flags, and ENV[...] pinned). "--annotate" adds an id, time,
@@ -663,7 +681,7 @@ _knit_history_discover() {
     _knit_is_builtin
     knit_without_provenance
     knit_with_optional "format:history_format" "default" \
-        "Output format: default (one line per command), bash (a runnable replay script), or json."
+        "Output format: default (one line per command), bash (an indicative replay script; see its header), or json."
     knit_with_flag "resolved" \
         "Render the resolved form (defaults, flags, and ENV[...] pinned) instead of the tokens as typed."
     knit_with_optional "status:history_status" "success" \
@@ -702,5 +720,6 @@ _knit_is_builtin
 knit_register history knit_empty "Access the history of commands run in this experiment."
 _knit_is_builtin
 knit_without_provenance
+knit_without_history
 knit_with_subcommand_discovery _knit_history_discover
 knit_done

@@ -13,6 +13,8 @@
 # ------------------------------------------------------------------------------
 knit_register job knit_empty "Inspect submitted jobs."
 _knit_is_builtin
+knit_without_provenance
+knit_without_history
 knit_with_subcommand_discovery _knit_job_discover
 knit_done
 
@@ -1120,6 +1122,9 @@ _knit_job_discover() {
 
     knit_register "job:resubmit" _knit_job_resubmit "Re-run a job reusing its recorded parameters."
     _knit_is_builtin
+    # Unlike the rest of the opted-out "job" subtree, a resubmit produces a new
+    # run, so it is a data-production node: override the parent's opt-out.
+    knit_with_provenance
     knit_with_required "id:string" "Job UUID."
     knit_done
 
