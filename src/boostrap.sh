@@ -504,7 +504,12 @@ knit_enum "__db_lock__" "flock" "mkdir" "none"
 _knit_is_builtin
 knit_register "bootstrap" _knit_bootstrap "Bootstrap the Knit framework."
 _knit_is_builtin
-knit_without_provenance
+# bootstrap stays a provenance node on purpose: it is the in-process parent for
+# the commands it runs during bootstrap (the default setup, internal metadata
+# writes), so marking it transparent would promote those to root provenance
+# edges. Provenance recording — unlike history — is not gated by
+# _KNIT_IS_BOOTSTRAPPING. bootstrap is kept out of the replayable history
+# separately, via knit_without_history and the _KNIT_IS_BOOTSTRAPPING guard.
 knit_without_history
 knit_usable_before_bootstrap
 knit_highlight_if _knit_highlight_if_not_bootstrapped

@@ -102,12 +102,15 @@ _no_prov() { ! _knit_provenance_enabled "$(_m "$1")"; }
 # ---------- provenance (M3): the flip-OFF set + job:resubmit override ----------
 
 @test "the flip-off builtins no longer participate in provenance" {
-    _no_prov "bootstrap"
     _no_prov "metadata"
     _no_prov "profile"
     _no_prov "plugins"
     _no_prov "skills"
     _ensure "metadata"; _no_prov "metadata:store"
+    # bootstrap is NOT flipped off: it stays a provenance node so the default
+    # setup / metadata writes it makes during bootstrap attach to it instead of
+    # becoming root edges. Only its history is suppressed.
+    _prov "bootstrap"
 }
 
 @test "the job subtree is opted out of provenance except job:resubmit" {
