@@ -2070,13 +2070,12 @@ knit_with_required() {
     printf -v "${ns}_2_${param}_description" '%s' "$2"
     printf -v "${ns}_2_${param}_type"        '%s' "${param_type}"
     _knit_set_add "${ns}_required" "${param}"
-    # Only extract --when / --domain values (a command-substitution fork each)
-    # when the option is actually present among the declaration args. A plain
-    # parameter has none, so the common path on the source/registration hot loop
-    # pays no fork here.
+    # Extract --when / --domain only when the option is present among the
+    # declaration args (a plain parameter has neither), keeping the common
+    # registration path free of extra work. Extraction is fork-free (nameref).
     local when_expr=""
     if _knit_decl_flag_present "when" "${@:3}"; then
-        when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+        _knit_get_parameter_ref when_expr "when" "$@" || when_expr=""
     fi
     if [[ -n "${when_expr}" ]]; then
         printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
@@ -2087,7 +2086,7 @@ knit_with_required() {
     _knit_register_checksum "input" "${param_type}" "${param_name}" "${no_checksum}"
     local domain="" log="false"
     if _knit_decl_flag_present "domain" "${@:3}"; then
-        domain=$(knit_get_parameter "domain" "$@") || domain=""
+        _knit_get_parameter_ref domain "domain" "$@" || domain=""
     fi
     _knit_decl_flag_present "log" "${@:3}" && log="true"
     _knit_declare_domain "${ns}" "${param}" "${log}" "${domain}"
@@ -2164,13 +2163,12 @@ knit_with_optional() {
     printf -v "${ns}_2_${param}_default"     '%s' "$2"
     printf -v "${ns}_2_${param}_type"        '%s' "${param_type}"
     _knit_set_add "${ns}_optional" "${param}"
-    # Only extract --when / --domain values (a command-substitution fork each)
-    # when the option is actually present among the declaration args. A plain
-    # parameter has none, so the common path on the source/registration hot loop
-    # pays no fork here.
+    # Extract --when / --domain only when the option is present among the
+    # declaration args (a plain parameter has neither), keeping the common
+    # registration path free of extra work. Extraction is fork-free (nameref).
     local when_expr=""
     if _knit_decl_flag_present "when" "${@:4}"; then
-        when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+        _knit_get_parameter_ref when_expr "when" "$@" || when_expr=""
     fi
     if [[ -n "${when_expr}" ]]; then
         printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
@@ -2181,7 +2179,7 @@ knit_with_optional() {
     _knit_register_checksum "input" "${param_type}" "${param_name}" "${no_checksum}"
     local domain="" log="false"
     if _knit_decl_flag_present "domain" "${@:4}"; then
-        domain=$(knit_get_parameter "domain" "$@") || domain=""
+        _knit_get_parameter_ref domain "domain" "$@" || domain=""
     fi
     _knit_decl_flag_present "log" "${@:4}" && log="true"
     _knit_declare_domain "${ns}" "${param}" "${log}" "${domain}"
@@ -2232,8 +2230,8 @@ knit_with_flag() {
     knit_trace "Adding flag \"$1\" to \"${demangled_cmd}\"."
     printf -v "${ns}_2_${param}_description" '%s' "$2"
     _knit_set_add "${ns}_flags" "${param}"
-    local when_expr
-    when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+    local when_expr=""
+    _knit_get_parameter_ref when_expr "when" "$@" || when_expr=""
     if [[ -n "${when_expr}" ]]; then
         printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
         printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
@@ -2343,9 +2341,9 @@ knit_with_parameter_set() {
 
     # Resolve the optional --exclude / --only filter (mutually exclusive). The
     # filter set holds the normalized names; filter_mode selects how to read it.
-    local exclude_list only_list filter_mode=""
-    exclude_list=$(knit_get_parameter "exclude" "${@:2}") || exclude_list=""
-    only_list=$(knit_get_parameter "only" "${@:2}") || only_list=""
+    local exclude_list="" only_list="" filter_mode=""
+    _knit_get_parameter_ref exclude_list "exclude" "${@:2}" || exclude_list=""
+    _knit_get_parameter_ref only_list "only" "${@:2}" || only_list=""
     if [[ -n "${exclude_list}" && -n "${only_list}" ]]; then
         knit_fatal "knit_with_parameter_set accepts --exclude or --only, not both."
     fi
@@ -2495,7 +2493,7 @@ knit_with_output() {
     local has_unset="false" unset_value=""
     if _knit_decl_flag_present "unset" "${@:3}"; then
         has_unset="true"
-        unset_value=$(knit_get_parameter "unset" "$@") || unset_value=""
+        _knit_get_parameter_ref unset_value "unset" "$@" || unset_value=""
         if ! knit_type_check "${param_type}" "${unset_value}"; then
             knit_fatal "Output \"${param_name}\" --unset expects type \"${param_type}\" but got \"${unset_value}\"."
         fi
@@ -4472,23 +4470,28 @@ _knit_invoke_command() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn knit_get_parameter()
+# @fn _knit_get_parameter_ref()
 #
-# Search the list of arguments for a specific parameter. If found, the function
-# will print the value associated with the parameter (flags will lead to this
-# function printing "true" or "false"). If not found, this function will print
-# nothing and return 1.
+# Nameref (fork-free) variant of knit_get_parameter: find the value of the named
+# option among the argument tokens and write it to the output variable. Returns 0
+# when the option is found, 1 otherwise (the output variable is left untouched on
+# a miss, so a caller keeps whatever default it pre-assigned). Used on hot paths
+# — the registration decorators at load — where capturing knit_get_parameter's
+# stdout with "$(...)" forks a subshell per call.
 #
-# The parameter value may be supplied either as two tokens ("--name value") or
-# inline with an equals sign ("--name=value"); both forms are recognized.
-#
-# @param[in] param Parameter to search for (without the -- prefix).
-# @param[in] ... Arguments in which to search for the parameter.
+# @param[out] __knit_ret Variable receiving the option value.
+# @param[in]  name       Option to search for (without the -- prefix).
+# @param[in]  ...        Arguments in which to search for the option.
 # ------------------------------------------------------------------------------
-knit_get_parameter() {
+_knit_get_parameter_ref() {
+    # __knit_ret is a scalar output nameref; the SC2178 suppressions here and
+    # below are a false positive from the "__knit_ret" name also being used for an
+    # array in _knit_set_array earlier in the concatenated knit.sh.
+    # shellcheck disable=SC2178
+    local -n __knit_ret=$1
     local param
-    _knit_str_hyphens_to_underscores param "$1"
-    shift
+    _knit_str_hyphens_to_underscores param "$2"
+    shift 2
     local list=("$@")
     local i
     for ((i=0; i < ${#list[@]}; i++)); do
@@ -4507,17 +4510,43 @@ knit_get_parameter() {
         fi
         # Inline "--name=value": the value is part of the token.
         if [[ "${item}" == --*=* ]]; then
-            printf "%s" "${item#*=}"
+            # shellcheck disable=SC2178
+            __knit_ret="${item#*=}"
             return 0
         fi
         # Separate "--name value": the value is the following token.
         if ((i + 1 < ${#list[@]})); then
-            printf "%s" "${list[i+1]}"
+            # shellcheck disable=SC2178
+            __knit_ret="${list[i+1]}"
             return 0
         fi
         return 1
     done
     return 1
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_get_parameter()
+#
+# Search the list of arguments for a specific parameter. If found, the function
+# will print the value associated with the parameter (flags will lead to this
+# function printing "true" or "false"). If not found, this function will print
+# nothing and return 1.
+#
+# The parameter value may be supplied either as two tokens ("--name value") or
+# inline with an equals sign ("--name=value"); both forms are recognized.
+#
+# Thin stdout wrapper over _knit_get_parameter_ref so the two cannot drift; a
+# caller on a hot path can use the nameref form directly to avoid the subshell
+# that capturing this function's stdout requires.
+#
+# @param[in] param Parameter to search for (without the -- prefix).
+# @param[in] ... Arguments in which to search for the parameter.
+# ------------------------------------------------------------------------------
+knit_get_parameter() {
+    local __knit_gp_val
+    _knit_get_parameter_ref __knit_gp_val "$@" || return 1
+    printf "%s" "${__knit_gp_val}"
 }
 
 # ------------------------------------------------------------------------------
