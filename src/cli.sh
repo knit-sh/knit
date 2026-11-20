@@ -312,10 +312,14 @@ _knit_name_normalize() {
 # @param[in]  token      A raw argument token starting with "--".
 # ------------------------------------------------------------------------------
 _knit_arg_name() {
+    # Write directly to the nameref with no intermediate local: a caller may pass
+    # an output variable named "name" (knit_check_arguments and
+    # __knit_expand_command_arguments do), which an internal "local name" would
+    # shadow — the nameref would then alias our own local, not the caller's.
     local -n __knit_ret=$1
-    local name="${2#--}"
-    name="${name%%=*}"
-    __knit_ret="${name//-/_}"
+    __knit_ret="${2#--}"
+    __knit_ret="${__knit_ret%%=*}"
+    __knit_ret="${__knit_ret//-/_}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1224,13 +1228,15 @@ _knit_usable_before_bootstrap_validate() {
 
     # Rule 2: no "--when" constraint on any parameter.
     local set_name param when_var
+    local -a params
     for set_name in required optional flags; do
-        while IFS= read -r param; do
+        _knit_set_array params "_KNIT_CMD_${cmd}_${set_name}"
+        for param in "${params[@]}"; do
             when_var="_KNIT_CMD_${cmd}_2_${param}_when"
             if [[ -v "${when_var}" ]]; then
                 knit_fatal "Command \"${demangled}\" is usable before bootstrap and cannot use --when (on parameter \"${param}\"): before bootstrap the constraint would be silently skipped."
             fi
-        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_${set_name}")
+        done
     done
 
     # Rule 3: parent must also be usable before bootstrap.
