@@ -75,6 +75,8 @@ check_sqlite ".knit/knit.db" \
 ./experiment.sh history show --format bash > replay.sh
 
 check_grep '^#!/usr/bin/env bash$' replay.sh "the replay script starts with a shebang"
+check_grep '^# WARNING: This script is a guide only' replay.sh \
+    "the replay script carries the indicative-only warning header"
 check_grep '^\./experiment\.sh note --text hello$' replay.sh \
     "the replay script replays the note command"
 check_grep '^\./experiment\.sh submit --nodes 1 --wait -- greetjob$' replay.sh \
