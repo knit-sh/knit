@@ -504,6 +504,7 @@ knit_enum "__db_lock__" "flock" "mkdir" "none"
 _knit_is_builtin
 knit_register "bootstrap" _knit_bootstrap "Bootstrap the Knit framework."
 _knit_is_builtin
+knit_without_history
 knit_usable_before_bootstrap
 knit_highlight_if _knit_highlight_if_not_bootstrapped
 # Environment-manager options (e.g. the spack plugin's --spack / --spack-packages)

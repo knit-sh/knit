@@ -2290,6 +2290,7 @@ knit_register "describe" _knit_describe \
 _knit_is_builtin
 knit_usable_before_bootstrap
 knit_without_provenance
+knit_without_history
 knit_with_optional "format:describe_format" "default" \
     "Output format: default, json, yaml, or markdown."
 knit_with_flag "compact" \

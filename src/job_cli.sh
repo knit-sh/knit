@@ -13,6 +13,7 @@
 # ------------------------------------------------------------------------------
 knit_register job knit_empty "Inspect submitted jobs."
 _knit_is_builtin
+knit_without_history
 knit_with_subcommand_discovery _knit_job_discover
 knit_done
 

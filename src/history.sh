@@ -702,5 +702,6 @@ _knit_is_builtin
 knit_register history knit_empty "Access the history of commands run in this experiment."
 _knit_is_builtin
 knit_without_provenance
+knit_without_history
 knit_with_subcommand_discovery _knit_history_discover
 knit_done

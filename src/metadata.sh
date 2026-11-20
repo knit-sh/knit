@@ -23,6 +23,7 @@ _KNIT_METADATA_CACHE=()
 # ------------------------------------------------------------------------------
 knit_register metadata knit_empty "Access metadata about the experiment."
 _knit_is_builtin
+knit_without_history
 knit_with_subcommand_discovery _knit_metadata_discover
 knit_done
 
@@ -207,6 +208,9 @@ _knit_metadata_show() {
 _knit_metadata_discover() {
     knit_register "metadata:store" _knit_metadata_store "Store a key/value pair of metadata."
     _knit_is_builtin
+    # Storing metadata shapes experiment state, so a replay re-stores it: keep it
+    # history-eligible even though its "metadata" parent opts the subtree out.
+    knit_with_history
     knit_with_required "key:string" "Key."
     knit_with_required "value:string" "Value."
     knit_with_flag "force" "Overwrite the value if the key already exists."
