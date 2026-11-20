@@ -79,6 +79,16 @@ already on your system, installs the tools Knit relies on):
 
    $ ./exp.sh bootstrap
 
+.. warning::
+
+   Knit writes to its database through a file lock. The default lock
+   (``flock``) needs a filesystem that supports file locking. Most do, and you
+   do nothing. But some HPC filesystems do not --- for example, NERSC
+   Perlmutter's compute-node ``$HOME`` --- and there a job that writes to the
+   database fails. If your experiment sits on such a filesystem, put it on a
+   lock-capable filesystem (for example ``$PSCRATCH``) or bootstrap with
+   ``--db-lock mkdir``. See the *Run on a filesystem without flock* stitch.
+
 Now run the command:
 
 .. code-block:: console
