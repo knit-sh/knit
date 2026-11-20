@@ -294,24 +294,32 @@ _knit_name_normalize() {
 # ------------------------------------------------------------------------------
 # @fn _knit_arg_name()
 #
-# Extract the normalized parameter name from a command-line token. The token may
-# be given as "--name" or "--name=value"; the leading "--" and any "=value"
-# suffix are stripped and hyphens are converted to underscores. This is the
-# single place where the "=value" form is recognized, so registered commands and
-# plain helper functions (via knit_get_parameter / knit_check_arguments) accept
-# it consistently.
+# Extract the normalized parameter name from a command-line token into a nameref
+# output. The token may be given as "--name" or "--name=value"; the leading "--"
+# and any "=value" suffix are stripped and hyphens are converted to underscores.
+# This is the single place where the "=value" form is recognized, so registered
+# commands and plain helper functions (via knit_get_parameter /
+# knit_check_arguments) accept it consistently.
 #
 # The caller is responsible for only passing tokens that start with "--"; bare
 # values must not be passed, otherwise they may be mistaken for parameter names.
 #
-# @param[in] token A raw argument token starting with "--".
+# Returns through a nameref rather than stdout: it is called once per scanned
+# argument on hot paths (registration, argument expansion), so the stdout form
+# forked a subshell per call.
+#
+# @param[out] __knit_ret Variable receiving the normalized name.
+# @param[in]  token      A raw argument token starting with "--".
 # ------------------------------------------------------------------------------
 _knit_arg_name() {
-    local name="${1#--}"
-    name="${name%%=*}"
-    local __ret
-    _knit_str_hyphens_to_underscores __ret "${name}"
-    printf '%s\n' "${__ret}"
+    # Write directly to the nameref with no intermediate local: a caller may pass
+    # an output variable named "name" (knit_check_arguments and
+    # __knit_expand_command_arguments do), which an internal "local name" would
+    # shadow — the nameref would then alias our own local, not the caller's.
+    local -n __knit_ret=$1
+    __knit_ret="${2#--}"
+    __knit_ret="${__knit_ret%%=*}"
+    __knit_ret="${__knit_ret//-/_}"
 }
 
 # ------------------------------------------------------------------------------
@@ -342,7 +350,8 @@ _knit_arg_was_provided() {
     for a in "$@"; do
         [[ "${a}" == "--" ]] && break
         [[ "${a}" == --* ]] || continue
-        [[ "$(_knit_arg_name "${a}")" == "${wanted}" ]] && return 0
+        local aname; _knit_arg_name aname "${a}"
+        [[ "${aname}" == "${wanted}" ]] && return 0
     done
     return 1
 }
@@ -1219,13 +1228,15 @@ _knit_usable_before_bootstrap_validate() {
 
     # Rule 2: no "--when" constraint on any parameter.
     local set_name param when_var
+    local -a params
     for set_name in required optional flags; do
-        while IFS= read -r param; do
+        _knit_set_array params "_KNIT_CMD_${cmd}_${set_name}"
+        for param in "${params[@]}"; do
             when_var="_KNIT_CMD_${cmd}_2_${param}_when"
             if [[ -v "${when_var}" ]]; then
                 knit_fatal "Command \"${demangled}\" is usable before bootstrap and cannot use --when (on parameter \"${param}\"): before bootstrap the constraint would be silently skipped."
             fi
-        done < <(_knit_set_iter "_KNIT_CMD_${cmd}_${set_name}")
+        done
     done
 
     # Rule 3: parent must also be usable before bootstrap.
@@ -1793,7 +1804,8 @@ _knit_decl_flag_present() {
     for a in "$@"; do
         [[ "${a}" == "--" ]] && break
         [[ "${a}" == --* ]] || continue
-        [[ "$(_knit_arg_name "${a}")" == "${flag}" ]] && return 0
+        local aname; _knit_arg_name aname "${a}"
+        [[ "${aname}" == "${flag}" ]] && return 0
     done
     return 1
 }
@@ -2058,13 +2070,12 @@ knit_with_required() {
     printf -v "${ns}_2_${param}_description" '%s' "$2"
     printf -v "${ns}_2_${param}_type"        '%s' "${param_type}"
     _knit_set_add "${ns}_required" "${param}"
-    # Only extract --when / --domain values (a command-substitution fork each)
-    # when the option is actually present among the declaration args. A plain
-    # parameter has none, so the common path on the source/registration hot loop
-    # pays no fork here.
+    # Extract --when / --domain only when the option is present among the
+    # declaration args (a plain parameter has neither), keeping the common
+    # registration path free of extra work. Extraction is fork-free (nameref).
     local when_expr=""
     if _knit_decl_flag_present "when" "${@:3}"; then
-        when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+        _knit_get_parameter_ref when_expr "when" "$@" || when_expr=""
     fi
     if [[ -n "${when_expr}" ]]; then
         printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
@@ -2075,7 +2086,7 @@ knit_with_required() {
     _knit_register_checksum "input" "${param_type}" "${param_name}" "${no_checksum}"
     local domain="" log="false"
     if _knit_decl_flag_present "domain" "${@:3}"; then
-        domain=$(knit_get_parameter "domain" "$@") || domain=""
+        _knit_get_parameter_ref domain "domain" "$@" || domain=""
     fi
     _knit_decl_flag_present "log" "${@:3}" && log="true"
     _knit_declare_domain "${ns}" "${param}" "${log}" "${domain}"
@@ -2152,13 +2163,12 @@ knit_with_optional() {
     printf -v "${ns}_2_${param}_default"     '%s' "$2"
     printf -v "${ns}_2_${param}_type"        '%s' "${param_type}"
     _knit_set_add "${ns}_optional" "${param}"
-    # Only extract --when / --domain values (a command-substitution fork each)
-    # when the option is actually present among the declaration args. A plain
-    # parameter has none, so the common path on the source/registration hot loop
-    # pays no fork here.
+    # Extract --when / --domain only when the option is present among the
+    # declaration args (a plain parameter has neither), keeping the common
+    # registration path free of extra work. Extraction is fork-free (nameref).
     local when_expr=""
     if _knit_decl_flag_present "when" "${@:4}"; then
-        when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+        _knit_get_parameter_ref when_expr "when" "$@" || when_expr=""
     fi
     if [[ -n "${when_expr}" ]]; then
         printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
@@ -2169,7 +2179,7 @@ knit_with_optional() {
     _knit_register_checksum "input" "${param_type}" "${param_name}" "${no_checksum}"
     local domain="" log="false"
     if _knit_decl_flag_present "domain" "${@:4}"; then
-        domain=$(knit_get_parameter "domain" "$@") || domain=""
+        _knit_get_parameter_ref domain "domain" "$@" || domain=""
     fi
     _knit_decl_flag_present "log" "${@:4}" && log="true"
     _knit_declare_domain "${ns}" "${param}" "${log}" "${domain}"
@@ -2220,8 +2230,8 @@ knit_with_flag() {
     knit_trace "Adding flag \"$1\" to \"${demangled_cmd}\"."
     printf -v "${ns}_2_${param}_description" '%s' "$2"
     _knit_set_add "${ns}_flags" "${param}"
-    local when_expr
-    when_expr=$(knit_get_parameter "when" "$@") || when_expr=""
+    local when_expr=""
+    _knit_get_parameter_ref when_expr "when" "$@" || when_expr=""
     if [[ -n "${when_expr}" ]]; then
         printf -v "${ns}_2_${param}_when"     '%s' "${when_expr}"
         printf -v "${ns}_2_${param}_when_raw" '%s' "${when_expr}"
@@ -2331,9 +2341,9 @@ knit_with_parameter_set() {
 
     # Resolve the optional --exclude / --only filter (mutually exclusive). The
     # filter set holds the normalized names; filter_mode selects how to read it.
-    local exclude_list only_list filter_mode=""
-    exclude_list=$(knit_get_parameter "exclude" "${@:2}") || exclude_list=""
-    only_list=$(knit_get_parameter "only" "${@:2}") || only_list=""
+    local exclude_list="" only_list="" filter_mode=""
+    _knit_get_parameter_ref exclude_list "exclude" "${@:2}" || exclude_list=""
+    _knit_get_parameter_ref only_list "only" "${@:2}" || only_list=""
     if [[ -n "${exclude_list}" && -n "${only_list}" ]]; then
         knit_fatal "knit_with_parameter_set accepts --exclude or --only, not both."
     fi
@@ -2483,7 +2493,7 @@ knit_with_output() {
     local has_unset="false" unset_value=""
     if _knit_decl_flag_present "unset" "${@:3}"; then
         has_unset="true"
-        unset_value=$(knit_get_parameter "unset" "$@") || unset_value=""
+        _knit_get_parameter_ref unset_value "unset" "$@" || unset_value=""
         if ! knit_type_check "${param_type}" "${unset_value}"; then
             knit_fatal "Output \"${param_name}\" --unset expects type \"${param_type}\" but got \"${unset_value}\"."
         fi
@@ -3038,7 +3048,8 @@ knit_set_parameter() {
     for (( i = 0; i < ${#_KNIT_INVOCATION_ARGS[@]}; i++ )); do
         local tok="${_KNIT_INVOCATION_ARGS[i]}"
         [[ "${tok}" == --* ]] || continue
-        [[ "$(_knit_arg_name "${tok}")" == "${name}" ]] || continue
+        local aname; _knit_arg_name aname "${tok}"
+        [[ "${aname}" == "${name}" ]] || continue
         if [[ "${tok}" == --*=* ]]; then
             _KNIT_INVOCATION_ARGS[i]="--${name}=${value}"
         else
@@ -3132,7 +3143,7 @@ _knit_check_command_arguments() {
             knit_fatal "Unexpected argument \"${arg}\" passed to \"${demangled_cmd}\" command."
         fi
         local name
-        name="$(_knit_arg_name "${arg}")"
+        _knit_arg_name name "${arg}"
         # Required/optional parameters consume the following token as their
         # value, unless the value was supplied inline as "--name=value". Flags
         # never consume a token. The consumed value is checked against the
@@ -3174,7 +3185,7 @@ _knit_check_command_arguments() {
 # ------------------------------------------------------------------------------
 _knit_find_flag() {
     local flag
-    flag=$(_knit_arg_name "$1")
+    _knit_arg_name flag "$1"
     shift
     local list=("$@")
 
@@ -3186,7 +3197,8 @@ _knit_find_flag() {
         if [[ "${item}" != --* ]]; then
             continue
         fi
-        if [[ "$(_knit_arg_name "${item}")" == "${flag}" ]]; then
+        local aname; _knit_arg_name aname "${item}"
+        if [[ "${aname}" == "${flag}" ]]; then
             return 0
         fi
     done
@@ -3244,8 +3256,9 @@ _knit_expand_command_arguments() {
             for i in "${!args[@]}"; do
                 # Match by normalized name so a flag registered as "no_setup"
                 # is found whether the user wrote --no-setup or --no_setup.
-                if [[ "${args[$i]}" == --* ]] \
-                    && [[ "$(_knit_arg_name "${args[$i]}")" == "${flag}" ]]; then
+                [[ "${args[$i]}" == --* ]] || continue
+                local aname; _knit_arg_name aname "${args[$i]}"
+                if [[ "${aname}" == "${flag}" ]]; then
                     # Insert "true" after the flag
                     args=("${args[@]:0:i+1}" "true" "${args[@]:i+1}")
                     break
@@ -3683,7 +3696,7 @@ _knit_build_constraint_json() {
         local token="${!i}"
         [[ "${token}" == "--" ]] && break
         local key val
-        key=$(_knit_arg_name "${token}")
+        _knit_arg_name key "${token}"
         if [[ "${token}" == --*=* ]]; then
             # Inline "--name=value": value is part of the token.
             val="${token#*=}"
@@ -4457,23 +4470,28 @@ _knit_invoke_command() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn knit_get_parameter()
+# @fn _knit_get_parameter_ref()
 #
-# Search the list of arguments for a specific parameter. If found, the function
-# will print the value associated with the parameter (flags will lead to this
-# function printing "true" or "false"). If not found, this function will print
-# nothing and return 1.
+# Nameref (fork-free) variant of knit_get_parameter: find the value of the named
+# option among the argument tokens and write it to the output variable. Returns 0
+# when the option is found, 1 otherwise (the output variable is left untouched on
+# a miss, so a caller keeps whatever default it pre-assigned). Used on hot paths
+# — the registration decorators at load — where capturing knit_get_parameter's
+# stdout with "$(...)" forks a subshell per call.
 #
-# The parameter value may be supplied either as two tokens ("--name value") or
-# inline with an equals sign ("--name=value"); both forms are recognized.
-#
-# @param[in] param Parameter to search for (without the -- prefix).
-# @param[in] ... Arguments in which to search for the parameter.
+# @param[out] __knit_ret Variable receiving the option value.
+# @param[in]  name       Option to search for (without the -- prefix).
+# @param[in]  ...        Arguments in which to search for the option.
 # ------------------------------------------------------------------------------
-knit_get_parameter() {
+_knit_get_parameter_ref() {
+    # __knit_ret is a scalar output nameref; the SC2178 suppressions here and
+    # below are a false positive from the "__knit_ret" name also being used for an
+    # array in _knit_set_array earlier in the concatenated knit.sh.
+    # shellcheck disable=SC2178
+    local -n __knit_ret=$1
     local param
-    _knit_str_hyphens_to_underscores param "$1"
-    shift
+    _knit_str_hyphens_to_underscores param "$2"
+    shift 2
     local list=("$@")
     local i
     for ((i=0; i < ${#list[@]}; i++)); do
@@ -4486,22 +4504,49 @@ knit_get_parameter() {
         if [[ "${item}" != --* ]]; then
             continue
         fi
-        if [[ "$(_knit_arg_name "${item}")" != "${param}" ]]; then
+        local aname; _knit_arg_name aname "${item}"
+        if [[ "${aname}" != "${param}" ]]; then
             continue
         fi
         # Inline "--name=value": the value is part of the token.
         if [[ "${item}" == --*=* ]]; then
-            printf "%s" "${item#*=}"
+            # shellcheck disable=SC2178
+            __knit_ret="${item#*=}"
             return 0
         fi
         # Separate "--name value": the value is the following token.
         if ((i + 1 < ${#list[@]})); then
-            printf "%s" "${list[i+1]}"
+            # shellcheck disable=SC2178
+            __knit_ret="${list[i+1]}"
             return 0
         fi
         return 1
     done
     return 1
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_get_parameter()
+#
+# Search the list of arguments for a specific parameter. If found, the function
+# will print the value associated with the parameter (flags will lead to this
+# function printing "true" or "false"). If not found, this function will print
+# nothing and return 1.
+#
+# The parameter value may be supplied either as two tokens ("--name value") or
+# inline with an equals sign ("--name=value"); both forms are recognized.
+#
+# Thin stdout wrapper over _knit_get_parameter_ref so the two cannot drift; a
+# caller on a hot path can use the nameref form directly to avoid the subshell
+# that capturing this function's stdout requires.
+#
+# @param[in] param Parameter to search for (without the -- prefix).
+# @param[in] ... Arguments in which to search for the parameter.
+# ------------------------------------------------------------------------------
+knit_get_parameter() {
+    local __knit_gp_val
+    _knit_get_parameter_ref __knit_gp_val "$@" || return 1
+    printf "%s" "${__knit_gp_val}"
 }
 
 # ------------------------------------------------------------------------------
@@ -5022,7 +5067,7 @@ knit_check_arguments() {
             return 1
         fi
         local name
-        name="$(_knit_arg_name "${arg}")"
+        _knit_arg_name name "${arg}"
         # An option in "--name value" form consumes the following token as its
         # value, so skip it without validating it (a value may legitimately
         # start with "--"). In "--name=value" form the value is inline.
