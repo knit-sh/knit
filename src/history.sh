@@ -198,8 +198,9 @@ EOF
 # @fn _knit_history_record()
 #
 # Record one history row for the current invocation, but only when it is a
-# top-level user invocation (a root: no provenance source) of a
-# provenance-participating command. Called from _knit_invoke_command's
+# top-level user invocation (a root: no provenance source) of a history-eligible
+# command (knit_with_history / knit_without_history — see _knit_history_enabled;
+# an independent axis from provenance). Called from _knit_invoke_command's
 # after-phase while the frame is still on the executing stacks, separately from
 # _knit_record_invocation so the data-row dedup (the eager "knit submit" record
 # path) cannot short-circuit it, and with the body's exit status and end time
@@ -230,9 +231,11 @@ _knit_history_record() {
     # non-root regardless.
     [[ "${_KNIT_IS_BOOTSTRAPPING}" == "true" ]] && return 0
 
-    # Only a provenance-participating command appears in the history; a hidden or
-    # knit_without_provenance command is transparent here, as it is to the graph.
-    _knit_provenance_enabled "${cmd}" || return 0
+    # Only a history-eligible command appears in the history: an independent
+    # recording axis from provenance (a command may record no provenance edge yet
+    # still belong in the replayable history, e.g. "metadata store", or vice
+    # versa). Eligibility defaults on and is turned off with knit_without_history.
+    _knit_history_enabled "${cmd}" || return 0
 
     # Root only: a non-empty source means an in-process caller or a context
     # carried across a process boundary (knit_resolve_source_context), i.e. an

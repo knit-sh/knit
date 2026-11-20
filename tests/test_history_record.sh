@@ -1,9 +1,12 @@
 #!/usr/bin/env bats
 
-# History capture (M2): a top-level user invocation (a root, with no provenance
-# source) of a provenance-participating command records one __history__ row with
-# its as-invoked and as-resolved argument forms. Nested, cross-process, hidden,
-# without-provenance, and recording-disabled invocations record nothing.
+# History capture: a top-level user invocation (a root, with no provenance
+# source) of a history-eligible command records one __history__ row with its
+# as-invoked and as-resolved argument forms. Nested, cross-process, and
+# recording-disabled invocations record nothing. History eligibility is an
+# independent axis from provenance (recording M4): visibility does not gate it,
+# a knit_without_provenance command is still recorded, and knit_without_history
+# is the lever that excludes a command.
 
 setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
@@ -116,7 +119,7 @@ _hcount() {
     [ "$(_hcount)" -eq 0 ]
 }
 
-@test "a hidden command records no history row" {
+@test "a hidden command still records a history row (visibility does not gate)" {
     knit_register "hidcmd" _h_hid_fn "Hidden."
     knit_hidden
     _h_hid_fn() { :; }
@@ -124,16 +127,46 @@ _hcount() {
 
     _knit_invoke_command "hidcmd"
 
-    [ "$(_hcount)" -eq 0 ]
+    # Unlike provenance, history eligibility ignores visibility: a hidden command
+    # invoked directly as a root is still part of the user's history. Hidden
+    # framework internals (e.g. _run) stay out because they are nested, not here.
+    [ "$(_hcount)" -eq 1 ]
 }
 
-@test "a knit_without_provenance command records no history row" {
+@test "a knit_without_provenance command still records a history row" {
     knit_register "nopcmd" _h_nop_fn "No prov."
     knit_without_provenance
     _h_nop_fn() { :; }
     knit_done
 
     _knit_invoke_command "nopcmd"
+
+    # History is an independent axis: opting out of provenance does not opt out of
+    # history (e.g. "metadata store", "remove"). knit_without_history is the lever.
+    [ "$(_hcount)" -eq 1 ]
+}
+
+@test "knit_without_history excludes a command from history" {
+    knit_register "nohistcmd" _h_nohist_fn "No history."
+    knit_without_history
+    _h_nohist_fn() { :; }
+    knit_done
+
+    _knit_invoke_command "nohistcmd"
+
+    [ "$(_hcount)" -eq 0 ]
+}
+
+@test "knit_without_history excludes even a provenance-participating command" {
+    # The two axes are fully independent: a command can be in the provenance graph
+    # yet still be kept out of the replayable history.
+    knit_register "provnohist" _h_pnh_fn "Prov but no history."
+    knit_with_provenance
+    knit_without_history
+    _h_pnh_fn() { :; }
+    knit_done
+
+    _knit_invoke_command "provnohist"
 
     [ "$(_hcount)" -eq 0 ]
 }
