@@ -465,6 +465,8 @@ knit_enum "__scheduler__" "auto" "slurm" "pbs" "flux" "local" "none"
 _knit_is_builtin
 knit_enum "__launcher__"  "auto" "openmpi" "mpich" "pals" "flux" "slurm" "pbs" "none"
 _knit_is_builtin
+knit_enum "__db_lock__" "flock" "mkdir" "none"
+_knit_is_builtin
 knit_register "bootstrap" _knit_bootstrap "Bootstrap the Knit framework."
 _knit_is_builtin
 knit_usable_before_bootstrap
@@ -501,6 +503,8 @@ knit_with_flag "ignore-system-sqlite" \
     "Build sqlite from source even if a system sqlite3 is available."
 knit_with_flag "ignore-system-jq" \
     "Download jq even if a system jq is available."
+knit_with_optional "db-lock:__db_lock__" "flock" \
+    "How to serialize database writes. 'flock' (default) uses advisory file locks and needs a filesystem that supports them. 'mkdir' uses an atomic directory lock that works on filesystems without flock (e.g. NERSC DVS-projected home); a writer that cannot acquire the lock within 60s fails and asks you to remove a stray lock by hand. 'none' disables locking entirely (only safe when no two Knit writes ever overlap)."
 knit_with_optional "knit-cypher-to-sql-version:string" "" \
     "knit-cypher-to-sql release version to provision. Empty uses the pinned default."
 knit_with_optional "knit-cypher-to-sql-url:string" "" \
@@ -549,6 +553,7 @@ _knit_bootstrap() {
     local default_nodefile
     local ignore_system_sqlite
     local ignore_system_jq
+    local db_lock
     local cypher_to_sql_version
     local cypher_to_sql_url
     local ai_api_key_env
@@ -571,6 +576,7 @@ _knit_bootstrap() {
     default_nodefile="$(knit_get_parameter "default-nodefile" "$@")"
     ignore_system_sqlite="$(knit_get_parameter "ignore-system-sqlite" "$@")"
     ignore_system_jq="$(knit_get_parameter "ignore-system-jq" "$@")"
+    db_lock="$(knit_get_parameter "db-lock" "$@")"
     cypher_to_sql_version="$(knit_get_parameter "knit-cypher-to-sql-version" "$@")"
     cypher_to_sql_url="$(knit_get_parameter "knit-cypher-to-sql-url" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
@@ -613,6 +619,17 @@ _knit_bootstrap() {
     _knit_ensure_trace_file
     mkdir "${_KNIT_PREFIX}" > "${_KNIT_TRACE_FILE}" 2>&1
     trap _knit_bootstrap_on_exit EXIT
+
+    # Record the database write-lock mechanism before the first database write.
+    # It is a plain marker file (not metadata) so the lock mechanism is knowable
+    # without opening the database it guards — the writes just below (sqlite table
+    # creation, the metadata stores) resolve their lock mode from it. Default an
+    # empty value to "flock" so the marker is always a valid mode even on the
+    # direct-body call path, where CLI default injection has not run. Clear the
+    # process cache so this freshly written value is the one that is resolved.
+    db_lock="${db_lock:-flock}"
+    printf '%s\n' "${db_lock}" > "${_KNIT_PREFIX}/db-lock"
+    _KNIT_DB_LOCK_MODE=""
 
     # Knit uses the sqlite3 CLI only (no library linkage), so _knit_bootstrap_sqlite
     # symlinks the system sqlite3 when one is on PATH and otherwise builds it from
@@ -765,6 +782,10 @@ _knit_bootstrap() {
     knit metadata store --key "__profile_json__"           --value "${profile_json}"
     knit metadata store --key "__scheduler__"              --value "${scheduler}"
     knit metadata store --key "__launcher__"               --value "${launcher}"
+    # Mirror the write-lock mode (source of truth is the .knit/db-lock marker
+    # written above) into metadata for visibility in "metadata show" and the
+    # machine fingerprint.
+    knit metadata store --key "__db_lock__"                --value "${db_lock}"
     # Machine fingerprint, recorded once at first bootstrap. A cross-platform
     # query filters on or returns the architecture, and the Knit version that
     # produced this database is a drift signal when the same experiment ran on
