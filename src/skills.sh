@@ -174,6 +174,7 @@ _knit_skills_install() {
 knit_register skills knit_empty \
     "Install knit's agent skills and commands into an AI harness."
 _knit_is_builtin
+knit_without_provenance
 knit_without_history
 knit_usable_before_bootstrap
 knit_with_subcommand_discovery _knit_skills_discover

@@ -20,6 +20,10 @@ _ensure() { _knit_ensure_discovered "$(_m "$1")"; }
 _eligible()   { _knit_history_enabled "$(_m "$1")"; }
 _ineligible() { ! _knit_history_enabled "$(_m "$1")"; }
 
+# Assert a command does / does not participate in the provenance graph.
+_prov()    { _knit_provenance_enabled "$(_m "$1")"; }
+_no_prov() { ! _knit_provenance_enabled "$(_m "$1")"; }
+
 # ---------- eligible: the data-production spine + mutating actions ----------
 
 @test "spine and mutating commands are history-eligible" {
@@ -93,4 +97,40 @@ _ineligible() { ! _knit_history_enabled "$(_m "$1")"; }
     _myclaim_fn() { :; }
     knit_done
     _eligible "claim:myclaim"
+}
+
+# ---------- provenance (M3): the flip-OFF set + job:resubmit override ----------
+
+@test "the flip-off builtins no longer participate in provenance" {
+    _no_prov "bootstrap"
+    _no_prov "metadata"
+    _no_prov "profile"
+    _no_prov "plugins"
+    _no_prov "skills"
+    _ensure "metadata"; _no_prov "metadata:store"
+}
+
+@test "the job subtree is opted out of provenance except job:resubmit" {
+    _ensure "job"
+    _no_prov "job"
+    _no_prov "job:list"
+    _no_prov "job:status"
+    # job:resubmit produces a new run, so it overrides the parent opt-out.
+    _prov "job:resubmit"
+}
+
+@test "the data-production spine still participates in provenance" {
+    _prov "submit"
+    _prov "run"
+    _prov "setup"
+    _prov "sweep"
+    _prov "fetch"
+}
+
+@test "the submit pipeline and claims stay transparent (unchanged by M3)" {
+    # Decided in recording.md: the job's single provenance node is the submit
+    # identity, so prepare/next/drain stay transparent; claims are not DAG nodes.
+    _no_prov "prepare"
+    _no_prov "submit:drain"
+    _no_prov "claim:check"
 }

@@ -1027,6 +1027,7 @@ _knit_plugins_discover() {
 
 knit_register "plugins" knit_empty "Inspect and manage the experiment's imported plugins."
 _knit_is_builtin
+knit_without_provenance
 knit_without_history
 knit_usable_before_bootstrap
 knit_with_subcommand_discovery _knit_plugins_discover

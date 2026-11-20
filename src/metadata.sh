@@ -23,6 +23,7 @@ _KNIT_METADATA_CACHE=()
 # ------------------------------------------------------------------------------
 knit_register metadata knit_empty "Access metadata about the experiment."
 _knit_is_builtin
+knit_without_provenance
 knit_without_history
 knit_with_subcommand_discovery _knit_metadata_discover
 knit_done
