@@ -301,6 +301,37 @@ _knit_bootstrap_update_profile() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_update_db_lock()
+#
+# Update-mode handler for --db-lock. When the option is typed and its value
+# differs from the stored one (read from the .knit/db-lock marker, the source of
+# truth), rewrite the marker, mirror the new value to metadata, and clear the
+# process lock-mode cache. Switching the write-lock mechanism is pure
+# configuration — there is nothing in the database to migrate — so this is
+# allowed at any time (e.g. to move from the default "flock" to "mkdir" before
+# running on compute nodes whose filesystem has no flock). A typed value equal to
+# the stored one, or an untyped option, is a no-op.
+#
+# @param[in] value Resolved value typed for --db-lock.
+# @param[in] ...   Raw argument tokens of this invocation (see
+#              _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option from a
+#              defaulted one.
+# @return 0 when the mode was changed, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_bootstrap_update_db_lock() {
+    local value="$1"
+    shift
+    _knit_arg_was_provided "db-lock" "$@" || return 1
+    local stored=""
+    [[ -f "${_KNIT_PREFIX}/db-lock" ]] && stored="$(<"${_KNIT_PREFIX}/db-lock")"
+    [[ "${value}" == "${stored}" ]] && return 1
+    printf '%s\n' "${value}" > "${_KNIT_PREFIX}/db-lock"
+    _KNIT_DB_LOCK_MODE=""
+    knit metadata store --key "__db_lock__" --value "${value}" --force
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_update()
 #
 # Run bootstrap in update mode on an experiment that is already bootstrapped. It
@@ -320,7 +351,8 @@ _knit_bootstrap_update_profile() {
 # environment is built) and --profile
 # (a changed profile is out of scope and fatals), and the
 # tooling options: --ignore-system-sqlite/--ignore-system-jq (rebuild a
-# system-symlinked tool from source) and
+# system-symlinked tool from source), --db-lock (switch the database write-lock
+# mechanism — pure configuration, no migration) and
 # --knit-cypher-to-sql-version/--knit-cypher-to-sql-url (re-provision
 # knit-cypher-to-sql on a changed version or URL). When no handled option was typed,
 # it reports that there is nothing to update and succeeds.
@@ -346,6 +378,7 @@ _knit_bootstrap_update() {
     local default_nodefile scheduler launcher
     local setup_path_opt job_path_opt resource_path_opt
     local profile
+    local db_lock
     local cypher_to_sql_version cypher_to_sql_url
     local ai_api_key_env ai_base_url_env ai_model_env ai_base_url ai_model
     project="$(knit_get_parameter "project" "$@")"
@@ -361,6 +394,7 @@ _knit_bootstrap_update() {
     job_path_opt="$(knit_get_parameter "job-path" "$@")"
     resource_path_opt="$(knit_get_parameter "resource-path" "$@")"
     profile="$(knit_get_parameter "profile" "$@")"
+    db_lock="$(knit_get_parameter "db-lock" "$@")"
     cypher_to_sql_version="$(knit_get_parameter "knit-cypher-to-sql-version" "$@")"
     cypher_to_sql_url="$(knit_get_parameter "knit-cypher-to-sql-url" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
@@ -442,6 +476,7 @@ _knit_bootstrap_update() {
     # knit-cypher-to-sql when a typed version/URL differs.
     _knit_bootstrap_update_sqlite "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_jq "${__knit_raw[@]}" && updated="true"
+    _knit_bootstrap_update_db_lock "${db_lock}" "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_cypher_to_sql "${cypher_to_sql_version}" "${cypher_to_sql_url}" "${__knit_raw[@]}" && updated="true"
 
     # Record any plugins the experiment imports (idempotent): a plugin added to
@@ -464,6 +499,8 @@ _knit_bootstrap_update() {
 knit_enum "__scheduler__" "auto" "slurm" "pbs" "flux" "local" "none"
 _knit_is_builtin
 knit_enum "__launcher__"  "auto" "openmpi" "mpich" "pals" "flux" "slurm" "pbs" "none"
+_knit_is_builtin
+knit_enum "__db_lock__" "flock" "mkdir" "none"
 _knit_is_builtin
 knit_register "bootstrap" _knit_bootstrap "Bootstrap the Knit framework."
 _knit_is_builtin
@@ -501,6 +538,8 @@ knit_with_flag "ignore-system-sqlite" \
     "Build sqlite from source even if a system sqlite3 is available."
 knit_with_flag "ignore-system-jq" \
     "Download jq even if a system jq is available."
+knit_with_optional "db-lock:__db_lock__" "flock" \
+    "How to serialize database writes. 'flock' (default) uses advisory file locks and needs a filesystem that supports them. 'mkdir' uses an atomic directory lock that works on filesystems without flock (e.g. NERSC DVS-projected home); a writer that cannot acquire the lock within 60s fails and asks you to remove a stray lock by hand. 'none' disables locking entirely (only safe when no two Knit writes ever overlap)."
 knit_with_optional "knit-cypher-to-sql-version:string" "" \
     "knit-cypher-to-sql release version to provision. Empty uses the pinned default."
 knit_with_optional "knit-cypher-to-sql-url:string" "" \
@@ -549,6 +588,7 @@ _knit_bootstrap() {
     local default_nodefile
     local ignore_system_sqlite
     local ignore_system_jq
+    local db_lock
     local cypher_to_sql_version
     local cypher_to_sql_url
     local ai_api_key_env
@@ -571,6 +611,7 @@ _knit_bootstrap() {
     default_nodefile="$(knit_get_parameter "default-nodefile" "$@")"
     ignore_system_sqlite="$(knit_get_parameter "ignore-system-sqlite" "$@")"
     ignore_system_jq="$(knit_get_parameter "ignore-system-jq" "$@")"
+    db_lock="$(knit_get_parameter "db-lock" "$@")"
     cypher_to_sql_version="$(knit_get_parameter "knit-cypher-to-sql-version" "$@")"
     cypher_to_sql_url="$(knit_get_parameter "knit-cypher-to-sql-url" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
@@ -613,6 +654,17 @@ _knit_bootstrap() {
     _knit_ensure_trace_file
     mkdir "${_KNIT_PREFIX}" > "${_KNIT_TRACE_FILE}" 2>&1
     trap _knit_bootstrap_on_exit EXIT
+
+    # Record the database write-lock mechanism before the first database write.
+    # It is a plain marker file (not metadata) so the lock mechanism is knowable
+    # without opening the database it guards — the writes just below (sqlite table
+    # creation, the metadata stores) resolve their lock mode from it. Default an
+    # empty value to "flock" so the marker is always a valid mode even on the
+    # direct-body call path, where CLI default injection has not run. Clear the
+    # process cache so this freshly written value is the one that is resolved.
+    db_lock="${db_lock:-flock}"
+    printf '%s\n' "${db_lock}" > "${_KNIT_PREFIX}/db-lock"
+    _KNIT_DB_LOCK_MODE=""
 
     # Knit uses the sqlite3 CLI only (no library linkage), so _knit_bootstrap_sqlite
     # symlinks the system sqlite3 when one is on PATH and otherwise builds it from
@@ -765,6 +817,10 @@ _knit_bootstrap() {
     knit metadata store --key "__profile_json__"           --value "${profile_json}"
     knit metadata store --key "__scheduler__"              --value "${scheduler}"
     knit metadata store --key "__launcher__"               --value "${launcher}"
+    # Mirror the write-lock mode (source of truth is the .knit/db-lock marker
+    # written above) into metadata for visibility in "metadata show" and the
+    # machine fingerprint.
+    knit metadata store --key "__db_lock__"                --value "${db_lock}"
     # Machine fingerprint, recorded once at first bootstrap. A cross-platform
     # query filters on or returns the architecture, and the Knit version that
     # produced this database is a drift signal when the same experiment ran on

@@ -89,6 +89,15 @@ This failure is normal at this stage. Knit found our command and ran it, but
 the command itself failed, because nothing has built or installed
 ``julia-fractal`` yet. It is not on the ``PATH``, so the shell cannot find it.
 
+.. warning::
+
+   A reminder from the quickstart: Knit locks its database with ``flock`` by
+   default. If this experiment is on a shared filesystem that does not support
+   ``flock`` --- such as a compute-node ``$HOME`` at some HPC centers --- run it
+   from a lock-capable filesystem (for example ``$PSCRATCH``), or add
+   ``--db-lock mkdir`` to ``bootstrap``. See the *Run on a filesystem without
+   flock* stitch.
+
 .. note::
 
    You may wonder why we wrap julia-fractal in a command like we did. After all,

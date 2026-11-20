@@ -441,6 +441,63 @@ _bootstrap_launcher_stubs() {
     grep -q -- "--key __knit_version__ --value ${KNIT_VERSION}" "${meta}"
 }
 
+# ---------- first bootstrap: database write-lock mode (--db-lock) ----------
+
+@test "bootstrap __db_lock__ enum accepts every documented mode" {
+    local v
+    for v in flock mkdir none; do
+        knit_type_check "__db_lock__" "${v}"
+    done
+}
+
+@test "bootstrap defaults the db-lock marker and metadata to flock" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+
+    run _knit_bootstrap --scheduler local --launcher none
+    [ "$status" -eq 0 ]
+
+    [ "$(cat "${_KNIT_PREFIX}/db-lock")" = "flock" ]
+    grep -q -- '--key __db_lock__ --value flock' "${meta}"
+}
+
+@test "bootstrap --db-lock mkdir writes the marker and metadata" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+
+    run _knit_bootstrap --scheduler local --launcher none --db-lock mkdir
+    [ "$status" -eq 0 ]
+
+    [ "$(cat "${_KNIT_PREFIX}/db-lock")" = "mkdir" ]
+    grep -q -- '--key __db_lock__ --value mkdir' "${meta}"
+}
+
+@test "bootstrap --db-lock none writes the marker and metadata" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+
+    run _knit_bootstrap --scheduler local --launcher none --db-lock none
+    [ "$status" -eq 0 ]
+
+    [ "$(cat "${_KNIT_PREFIX}/db-lock")" = "none" ]
+    grep -q -- '--key __db_lock__ --value none' "${meta}"
+}
+
+@test "bootstrap writes the db-lock marker before the first database write" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+    # The first database write happens inside sqlite provisioning (the metadata
+    # table creation). Override its stub to record whether the marker — written
+    # just after "mkdir .knit" — already exists by the time that write would run.
+    eval '_knit_bootstrap_sqlite() {
+        [ -f "'"${_KNIT_PREFIX}"'/db-lock" ] && : > "'"${calls}"'.marker-present"
+    }'
+
+    run _knit_bootstrap --scheduler local --launcher none --db-lock mkdir
+    [ "$status" -eq 0 ]
+    [ -e "${calls}.marker-present" ]
+}
+
 # ---------- first bootstrap: leftover setup root ----------
 
 @test "bootstrap fails fast and creates no prefix when a leftover default setup exists" {
@@ -716,6 +773,56 @@ _setup_update_mode() {
     run _knit_bootstrap_update_meta "account" "__account__" "v" "--account" "v"
     [ "$status" -eq 0 ]
     grep -q -- 'metadata store --key __account__ --value v --force' "${__update_meta}"
+}
+
+# ---------- update mode: db-lock switch ----------
+
+@test "update mode switches the db-lock marker and metadata to a new mode" {
+    _setup_update_mode
+    printf 'flock\n' > "${_KNIT_PREFIX}/db-lock"
+    _KNIT_INVOCATION_RAW_ARGS=(--db-lock mkdir)
+
+    run _knit_bootstrap --db-lock mkdir
+    [ "$status" -eq 0 ]
+
+    [ "$(cat "${_KNIT_PREFIX}/db-lock")" = "mkdir" ]
+    grep -q -- '--key __db_lock__ --value mkdir --force' "${__update_meta}"
+}
+
+@test "update db-lock helper writes and succeeds when the mode differs" {
+    mkdir -p "${_KNIT_PREFIX}"
+    printf 'flock\n' > "${_KNIT_PREFIX}/db-lock"
+    __update_meta="${__TEST_TMPDIR}/update-meta"; : > "${__update_meta}"
+    eval 'knit() { printf "%s\n" "$*" >> "'"${__update_meta}"'"; }'
+
+    run _knit_bootstrap_update_db_lock "mkdir" "--db-lock" "mkdir"
+    [ "$status" -eq 0 ]
+    grep -q -- 'metadata store --key __db_lock__ --value mkdir --force' "${__update_meta}"
+    [ "$(cat "${_KNIT_PREFIX}/db-lock")" = "mkdir" ]
+}
+
+@test "update db-lock helper is a no-op when the typed mode equals the stored one" {
+    mkdir -p "${_KNIT_PREFIX}"
+    printf 'mkdir\n' > "${_KNIT_PREFIX}/db-lock"
+    __update_meta="${__TEST_TMPDIR}/update-meta"; : > "${__update_meta}"
+    eval 'knit() { printf "%s\n" "$*" >> "'"${__update_meta}"'"; }'
+
+    run _knit_bootstrap_update_db_lock "mkdir" "--db-lock" "mkdir"
+    [ "$status" -eq 1 ]
+    [ ! -s "${__update_meta}" ]
+}
+
+@test "update db-lock helper is a no-op for an untyped option" {
+    mkdir -p "${_KNIT_PREFIX}"
+    printf 'flock\n' > "${_KNIT_PREFIX}/db-lock"
+    __update_meta="${__TEST_TMPDIR}/update-meta"; : > "${__update_meta}"
+    eval 'knit() { printf "%s\n" "$*" >> "'"${__update_meta}"'"; }'
+
+    run _knit_bootstrap_update_db_lock "mkdir" "--project" "demo"
+    [ "$status" -eq 1 ]
+    [ ! -s "${__update_meta}" ]
+    # The marker is left untouched.
+    [ "$(cat "${_KNIT_PREFIX}/db-lock")" = "flock" ]
 }
 
 # ---------- update mode: AI provider (--ai-*) per-key ----------

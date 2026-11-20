@@ -38,7 +38,7 @@ _KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
 # Busy timeout (milliseconds) applied to every sqlite3 invocation. If another
 # writer holds the database lock, sqlite retries for up to this long before
 # giving up with "database is locked". A second line of defence behind the
-# advisory flock taken by _knit_sqlite3_write.
+# write lock taken by _knit_sqlite3_write.
 # ------------------------------------------------------------------------------
 _KNIT_SQLITE_BUSY_TIMEOUT_MS="10000"
 
@@ -250,7 +250,7 @@ _knit_run_isolated() {
 # rather than an immediate "database is locked" failure. The dynamic-linker
 # environment is scrubbed (via _knit_run_isolated) so an active user environment
 # cannot swap in a different libsqlite3. Use this for reads; route writes through
-# _knit_sqlite3_write so they are also serialized by the advisory lock.
+# _knit_sqlite3_write so they are also serialized by the write lock.
 #
 # @param[in] ... Parameters to forward to the sqlite3 command.
 # ------------------------------------------------------------------------------
@@ -260,22 +260,162 @@ _knit_sqlite3() {
         "${_KNIT_DATABASE}" "$@"
 }
 
+# ------------------------------------------------------------------------------
+# @var _KNIT_DB_LOCK_TIMEOUT_S
+#
+# How long (seconds) a "mkdir"-mode writer tries to acquire the database lock
+# before giving up. A writer that cannot acquire the directory lock within this
+# long fails (knit_fatal) rather than hanging, on the assumption that the holder
+# died without releasing it (an untrappable SIGKILL leaves the lock behind).
+# Honours an inherited value so tests can shrink it.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_DB_LOCK_TIMEOUT_S
+_KNIT_DB_LOCK_TIMEOUT_S="${_KNIT_DB_LOCK_TIMEOUT_S:-60}"
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_DB_LOCK_MODE
+#
+# Process-level cache for _knit_db_lock_mode(): the resolved database write-lock
+# mechanism ("flock", "mkdir", or "none"). Empty means "not yet resolved".
+# ------------------------------------------------------------------------------
+declare -g _KNIT_DB_LOCK_MODE
+_KNIT_DB_LOCK_MODE=""
+
+# ------------------------------------------------------------------------------
+# @fn _knit_db_lock_mode()
+#
+# Resolve the database write-lock mechanism chosen at bootstrap and cache it for
+# the rest of the process. The mode is read from the plain marker file
+# "${_KNIT_PREFIX}/db-lock" (written by bootstrap before the first database
+# write, so the mechanism is knowable without touching the database it guards).
+# A missing or unreadable marker resolves to "flock", the pre-feature default, so
+# a database created before this feature — or a .knit copied without the marker —
+# keeps working. An unrecognized value warns and also falls back to "flock".
+#
+# @param[out] out Name of the variable to receive the mode (nameref output).
+# ------------------------------------------------------------------------------
+_knit_db_lock_mode() {
+    local -n __knit_ret=$1
+    if [[ -n "${_KNIT_DB_LOCK_MODE}" ]]; then
+        __knit_ret="${_KNIT_DB_LOCK_MODE}"
+        return 0
+    fi
+    # Named __knit_mode (not "mode") so it cannot shadow a caller that passes its
+    # own "mode" variable as the output argument: such a shadow would make the
+    # __knit_ret nameref write to this local instead of the caller's variable.
+    local __knit_mode="flock"
+    local marker="${_KNIT_PREFIX}/db-lock"
+    if [[ -f "${marker}" ]]; then
+        local content
+        content="$(<"${marker}")"
+        case "${content}" in
+            flock|mkdir|none) __knit_mode="${content}" ;;
+            *) knit_warning "Unknown database lock mode \"%s\" in %s; using \"flock\"." \
+                   "${content}" "${marker}" ;;
+        esac
+    fi
+    _KNIT_DB_LOCK_MODE="${__knit_mode}"
+    __knit_ret="${__knit_mode}"
+}
+
 # shellcheck disable=SC2120
 # ------------------------------------------------------------------------------
 # @fn _knit_sqlite3_write()
 #
-# Run a database write (INSERT/UPDATE/CREATE/migrate) while holding an advisory
-# lock, serializing writes across the independent processes that may touch the
-# same database at once (e.g. many jobs finishing simultaneously on compute
-# nodes). The lock is a file next to the database; flock blocks until it is
-# acquired, so writers queue rather than collide. The busy timeout set by
-# _knit_sqlite3 remains as a second line of defence. Standard input is inherited
-# by the subshell, so heredoc-fed statements work unchanged.
+# Run a database write (INSERT/UPDATE/CREATE/migrate) while serializing writes
+# across the independent processes that may touch the same database at once (e.g.
+# many jobs finishing simultaneously on compute nodes). The serialization
+# mechanism is chosen at bootstrap and resolved by _knit_db_lock_mode:
+#
+#   - "flock" (default): an advisory flock on a lock file next to the database.
+#     Needs a filesystem that supports flock.
+#   - "mkdir": an atomic directory lock that works on filesystems without flock
+#     (e.g. NERSC DVS-projected home); see _knit_sqlite3_write_mkdir.
+#   - "none": no lock at all — only safe when no two Knit writes ever overlap.
+#
+# The busy timeout set by _knit_sqlite3 remains a second line of defence under
+# "flock"/"mkdir" (and the only one under "none"). Standard input is inherited,
+# so heredoc-fed statements work unchanged in every mode.
 #
 # @param[in] ... Parameters to forward to _knit_sqlite3.
 # ------------------------------------------------------------------------------
 _knit_sqlite3_write() {
+    local mode
+    _knit_db_lock_mode mode
+    case "${mode}" in
+        none)  _knit_sqlite3 "$@" ;;
+        mkdir) _knit_sqlite3_write_mkdir "$@" ;;
+        *)     _knit_sqlite3_write_flock "$@" ;;
+    esac
+}
+
+# shellcheck disable=SC2120
+# ------------------------------------------------------------------------------
+# @fn _knit_sqlite3_write_flock()
+#
+# "flock" write-lock mode. Take an advisory flock on a lock file next to the
+# database; flock blocks until it is acquired, so writers queue rather than
+# collide, and the kernel releases the lock automatically when the holder exits.
+# Standard input is inherited by the subshell, so heredoc-fed statements work
+# unchanged.
+#
+# @param[in] ... Parameters to forward to _knit_sqlite3.
+# ------------------------------------------------------------------------------
+_knit_sqlite3_write_flock() {
     local lock="${_KNIT_DATABASE}.lock"
     ( flock 9 || knit_fatal "Could not acquire database lock \"${lock}\"."
       _knit_sqlite3 "$@" ) 9>"${lock}"
+}
+
+# shellcheck disable=SC2120
+# ------------------------------------------------------------------------------
+# @fn _knit_sqlite3_write_mkdir()
+#
+# "mkdir" write-lock mode, for filesystems whose flock/fcntl locking is
+# unsupported (NERSC DVS-projected home, some NFS/Lustre/GPFS mounts). The lock
+# is a directory next to the database: "mkdir" is atomic (exactly one racer
+# succeeds, the rest get EEXIST), and that atomicity survives on the filesystems
+# where flock does not, because the metadata operation is forwarded to the
+# backing server while the separate advisory-lock protocol is not.
+#
+# A writer spins on "mkdir" until it wins or _KNIT_DB_LOCK_TIMEOUT_S elapses; on
+# timeout it fails (knit_fatal) and tells the user to remove a stray lock by
+# hand. Knit NEVER removes a lock it did not create — auto-breaking a still-held
+# lock is the only route back to concurrent writers and therefore to corruption,
+# so that path does not exist; a stranded lock (only an untrappable SIGKILL can
+# leave one) surfaces as the timeout message instead. The lock is released on
+# normal completion and on a trappable INT/TERM.
+#
+# @param[in] ... Parameters to forward to _knit_sqlite3.
+# ------------------------------------------------------------------------------
+_knit_sqlite3_write_mkdir() {
+    local lockdir="${_KNIT_DATABASE}.lock.d"
+    local owner="${lockdir}.owner"
+    local deadline=$(( SECONDS + _KNIT_DB_LOCK_TIMEOUT_S ))
+    while ! mkdir "${lockdir}" 2>/dev/null; do
+        if (( SECONDS >= deadline )); then
+            local held_note=""
+            if [[ -r "${owner}" ]]; then
+                local held
+                held="$(<"${owner}")"
+                [[ -n "${held}" ]] && held_note=" Last held by ${held}."
+            fi
+            knit_fatal "Could not acquire database lock \"%s\" after %ss.%s\nIf no Knit process is running, the lock is stale; remove it by hand:\n  rmdir %s" \
+                "${lockdir}" "${_KNIT_DB_LOCK_TIMEOUT_S}" "${held_note}" "${lockdir}"
+        fi
+        sleep 0.2
+    done
+    # The write runs in a subshell so the lock is released on the subshell's exit:
+    # the EXIT trap covers normal completion and a knit_fatal inside the write,
+    # and the INT/TERM traps route those signals through it. Only an untrappable
+    # SIGKILL leaves the lock behind, which the timeout above surfaces. Standard
+    # input is inherited, so heredoc-fed statements work unchanged.
+    (
+        trap 'rmdir "${lockdir}" 2>/dev/null; rm -f "${owner}"' EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+        printf '%s @ %s (%s)\n' "$$" "${HOSTNAME:-$(hostname 2>/dev/null)}" \
+            "$(date 2>/dev/null)" > "${owner}" 2>/dev/null || true
+        _knit_sqlite3 "$@"
+    )
 }
