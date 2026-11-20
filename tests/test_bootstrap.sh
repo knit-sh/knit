@@ -775,6 +775,56 @@ _setup_update_mode() {
     grep -q -- 'metadata store --key __account__ --value v --force' "${__update_meta}"
 }
 
+# ---------- update mode: db-lock switch ----------
+
+@test "update mode switches the db-lock marker and metadata to a new mode" {
+    _setup_update_mode
+    printf 'flock\n' > "${_KNIT_PREFIX}/db-lock"
+    _KNIT_INVOCATION_RAW_ARGS=(--db-lock mkdir)
+
+    run _knit_bootstrap --db-lock mkdir
+    [ "$status" -eq 0 ]
+
+    [ "$(cat "${_KNIT_PREFIX}/db-lock")" = "mkdir" ]
+    grep -q -- '--key __db_lock__ --value mkdir --force' "${__update_meta}"
+}
+
+@test "update db-lock helper writes and succeeds when the mode differs" {
+    mkdir -p "${_KNIT_PREFIX}"
+    printf 'flock\n' > "${_KNIT_PREFIX}/db-lock"
+    __update_meta="${__TEST_TMPDIR}/update-meta"; : > "${__update_meta}"
+    eval 'knit() { printf "%s\n" "$*" >> "'"${__update_meta}"'"; }'
+
+    run _knit_bootstrap_update_db_lock "mkdir" "--db-lock" "mkdir"
+    [ "$status" -eq 0 ]
+    grep -q -- 'metadata store --key __db_lock__ --value mkdir --force' "${__update_meta}"
+    [ "$(cat "${_KNIT_PREFIX}/db-lock")" = "mkdir" ]
+}
+
+@test "update db-lock helper is a no-op when the typed mode equals the stored one" {
+    mkdir -p "${_KNIT_PREFIX}"
+    printf 'mkdir\n' > "${_KNIT_PREFIX}/db-lock"
+    __update_meta="${__TEST_TMPDIR}/update-meta"; : > "${__update_meta}"
+    eval 'knit() { printf "%s\n" "$*" >> "'"${__update_meta}"'"; }'
+
+    run _knit_bootstrap_update_db_lock "mkdir" "--db-lock" "mkdir"
+    [ "$status" -eq 1 ]
+    [ ! -s "${__update_meta}" ]
+}
+
+@test "update db-lock helper is a no-op for an untyped option" {
+    mkdir -p "${_KNIT_PREFIX}"
+    printf 'flock\n' > "${_KNIT_PREFIX}/db-lock"
+    __update_meta="${__TEST_TMPDIR}/update-meta"; : > "${__update_meta}"
+    eval 'knit() { printf "%s\n" "$*" >> "'"${__update_meta}"'"; }'
+
+    run _knit_bootstrap_update_db_lock "mkdir" "--project" "demo"
+    [ "$status" -eq 1 ]
+    [ ! -s "${__update_meta}" ]
+    # The marker is left untouched.
+    [ "$(cat "${_KNIT_PREFIX}/db-lock")" = "flock" ]
+}
+
 # ---------- update mode: AI provider (--ai-*) per-key ----------
 
 @test "update mode changes a single ai.* key and leaves the others" {
