@@ -155,9 +155,9 @@ knit_env_provision() {
 # Declare the install verb: `<fn> <env_dir> <manifest_path> [option...]` builds
 # the environment into <env_dir> from the manifest, returning non-zero on
 # failure. Any manager-specific options a setup recorded (via
-# _knit_env_record_option) are passed verbatim as trailing arguments, in
-# recorded order; a manager that defines no options receives none and ignores
-# the possibility.
+# knit_env_record_option) are passed verbatim as trailing arguments, in recorded
+# order; a manager that defines no options receives none and ignores the
+# possibility.
 #
 # @param[in] fn Name of the install function.
 # ------------------------------------------------------------------------------
@@ -563,12 +563,15 @@ _knit_env_record_contribution() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_env_record_option()
+# @fn knit_env_record_option()
 #
 # Record a manager-specific build option for the setup currently being
-# registered. The option is an opaque token the generic layer stores and later
+# registered. This is the public seam a plugin's own setup directive uses to
+# attach a build switch to its environment manager (knit-uv's
+# knit_with_uv_layered records "layered"), so a plugin never needs a private
+# knit symbol to do so. The option is an opaque token knit stores and later
 # forwards, verbatim and in recorded order, to the manager's install verb as a
-# trailing argument (after <env_dir> and <manifest_path>). Core never interprets
+# trailing argument (after <env_dir> and <manifest_path>). Knit never interprets
 # the token; each manager defines its own vocabulary (knit-uv, for example, uses
 # "layered" and "no-deps").
 #
@@ -579,14 +582,25 @@ _knit_env_record_contribution() {
 # directives. A setup that records no option is unchanged: its install verb
 # receives no trailing arguments.
 #
-# The caller (a manager's setup directive) is responsible for the setup-context
-# guard, exactly as the knit_with_<nm>_* wrappers are; this helper only records.
+# Fatal when the name is not a registered environment manager, or when it is
+# called outside a setup registration (the only place an environment is built).
 #
-# @param[in] nm     Normalized (underscore) manager name.
+# @param[in] name   Environment-manager name (any spelling; normalized here).
 # @param[in] option The opaque option token to forward to the install verb.
 # ------------------------------------------------------------------------------
-_knit_env_record_option() {
-    local nm="$1" option="$2"
+knit_env_record_option() {
+    local name="$1" option="$2"
+    local nm
+    _knit_name_normalize nm "${name}"
+    if ! _knit_env_is_registered "${nm}"; then
+        knit_fatal "knit_env_record_option: unknown environment manager \"%s\"." "${name}"
+    fi
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]] \
+    || [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" != setup:* ]]; then
+        local display_var="_KNIT_ENV_${nm}_display"
+        knit_fatal "A %s build option can be declared only inside a setup registration (between knit_register_setup and knit_done)." \
+            "${!display_var}"
+    fi
     local cmd="${_KNIT_CURRENT_COMMAND}"
     local opts_var="_KNIT_CMD_${cmd}_envopts_${nm}"
     # Create the list on first use. Test existence with declare -p (an empty

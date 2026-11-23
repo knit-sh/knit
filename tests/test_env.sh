@@ -221,10 +221,18 @@ _register_fake() {
 
 # ---------- manager-specific install options channel ----------
 
-@test "recording an option creates the list and appends in declared order" {
+# knit_env_record_option self-guards the setup context, so these tests simulate
+# an open setup registration (the state knit_register_setup leaves behind).
+_in_setup_context() {
     _KNIT_CURRENT_COMMAND="setup__1__demo"
-    _knit_env_record_option "fake" "layered"
-    _knit_env_record_option "fake" "no-deps"
+    _KNIT_CURRENT_COMMAND_DEMANGLED="setup:demo"
+}
+
+@test "recording an option creates the list and appends in declared order" {
+    _register_fake
+    _in_setup_context
+    knit_env_record_option "fake" "layered"
+    knit_env_record_option "fake" "no-deps"
     # shellcheck disable=SC2178 # nameref to the per-command options array
     local -n opts="_KNIT_CMD_setup__1__demo_envopts_fake"
     [ "${#opts[@]}" -eq 2 ]
@@ -232,24 +240,35 @@ _register_fake() {
     [ "${opts[1]}" = "no-deps" ]
 }
 
-@test "options are kept per manager on the same command" {
-    _KNIT_CURRENT_COMMAND="setup__1__demo"
-    _knit_env_record_option "fake" "layered"
-    _knit_env_record_option "other" "x"
-    # shellcheck disable=SC2178 # nameref to the per-command options array
-    local -n a="_KNIT_CMD_setup__1__demo_envopts_fake"
-    # shellcheck disable=SC2178 # nameref to the per-command options array
-    local -n b="_KNIT_CMD_setup__1__demo_envopts_other"
-    [ "${#a[@]}" -eq 1 ] && [ "${a[0]}" = "layered" ]
-    [ "${#b[@]}" -eq 1 ] && [ "${b[0]}" = "x" ]
+@test "options are recorded only under the named manager" {
+    _register_fake
+    _in_setup_context
+    knit_env_record_option "fake" "layered"
+    [ "$(declare -p _KNIT_CMD_setup__1__demo_envopts_fake 2>/dev/null)" ]
+    ! declare -p _KNIT_CMD_setup__1__demo_envopts_other 2>/dev/null
+}
+
+@test "recording an option for an unknown manager is fatal" {
+    _in_setup_context
+    run knit_env_record_option "nope" "x"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"unknown environment manager"* ]]
+}
+
+@test "recording an option outside a setup registration is fatal" {
+    _register_fake
+    unset _KNIT_CURRENT_COMMAND _KNIT_CURRENT_COMMAND_DEMANGLED
+    run knit_env_record_option "fake" "layered"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"setup registration"* ]]
 }
 
 @test "the install verb receives the recorded options as trailing args in order" {
     _FAKE_INSTALL_LOG="${BATS_TEST_TMPDIR}/install.log"
     _register_fake
-    _KNIT_CURRENT_COMMAND="setup__1__demo"
-    _knit_env_record_option "fake" "layered"
-    _knit_env_record_option "fake" "no-deps"
+    _in_setup_context
+    knit_env_record_option "fake" "layered"
+    knit_env_record_option "fake" "no-deps"
 
     # Drive the before-callback with the orthogonal steps (platform sourcing,
     # manifest resolution) stubbed out so this isolates the option forwarding.
