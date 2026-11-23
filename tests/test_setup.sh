@@ -523,6 +523,46 @@ teardown() {
     [[ "$output" == *"otherenv"* ]]
 }
 
+@test "_knit_setup_check_type accepts a role match" {
+    local d="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${d}"
+    printf 'cnnenv_xpu\n' > "${d}/.setup.type"
+    printf 'cnnenv\n' > "${d}/.setup.roles"
+    run _knit_setup_check_type "${d}" "cnnenv"
+    [ "$status" -eq 0 ]
+}
+
+@test "_knit_setup_check_type accepts a role match among several roles" {
+    local d="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${d}"
+    printf 'cnnenv_xpu\n' > "${d}/.setup.type"
+    printf 'pytorch\ncnnenv\n' > "${d}/.setup.roles"
+    run _knit_setup_check_type "${d}" "cnnenv"
+    [ "$status" -eq 0 ]
+}
+
+@test "_knit_setup_check_type rejects when neither type nor role matches" {
+    local d="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${d}"
+    printf 'cnnenv_xpu\n' > "${d}/.setup.type"
+    printf 'pytorch\n' > "${d}/.setup.roles"
+    run _knit_setup_check_type "${d}" "cnnenv"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"cnnenv"* ]]
+    [[ "$output" == *"cnnenv_xpu"* ]]
+}
+
+@test "_knit_setup_check_type matches only by type when no roles marker exists (backward compat)" {
+    local d="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${d}"
+    printf 'mcenv\n' > "${d}/.setup.type"
+    # No .setup.roles marker: a non-type name must not match, a type name must.
+    run _knit_setup_check_type "${d}" "cnnenv"
+    [ "$status" -ne 0 ]
+    run _knit_setup_check_type "${d}" "mcenv"
+    [ "$status" -eq 0 ]
+}
+
 # ---------- _knit_setup_dep_before_cb ----------
 
 @test "_knit_setup_dep_before_cb sources the --setup activate.sh" {
@@ -577,6 +617,18 @@ teardown() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"mcenv"* ]]
     [[ "$output" == *"otherenv"* ]]
+}
+
+@test "_knit_setup_dep_before_cb accepts a role-matched --setup" {
+    local d="${_KNIT_TEST_SETUP_ROOT}/dep"
+    mkdir -p "${d}"
+    printf 'cnnenv_xpu\n' > "${d}/.setup.type"
+    printf 'cnnenv\n' > "${d}/.setup.roles"
+    printf 'export DEP_MARK=role\n' > "${d}/.activate.sh"
+    unset KNIT_SETUP_PREFIX DEP_MARK
+    _knit_setup_dep_before_cb "cnnenv" --setup "dep"
+    [ "${DEP_MARK}" = "role" ]
+    [ "${KNIT_SETUP_PREFIX}" = "$(realpath "${d}")" ]
 }
 
 # ---------- knit_with_setup (generic) ----------

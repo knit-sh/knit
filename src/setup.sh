@@ -714,15 +714,21 @@ knit_done
 # ------------------------------------------------------------------------------
 # @fn _knit_setup_check_type()
 #
-# Check that a setup directory was built by the required setup type. `knit setup`
-# records the type in a `.setup.type` marker file inside the setup directory.
-# Fatals if the marker is missing or its recorded type differs from the required
-# one; returns normally on a match. Shared by `knit submit` (jobs) and by the
-# generic setup-dependency before-callback used for every other command that
-# declares knit_with_setup.
+# Check that a setup directory satisfies a required setup name, by type OR by
+# role. `knit setup` records the instance's type in a `.setup.type` marker and
+# the roles it provides in a `.setup.roles` marker (one per line), both in the
+# normalized name namespace. The requirement is met when the recorded type equals
+# <required> or <required> appears among the provided roles. This is the single
+# matcher shared by `knit submit` (jobs) and by the generic setup-dependency
+# before-callback used for every other command that declares knit_with_setup, so
+# every enforcement point agrees. Fatals if the type marker is missing or neither
+# the type nor any role matches; returns normally on a match.
+#
+# A setup that provides no role has no `.setup.roles` marker and so matches only
+# by type, exactly as before roles existed.
 #
 # @param[in] setup_path Path to the setup directory to check.
-# @param[in] required   Setup type the directory must have been built by.
+# @param[in] required   Setup type or role the directory must satisfy.
 # ------------------------------------------------------------------------------
 _knit_setup_check_type() {
     local setup_path="$1"
@@ -733,9 +739,16 @@ _knit_setup_check_type() {
     fi
     local actual=""
     IFS= read -r actual < "${marker}" || true
-    if [[ "${actual}" != "${required}" ]]; then
-        knit_fatal "A \"${required}\" setup is required, but \"${setup_path}\" was built by \"${actual}\"."
+    # Match by type first, then by role.
+    [[ "${actual}" == "${required}" ]] && return 0
+    local roles_file="${setup_path}/.setup.roles"
+    if [[ -f "${roles_file}" ]]; then
+        local role
+        while IFS= read -r role; do
+            [[ "${role}" == "${required}" ]] && return 0
+        done < "${roles_file}"
     fi
+    knit_fatal "A \"${required}\" setup is required, but \"${setup_path}\" was built by \"${actual}\" and provides no \"${required}\" role."
 }
 
 # ------------------------------------------------------------------------------
