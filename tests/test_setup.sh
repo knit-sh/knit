@@ -495,6 +495,32 @@ teardown() {
     [ ! -f "${newdir}/.setup.roles" ]
 }
 
+@test "knit_with_setup notes a role requirement when a setup provides that role" {
+    # The setup providing the role is registered before the consumer, the usual
+    # ordering, so the note is worded as a role.
+    _xpu_fn() { :; }
+    knit_register_setup "cnnenv-xpu" "_xpu_fn" "An xpu env."
+    knit_provides_setup_role "cnnenv"
+    knit_done
+    _plain_fn() { :; }
+    knit_register "train" "_plain_fn" "A training command."
+    knit_with_setup "cnnenv"
+    knit_done
+    local result
+    result=$(_knit_invoke_command "train" "--help")
+    [[ "${result}" == *'providing the "cnnenv" role'* ]]
+}
+
+@test "knit_with_setup notes a type requirement when no setup provides that role" {
+    _plain_fn() { :; }
+    knit_register "train" "_plain_fn" "A training command."
+    knit_with_setup "cnnenv"
+    knit_done
+    local result
+    result=$(_knit_invoke_command "train" "--help")
+    [[ "${result}" == *'built by the "cnnenv" setup'* ]]
+}
+
 # ---------- _knit_setup_check_type ----------
 
 @test "_knit_setup_check_type accepts a matching type" {

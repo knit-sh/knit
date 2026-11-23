@@ -947,10 +947,16 @@ knit_with_setup() {
     knit_trace "Command \"${_KNIT_CURRENT_COMMAND_DEMANGLED}\" requires a \"${setup_type_typed}\" setup."
 
     # Advertise the requirement in the command's `--help` output (see the
-    # "Requirements" section rendered by _knit_print_command_usage).
+    # "Requirements" section rendered by _knit_print_command_usage). When the
+    # required name is provided as a role by some registered setup, describe it as
+    # a role (any such setup satisfies it); otherwise as an exact setup type.
     # shellcheck disable=SC2178 # nameref to the command's notes array
     local -n _notes_ref="_KNIT_CMD_${cmd}_notes"
-    _notes_ref+=("Requires a --setup built by the \"${setup_type_typed}\" setup.")
+    if _knit_setup_role_is_provided "${setup_type}"; then
+        _notes_ref+=("Requires a --setup providing the \"${setup_type_typed}\" role (or built by it).")
+    else
+        _notes_ref+=("Requires a --setup built by the \"${setup_type_typed}\" setup.")
+    fi
 
     # Jobs resolve and enforce the setup at submit time (see _knit_submit) and
     # re-source it on the compute node (_knit_job_before_cb): no local --setup
@@ -1190,4 +1196,30 @@ knit_provides_setup_role() {
     local set_name="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_roles"
     _knit_set_exists "${set_name}" || _knit_set_new "${set_name}"
     _knit_set_add "${set_name}" "${role}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_setup_role_is_provided()
+#
+# Return 0 if any registered setup provides the given role, 1 otherwise. The role
+# name is matched in the normalized namespace (as stored in each setup's roles
+# set). Used to word the knit_with_setup requirement note: a required name that
+# some setup provides as a role is described as a role, otherwise as a type. The
+# answer reflects the setups registered so far; since setups are conventionally
+# registered before the jobs/commands that depend on them, this is accurate for
+# the usual ordering.
+#
+# @param[in] role Normalized role name to look for.
+# ------------------------------------------------------------------------------
+_knit_setup_role_is_provided() {
+    local role="$1"
+    local type scmd set_name
+    for type in "${!_KNIT_SETUPS[@]}"; do
+        _knit_command_mangle scmd "setup:${type}"
+        set_name="_KNIT_CMD_${scmd}_roles"
+        if _knit_set_exists "${set_name}" && _knit_set_find "${set_name}" "${role}"; then
+            return 0
+        fi
+    done
+    return 1
 }
