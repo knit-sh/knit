@@ -70,6 +70,7 @@ _KNIT_SHORTHAND_PASSTHROUGH=(
     [usable_before_bootstrap]=knit_usable_before_bootstrap
     [no_record_on_failure]=knit_no_record_on_failure
     [provides_launcher]=knit_provides_launcher
+    [provides_setup_role]=knit_provides_setup_role
 )
 
 # ------------------------------------------------------------------------------
