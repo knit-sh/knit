@@ -14,3 +14,8 @@ command finds the software the setup installed.
    :language: bash
    :start-after: # START depends
    :end-before: # END depends
+
+The required name is matched against a built instance's setup *type* first, then
+against the *roles* it provides, so ``knit_with_setup`` also accepts any setup
+that advertises the name as a role. See *Provide a setup role* for making several
+interchangeable setups satisfy one requirement.
