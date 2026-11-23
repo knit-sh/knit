@@ -583,3 +583,43 @@ _stub_dispatch_ok() {
         "SELECT state FROM jobs WHERE id='${uuid}';")" = "completed" ]
     [ ! -f "${_KNIT_TEST_TMPDIR}/.cancelled" ]
 }
+
+# ---------- submit/prepare : setup role matching ----------
+#
+# The job-side setup validation in _knit_prepare_build goes through the shared
+# _knit_setup_check_type, so a job declaring knit_with_setup "<role>" accepts any
+# built instance providing that role, not only one of the exact type.
+
+@test "prepare accepts a --setup whose provided role matches the job's requirement" {
+    # The built instance is type cnnenv_xpu and provides role cnnenv.
+    local inst="${_KNIT_TEST_SETUP_ROOT}/xpu"
+    mkdir -p "${inst}"
+    printf 'cnnenv_xpu\n'   > "${inst}/.setup.type"
+    printf 'cnnenv\n'       > "${inst}/.setup.roles"
+    printf 'setup-uuid-x\n' > "${inst}/.setup.id"
+
+    _train_fn() { :; }
+    knit_register_job "train" _train_fn "train job"
+    knit_with_setup "cnnenv"
+    knit_done
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup xpu --nodes 1 -- train)"
+    knit_type_check "uuid" "${uuid}"
+}
+
+@test "prepare rejects a --setup that neither matches the type nor provides the role" {
+    local inst="${_KNIT_TEST_SETUP_ROOT}/other"
+    mkdir -p "${inst}"
+    printf 'otherenv\n' > "${inst}/.setup.type"
+    printf 'somerole\n' > "${inst}/.setup.roles"
+
+    _train_fn() { :; }
+    knit_register_job "train" _train_fn "train job"
+    knit_with_setup "cnnenv"
+    knit_done
+
+    run _knit_invoke_command prepare --setup other --nodes 1 -- train
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"cnnenv"* ]]
+}
