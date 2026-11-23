@@ -599,6 +599,22 @@ _knit_fetch() {
         export KNIT_IGNORE_CHECKSUM="${ignore_checksum}"
         export KNIT_RESOURCE_EXPECTED_CHECKSUM="${expected_checksum}"
 
+        # Install a cleanup trap over the download critical section. A signal
+        # (Ctrl-C or kill) while the body is mid-download interrupts it with no
+        # markers written, which would orphan the partial, marker-less <path> and
+        # block a clean re-fetch (the next fetch sees <path> exists). The trap
+        # removes <path> and re-raises the signal so the exit status reflects it;
+        # it is cleared once the instance is complete. The path and this process's
+        # own pid are captured into the trap command now (via %q / $BASHPID), so the
+        # handler needs none of our locals. $BASHPID (not $$) targets the running
+        # process, which is correct even if fetch runs inside a subshell.
+        local cleanup_cmd
+        printf -v cleanup_cmd '_knit_resource_cleanup_dir %q' "${path}"
+        # shellcheck disable=SC2064 # expand now, on purpose, to capture path and pid
+        trap "${cleanup_cmd}; trap - INT TERM; kill -s INT ${BASHPID}" INT
+        # shellcheck disable=SC2064 # expand now, on purpose, to capture path and pid
+        trap "${cleanup_cmd}; trap - INT TERM; kill -s TERM ${BASHPID}" TERM
+
         # Run the resource type's download body. Clear the last-recorded row id so
         # we only pick up an id the body itself recorded (empty when not
         # bootstrapped, though fetch requires bootstrap to reach here).
@@ -617,6 +633,12 @@ _knit_fetch() {
         # conflicting source, both without a database read.
         printf '%s\n' "${type}" > "${type_marker}"
         printf '%s\n' "${identity}" > "${source_marker}"
+
+        # The instance is now complete on disk (fully downloaded and marked, so a
+        # re-fetch reads it as valid): drop the interrupt cleanup trap. A signal
+        # past this point must not delete the finished instance; the remaining work
+        # is only database bookkeeping.
+        trap - INT TERM
 
         # When the body recorded a row (bootstrapped), keep its id in a sidecar (for
         # the used_by edge) and complete the row with the instance name and directory.

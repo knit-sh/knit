@@ -142,6 +142,32 @@ _stub_git() {
     [ "$(_knit_sqlite3 'SELECT COUNT(*) FROM "resource:ds";')" = "0" ]
 }
 
+@test "fetch cleans up the partial instance when interrupted by a signal" {
+    # A signal (Ctrl-C / kill) while the body is mid-download must not leave the
+    # marker-less partial instance behind, since it would block a clean re-fetch.
+    # The curl stub writes a partial archive, then signals the fetch process to
+    # emulate an interrupt in the middle of the download (the url backend runs in
+    # the trap-owning shell, so the signal reaches the fetch's cleanup trap).
+    curl() {
+        local out=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in -o) out="$2"; shift 2 ;; *) shift ;; esac
+        done
+        printf 'partial\n' > "${out}"
+        kill -s TERM "${BASHPID}"
+    }
+    knit_register_resource "data" "A dataset."
+    knit_with_url "https://example.org/data.tar.gz"
+    knit_done
+    run _knit_fetch --name d1 -- data
+    # Terminated by SIGTERM (128 + 15); not a clean exit.
+    [ "${status}" -eq 143 ]
+    # The partial instance and its markers are gone, so a re-fetch is unblocked.
+    [ ! -e "${_KNIT_TEST_TMPDIR}/resources/d1" ]
+    [ ! -e "${_KNIT_TEST_TMPDIR}/resources/.d1.resource.type" ]
+    [ ! -e "${_KNIT_TEST_TMPDIR}/resources/.d1.resource.source" ]
+}
+
 # ---------- --ignore-checksum threading ----------
 
 @test "fetch threads --ignore-checksum to the backend env" {
