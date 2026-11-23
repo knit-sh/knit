@@ -23,7 +23,22 @@ set -euo pipefail
 source /shared/knit/tests/integration/lib/assert.sh
 
 WORKDIR=$(mktemp -d /shared/runs/38-job-reconcile-XXXXXX)
-trap 'rm -rf "${WORKDIR}"' EXIT
+
+# @fn cleanup()
+# Remove the work directory, retrying to ride out the window where an
+# asynchronously torn-down pilot sub-tree still holds a file open under .knit.
+# On the shared/NFS filesystem, deleting a still-open file silly-renames it to
+# .nfsXXXX, which keeps `rmdir .knit` failing with ENOTEMPTY until the holder
+# exits; a short retry clears the window.
+cleanup() {
+    local _
+    for _ in $(seq 1 10); do
+        rm -rf "${WORKDIR}" 2>/dev/null && return 0
+        sleep 2
+    done
+    rm -rf "${WORKDIR}" || true
+}
+trap cleanup EXIT
 
 cp /shared/knit/tests/integration/experiments/38_job_reconcile/experiment.sh \
     "${WORKDIR}/experiment.sh"
@@ -207,8 +222,16 @@ done
 check_eq "$(state_of "${running_sub}")" "running" \
     "a live sub-job under a still-running pilot is left running by reconcile"
 
-# Clean up: cancel the live pilot and let its sub-tree reach a terminal state.
+# Clean up: cancel the live pilot and wait for its whole sub-tree to reach a
+# terminal state. `job cancel` cancels the allocation, so the daemon and the
+# still-running sub-jobs tear down asynchronously; gating only on the pilot row
+# would let the EXIT trap fire while a sub-job still holds a file open under
+# .knit. Wait on every sub-job too so nothing is live when the work dir is
+# removed.
 ./experiment.sh job cancel --id "${live_uuid}"
 wait_killed "${live_uuid}" || fail "cancelled live pilot did not reach a terminal state"
+for w in "${live_subs[@]}"; do
+    wait_killed "${w}" || fail "cancelled live sub-job ${w:0:8} did not reach a terminal state"
+done
 
 assert_summary
