@@ -152,8 +152,12 @@ knit_env_provision() {
 # ------------------------------------------------------------------------------
 # @fn knit_env_install()
 #
-# Declare the install verb: `<fn> <env_dir> <manifest_path>` builds the
-# environment into <env_dir> from the manifest, returning non-zero on failure.
+# Declare the install verb: `<fn> <env_dir> <manifest_path> [option...]` builds
+# the environment into <env_dir> from the manifest, returning non-zero on
+# failure. Any manager-specific options a setup recorded (via
+# _knit_env_record_option) are passed verbatim as trailing arguments, in
+# recorded order; a manager that defines no options receives none and ignores
+# the possibility.
 #
 # @param[in] fn Name of the install function.
 # ------------------------------------------------------------------------------
@@ -559,6 +563,44 @@ _knit_env_record_contribution() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_env_record_option()
+#
+# Record a manager-specific build option for the setup currently being
+# registered. The option is an opaque token the generic layer stores and later
+# forwards, verbatim and in recorded order, to the manager's install verb as a
+# trailing argument (after <env_dir> and <manifest_path>). Core never interprets
+# the token; each manager defines its own vocabulary (knit-uv, for example, uses
+# "layered" and "no-deps").
+#
+# Options live per command and per manager in the ordered list
+# _KNIT_CMD_<cmd>_envopts_<nm>, a sibling of the contribution list
+# _KNIT_CMD_<cmd>_envcontrib_<nm>. The list is created on first use, so an
+# option directive may be called in any order relative to the spec/manifest
+# directives. A setup that records no option is unchanged: its install verb
+# receives no trailing arguments.
+#
+# The caller (a manager's setup directive) is responsible for the setup-context
+# guard, exactly as the knit_with_<nm>_* wrappers are; this helper only records.
+#
+# @param[in] nm     Normalized (underscore) manager name.
+# @param[in] option The opaque option token to forward to the install verb.
+# ------------------------------------------------------------------------------
+_knit_env_record_option() {
+    local nm="$1" option="$2"
+    local cmd="${_KNIT_CURRENT_COMMAND}"
+    local opts_var="_KNIT_CMD_${cmd}_envopts_${nm}"
+    # Create the list on first use. Test existence with declare -p (an empty
+    # array makes "[[ -v name ]]" false, which would wrongly re-create and wipe
+    # a list that another option directive already started).
+    if ! declare -p "${opts_var}" >/dev/null 2>&1; then
+        declare -ga "${opts_var}=()"
+    fi
+    # shellcheck disable=SC2178 # nameref to the command's options array
+    local -n _opts_ref="${opts_var}"
+    _opts_ref+=("${option}")
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_env_with_env()
 #
 # Generic implementation of knit_with_<nm>_env: declare that the setup currently
@@ -846,9 +888,10 @@ _knit_env_resolve_manifest() {
 # sources the platform, provisions the manager on demand, resolves the setup's
 # contribution list into a concrete manifest, writes it to
 # ${KNIT_SETUP_PREFIX}/<manifest>, builds the environment into
-# ${KNIT_SETUP_PREFIX}/<nm>-env via the install verb, and activates it in the
-# current shell (by eval-ing the activate verb's lines) so the body builds
-# against the installed packages.
+# ${KNIT_SETUP_PREFIX}/<nm>-env via the install verb (forwarding any
+# manager-specific options the setup recorded as trailing arguments), and
+# activates it in the current shell (by eval-ing the activate verb's lines) so
+# the body builds against the installed packages.
 #
 # On an install failure (or a spec/manifest function exiting non-zero) it returns
 # non-zero WITHOUT activating: the non-zero status propagates so the setup body
@@ -896,9 +939,19 @@ _knit_env_setup_before_cb() {
         return 1
     fi
     printf '%s\n' "${rendered}" > "${manifest_path}"
+    # Collect the manager-specific build options recorded for this setup (empty
+    # when none) to forward to the install verb as trailing arguments. Core does
+    # not interpret them; the manager's install verb does.
+    local opts=()
+    local opts_var="_KNIT_CMD_${cmd}_envopts_${nm}"
+    if declare -p "${opts_var}" >/dev/null 2>&1; then
+        # shellcheck disable=SC2178 # nameref to the command's options array
+        local -n _opts_ref="${opts_var}"
+        opts=("${_opts_ref[@]}")
+    fi
     # Abort the setup if the environment did not install: do not activate a
     # broken environment.
-    if ! "${!install_var}" "${env_dir}" "${manifest_path}"; then
+    if ! "${!install_var}" "${env_dir}" "${manifest_path}" "${opts[@]}"; then
         knit_error "Failed to build the %s environment at %s." "${display}" "${env_dir}"
         return 1
     fi

@@ -218,3 +218,68 @@ _register_fake() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"Unknown environment manager"* ]]
 }
+
+# ---------- manager-specific install options channel ----------
+
+@test "recording an option creates the list and appends in declared order" {
+    _KNIT_CURRENT_COMMAND="setup__1__demo"
+    _knit_env_record_option "fake" "layered"
+    _knit_env_record_option "fake" "no-deps"
+    # shellcheck disable=SC2178 # nameref to the per-command options array
+    local -n opts="_KNIT_CMD_setup__1__demo_envopts_fake"
+    [ "${#opts[@]}" -eq 2 ]
+    [ "${opts[0]}" = "layered" ]
+    [ "${opts[1]}" = "no-deps" ]
+}
+
+@test "options are kept per manager on the same command" {
+    _KNIT_CURRENT_COMMAND="setup__1__demo"
+    _knit_env_record_option "fake" "layered"
+    _knit_env_record_option "other" "x"
+    # shellcheck disable=SC2178 # nameref to the per-command options array
+    local -n a="_KNIT_CMD_setup__1__demo_envopts_fake"
+    # shellcheck disable=SC2178 # nameref to the per-command options array
+    local -n b="_KNIT_CMD_setup__1__demo_envopts_other"
+    [ "${#a[@]}" -eq 1 ] && [ "${a[0]}" = "layered" ]
+    [ "${#b[@]}" -eq 1 ] && [ "${b[0]}" = "x" ]
+}
+
+@test "the install verb receives the recorded options as trailing args in order" {
+    _FAKE_INSTALL_LOG="${BATS_TEST_TMPDIR}/install.log"
+    _register_fake
+    _KNIT_CURRENT_COMMAND="setup__1__demo"
+    _knit_env_record_option "fake" "layered"
+    _knit_env_record_option "fake" "no-deps"
+
+    # Drive the before-callback with the orthogonal steps (platform sourcing,
+    # manifest resolution) stubbed out so this isolates the option forwarding.
+    _KNIT_INVOCATION_CMD="setup__1__demo"
+    KNIT_SETUP_PREFIX="${BATS_TEST_TMPDIR}/setup"
+    mkdir -p "${KNIT_SETUP_PREFIX}" "${_KNIT_PREFIX}/fake"
+    _knit_setup_source_platform() { :; }
+    # shellcheck disable=SC2178 # scalar nameref output
+    _knit_env_resolve_manifest() { local -n r=$1; r="fake-manifest"; }
+    _fake_install() { printf '%s\n' "$*" > "${_FAKE_INSTALL_LOG}"; }
+
+    _knit_env_setup_before_cb "fake"
+
+    # argv is <env_dir> <manifest_path> layered no-deps.
+    [[ "$(cat "${_FAKE_INSTALL_LOG}")" == *" layered no-deps" ]]
+}
+
+@test "the install verb receives no trailing option args when none are recorded" {
+    _FAKE_INSTALL_LOG="${BATS_TEST_TMPDIR}/install.log"
+    _register_fake
+    _KNIT_INVOCATION_CMD="setup__1__demo"
+    KNIT_SETUP_PREFIX="${BATS_TEST_TMPDIR}/setup"
+    mkdir -p "${KNIT_SETUP_PREFIX}" "${_KNIT_PREFIX}/fake"
+    _knit_setup_source_platform() { :; }
+    # shellcheck disable=SC2178 # scalar nameref output
+    _knit_env_resolve_manifest() { local -n r=$1; r="fake-manifest"; }
+    # Record argc: only <env_dir> + <manifest_path>, no option args.
+    _fake_install() { printf '%s\n' "$#" > "${_FAKE_INSTALL_LOG}"; }
+
+    _knit_env_setup_before_cb "fake"
+
+    [ "$(cat "${_FAKE_INSTALL_LOG}")" = "2" ]
+}
