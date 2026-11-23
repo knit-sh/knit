@@ -208,6 +208,14 @@ _knit_setup() {
     # check a job's knit_with_setup requirement against it.
     printf '%s\n' "${setup_name}" > "${path}/.setup.type"
 
+    # Record the roles this setup provides (if any), one per line, in the same
+    # normalized namespace as .setup.type. A role lets a knit_with_setup
+    # requirement be satisfied by any instance that provides it, not only one of
+    # the exact type. A setup that declares no role writes no marker.
+    if _knit_set_exists "_KNIT_CMD_${subcmd}_roles"; then
+        _knit_set_iter "_KNIT_CMD_${subcmd}_roles" > "${path}/.setup.roles"
+    fi
+
     # Record the setup body's row id so a later consumer can record a "used_by" edge
     # to this setup by id (robust) rather than by matching directory paths. Only
     # written when the body recorded a row (i.e. the experiment is bootstrapped);
@@ -706,15 +714,21 @@ knit_done
 # ------------------------------------------------------------------------------
 # @fn _knit_setup_check_type()
 #
-# Check that a setup directory was built by the required setup type. `knit setup`
-# records the type in a `.setup.type` marker file inside the setup directory.
-# Fatals if the marker is missing or its recorded type differs from the required
-# one; returns normally on a match. Shared by `knit submit` (jobs) and by the
-# generic setup-dependency before-callback used for every other command that
-# declares knit_with_setup.
+# Check that a setup directory satisfies a required setup name, by type OR by
+# role. `knit setup` records the instance's type in a `.setup.type` marker and
+# the roles it provides in a `.setup.roles` marker (one per line), both in the
+# normalized name namespace. The requirement is met when the recorded type equals
+# <required> or <required> appears among the provided roles. This is the single
+# matcher shared by `knit submit` (jobs) and by the generic setup-dependency
+# before-callback used for every other command that declares knit_with_setup, so
+# every enforcement point agrees. Fatals if the type marker is missing or neither
+# the type nor any role matches; returns normally on a match.
+#
+# A setup that provides no role has no `.setup.roles` marker and so matches only
+# by type, exactly as before roles existed.
 #
 # @param[in] setup_path Path to the setup directory to check.
-# @param[in] required   Setup type the directory must have been built by.
+# @param[in] required   Setup type or role the directory must satisfy.
 # ------------------------------------------------------------------------------
 _knit_setup_check_type() {
     local setup_path="$1"
@@ -725,9 +739,16 @@ _knit_setup_check_type() {
     fi
     local actual=""
     IFS= read -r actual < "${marker}" || true
-    if [[ "${actual}" != "${required}" ]]; then
-        knit_fatal "A \"${required}\" setup is required, but \"${setup_path}\" was built by \"${actual}\"."
+    # Match by type first, then by role.
+    [[ "${actual}" == "${required}" ]] && return 0
+    local roles_file="${setup_path}/.setup.roles"
+    if [[ -f "${roles_file}" ]]; then
+        local role
+        while IFS= read -r role; do
+            [[ "${role}" == "${required}" ]] && return 0
+        done < "${roles_file}"
     fi
+    knit_fatal "A \"${required}\" setup is required, but \"${setup_path}\" was built by \"${actual}\" and provides no \"${required}\" role."
 }
 
 # ------------------------------------------------------------------------------
@@ -926,10 +947,16 @@ knit_with_setup() {
     knit_trace "Command \"${_KNIT_CURRENT_COMMAND_DEMANGLED}\" requires a \"${setup_type_typed}\" setup."
 
     # Advertise the requirement in the command's `--help` output (see the
-    # "Requirements" section rendered by _knit_print_command_usage).
+    # "Requirements" section rendered by _knit_print_command_usage). When the
+    # required name is provided as a role by some registered setup, describe it as
+    # a role (any such setup satisfies it); otherwise as an exact setup type.
     # shellcheck disable=SC2178 # nameref to the command's notes array
     local -n _notes_ref="_KNIT_CMD_${cmd}_notes"
-    _notes_ref+=("Requires a --setup built by the \"${setup_type_typed}\" setup.")
+    if _knit_setup_role_is_provided "${setup_type}"; then
+        _notes_ref+=("Requires a --setup providing the \"${setup_type_typed}\" role (or built by it).")
+    else
+        _notes_ref+=("Requires a --setup built by the \"${setup_type_typed}\" setup.")
+    fi
 
     # Jobs resolve and enforce the setup at submit time (see _knit_submit) and
     # re-source it on the compute node (_knit_job_before_cb): no local --setup
@@ -1110,4 +1137,89 @@ knit_provides_launcher() {
     # shellcheck disable=SC2178 # nameref to the command's notes array
     local -n notes_ref="_KNIT_CMD_${cmd}_notes"
     notes_ref+=("Provides an MPI launcher where the machine has none (knit_provides_launcher).")
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_provides_setup_role()
+#
+# Declare that the setup currently being registered provides a named role, so an
+# instance it builds satisfies a knit_with_setup requirement for that role, not
+# only for the exact setup type. This lets one consuming command accept any of
+# several interchangeable setups (for example a "train" job accepting
+# cnnenv-cuda / cnnenv-xpu / cnnenv-cpu, each of which provides role "cnnenv").
+# It generalizes knit_provides_launcher from the single built-in launcher
+# capability to arbitrary, user-named roles.
+#
+# Must be called between knit_register_setup and knit_done. May be called more
+# than once to provide several roles. The role is an ordinary knit name
+# (hyphens and underscores interchangeable); it is normalized and recorded in
+# the ordered set _KNIT_CMD_<setupcmd>_roles, and written to the instance's
+# .setup.roles marker (one role per line) when the setup builds. Setups are the
+# only valid target: wrappers and non-setup commands are rejected (a wrapper is
+# never a "setup:*" command, so the setup-context check covers both).
+#
+# Role names and setup type names share one namespace for matching: a required
+# name matches an instance's type first, then its roles.
+#
+# Example:
+# ```
+# knit_register_setup "cnnenv-xpu" _cnnenv_xpu "cifar-cnn on the Aurora module."
+# knit_with_uv_specs "cifar-cnn"
+# knit_with_uv_layered
+# knit_provides_setup_role "cnnenv"
+# _cnnenv_xpu() { ... }
+# knit_done
+# ```
+#
+# @param[in] role The role name this setup provides.
+# ------------------------------------------------------------------------------
+knit_provides_setup_role() {
+    # Setup-only. This also rejects wrappers (a wrapper is never a "setup:*"
+    # command) and any use outside a knit_register* / knit_done pair.
+    if [[ ! -v _KNIT_CURRENT_COMMAND ]] \
+    || [[ "${_KNIT_CURRENT_COMMAND_DEMANGLED}" != setup:* ]]; then
+        knit_fatal "knit_provides_setup_role is valid only for setups; it must be called between knit_register_setup and knit_done."
+    fi
+    local role_typed="$1"
+    if [[ -z "${role_typed}" ]]; then
+        knit_fatal "knit_provides_setup_role requires a role name."
+    fi
+    if ! _knit_name_is_valid "${role_typed}"; then
+        knit_fatal "Invalid setup role name \"%s\"." "${role_typed}"
+    fi
+    local role
+    _knit_name_normalize role "${role_typed}"
+    # The roles set is created lazily on the first provided role (a setup that
+    # provides none never declares it, so .setup.roles is written only when the
+    # set exists). Declare it as a proper set before adding, so element keys are
+    # stored associatively rather than collapsing to index 0.
+    local set_name="_KNIT_CMD_${_KNIT_CURRENT_COMMAND}_roles"
+    _knit_set_exists "${set_name}" || _knit_set_new "${set_name}"
+    _knit_set_add "${set_name}" "${role}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_setup_role_is_provided()
+#
+# Return 0 if any registered setup provides the given role, 1 otherwise. The role
+# name is matched in the normalized namespace (as stored in each setup's roles
+# set). Used to word the knit_with_setup requirement note: a required name that
+# some setup provides as a role is described as a role, otherwise as a type. The
+# answer reflects the setups registered so far; since setups are conventionally
+# registered before the jobs/commands that depend on them, this is accurate for
+# the usual ordering.
+#
+# @param[in] role Normalized role name to look for.
+# ------------------------------------------------------------------------------
+_knit_setup_role_is_provided() {
+    local role="$1"
+    local type scmd set_name
+    for type in "${!_KNIT_SETUPS[@]}"; do
+        _knit_command_mangle scmd "setup:${type}"
+        set_name="_KNIT_CMD_${scmd}_roles"
+        if _knit_set_exists "${set_name}" && _knit_set_find "${set_name}" "${role}"; then
+            return 0
+        fi
+    done
+    return 1
 }

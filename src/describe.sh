@@ -237,6 +237,28 @@ _knit_describe_command_kind() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_describe_command_roles()
+#
+# Store a setup command's provided roles (in declaration order) in the caller's
+# array, leaving it empty when the command provides none. Reads the ordered set
+# written by knit_provides_setup_role; only setups ever have it.
+#
+# @param[out] __knit_ret_roles Name of the array to hold the roles.
+# @param[in] cmd Mangled command name.
+# ------------------------------------------------------------------------------
+_knit_describe_command_roles() {
+    # Distinct from the conventional "__knit_ret" scalar name on purpose: this
+    # output is an indexed array, and reusing "__knit_ret" would make shellcheck
+    # infer it as an array file-wide and warn on every scalar use (see
+    # _knit_describe_children for the same reservation).
+    # shellcheck disable=SC2178 # nameref to indexed array
+    local -n __knit_ret_roles=$1
+    __knit_ret_roles=()
+    local set_name="_KNIT_CMD_${2}_roles"
+    _knit_set_exists "${set_name}" && _knit_set_array __knit_ret_roles "${set_name}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_describe_is_result()
 #
 # Return success if an output of a command carries the "--result" mark (it is a
@@ -786,6 +808,20 @@ _knit_describe_json_command() {
         entries+=("$(printf '%s"outputs":%s' "${inner}" "${cs}"; _knit_describe_json_outputs "${cmd}" "${inner}")")
         entries+=("$(printf '%s"artifacts":%s' "${inner}" "${cs}"; _knit_describe_json_artifacts "${cmd}" "${inner}")")
     fi
+    # Setups that provide roles (knit_provides_setup_role) carry a "roles" array;
+    # omitted for commands that provide none (like "implementation").
+    local -a roles
+    _knit_describe_command_roles roles "${cmd}"
+    if (( ${#roles[@]} )); then
+        local roles_json='[' rj ri
+        for (( ri=0; ri<${#roles[@]}; ri++ )); do
+            (( ri )) && roles_json+=",${cs}"
+            _knit_describe_json_str rj "${roles[ri]}"
+            roles_json+="${rj}"
+        done
+        roles_json+=']'
+        printf -v e '%s"roles":%s%s' "${inner}" "${cs}" "${roles_json}"; entries+=("${e}")
+    fi
     local impl
     impl=$(_knit_describe_implementation "${cmd}")
     if [[ -n "${impl}" ]]; then
@@ -1289,6 +1325,12 @@ _knit_describe_yaml_command() {
             done
         fi
     fi
+    local -a roles
+    _knit_describe_command_roles roles "${cmd}"
+    if (( ${#roles[@]} )); then
+        _knit_describe_yaml_flow_seq fs "${roles[@]}"
+        printf '%sroles: %s\n' "${key}" "${fs}"
+    fi
     local impl
     impl=$(_knit_describe_implementation "${cmd}")
     if [[ -n "${impl}" ]]; then
@@ -1743,6 +1785,14 @@ _knit_describe_default_command() {
             fi
         fi
 
+        local -a roles
+        _knit_describe_command_roles roles "${cmd}"
+        if (( ${#roles[@]} )); then
+            printf '\n'
+            _knit_describe_default_heading "Roles" "${use_color}" "${sec}"
+            printf '%s  %s\n' "${sec}" "${roles[*]}"
+        fi
+
         local extra_var="_KNIT_CMD_${cmd}_extra"
         if [[ -n "${!extra_var}" ]]; then
             printf '\n'
@@ -2128,6 +2178,12 @@ _knit_describe_md_command() {
                 printf '\n'
                 _knit_describe_md_artifacts "${cmd}"
             fi
+        fi
+
+        local -a roles
+        _knit_describe_command_roles roles "${cmd}"
+        if (( ${#roles[@]} )); then
+            printf '\n*Roles: %s*\n' "${roles[*]}"
         fi
 
         local impl

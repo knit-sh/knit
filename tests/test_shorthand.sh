@@ -203,6 +203,13 @@ setup() {
     [ "$(cat "${BATS_TEST_TMPDIR}/got")" = "_my_discover" ]
 }
 
+@test "@provides_setup_role forwards verbatim to knit_provides_setup_role" {
+    declare -F @provides_setup_role >/dev/null
+    knit_provides_setup_role() { printf '%s\n' "$*" > "${BATS_TEST_TMPDIR}/got"; }
+    @provides_setup_role "cnnenv"
+    [ "$(cat "${BATS_TEST_TMPDIR}/got")" = "cnnenv" ]
+}
+
 @test "@done forwards verbatim to knit_done" {
     knit_done() { printf '%s\n' "called" > "${BATS_TEST_TMPDIR}/got"; }
     @done

@@ -417,6 +417,110 @@ teardown() {
     [ -d "${newdir}" ]
 }
 
+# ---------- knit_provides_setup_role ----------
+
+@test "knit_provides_setup_role records the role in the setup's roles set" {
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_provides_setup_role "cnnenv"
+    knit_done
+    _knit_set_find "_KNIT_CMD_setup__1__mysetup_roles" "cnnenv"
+}
+
+@test "knit_provides_setup_role normalizes hyphens to underscores" {
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_provides_setup_role "my-role"
+    knit_done
+    _knit_set_find "_KNIT_CMD_setup__1__mysetup_roles" "my_role"
+}
+
+@test "knit_provides_setup_role records several roles in declaration order" {
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_provides_setup_role "cnnenv"
+    knit_provides_setup_role "pytorch"
+    knit_done
+    local roles=()
+    _knit_set_array roles "_KNIT_CMD_setup__1__mysetup_roles"
+    [ "${#roles[@]}" -eq 2 ]
+    [ "${roles[0]}" = "cnnenv" ]
+    [ "${roles[1]}" = "pytorch" ]
+}
+
+@test "knit_provides_setup_role outside a setup registration is fatal" {
+    run knit_provides_setup_role "cnnenv"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"valid only for setups"* ]]
+}
+
+@test "knit_provides_setup_role rejects a non-setup command" {
+    _fn() { :; }
+    knit_register "plaincmd" _fn "A plain command."
+    run knit_provides_setup_role "cnnenv"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"valid only for setups"* ]]
+    knit_done
+}
+
+@test "knit_provides_setup_role rejects an invalid role name" {
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    run knit_provides_setup_role "bad name"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Invalid setup role"* ]]
+    knit_done
+}
+
+@test "a built instance records its roles in .setup.roles (one per line)" {
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_provides_setup_role "cnnenv"
+    knit_provides_setup_role "pytorch"
+    knit_done
+    _knit_setup --name myenv -- mysetup
+    [ -f "${newdir}/.setup.roles" ]
+    [ "$(sed -n 1p "${newdir}/.setup.roles")" = "cnnenv" ]
+    [ "$(sed -n 2p "${newdir}/.setup.roles")" = "pytorch" ]
+}
+
+@test "a setup with no role writes no .setup.roles marker" {
+    local newdir="${_KNIT_TEST_SETUP_ROOT}/myenv"
+    _test_setup_fn() { :; }
+    knit_register_setup "mysetup" "_test_setup_fn" "A test setup."
+    knit_done
+    _knit_setup --name myenv -- mysetup
+    [ -f "${newdir}/.setup.type" ]
+    [ ! -f "${newdir}/.setup.roles" ]
+}
+
+@test "knit_with_setup notes a role requirement when a setup provides that role" {
+    # The setup providing the role is registered before the consumer, the usual
+    # ordering, so the note is worded as a role.
+    _xpu_fn() { :; }
+    knit_register_setup "cnnenv-xpu" "_xpu_fn" "An xpu env."
+    knit_provides_setup_role "cnnenv"
+    knit_done
+    _plain_fn() { :; }
+    knit_register "train" "_plain_fn" "A training command."
+    knit_with_setup "cnnenv"
+    knit_done
+    local result
+    result=$(_knit_invoke_command "train" "--help")
+    [[ "${result}" == *'providing the "cnnenv" role'* ]]
+}
+
+@test "knit_with_setup notes a type requirement when no setup provides that role" {
+    _plain_fn() { :; }
+    knit_register "train" "_plain_fn" "A training command."
+    knit_with_setup "cnnenv"
+    knit_done
+    local result
+    result=$(_knit_invoke_command "train" "--help")
+    [[ "${result}" == *'built by the "cnnenv" setup'* ]]
+}
+
 # ---------- _knit_setup_check_type ----------
 
 @test "_knit_setup_check_type accepts a matching type" {
@@ -443,6 +547,46 @@ teardown() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"mcenv"* ]]
     [[ "$output" == *"otherenv"* ]]
+}
+
+@test "_knit_setup_check_type accepts a role match" {
+    local d="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${d}"
+    printf 'cnnenv_xpu\n' > "${d}/.setup.type"
+    printf 'cnnenv\n' > "${d}/.setup.roles"
+    run _knit_setup_check_type "${d}" "cnnenv"
+    [ "$status" -eq 0 ]
+}
+
+@test "_knit_setup_check_type accepts a role match among several roles" {
+    local d="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${d}"
+    printf 'cnnenv_xpu\n' > "${d}/.setup.type"
+    printf 'pytorch\ncnnenv\n' > "${d}/.setup.roles"
+    run _knit_setup_check_type "${d}" "cnnenv"
+    [ "$status" -eq 0 ]
+}
+
+@test "_knit_setup_check_type rejects when neither type nor role matches" {
+    local d="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${d}"
+    printf 'cnnenv_xpu\n' > "${d}/.setup.type"
+    printf 'pytorch\n' > "${d}/.setup.roles"
+    run _knit_setup_check_type "${d}" "cnnenv"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"cnnenv"* ]]
+    [[ "$output" == *"cnnenv_xpu"* ]]
+}
+
+@test "_knit_setup_check_type matches only by type when no roles marker exists (backward compat)" {
+    local d="${_KNIT_TEST_TMPDIR}/dep"
+    mkdir -p "${d}"
+    printf 'mcenv\n' > "${d}/.setup.type"
+    # No .setup.roles marker: a non-type name must not match, a type name must.
+    run _knit_setup_check_type "${d}" "cnnenv"
+    [ "$status" -ne 0 ]
+    run _knit_setup_check_type "${d}" "mcenv"
+    [ "$status" -eq 0 ]
 }
 
 # ---------- _knit_setup_dep_before_cb ----------
@@ -499,6 +643,18 @@ teardown() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"mcenv"* ]]
     [[ "$output" == *"otherenv"* ]]
+}
+
+@test "_knit_setup_dep_before_cb accepts a role-matched --setup" {
+    local d="${_KNIT_TEST_SETUP_ROOT}/dep"
+    mkdir -p "${d}"
+    printf 'cnnenv_xpu\n' > "${d}/.setup.type"
+    printf 'cnnenv\n' > "${d}/.setup.roles"
+    printf 'export DEP_MARK=role\n' > "${d}/.activate.sh"
+    unset KNIT_SETUP_PREFIX DEP_MARK
+    _knit_setup_dep_before_cb "cnnenv" --setup "dep"
+    [ "${DEP_MARK}" = "role" ]
+    [ "${KNIT_SETUP_PREFIX}" = "$(realpath "${d}")" ]
 }
 
 # ---------- knit_with_setup (generic) ----------
