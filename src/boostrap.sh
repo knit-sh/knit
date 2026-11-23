@@ -109,8 +109,7 @@ _knit_bootstrap_warn_absolute_root() {
 # ------------------------------------------------------------------------------
 _knit_bootstrap_check_prerequisites() {
     if [[ -z "$(_knit_command_path sha256sum)" ]]; then
-        knit_fatal "sha256sum is required by Knit but was not found on PATH." \
-            "It is normally part of GNU coreutils; install coreutils and retry."
+        knit_fatal "sha256sum is required by Knit but was not found on PATH. It is normally part of GNU coreutils; install coreutils and retry."
     fi
 }
 
@@ -748,8 +747,7 @@ _knit_bootstrap() {
     if [[ "${scheduler}" == "auto" ]]; then
         scheduler="$(_knit_detect_job_manager)"
         if [[ "${scheduler}" == "<unknown>" ]]; then
-            knit_warning "No job scheduler detected; using local process execution." \
-                "Pass --scheduler local to suppress this warning."
+            knit_warning "No job scheduler detected; using local process execution. Pass --scheduler local to suppress this warning."
             scheduler="local"
         fi
     fi

@@ -50,8 +50,7 @@ knit_github_resolve_commit() {
     local sha
     sha="$(knit_github_api "${url}" | knit_jq -r '.sha // empty')"
     if [[ -z "${sha}" ]]; then
-        knit_fatal "Could not resolve ${ref} to a commit in ${org}/${repo}" \
-            "from ${url}. If this is a rate-limited environment, set GITHUB_TOKEN."
+        knit_fatal "Could not resolve ${ref} to a commit in ${org}/${repo} from ${url}. If this is a rate-limited environment, set GITHUB_TOKEN."
     fi
     printf '%s' "${sha}"
 }
@@ -127,8 +126,7 @@ knit_github_download() {
     if ! knit_framed_run "download ${org}/${repo}" \
             curl -L -o "${tarball}" "${url}"; then
         rm -f "${tarball}"
-        knit_fatal "Could not download ${org}/${repo} at ${sha} from ${url}." \
-            "See ${_KNIT_TRACE_FILE} for more information."
+        knit_fatal "Could not download ${org}/${repo} at ${sha} from ${url}. See ${_KNIT_TRACE_FILE} for more information."
     fi
     local digest
     digest="$(sha256sum "${tarball}")"
@@ -138,8 +136,7 @@ knit_github_download() {
     if ! knit_framed_run "extract ${org}/${repo}" \
             tar -xzf "${tarball}" -C "${dest}" --strip-components=1; then
         rm -f "${tarball}"
-        knit_fatal "Could not extract ${org}/${repo} from ${tarball}." \
-            "See ${_KNIT_TRACE_FILE} for more information."
+        knit_fatal "Could not extract ${org}/${repo} from ${tarball}. See ${_KNIT_TRACE_FILE} for more information."
     fi
     rm -f "${tarball}"
 }
@@ -197,8 +194,7 @@ knit_github_download_asset() {
                  --connect-timeout 30 --speed-time 60 --speed-limit 1024 \
                  -o "${dest}" "${url}"; then
         rm -f "${dest}"
-        knit_fatal "Could not download asset ${asset} from ${url}." \
-            "See ${_KNIT_TRACE_FILE} for more information."
+        knit_fatal "Could not download asset ${asset} from ${url}. See ${_KNIT_TRACE_FILE} for more information."
     fi
     local digest
     digest="$(sha256sum "${dest}")"

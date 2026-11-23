@@ -461,9 +461,7 @@ _knit_load_profile() {
     _KNIT_PROFILE_GPUS_PER_NODE=$(printf '%s' "${json}" \
         | knit_jq -r '.hardware.gpus_per_node // empty')
 
-    knit_trace "Loaded profile: scheduler=${_KNIT_PROFILE_SCHEDULER_TYPE}" \
-        "launcher=${_KNIT_PROFILE_LAUNCHER_TYPE}" \
-        "queue=${_KNIT_PROFILE_SCHEDULER_DEFAULT_QUEUE}"
+    knit_trace "Loaded profile: scheduler=${_KNIT_PROFILE_SCHEDULER_TYPE} launcher=${_KNIT_PROFILE_LAUNCHER_TYPE} queue=${_KNIT_PROFILE_SCHEDULER_DEFAULT_QUEUE}"
 }
 
 # ------------------------------------------------------------------------------
