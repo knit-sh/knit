@@ -159,6 +159,9 @@ teardown() {
 # ---------- knit_github_download_asset ----------
 
 @test "download_asset curls the release-asset URL and returns the sha256" {
+    # Pin the curl capability so the asserted flag set is deterministic across
+    # hosts regardless of the local curl version.
+    _knit_curl_supports_retry_all_errors() { return 0; }
     local -a cmds=()
     local content="uv-release-binary-bytes"
     local dest="${DEST}/uv.tar.gz"
@@ -205,4 +208,42 @@ teardown() {
         astral-sh uv "0.5.0" "uv-x86_64-unknown-linux-gnu.tar.gz" "${DEST}/uv.tar.gz"
     [ "$status" -ne 0 ]
     [[ "$output" == *"Could not download asset"* ]]
+}
+
+@test "download_asset omits --retry-all-errors when curl does not support it" {
+    # An older curl (e.g. 7.61 on some HPC login nodes) rejects --retry-all-errors
+    # outright, so the flag must be dropped rather than aborting the transfer.
+    _knit_curl_supports_retry_all_errors() { return 1; }
+    local -a cmds=()
+    knit_framed_run() {
+        shift
+        cmds+=("$*")
+        local out="" prev=""
+        for a in "$@"; do [[ "${prev}" == "-o" ]] && out="${a}"; prev="${a}"; done
+        [[ -n "${out}" ]] && printf 'x' > "${out}"
+        return 0
+    }
+    local sha256
+    knit_github_download_asset sha256 \
+        astral-sh uv "0.5.0" "uv-x86_64-unknown-linux-gnu.tar.gz" "${DEST}/uv.tar.gz"
+    [[ "${cmds[0]}" == *"--retry 3"* ]]
+    [[ "${cmds[0]}" != *"--retry-all-errors"* ]]
+}
+
+# ---------- _knit_curl_retry_args ----------
+
+@test "retry_args includes --retry-all-errors when curl accepts the flag" {
+    curl() { return 0; }
+    _KNIT_CURL_RETRY_ARGS=()
+    _knit_curl_retry_args
+    [[ " ${_KNIT_CURL_RETRY_ARGS[*]} " == *" --retry 3 "* ]]
+    [[ " ${_KNIT_CURL_RETRY_ARGS[*]} " == *" --retry-all-errors "* ]]
+}
+
+@test "retry_args omits --retry-all-errors when curl rejects the flag" {
+    curl() { return 2; }
+    _KNIT_CURL_RETRY_ARGS=()
+    _knit_curl_retry_args
+    [[ " ${_KNIT_CURL_RETRY_ARGS[*]} " == *" --retry 3 "* ]]
+    [[ " ${_KNIT_CURL_RETRY_ARGS[*]} " != *"--retry-all-errors"* ]]
 }

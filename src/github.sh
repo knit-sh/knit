@@ -3,6 +3,55 @@
 ## @file github.sh
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_CURL_RETRY_ARGS
+#
+# The retry and timeout curl options knit uses for every network transfer, held
+# in a module-level indexed array populated once by _knit_curl_retry_args. A
+# module-level array (rather than a nameref output) so the scalar GitHub helpers
+# in this file keep __knit_ret for their own string results; the value never
+# changes within a process, so one build is enough.
+# ------------------------------------------------------------------------------
+declare -ga _KNIT_CURL_RETRY_ARGS
+_KNIT_CURL_RETRY_ARGS=()
+
+# ------------------------------------------------------------------------------
+# @fn _knit_curl_supports_retry_all_errors()
+#
+# Return 0 if the host curl accepts "--retry-all-errors", 1 otherwise. The flag
+# was added in curl 7.71.0; an older curl (for example the 7.61 shipped on some
+# HPC login nodes) rejects it with a non-zero exit before doing any work, which
+# aborts a transfer that would otherwise succeed. The answer is feature probed --
+# curl parses the flag, then "--version" makes it exit 0 without any request.
+#
+# @return 0 if the flag is supported; 1 if not.
+# ------------------------------------------------------------------------------
+_knit_curl_supports_retry_all_errors() {
+    curl --retry-all-errors --version >/dev/null 2>&1
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_curl_retry_args()
+#
+# Populate _KNIT_CURL_RETRY_ARGS (once) with the retry and timeout options knit
+# uses for every network transfer, so an API query and an asset download harden
+# against a transient failure the same way. "--retry-all-errors" (curl 7.71.0+)
+# also recovers from a connection-level failure such as a mid-stream TLS reset
+# that plain "--retry" leaves alone, but it is appended only when the host curl
+# supports it so an older curl is not aborted by an unknown option. The
+# connect/low-speed timeouts turn a stalled transfer into a retryable failure
+# rather than an indefinite hang.
+# ------------------------------------------------------------------------------
+_knit_curl_retry_args() {
+    if (( ${#_KNIT_CURL_RETRY_ARGS[@]} == 0 )); then
+        _KNIT_CURL_RETRY_ARGS=(--retry 3 --retry-delay 2
+            --connect-timeout 30 --speed-time 60 --speed-limit 1024)
+        if _knit_curl_supports_retry_all_errors; then
+            _KNIT_CURL_RETRY_ARGS+=(--retry-all-errors)
+        fi
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_github_api()
 #
 # Fetch a GitHub REST API URL and print the response body. When GITHUB_TOKEN or
@@ -10,11 +59,12 @@
 # limit is 60 requests per hour per address, shared by every process behind that
 # address, so continuous-integration runners exhaust it and knit sees an error
 # body instead of JSON. An authenticated request uses the far higher per-token
-# limit. curl also retries a few times so a transient network error does not
-# abort the caller, and "-f" makes an HTTP error status a clean failure (empty
-# output) instead of a non-JSON body that would confuse the caller's parser.
-# Public so a plugin can query the API (for example to resolve the latest
-# release of a tool it provisions).
+# limit. curl also retries a few times (see _knit_curl_retry_args) so a transient
+# network error -- a mid-stream TLS reset from a proxied HPC login node, for
+# example -- does not abort the caller, and "-f" makes an HTTP error status a
+# clean failure (empty output) instead of a non-JSON body that would confuse the
+# caller's parser. Public so a plugin can query the API (for example to resolve
+# the latest release of a tool it provisions).
 #
 # @param[in] url The api.github.com URL to fetch.
 # @return Prints the response body; non-zero on a hard failure or HTTP error.
@@ -22,7 +72,8 @@
 knit_github_api() {
     local url="$1"
     local token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-    local -a args=(-fsSL --retry 3 --retry-delay 2)
+    _knit_curl_retry_args
+    local -a args=(-fsSL "${_KNIT_CURL_RETRY_ARGS[@]}")
     if [[ -n "${token}" ]]; then
         args+=(-H "Authorization: Bearer ${token}")
     fi
@@ -154,9 +205,8 @@ knit_github_download() {
 # The transfer retries on a transient failure (connection reset, 5xx, timeout),
 # like knit_github_api: an asset download is a large transfer over a possibly
 # flaky network (CI runners especially), and a single blip must not abort a whole
-# bootstrap. --retry-all-errors covers connection-level failures that --retry
-# alone would not; the connect/low-speed timeouts turn a stalled transfer into a
-# retryable failure rather than an indefinite hang.
+# bootstrap. The retry and timeout options come from _knit_curl_retry_args, so the
+# "--retry-all-errors" dependency degrades gracefully on an older curl.
 #
 # This complements knit_github_download, which fetches a repository *source*
 # archive by commit. A tool shipped as a prebuilt per-platform release binary
@@ -185,14 +235,9 @@ knit_github_download_asset() {
     _knit_ensure_trace_file
     knit_trace "Downloading ${org}/${repo} asset ${asset} (${tag})..."
     mkdir -p "$(dirname "${dest}")"
-    # --retry 3 --retry-all-errors: retry transient HTTP and connection failures.
-    # --connect-timeout / --speed-time+--speed-limit: give up on a stalled transfer
-    # (no connect in 30s, or < 1 KB/s for 60s) and let --retry take another pass,
-    # rather than hanging or aborting on one blip.
+    _knit_curl_retry_args
     if ! knit_framed_run "download ${asset}" \
-            curl -fL --retry 3 --retry-delay 2 --retry-all-errors \
-                 --connect-timeout 30 --speed-time 60 --speed-limit 1024 \
-                 -o "${dest}" "${url}"; then
+            curl -fL "${_KNIT_CURL_RETRY_ARGS[@]}" -o "${dest}" "${url}"; then
         rm -f "${dest}"
         knit_fatal "Could not download asset ${asset} from ${url}. See ${_KNIT_TRACE_FILE} for more information."
     fi
