@@ -238,21 +238,36 @@ knit_done
 # (e.g. mpicc/cmake from modules) already active. A guarded no-op when the file is
 # absent (no profile, or the profile declared neither modules nor environment).
 # Shared by the generic setup before-callback and the Spack-env before-callback.
+#
+# Returns 0 regardless of the sourced fragment's exit status. A module profile
+# routinely leaves a non-zero $? on its last command (Lmod and Environment
+# Modules return the status of an incidental final step), and that status is not
+# a reliable success signal: letting it propagate would fail the whole setup --
+# and, through the before-callback, bootstrap's default setup -- over a benign
+# profile. The exports still take effect (redirecting a `source` does not affect
+# the shell's environment), output is captured to the trace file for diagnosis,
+# and a genuine missing module/tool surfaces when the setup body tries to use it.
 # ------------------------------------------------------------------------------
 _knit_setup_source_platform() {
     local platform="${_KNIT_PREFIX}/platform.sh"
-    if [[ -f "${platform}" ]]; then
-        # Sourcing runs the profile's module init and `module load`, which for
-        # Lmod / Environment Modules print informational chatter ("Lmod is
-        # automatically replacing ...", "the following have been reloaded ...")
-        # to stderr. Redirect the sourcing's output to the trace file so it does
-        # not pollute the user's terminal; the exports still take effect in this
-        # shell (redirecting a `source` does not affect the shell's environment),
-        # and any genuine module failure is preserved in the trace file.
-        _knit_ensure_trace_file
-        # shellcheck disable=SC1090 # dynamic, generated at bootstrap
-        source "${platform}" >> "${_KNIT_TRACE_FILE}" 2>&1
-    fi
+    [[ -f "${platform}" ]] || return 0
+    # Sourcing runs the profile's module init and `module load`, which for Lmod /
+    # Environment Modules print informational chatter ("Lmod is automatically
+    # replacing ...", "the following have been reloaded ...") to stderr. Redirect
+    # the sourcing's output to the trace file so it does not pollute the terminal.
+    _knit_ensure_trace_file
+    # Disable errexit locally -- "local -" restores the caller's shell options on
+    # return -- so a profile command that returns non-zero (common and benign in
+    # module systems) neither aborts the sourcing mid-way nor, via the sourced
+    # fragment's final status, fails the setup when the experiment runs under
+    # "set -e". The exports still take effect (a redirected `source` still sets
+    # the shell's environment), and a genuine missing module/tool surfaces when
+    # the setup body tries to use it.
+    local -
+    set +e
+    # shellcheck disable=SC1090 # dynamic, generated at bootstrap
+    source "${platform}" >> "${_KNIT_TRACE_FILE}" 2>&1
+    return 0
 }
 
 # ------------------------------------------------------------------------------

@@ -206,6 +206,22 @@ teardown() {
     [ "$status" -eq 0 ]
 }
 
+@test "setup before callback succeeds when platform.sh returns non-zero" {
+    export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
+    # A module profile routinely leaves a non-zero $? on a command; that must not
+    # fail the setup, whether the non-zero command is in the middle of the
+    # fragment or its last line.
+    printf '%s\n' 'false' 'export _KNIT_TEST_PLATFORM_CANARY=on' 'false' \
+        > "${_KNIT_PREFIX}/platform.sh"
+    run _knit_setup_before_cb
+    [ "$status" -eq 0 ]
+    # Exports before the mid-fragment failure still take effect (verified via a
+    # direct call, since `run` captures the status in a subshell).
+    _knit_setup_before_cb
+    [ "${_KNIT_TEST_PLATFORM_CANARY:-}" = "on" ]
+    unset _KNIT_TEST_PLATFORM_CANARY
+}
+
 @test "setup after callback inlines platform.sh at the top of .activate.sh" {
     export KNIT_SETUP_PREFIX="${_KNIT_TEST_TMPDIR}"
     printf '%s\n' '# knit platform environment (generated at bootstrap)' \
