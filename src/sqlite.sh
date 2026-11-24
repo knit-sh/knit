@@ -66,18 +66,22 @@ _knit_sqlite_framed_run() {
 # @fn _knit_bootstrap_sqlite()
 #
 # Make an sqlite3 program available at _KNIT_SQLITE_EXE. Knit uses only the
-# sqlite3 CLI (it links no SQLite library), so the system sqlite3 is symlinked
-# into the .knit directory whenever its CLI is on PATH -- no development files
-# are needed. Otherwise sqlite3 is downloaded and built from source. The metadata
-# and provenance tables are created in either case.
+# sqlite3 CLI (it links no SQLite library). By default sqlite3 is built from
+# source into the .knit directory, so the install is self-contained: an HPC
+# compute node often differs from the login node (a login-only system binary, or
+# a symlink to one, is absent or dangling there), so a built binary is the
+# portable default. With use_system the system sqlite3 is symlinked instead when
+# its CLI is on PATH (no development files needed), falling back to a source build
+# when none is found. The metadata and provenance tables are created in either
+# case.
 #
-# @param[in] ignore_system When "true", always build from source even if a
-#        system sqlite3 is present.
+# @param[in] use_system When "true", symlink the system sqlite3 if one is on PATH
+#        instead of building from source.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_sqlite() {
-    local ignore_system="${1:-false}"
+    local use_system="${1:-false}"
     local system_sqlite=""
-    if [[ "${ignore_system}" != "true" ]]; then
+    if [[ "${use_system}" == "true" ]]; then
         system_sqlite="$(_knit_command_path sqlite3)"
     fi
 
@@ -100,22 +104,26 @@ _knit_bootstrap_sqlite() {
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_update_sqlite()
 #
-# Update-mode handler for --ignore-system-sqlite. The flag matters only when the
-# current sqlite install is a symlink to a system binary: it replaces the symlink
-# with a from-source build. An install that is already built from source is what
-# the flag asks for, so it is a no-op; an untyped flag leaves the install as is.
+# Update-mode handler for --use-system-sqlite. The flag matters only when the
+# current sqlite install is a from-source build and a system sqlite3 is on PATH:
+# it replaces the build with a symlink to the system binary. An install that is
+# already a system symlink is what the flag asks for, so it is a no-op; so is an
+# untyped flag or an absent system binary.
 #
 # @param[in] ... Raw argument tokens of this invocation (see
 #            _KNIT_INVOCATION_RAW_ARGS), used to tell a typed flag from a
 #            defaulted one.
-# @return 0 when sqlite was rebuilt from source, 1 when nothing changed.
+# @return 0 when sqlite was switched to a system symlink, 1 when nothing changed.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_update_sqlite() {
-    _knit_arg_was_provided "ignore-system-sqlite" "$@" || return 1
-    [[ -L "${_KNIT_SQLITE_EXE}" ]] || return 1
-    knit_info "Rebuilding sqlite from source..."
+    _knit_arg_was_provided "use-system-sqlite" "$@" || return 1
+    [[ -L "${_KNIT_SQLITE_EXE}" ]] && return 1
+    local system_sqlite; system_sqlite="$(_knit_command_path sqlite3)"
+    [[ -n "${system_sqlite}" ]] || return 1
+    knit_info "Using system sqlite at ${system_sqlite} (symlinked)."
     rm -rf "${_KNIT_PREFIX}/sqlite"
-    _knit_build_sqlite
+    mkdir -p "$(dirname "${_KNIT_SQLITE_EXE}")"
+    ln -s "${system_sqlite}" "${_KNIT_SQLITE_EXE}"
     return 0
 }
 

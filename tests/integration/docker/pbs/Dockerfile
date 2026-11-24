@@ -251,16 +251,14 @@ RUN cd /tmp && \
 # rebuild reuses the cached OpenPBS/MPICH/OpenMPI layers above.
 RUN dnf -y install cmake xz && dnf clean all
 
-# The sqlite CLI and jq on PATH so knit bootstrap symlinks them instead of
-# building sqlite from source and downloading jq in every experiment (that
-# from-source build dominated the slurm/pbs run time). knit uses only the sqlite3
-# CLI (it links no SQLite library), so bootstrap symlinks the system sqlite
-# whenever its CLI is present -- no development files are needed. One experiment
-# (01_bootstrap) still forces the build/download path with
-# --ignore-system-sqlite/--ignore-system-jq, so that path stays covered. The
-# distro packages here are older than knit's own (sqlite 3.34, jq 1.6), which also
-# exercises the old-tool compatibility path on this backend. Late layer so a
-# rebuild reuses the cached layers above.
+# The sqlite CLI and jq on PATH so an experiment can take the fast
+# --use-system-sqlite/--use-system-jq symlink path instead of building sqlite
+# from source and downloading jq (bootstrap builds/downloads by default now, which
+# 01_bootstrap covers). knit uses only the sqlite3 CLI (it links no SQLite
+# library), so the symlink needs no development files. The distro packages here
+# are older than knit's own (sqlite 3.34, jq 1.6), so --use-system-* also exercises
+# the old-tool compatibility path on this backend. Late layer so a rebuild reuses
+# the cached layers above.
 RUN dnf -y install sqlite jq && dnf clean all
 
 # Lmod modulefiles (auto-discovered: /usr/share/modulefiles is on the default

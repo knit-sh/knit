@@ -57,18 +57,21 @@ _knit_jq_framed_run() {
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_jq()
 #
-# Make a jq program available at _KNIT_JQ_EXE. When a system jq is found on PATH
-# and the caller did not request otherwise, symlink it into the .knit directory
-# instead of downloading; otherwise download the prebuilt jq binary for the
-# current platform.
+# Make a jq program available at _KNIT_JQ_EXE. By default the prebuilt jq binary
+# for the current platform is downloaded into the .knit directory, so the install
+# is self-contained: an HPC compute node often differs from the login node (a
+# login-only system jq, or a symlink to one, is absent or dangling there), so a
+# downloaded binary is the portable default. With use_system the system jq is
+# symlinked instead when one is on PATH, falling back to a download when none is
+# found.
 #
-# @param[in] ignore_system When "true", always download jq even if a system jq is
-#        present.
+# @param[in] use_system When "true", symlink the system jq if one is on PATH
+#        instead of downloading.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_jq() {
-    local ignore_system="${1:-false}"
+    local use_system="${1:-false}"
     local system_jq=""
-    if [[ "${ignore_system}" != "true" ]]; then
+    if [[ "${use_system}" == "true" ]]; then
         system_jq="$(_knit_command_path jq)"
     fi
 
@@ -84,22 +87,26 @@ _knit_bootstrap_jq() {
 # ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_update_jq()
 #
-# Update-mode handler for --ignore-system-jq. The flag matters only when the
-# current jq install is a symlink to a system binary: it replaces the symlink
-# with a downloaded prebuilt jq. An install that was already downloaded is what
-# the flag asks for, so it is a no-op; an untyped flag leaves the install as is.
+# Update-mode handler for --use-system-jq. The flag matters only when the current
+# jq install is a downloaded binary and a system jq is on PATH: it replaces the
+# download with a symlink to the system binary. An install that is already a
+# system symlink is what the flag asks for, so it is a no-op; so is an untyped
+# flag or an absent system binary.
 #
 # @param[in] ... Raw argument tokens of this invocation (see
 #            _KNIT_INVOCATION_RAW_ARGS), used to tell a typed flag from a
 #            defaulted one.
-# @return 0 when jq was re-downloaded, 1 when nothing changed.
+# @return 0 when jq was switched to a system symlink, 1 when nothing changed.
 # ------------------------------------------------------------------------------
 _knit_bootstrap_update_jq() {
-    _knit_arg_was_provided "ignore-system-jq" "$@" || return 1
-    [[ -L "${_KNIT_JQ_EXE}" ]] || return 1
-    knit_info "Downloading jq..."
+    _knit_arg_was_provided "use-system-jq" "$@" || return 1
+    [[ -L "${_KNIT_JQ_EXE}" ]] && return 1
+    local system_jq; system_jq="$(_knit_command_path jq)"
+    [[ -n "${system_jq}" ]] || return 1
+    knit_info "Using system jq at ${system_jq} (symlinked)."
     rm -f "${_KNIT_JQ_EXE}"
-    _knit_download_jq
+    mkdir -p "$(dirname "${_KNIT_JQ_EXE}")"
+    ln -s "${system_jq}" "${_KNIT_JQ_EXE}"
     return 0
 }
 

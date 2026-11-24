@@ -107,32 +107,32 @@ _setup_sqlite_decision() {
     eval '_knit_history_create_table() { :; }'
 }
 
-@test "bootstrap sqlite symlinks the system binary when present (no dev files needed)" {
+@test "bootstrap sqlite builds from source by default even when a system binary is present" {
     _setup_sqlite_decision
     _knit_command_path() { printf '%s' "${__fake_sqlite}"; }
 
     _knit_bootstrap_sqlite
+
+    [ ! -L "${_KNIT_SQLITE_EXE}" ]
+    [ -e "${__sqlite_build_marker}" ]
+}
+
+@test "bootstrap sqlite symlinks the system binary with --use-system-sqlite (no dev files needed)" {
+    _setup_sqlite_decision
+    _knit_command_path() { printf '%s' "${__fake_sqlite}"; }
+
+    _knit_bootstrap_sqlite true
 
     [ -L "${_KNIT_SQLITE_EXE}" ]
     [ "$(readlink "${_KNIT_SQLITE_EXE}")" = "${__fake_sqlite}" ]
     [ ! -e "${__sqlite_build_marker}" ]
 }
 
-@test "bootstrap sqlite builds from source when ignore flag is set" {
-    _setup_sqlite_decision
-    _knit_command_path() { printf '%s' "${__fake_sqlite}"; }
-
-    _knit_bootstrap_sqlite true
-
-    [ ! -L "${_KNIT_SQLITE_EXE}" ]
-    [ -e "${__sqlite_build_marker}" ]
-}
-
-@test "bootstrap sqlite builds from source when no system binary present" {
+@test "bootstrap sqlite falls back to a source build with --use-system-sqlite when no system binary present" {
     _setup_sqlite_decision
     _knit_command_path() { printf ''; }
 
-    _knit_bootstrap_sqlite
+    _knit_bootstrap_sqlite true
 
     [ ! -L "${_KNIT_SQLITE_EXE}" ]
     [ -e "${__sqlite_build_marker}" ]
@@ -153,32 +153,32 @@ _setup_jq_decision() {
     eval '_knit_download_jq() { : > "'"${__jq_download_marker}"'"; }'
 }
 
-@test "bootstrap jq symlinks the system binary when present and no flag" {
+@test "bootstrap jq downloads by default even when a system binary is present" {
     _setup_jq_decision
     _knit_command_path() { printf '%s' "${__fake_jq}"; }
 
     _knit_bootstrap_jq
+
+    [ ! -L "${_KNIT_JQ_EXE}" ]
+    [ -e "${__jq_download_marker}" ]
+}
+
+@test "bootstrap jq symlinks the system binary with --use-system-jq" {
+    _setup_jq_decision
+    _knit_command_path() { printf '%s' "${__fake_jq}"; }
+
+    _knit_bootstrap_jq true
 
     [ -L "${_KNIT_JQ_EXE}" ]
     [ "$(readlink "${_KNIT_JQ_EXE}")" = "${__fake_jq}" ]
     [ ! -e "${__jq_download_marker}" ]
 }
 
-@test "bootstrap jq downloads when ignore flag is set" {
-    _setup_jq_decision
-    _knit_command_path() { printf '%s' "${__fake_jq}"; }
-
-    _knit_bootstrap_jq true
-
-    [ ! -L "${_KNIT_JQ_EXE}" ]
-    [ -e "${__jq_download_marker}" ]
-}
-
-@test "bootstrap jq downloads when no system binary present" {
+@test "bootstrap jq falls back to a download with --use-system-jq when no system binary present" {
     _setup_jq_decision
     _knit_command_path() { printf ''; }
 
-    _knit_bootstrap_jq
+    _knit_bootstrap_jq true
 
     [ ! -L "${_KNIT_JQ_EXE}" ]
     [ -e "${__jq_download_marker}" ]
@@ -1049,35 +1049,48 @@ _setup_sqlite_update() {
     eval '_knit_build_sqlite() { : > "'"${__sqlite_build_marker}"'"; }'
 }
 
-@test "update mode rebuilds sqlite from source when the flag is typed over a symlink" {
+@test "update mode switches sqlite to a system symlink when the flag is typed over a from-source build" {
     _setup_sqlite_update
-    ln -s /usr/bin/true "${_KNIT_SQLITE_EXE}"      # a system symlink
+    printf '#!/bin/sh\n' > "${_KNIT_SQLITE_EXE}"   # a from-source build, not a symlink
+    chmod +x "${_KNIT_SQLITE_EXE}"
+    _knit_command_path() { printf '/usr/bin/true'; }
 
-    run _knit_bootstrap_update_sqlite --ignore-system-sqlite
+    run _knit_bootstrap_update_sqlite --use-system-sqlite
     [ "$status" -eq 0 ]
-    [ -e "${__sqlite_build_marker}" ]
-    [ ! -L "${_KNIT_SQLITE_EXE}" ]                 # symlink removed before the build
+    [ -L "${_KNIT_SQLITE_EXE}" ]                   # now a system symlink
+    [ "$(readlink "${_KNIT_SQLITE_EXE}")" = "/usr/bin/true" ]
 }
 
-@test "update mode leaves an already-from-source sqlite install alone" {
+@test "update mode leaves an already-symlinked sqlite install alone" {
     _setup_sqlite_update
-    printf '#!/bin/sh\n' > "${_KNIT_SQLITE_EXE}"   # a real binary, not a symlink
-    chmod +x "${_KNIT_SQLITE_EXE}"
+    ln -s /usr/bin/true "${_KNIT_SQLITE_EXE}"      # already a system symlink
+    _knit_command_path() { printf '/usr/bin/true'; }
 
-    run _knit_bootstrap_update_sqlite --ignore-system-sqlite
+    run _knit_bootstrap_update_sqlite --use-system-sqlite
     [ "$status" -eq 1 ]
-    [ ! -e "${__sqlite_build_marker}" ]
-    [ -f "${_KNIT_SQLITE_EXE}" ]                   # untouched
+    [ -L "${_KNIT_SQLITE_EXE}" ]                   # untouched
+}
+
+@test "update mode leaves sqlite alone when the flag is typed but no system binary is present" {
+    _setup_sqlite_update
+    printf '#!/bin/sh\n' > "${_KNIT_SQLITE_EXE}"
+    chmod +x "${_KNIT_SQLITE_EXE}"
+    _knit_command_path() { printf ''; }           # no system sqlite3 to symlink to
+
+    run _knit_bootstrap_update_sqlite --use-system-sqlite
+    [ "$status" -eq 1 ]
+    [ ! -L "${_KNIT_SQLITE_EXE}" ]                 # left as the from-source build
 }
 
 @test "update mode leaves sqlite alone when the flag is untyped" {
     _setup_sqlite_update
-    ln -s /usr/bin/true "${_KNIT_SQLITE_EXE}"
+    printf '#!/bin/sh\n' > "${_KNIT_SQLITE_EXE}"
+    chmod +x "${_KNIT_SQLITE_EXE}"
+    _knit_command_path() { printf '/usr/bin/true'; }
 
     run _knit_bootstrap_update_sqlite             # no flag typed
     [ "$status" -eq 1 ]
-    [ ! -e "${__sqlite_build_marker}" ]
-    [ -L "${_KNIT_SQLITE_EXE}" ]                   # symlink untouched
+    [ ! -L "${_KNIT_SQLITE_EXE}" ]                 # untouched (still a build)
 }
 
 # Prepare a jq install location under the prefix and stub the download to a
@@ -1090,35 +1103,48 @@ _setup_jq_update() {
     eval '_knit_download_jq() { : > "'"${__jq_download_marker}"'"; }'
 }
 
-@test "update mode re-downloads jq when the flag is typed over a symlink" {
+@test "update mode switches jq to a system symlink when the flag is typed over a download" {
     _setup_jq_update
-    ln -s /usr/bin/true "${_KNIT_JQ_EXE}"
+    printf '#!/bin/sh\n' > "${_KNIT_JQ_EXE}"       # a downloaded binary, not a symlink
+    chmod +x "${_KNIT_JQ_EXE}"
+    _knit_command_path() { printf '/usr/bin/true'; }
 
-    run _knit_bootstrap_update_jq --ignore-system-jq
+    run _knit_bootstrap_update_jq --use-system-jq
     [ "$status" -eq 0 ]
-    [ -e "${__jq_download_marker}" ]
-    [ ! -L "${_KNIT_JQ_EXE}" ]                     # symlink removed before download
+    [ -L "${_KNIT_JQ_EXE}" ]                        # now a system symlink
+    [ "$(readlink "${_KNIT_JQ_EXE}")" = "/usr/bin/true" ]
 }
 
-@test "update mode leaves an already-downloaded jq install alone" {
+@test "update mode leaves an already-symlinked jq install alone" {
     _setup_jq_update
-    printf '#!/bin/sh\n' > "${_KNIT_JQ_EXE}"       # a real binary, not a symlink
-    chmod +x "${_KNIT_JQ_EXE}"
+    ln -s /usr/bin/true "${_KNIT_JQ_EXE}"          # already a system symlink
+    _knit_command_path() { printf '/usr/bin/true'; }
 
-    run _knit_bootstrap_update_jq --ignore-system-jq
+    run _knit_bootstrap_update_jq --use-system-jq
     [ "$status" -eq 1 ]
-    [ ! -e "${__jq_download_marker}" ]
-    [ -f "${_KNIT_JQ_EXE}" ]                       # untouched
+    [ -L "${_KNIT_JQ_EXE}" ]                        # untouched
+}
+
+@test "update mode leaves jq alone when the flag is typed but no system binary is present" {
+    _setup_jq_update
+    printf '#!/bin/sh\n' > "${_KNIT_JQ_EXE}"
+    chmod +x "${_KNIT_JQ_EXE}"
+    _knit_command_path() { printf ''; }            # no system jq to symlink to
+
+    run _knit_bootstrap_update_jq --use-system-jq
+    [ "$status" -eq 1 ]
+    [ ! -L "${_KNIT_JQ_EXE}" ]                      # left as the downloaded binary
 }
 
 @test "update mode leaves jq alone when the flag is untyped" {
     _setup_jq_update
-    ln -s /usr/bin/true "${_KNIT_JQ_EXE}"
+    printf '#!/bin/sh\n' > "${_KNIT_JQ_EXE}"
+    chmod +x "${_KNIT_JQ_EXE}"
+    _knit_command_path() { printf '/usr/bin/true'; }
 
     run _knit_bootstrap_update_jq                  # no flag typed
     [ "$status" -eq 1 ]
-    [ ! -e "${__jq_download_marker}" ]
-    [ -L "${_KNIT_JQ_EXE}" ]                       # symlink untouched
+    [ ! -L "${_KNIT_JQ_EXE}" ]                      # untouched (still a download)
 }
 
 # ---------- update mode: knit-cypher-to-sql re-provision ----------

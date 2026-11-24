@@ -1,22 +1,27 @@
 ..
-   title: Force building the bundled tools from source
+   title: Use the host's sqlite/jq instead of the bundled copies
    categories: bootstrap
    order: 80
-   description: Build sqlite/jq from source instead of symlinking the system copies.
+   description: Symlink the system sqlite/jq with --use-system-* instead of the default self-contained build.
    apis: bootstrap
 
-By default ``bootstrap`` symlinks the system ``sqlite3`` and ``jq`` when they are
-available, and only builds or downloads its own copy when they are missing. Force
-Knit to provision its own instead --- for a pinned, reproducible toolchain
-independent of what the host happens to ship --- with ``--ignore-system-sqlite``
-and ``--ignore-system-jq``:
+By default ``bootstrap`` provisions its own toolchain under ``.knit/`` --- it
+builds ``sqlite3`` from source and downloads a ``jq`` binary --- so the install is
+self-contained and reproducible, independent of what the host ships. This also
+makes it portable to an HPC compute node, which often differs from the login
+node: a symlink to a login-only binary would dangle there.
+
+On a single machine where the system copies are known good, symlink them instead
+--- a faster bootstrap, with no build or download --- with ``--use-system-sqlite``
+and ``--use-system-jq``:
 
 .. code-block:: console
 
    $ ./exp.sh bootstrap \
-       --ignore-system-sqlite \
-       --ignore-system-jq
+       --use-system-sqlite \
+       --use-system-jq
 
-``--ignore-system-sqlite`` builds SQLite from source; ``--ignore-system-jq``
-downloads a ``jq`` binary. Either way the tool lands under ``.knit/`` and is used
-in preference to any system copy.
+Each flag symlinks the system tool into ``.knit/`` when it is on ``PATH``, and
+falls back to the default build/download when it is not. Prefer the default on a
+cluster; reach for ``--use-system-*`` only when the same binary is guaranteed on
+every node your jobs run on.

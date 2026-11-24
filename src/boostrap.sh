@@ -349,8 +349,8 @@ _knit_bootstrap_update_db_lock() {
 # a manager when absent, or re-provision on a changed ref only while no
 # environment is built) and --profile
 # (a changed profile is out of scope and fatals), and the
-# tooling options: --ignore-system-sqlite/--ignore-system-jq (rebuild a
-# system-symlinked tool from source), --db-lock (switch the database write-lock
+# tooling options: --use-system-sqlite/--use-system-jq (switch a from-source/
+# downloaded tool to a system symlink), --db-lock (switch the database write-lock
 # mechanism — pure configuration, no migration) and
 # --knit-cypher-to-sql-version/--knit-cypher-to-sql-url (re-provision
 # knit-cypher-to-sql on a changed version or URL). When no handled option was typed,
@@ -470,8 +470,8 @@ _knit_bootstrap_update() {
     # environment is built (a built environment freezes the version, and fatals).
     _knit_env_update_all "${__knit_raw_name}" && updated="true"
 
-    # Tooling: rebuild sqlite / re-download jq when a typed --ignore-system-*
-    # flag turns a system symlink into a private install, and re-provision
+    # Tooling: switch sqlite / jq to a system symlink when a typed --use-system-*
+    # flag turns a from-source/downloaded install into a symlink, and re-provision
     # knit-cypher-to-sql when a typed version/URL differs.
     _knit_bootstrap_update_sqlite "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_jq "${__knit_raw[@]}" && updated="true"
@@ -540,10 +540,10 @@ knit_with_optional "default-cpus-per-node:string" "" \
     "Cores per node for whole-node allocation (default: profile hardware, else live detection)."
 knit_with_optional "default-nodefile:string" "" \
     "Path to a file listing cluster nodes (one host per line). Used by the 'none' scheduler to report a job's allocation."
-knit_with_flag "ignore-system-sqlite" \
-    "Build sqlite from source even if a system sqlite3 is available."
-knit_with_flag "ignore-system-jq" \
-    "Download jq even if a system jq is available."
+knit_with_flag "use-system-sqlite" \
+    "Symlink the system sqlite3 (if on PATH) instead of building it from source. The default build is self-contained and portable to compute nodes; a system symlink can dangle where the login-node binary is absent."
+knit_with_flag "use-system-jq" \
+    "Symlink the system jq (if on PATH) instead of downloading it. The default download is self-contained and portable to compute nodes; a system symlink can dangle where the login-node binary is absent."
 knit_with_optional "db-lock:__db_lock__" "flock" \
     "How to serialize database writes. 'flock' (default) uses advisory file locks and needs a filesystem that supports them. 'mkdir' uses an atomic directory lock that works on filesystems without flock (e.g. NERSC DVS-projected home); a writer that cannot acquire the lock within 60s fails and asks you to remove a stray lock by hand. 'none' disables locking entirely (only safe when no two Knit writes ever overlap)."
 knit_with_optional "knit-cypher-to-sql-version:string" "" \
@@ -592,8 +592,8 @@ _knit_bootstrap() {
     local default_queue_flag
     local cpus_flag
     local default_nodefile
-    local ignore_system_sqlite
-    local ignore_system_jq
+    local use_system_sqlite
+    local use_system_jq
     local db_lock
     local cypher_to_sql_version
     local cypher_to_sql_url
@@ -615,8 +615,8 @@ _knit_bootstrap() {
     default_queue_flag="$(knit_get_parameter "default-queue" "$@")"
     cpus_flag="$(knit_get_parameter "default-cpus-per-node" "$@")"
     default_nodefile="$(knit_get_parameter "default-nodefile" "$@")"
-    ignore_system_sqlite="$(knit_get_parameter "ignore-system-sqlite" "$@")"
-    ignore_system_jq="$(knit_get_parameter "ignore-system-jq" "$@")"
+    use_system_sqlite="$(knit_get_parameter "use-system-sqlite" "$@")"
+    use_system_jq="$(knit_get_parameter "use-system-jq" "$@")"
     db_lock="$(knit_get_parameter "db-lock" "$@")"
     cypher_to_sql_version="$(knit_get_parameter "knit-cypher-to-sql-version" "$@")"
     cypher_to_sql_url="$(knit_get_parameter "knit-cypher-to-sql-url" "$@")"
@@ -672,14 +672,14 @@ _knit_bootstrap() {
     printf '%s\n' "${db_lock}" > "${_KNIT_PREFIX}/db-lock"
     _KNIT_DB_LOCK_MODE=""
 
-    # Knit uses the sqlite3 CLI only (no library linkage), so _knit_bootstrap_sqlite
-    # symlinks the system sqlite3 when one is on PATH and otherwise builds it from
-    # source.
+    # Knit uses the sqlite3 CLI only (no library linkage). _knit_bootstrap_sqlite
+    # builds it from source by default (self-contained, portable to compute nodes)
+    # and symlinks the system sqlite3 only under --use-system-sqlite.
     knit_info "Bootstrapping sqlite..."
-    _knit_bootstrap_sqlite "${ignore_system_sqlite}"
+    _knit_bootstrap_sqlite "${use_system_sqlite}"
 
     knit_info "Bootstrapping jq..."
-    _knit_bootstrap_jq "${ignore_system_jq}"
+    _knit_bootstrap_jq "${use_system_jq}"
 
     # knit-cypher-to-sql is the Cypher-to-SQL transpiler behind `knit query`. It
     # is a pure transpiler that links no SQLite, so it is independent of the
