@@ -181,6 +181,29 @@ _pilot_marker() {
 
 # ---------- _knit_pilot_build_nodelist ----------
 
+@test "socket dir prefers TMPDIR when the full socket path fits" {
+    local tmp; tmp="$(mktemp -d)"
+    local got
+    TMPDIR="${tmp}" _knit_pilot_socket_dir got "knit-pilot-0123456789abcdef.sock"
+    [ "${got}" = "${tmp}" ]
+    rm -rf "${tmp}"
+}
+
+@test "socket dir skips an over-long TMPDIR so the sun_path stays bindable" {
+    # A scheduler can set a very long per-job TMPDIR (PBS does); if TMPDIR + leaf
+    # would overflow the AF_UNIX sun_path limit it must be skipped for a shorter
+    # node-local dir, not produce an unbindable socket path.
+    local base; base="$(mktemp -d)"
+    local longdir="${base}/$(printf 'x%.0s' {1..100})"
+    mkdir -p "${longdir}"
+    local leaf="knit-pilot-0123456789abcdef.sock"
+    local got
+    TMPDIR="${longdir}" _knit_pilot_socket_dir got "${leaf}"
+    [ "${got}" != "${longdir}" ]
+    (( ${#got} + 1 + ${#leaf} <= 104 ))
+    rm -rf "${base}"
+}
+
 @test "build-nodelist joins the deduplicated hostnames" {
     knit_job_hostnames() { printf '%s\n' nodeA nodeB nodeC; }
     run _knit_pilot_build_nodelist ""

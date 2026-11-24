@@ -209,17 +209,27 @@ _knit_pilot_build_nodelist() {
 # Pick the directory to hold the knit-pilotd control socket. A unix-domain socket
 # must live on a node-local filesystem: binding one on a parallel filesystem
 # (GPFS/Lustre) is a slow metadata operation that can block for seconds under
-# load, and the AF_UNIX sun_path limit (~108 bytes) rules out long shared paths.
-# Prefer the scheduler's per-job node-local TMPDIR, then /dev/shm, then /tmp,
-# taking the first that exists and is writable.
+# load, and the AF_UNIX sun_path limit (~108 bytes on Linux, 104 on macOS) rules
+# out long paths. Prefer the scheduler's per-job node-local TMPDIR, then
+# /dev/shm, then /tmp, taking the first that exists, is writable, AND leaves the
+# full socket path (dir + "/" + leaf) within sun_path: a scheduler can set a very
+# long per-job TMPDIR (PBS uses one named after the job id and host), which would
+# otherwise yield an unbindable path. /tmp is the last resort because it is short
+# enough that the leaf always fits.
 #
 # @param[out] ret Nameref set to the chosen directory.
+# @param[in]  leaf The socket filename that will be appended to the directory.
 # ------------------------------------------------------------------------------
 _knit_pilot_socket_dir() {
     local -n __knit_ret=$1
+    local leaf="$2"
+    # Use the stricter (macOS) bound with a margin so the chosen path binds on
+    # either platform.
+    local -i max=104
     local d
     for d in "${TMPDIR:-}" /dev/shm /tmp; do
         [[ -n "${d}" && -d "${d}" && -w "${d}" ]] || continue
+        (( ${#d} + 1 + ${#leaf} <= max )) || continue
         __knit_ret="${d}"
         return 0
     done
@@ -248,10 +258,15 @@ _knit_pilot_before_cb() {
 
     # Put the control socket on a node-local filesystem, not in the job directory
     # (which is on a parallel filesystem on an HPC site) — see
-    # _knit_pilot_socket_dir. A stable per-job name keeps the sun_path short.
-    local sockdir; _knit_pilot_socket_dir sockdir
+    # _knit_pilot_socket_dir. The leaf is a short, stable per-job name (the first
+    # 16 hex of the job uuid, dashes stripped) so the sun_path stays within the
+    # AF_UNIX limit even under a long scheduler TMPDIR; the dir chooser then takes
+    # the first candidate the full path fits in.
     local uuid; uuid="$(basename "${KNIT_JOB_PREFIX}")"
-    local sock="${sockdir}/knit-pilot-${uuid}.sock"
+    local short="${uuid//-/}"; short="${short:0:16}"
+    local leaf="knit-pilot-${short}.sock"
+    local sockdir; _knit_pilot_socket_dir sockdir "${leaf}"
+    local sock="${sockdir}/${leaf}"
 
     local nodes
     nodes="$(_knit_pilot_build_nodelist "${exclude_launch_host}")"
