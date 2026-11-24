@@ -2,12 +2,18 @@
 # Driver for bootstrap.sh (not shown in the documentation). Verifies that every
 # bootstrap flag mentioned in the Bootstrap stitch recipes still exists, then runs
 # a single bootstrap exercising the offline-safe ones and confirms the chosen
-# configuration was recorded. Kept to the local backend and offline (no
-# --profile, no --use-system-*, no --knit-cypher-to-sql-*) so it runs on any CI
-# runner; those flags are validated for existence via --help only.
+# configuration was recorded. Kept to the local backend (no --profile, no
+# --knit-cypher-to-sql-*) so it runs on any CI runner; those flags are validated
+# for existence via --help only.
 set -uo pipefail
 # shellcheck source=maint/doc-check-lib.sh
 source "${KNIT_DOC_LIB}"
+
+# This driver exercises bootstrap's provisioning itself across several re-runs, so
+# it opts out of the shared system-tools injection and types --use-system-sqlite/
+# --use-system-jq on the first bootstrap only (keeps it offline and fast; the
+# re-runs below must stay bare to test update mode).
+_DC_BOOTSTRAP_SYSTEM_TOOLS=0
 
 # Every flag the Bootstrap recipes mention must still be accepted by bootstrap.
 help="$(exp bootstrap --help 2>&1)"
@@ -23,7 +29,9 @@ for flag in \
 done
 
 # A single bootstrap exercising the offline-safe documented flags must succeed and
-# freeze the chosen values into the experiment's metadata.
+# freeze the chosen values into the experiment's metadata. --use-system-sqlite/
+# --use-system-jq keep it offline (the runner installs both); the re-runs below
+# stay bare to exercise update mode.
 exp bootstrap \
     --project PROJ-1234 \
     --account my-allocation \
@@ -32,7 +40,8 @@ exp bootstrap \
     --scheduler local \
     --launcher none \
     --default-walltime 01:30:00 \
-    --default-cpus-per-node 64 >/dev/null
+    --default-cpus-per-node 64 \
+    --use-system-sqlite --use-system-jq >/dev/null
 
 check_eq "$(exp metadata load --key __project__)"          "PROJ-1234" \
     "bootstrap records the project"

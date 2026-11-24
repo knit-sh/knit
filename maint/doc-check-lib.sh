@@ -24,10 +24,25 @@ export _KNIT_UUIDV7_MONOTONIC="1"
 
 _dc_fail=0
 
+# Bootstrap builds sqlite from source and downloads jq by default — far too slow,
+# and network-dependent, to repeat for every documented example on one shared CI
+# runner. That runner always installs a system sqlite3 and jq, so the docs check
+# symlinks those with --use-system-sqlite/--use-system-jq. A driver that must
+# exercise bootstrap's own provisioning sets _DC_BOOTSTRAP_SYSTEM_TOOLS=0 and
+# manages the flags itself.
+: "${_DC_BOOTSTRAP_SYSTEM_TOOLS:=1}"
+
 # @fn exp()
-# Run the experiment under test with the given arguments.
+# Run the experiment under test with the given arguments. A real `bootstrap` call
+# (not `--help`) is routed to the system sqlite3/jq unless the driver opted out
+# via _DC_BOOTSTRAP_SYSTEM_TOOLS=0.
 exp() {
-    ./"${EXP}" "$@"
+    if [[ "${_DC_BOOTSTRAP_SYSTEM_TOOLS}" == 1 && "${1:-}" == bootstrap \
+          && " $* " != *" --help "* ]]; then
+        ./"${EXP}" "$@" --use-system-sqlite --use-system-jq
+    else
+        ./"${EXP}" "$@"
+    fi
 }
 
 # @fn check_eq()
