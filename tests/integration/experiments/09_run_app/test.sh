@@ -42,7 +42,7 @@ cd "${WORKDIR}"
 # --------------------------------------------------------------------------
 # Bootstrap + setup
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-09"
+./experiment.sh bootstrap --project "integration-test-09" --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 ./experiment.sh setup --name env -- env

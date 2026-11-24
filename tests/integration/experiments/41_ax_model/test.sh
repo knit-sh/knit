@@ -32,7 +32,7 @@ chmod +x "${WORKDIR}/experiment.sh"
 cp /shared/knit/knit.sh "${WORKDIR}/knit.sh"
 cd "${WORKDIR}"
 
-./experiment.sh bootstrap --project "integration-test-41"
+./experiment.sh bootstrap --project "integration-test-41" --use-system-sqlite --use-system-jq
 SQLITE="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 export __ASSERT_SQLITE3="${SQLITE}"
 DB="${WORKDIR}/.knit/knit.db"

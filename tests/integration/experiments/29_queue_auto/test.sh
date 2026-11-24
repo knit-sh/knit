@@ -95,7 +95,8 @@ EOF
 # --default-queue flag must win over the profile's default_queue ("solo").
 # --------------------------------------------------------------------------
 ./experiment.sh bootstrap --project "integration-test-29" \
-    --profile ./profile.json --default-queue auto
+    --profile ./profile.json --default-queue auto \
+    --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 check_sqlite ".knit/knit.db" \

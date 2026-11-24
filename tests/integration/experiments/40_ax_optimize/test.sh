@@ -44,7 +44,7 @@ cd "${WORKDIR}"
 # plugin is fetched here; the private _ax-driver setup declares a uv environment,
 # so bootstrap auto-provisions the knit-private uv (no --uv needed).
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-40"
+./experiment.sh bootstrap --project "integration-test-40" --use-system-sqlite --use-system-jq
 SQLITE="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 export __ASSERT_SQLITE3="${SQLITE}"
 DB="${WORKDIR}/.knit/knit.db"

@@ -56,7 +56,7 @@ cd "${WORKDIR}"
 # (and .knit/spack-config.json only if the profile had a `spack` object — it does
 # not).
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-12" --profile "${PROFILE}"
+./experiment.sh bootstrap --project "integration-test-12" --profile "${PROFILE}" --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 # The profile was resolved from the admin store; __profile__ records the resolved

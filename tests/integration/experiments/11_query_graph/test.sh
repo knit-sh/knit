@@ -36,7 +36,7 @@ cd "${WORKDIR}"
 # Bootstrap. This builds knit-cypher-to-sql from its pinned release (only a C
 # compiler needed; it links no SQLite).
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-11"
+./experiment.sh bootstrap --project "integration-test-11" --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 check_exec ".knit/knit-cypher-to-sql/bin/knit-cypher-to-sql" \

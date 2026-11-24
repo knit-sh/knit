@@ -126,7 +126,7 @@ JSON
 #    `aggregate` graph query), and auto-provisions Spack (the juliaenv setup
 #    declares Spack specs).
 # --------------------------------------------------------------------------
-./exp.sh bootstrap --project "integration-test-17" --profile "${WORKDIR}/profile.json"
+./exp.sh bootstrap --project "integration-test-17" --profile "${WORKDIR}/profile.json" --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 check_grep "\"cmake\":" ".knit/spack-config.json" "profile externals rendered (cmake)"

@@ -54,7 +54,7 @@ expected_checksum() {
 # --------------------------------------------------------------------------
 # Bootstrap.
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-20"
+./experiment.sh bootstrap --project "integration-test-20" --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 # Wait for a --wait job's stdout/stderr to be fully flushed.

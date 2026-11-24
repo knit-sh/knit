@@ -42,7 +42,7 @@ cd "${WORKDIR}"
 # --------------------------------------------------------------------------
 # Bootstrap. This also builds knit-cypher-to-sql, used below for the Cypher walk.
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-24"
+./experiment.sh bootstrap --project "integration-test-24" --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 check_exec ".knit/knit-cypher-to-sql/bin/knit-cypher-to-sql" \

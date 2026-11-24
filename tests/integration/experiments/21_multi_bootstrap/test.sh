@@ -43,7 +43,7 @@ cd "${WORKDIR}"
 # --------------------------------------------------------------------------
 # First bootstrap: record the initial configuration.
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-21" --account "alloc-first"
+./experiment.sh bootstrap --project "integration-test-21" --account "alloc-first" --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 check_sqlite ".knit/knit.db" \

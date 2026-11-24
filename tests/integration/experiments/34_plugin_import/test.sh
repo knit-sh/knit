@@ -37,7 +37,7 @@ PLUGIN_ID="github.com/knit-sh/knit-template-plugin"
 # Bootstrap. knit_import runs at source time (before the bootstrap command),
 # so the plugin is fetched here; bootstrap then records and materializes it.
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-34"
+./experiment.sh bootstrap --project "integration-test-34" --use-system-sqlite --use-system-jq
 
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 

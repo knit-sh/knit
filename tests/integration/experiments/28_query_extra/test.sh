@@ -42,7 +42,7 @@ cd "${WORKDIR}"
 # --------------------------------------------------------------------------
 # Bootstrap this platform as "alpha" and submit a job that runs to completion.
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-28" --platform alpha
+./experiment.sh bootstrap --project "integration-test-28" --platform alpha --use-system-sqlite --use-system-jq
 SQLITE="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 export __ASSERT_SQLITE3="${SQLITE}"
 

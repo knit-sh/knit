@@ -53,7 +53,7 @@ cd "${WORKDIR}"
 # (module-init + `module load knit-marker <mpi>`) and auto-instantiates the
 # builtin default setup carrying that activation.
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-15" --profile "${PROFILE}"
+./experiment.sh bootstrap --project "integration-test-15" --profile "${PROFILE}" --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 # --------------------------------------------------------------------------

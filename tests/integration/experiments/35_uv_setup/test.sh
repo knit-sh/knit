@@ -36,7 +36,7 @@ cd "${WORKDIR}"
 # provisions the knit-private uv automatically (no --uv needed). This downloads
 # a single prebuilt uv binary for the host platform.
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-35"
+./experiment.sh bootstrap --project "integration-test-35" --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 check_file ".knit/uv/bin/uv" \

@@ -69,7 +69,8 @@ JSON
 # needed). This clones Spack and can take several minutes.
 # --------------------------------------------------------------------------
 ./experiment.sh bootstrap --project "integration-test-14" \
-    --profile "${WORKDIR}/ext.json"
+    --profile "${WORKDIR}/ext.json" \
+    --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 check_file ".knit/spack/bin/spack" \

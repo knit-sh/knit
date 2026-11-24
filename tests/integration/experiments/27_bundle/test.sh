@@ -45,7 +45,7 @@ printf 'row1\nrow2\n'  > staged/data.txt
 # --------------------------------------------------------------------------
 # Bootstrap, fetch the resource, run the job.
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-27"
+./experiment.sh bootstrap --project "integration-test-27" --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 ./experiment.sh fetch --name mydata -- dataset >/dev/null

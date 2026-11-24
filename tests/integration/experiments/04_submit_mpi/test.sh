@@ -87,7 +87,7 @@ wait_for_ranks() {
 # --------------------------------------------------------------------------
 # Bootstrap, then compile the MPI program in a setup.
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-04" "${BOOTSTRAP_PROFILE[@]}"
+./experiment.sh bootstrap --project "integration-test-04" "${BOOTSTRAP_PROFILE[@]}" --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 ./experiment.sh setup --name mpienv -- mpienv

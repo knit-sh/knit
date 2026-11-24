@@ -98,7 +98,7 @@ run_uuid_for_job() {
 # ==========================================================================
 # Bootstrap: no profile, and declare the machine has no integrated launcher.
 # ==========================================================================
-./experiment.sh bootstrap --project "integration-test-16" --launcher none
+./experiment.sh bootstrap --project "integration-test-16" --launcher none --use-system-sqlite --use-system-jq
 SQ="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 export __ASSERT_SQLITE3="${SQ}"
 

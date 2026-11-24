@@ -59,7 +59,7 @@ expected_checksum() {
 # Bootstrap. This also builds knit-cypher-to-sql, used below for the Cypher reverse
 # lookup.
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-22"
+./experiment.sh bootstrap --project "integration-test-22" --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 
 check_exec ".knit/knit-cypher-to-sql/bin/knit-cypher-to-sql" \

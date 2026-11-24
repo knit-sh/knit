@@ -53,7 +53,7 @@ cd "${WORKDIR}"
 # --------------------------------------------------------------------------
 # Bootstrap (provisions knit-pilotd, like the other bundled tools)
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-36"
+./experiment.sh bootstrap --project "integration-test-36" --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 check_exec "${WORKDIR}/.knit/knit-pilotd/bin/knit-pilotd" \
     "bootstrap provisioned the knit-pilotd daemon"

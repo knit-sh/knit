@@ -178,7 +178,7 @@ A="${WORKDIR}/A"; mkdir -p "${A}"; cp "${EXP}" "${A}/experiment.sh"
 cp /shared/knit/knit.sh "${A}/knit.sh"   # bare `source knit.sh` needs it beside the script
 chmod +x "${A}/experiment.sh"; cd "${A}"
 
-./experiment.sh bootstrap --project "int-13-mpiA" --profile "${WORKDIR}/mpiA.json"
+./experiment.sh bootstrap --project "int-13-mpiA" --profile "${WORKDIR}/mpiA.json" --use-system-sqlite --use-system-jq
 SQA="${A}/.knit/sqlite/bin/sqlite3"
 export __ASSERT_SQLITE3="${SQA}"
 
@@ -219,7 +219,7 @@ B="${WORKDIR}/B"; mkdir -p "${B}"; cp "${EXP}" "${B}/experiment.sh"
 cp /shared/knit/knit.sh "${B}/knit.sh"   # bare `source knit.sh` needs it beside the script
 chmod +x "${B}/experiment.sh"; cd "${B}"
 
-./experiment.sh bootstrap --project "int-13-mpiB" --profile "${PROFILE}"
+./experiment.sh bootstrap --project "int-13-mpiB" --profile "${PROFILE}" --use-system-sqlite --use-system-jq
 SQB="${B}/.knit/sqlite/bin/sqlite3"
 export __ASSERT_SQLITE3="${SQB}"
 
@@ -263,7 +263,7 @@ C="${WORKDIR}/C"; mkdir -p "${C}"; cp "${EXP}" "${C}/experiment.sh"
 cp /shared/knit/knit.sh "${C}/knit.sh"   # bare `source knit.sh` needs it beside the script
 chmod +x "${C}/experiment.sh"; cd "${C}"
 
-./experiment.sh bootstrap --project "int-13-beats" --profile "${WORKDIR}/beats.json"
+./experiment.sh bootstrap --project "int-13-beats" --profile "${WORKDIR}/beats.json" --use-system-sqlite --use-system-jq
 SQC="${C}/.knit/sqlite/bin/sqlite3"
 export __ASSERT_SQLITE3="${SQC}"
 

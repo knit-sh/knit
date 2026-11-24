@@ -78,7 +78,7 @@ printf 'from-resource\n' > "${WORKDIR}/srcpkg/marker.txt"
 # 1. bootstrap — provisions the private sqlite (and builds knit-cypher-to-sql, used for
 #    the Cypher reverse lookup below).
 # --------------------------------------------------------------------------
-./experiment.sh bootstrap --project "integration-test-23"
+./experiment.sh bootstrap --project "integration-test-23" --use-system-sqlite --use-system-jq
 export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 check_exec ".knit/knit-cypher-to-sql/bin/knit-cypher-to-sql" \
     "bootstrap built the knit-cypher-to-sql binary"
