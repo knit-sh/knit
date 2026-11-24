@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # =============================================================================
-#  knit — tune a CNN image classifier (examples/cnn.sh)
+#  knit — tune a CNN image classifier (examples/cnn/exp.sh)
 # =============================================================================
 #
 # This is a complete, runnable knit experiment built around a real machine-
