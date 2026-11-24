@@ -546,6 +546,38 @@ _tune_pilot_job() {
 @done
 
 # -----------------------------------------------------------------------------
+# sweep-pilot — run a prepared sweep group inside one pilot allocation.
+#
+# The sweep's `submit drain` (step 4) sends one job per grid point to the batch
+# scheduler, which queues each separately. This pilot avoids that the same way
+# tune-pilot does for ax: it takes one allocation, starts the knit-pilotd daemon
+# over its nodes, and from inside its body `submit drain` releases the prepared
+# group onto that allocation instead of the batch scheduler. The jobs were frozen
+# with --setup cnnenv at prepare time, so the pilot itself declares no setup.
+#
+# Prepare the group at one node per job, then submit the pilot over as many nodes
+# as the concurrency needs (--max-inflight packs that many jobs onto the nodes):
+#   ./cnn.sh sweep -- prepare --group grid --setup cnnenv --nodes 1 \
+#       -- train --data cifar --dataset cifar10 \
+#          --num-blocks '{2,3,4}' --kernel-size '{3,5}'
+#   ./cnn.sh submit --nodes 2 --wait -- sweep-pilot --group grid --max-inflight 2
+# -----------------------------------------------------------------------------
+@job "sweep-pilot" "Drain a prepared job group inside one pilot allocation."
+@without_setup
+@with_pilot
+@with_optional "group:string"         "grid" "Prepared job group to drain onto the pilot."
+@with_optional "max-inflight:integer" "2"    "Jobs to keep in flight on the pilot's nodes."
+_sweep_pilot_job() {
+    # Inside the pilot allocation the daemon is live, so the `knit submit` that
+    # `submit drain` issues for each prepared job is packed onto this allocation's
+    # nodes rather than sent to the batch scheduler.
+    knit submit drain \
+        --group        "$(knit_get_parameter group "$@")" \
+        --max-inflight "$(knit_get_parameter max-inflight "$@")"
+}
+@done
+
+# -----------------------------------------------------------------------------
 # inspect (walkthrough step 7) — read the recorded results back.
 #
 # knit records every run, so you query the database. The campaign commands give
