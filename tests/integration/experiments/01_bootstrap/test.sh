@@ -55,7 +55,8 @@ export __ASSERT_SQLITE3="${WORKDIR}/.knit/sqlite/bin/sqlite3"
 # --------------------------------------------------------------------------
 check_dir ".knit"                          ".knit directory created"
 check_file ".knit/knit.db"                 ".knit/knit.db file created"
-check_exec ".knit/sqlite/bin/sqlite3"      "sqlite3 binary is executable"
+check_exec ".knit/sqlite/bin/sqlite3"      "sqlite3 binary is built and executable"
+check_exec ".knit/jq/bin/jq"               "jq binary is downloaded and executable"
 
 check_sqlite ".knit/knit.db" \
     "SELECT COUNT(*) FROM metadata WHERE key='__project__';" \
