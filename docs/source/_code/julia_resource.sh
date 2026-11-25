@@ -22,8 +22,8 @@ knit_set_program_description "Render a Julia-set fractal."
 # START resource
 # A resource declares HOW to acquire an input --- here the julia-fractal source,
 # as a git repository pinned to a default ref. It has no body: `knit fetch`
-# clones it once into the resources directory, makes it read-only, and records
-# the resolved commit for provenance. Fetch a named instance with
+# clones it once into the resources directory and records the resolved commit for
+# provenance. Fetch a named instance with
 #   ./exp.sh fetch --name julia_src -- julia_code
 # and pin a different revision with `--ref` when you fetch.
 @resource "julia_code" "The julia-fractal source (github.com/knit-sh/julia-fractal-example)."
@@ -43,8 +43,8 @@ knit_set_program_description "Render a Julia-set fractal."
 @with_spack_specs "cmake" "libpng" "mpi"
 @provides_launcher
 _juliaenv_setup() {
-    # A fetched instance is read-only, so we build OUT of source --- a separate
-    # build/ tree under the setup prefix --- and never write back into it.
+    # Treat the fetched instance as a pristine input: build OUT of source --- a
+    # separate build/ tree under the setup prefix --- and never write back into it.
     local src
     src="$(knit_resource_path "$(knit_get_parameter "src" "$@")")"
 

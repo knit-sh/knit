@@ -16,8 +16,7 @@ everything after ``--`` selects the resource type and its own arguments.
 
 The instance lands at ``resources/<name>`` and is recorded in the type's table for
 provenance. Fetching is idempotent by name: re-fetching ``sample`` from the same
-source does nothing, while a different source under the same name is refused. A
-downloaded or copied instance is made read-only so a shared input cannot be
-mutated. ``knit fetch`` prints the instance path on stdout (logging is on stderr),
-but commands normally consume a resource by name (see *Consume a resource in a
+source does nothing, while a different source under the same name is refused.
+``knit fetch`` prints the instance path on stdout (logging is on stderr), but
+commands normally consume a resource by name (see *Consume a resource in a
 command*).

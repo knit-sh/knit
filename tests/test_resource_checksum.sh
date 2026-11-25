@@ -29,7 +29,7 @@ setup() {
 }
 
 teardown() {
-    # A copied/downloaded instance is made read-only; restore write so rm works.
+    # Restore write in case a source brought in read-only files, so rm works.
     if [[ -n "${_KNIT_TEST_TMPDIR:-}" && -e "${_KNIT_TEST_TMPDIR}" ]]; then
         chmod -R u+w "${_KNIT_TEST_TMPDIR}" 2>/dev/null || true
         rm -rf "${_KNIT_TEST_TMPDIR}"

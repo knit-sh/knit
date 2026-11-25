@@ -13,7 +13,7 @@
 # The source locations are read from the environment so the companion test.sh can
 # point them at local (file://) sources built in the work directory. This keeps
 # the test hermetic: no external host is contacted, yet the real git and curl
-# backends run. Both fetches materialize read-only instances under resources/.
+# backends run. Both fetches materialize instances under resources/.
 
 source knit.sh
 

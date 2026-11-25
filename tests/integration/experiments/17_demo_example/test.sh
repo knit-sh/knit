@@ -133,8 +133,8 @@ check_grep "\"cmake\":" ".knit/spack-config.json" "profile externals rendered (c
 check_grep "\"${MPI_NAME}\":" ".knit/spack-config.json" "profile externals rendered (${MPI_NAME})"
 
 # --------------------------------------------------------------------------
-# 2. fetch julia_src — clone the julia-fractal source as a git resource (made
-#    read-only and recorded for provenance) before the setup builds it.
+# 2. fetch julia_src — clone the julia-fractal source as a git resource (recorded
+#    for provenance) before the setup builds it.
 # --------------------------------------------------------------------------
 ./exp.sh fetch --name julia_src -- julia_code
 check_dir "resources/julia_src" "fetch materialized the julia_code resource"

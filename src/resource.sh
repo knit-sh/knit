@@ -94,28 +94,13 @@ knit_resource_path() {
 declare -gA _KNIT_RESOURCES
 
 # ------------------------------------------------------------------------------
-# @fn _knit_resource_make_readonly()
-#
-# Make a fetched instance tree read-only so consumers cannot mutate a shared
-# input: `chmod -R a-w` clears the write bit for everyone while preserving the
-# existing read and execute bits. Applied by the git and url backends and by the
-# local backend's --copy path; a symlinked local instance is deliberately left
-# alone (its target stays owned and writable by whoever staged it).
-#
-# @param[in] dir Path to the instance tree (or file) to make read-only.
-# ------------------------------------------------------------------------------
-_knit_resource_make_readonly() {
-    local dir="$1"
-    chmod -R a-w "${dir}"
-}
-
-# ------------------------------------------------------------------------------
 # @fn _knit_resource_cleanup_dir()
 #
 # Remove a partial or failed instance at <dir>, restoring write permission first
-# so a read-only tree (see _knit_resource_make_readonly) can be deleted. A symlink
-# instance is unlinked without touching its target. A no-op when <dir> is empty or
-# does not exist, so it is safe to call unconditionally on any failure path.
+# so any source files that arrived read-only (e.g. a git clone's pack objects) can
+# be deleted. A symlink instance is unlinked without touching its target. A no-op
+# when <dir> is empty or does not exist, so it is safe to call unconditionally on
+# any failure path.
 #
 # @param[in] dir Path to the instance to remove.
 # ------------------------------------------------------------------------------
@@ -128,8 +113,8 @@ _knit_resource_cleanup_dir() {
         return 0
     fi
     [[ -e "${dir}" ]] || return 0
-    # Restore write so a read-only tree's own files and subdirectories can be
-    # removed, then delete it.
+    # Restore write so any read-only files the source brought in (git pack objects
+    # are 0444, for instance) can be removed, then delete the tree.
     chmod -R u+w "${dir}" 2>/dev/null || true
     rm -rf "${dir}"
 }
@@ -278,9 +263,8 @@ _knit_resource_defaults_used() {
 # Git backend: clone <url> into <dest>, check out <ref>, and print the resolved
 # commit SHA (`git rev-parse HEAD`) to stdout so a mutable ref is pinned to the
 # commit actually obtained. The clone and checkout write their progress to stderr
-# (redirected here so stdout carries only the SHA), and the resulting tree is made
-# read-only. Returns non-zero (leaving cleanup to the caller) if git is missing or
-# any step fails.
+# (redirected here so stdout carries only the SHA). Returns non-zero (leaving
+# cleanup to the caller) if git is missing or any step fails.
 #
 # @param[in] dest Directory to create and clone into (must not already exist).
 # @param[in] url  Repository URL to clone.
@@ -298,7 +282,6 @@ _knit_fetch_git() {
     git -C "${dest}" checkout --quiet "${ref}" 1>&2 || return 1
     local sha
     sha=$(git -C "${dest}" rev-parse HEAD) || return 1
-    _knit_resource_make_readonly "${dest}"
     printf '%s\n' "${sha}"
 }
 
@@ -311,8 +294,8 @@ _knit_fetch_git() {
 # removed, so the instance holds the unpacked tree. curl uses -f so an HTTP error
 # fails the fetch. When <expected> is a non-empty knit_with_checksum pin the
 # downloaded archive's sha256 is checked against it (before it is unpacked or
-# removed) and a mismatch fails the fetch. The resulting instance is made
-# read-only. Returns non-zero (leaving cleanup to the caller) on any failed step.
+# removed) and a mismatch fails the fetch. Returns non-zero (leaving cleanup to
+# the caller) on any failed step.
 #
 # @param[in] dest       Directory to create and download into (must not already exist).
 # @param[in] url        URL of the artifact to download.
@@ -342,7 +325,6 @@ _knit_fetch_url() {
         tar -xf "${archive}" -C "${dest}" 1>&2 || return 1
         rm -f "${archive}"
     fi
-    _knit_resource_make_readonly "${dest}"
 }
 
 # ------------------------------------------------------------------------------
@@ -351,7 +333,7 @@ _knit_fetch_url() {
 # Local backend: materialize <dest> from a local source <src>. By default <dest>
 # is a symlink to <src> (so a large already-staged dataset is not duplicated), left
 # writable through its target. With <copy> = "true" the source is copied into a
-# self-contained snapshot which is then made read-only. The source path is resolved
+# self-contained snapshot. The source path is resolved
 # to an absolute path first, so a symlink instance does not depend on the caller's
 # working directory. When <expected> is a non-empty knit_with_checksum pin the
 # instance's sha256 (of the file, or a recursive digest of a directory) is checked
@@ -360,7 +342,7 @@ _knit_fetch_url() {
 #
 # @param[in] dest     Path to create for the instance (must not already exist).
 # @param[in] src      Local source path (file or directory) to link or copy.
-# @param[in] copy     "true" to copy a read-only snapshot, "false" to symlink the source.
+# @param[in] copy     "true" to copy a self-contained snapshot, "false" to symlink the source.
 # @param[in] expected Expected sha256 to verify, or "" to skip verification.
 # ------------------------------------------------------------------------------
 _knit_fetch_local() {
@@ -375,7 +357,6 @@ _knit_fetch_local() {
     src="$(realpath "${src}")" || return 1
     if [[ "${copy}" == "true" ]]; then
         cp -R "${src}" "${dest}" || return 1
-        _knit_resource_make_readonly "${dest}"
     else
         ln -s "${src}" "${dest}" || return 1
     fi
@@ -559,8 +540,8 @@ _knit_fetch() {
     fi
 
     # Resolve the instance directory and its sidecar markers under the resource
-    # root (markers are siblings of the instance, since the instance is made
-    # read-only and a symlinked local instance has no inside to write into).
+    # root (markers are siblings of the instance, since a symlinked local instance
+    # has no inside to write into).
     local root
     _knit_resource_root root
     local path="${root}/${name}"
@@ -848,7 +829,7 @@ knit_with_url() {
 #
 # Download decorator: acquire the resource type from a local path, by default as a
 # symlink (so a large staged dataset is not duplicated) or, with --copy, as a
-# self-contained read-only snapshot. Declares the automatic parameters --path
+# self-contained snapshot. Declares the automatic parameters --path
 # (default <path>) and the --copy flag. Valid only on a resource type, at most one
 # download decorator per type.
 #
@@ -862,7 +843,7 @@ knit_with_local() {
     fi
     _knit_resource_set_method "local"
     knit_with_optional "path:string" "${path}" "Local source path to link or copy."
-    knit_with_flag "copy" "Copy the source into a read-only snapshot instead of symlinking it."
+    knit_with_flag "copy" "Copy the source into a self-contained snapshot instead of symlinking it."
 }
 
 # ------------------------------------------------------------------------------

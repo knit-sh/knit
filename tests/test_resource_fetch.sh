@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 
 # Tests for the resource download backends, the shared fetch body's dispatch,
-# source identity, immutability (read-only), and cleanup on failure. git/curl/tar
-# are stubbed so no network or real VCS is needed.
+# source identity, and cleanup on failure. git/curl/tar are stubbed so no network
+# or real VCS is needed.
 
 setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
@@ -14,23 +14,13 @@ setup() {
 }
 
 teardown() {
-    # A fetched instance is made read-only; restore write so rm can remove it.
+    # Restore write in case a test created a read-only tree (the cleanup test
+    # does), so rm can remove it.
     if [[ -n "${_KNIT_TEST_TMPDIR:-}" && -e "${_KNIT_TEST_TMPDIR}" ]]; then
         chmod -R u+w "${_KNIT_TEST_TMPDIR}" 2>/dev/null || true
         rm -rf "${_KNIT_TEST_TMPDIR}"
     fi
     knit_test_db_teardown
-}
-
-# True when no file under <dir> (or <dir> itself) carries a write bit.
-_is_readonly_tree() {
-    local dir="$1"
-    local f perms
-    while IFS= read -r f; do
-        perms=$(stat -c '%A' "${f}")
-        [[ "${perms}" == *w* ]] && return 1
-    done < <(find "${dir}")
-    return 0
 }
 
 # ---------- git stub ----------
@@ -57,7 +47,7 @@ _stub_git() {
 
 # ---------- _knit_fetch_git ----------
 
-@test "git backend clones, prints the resolved SHA, and is read-only" {
+@test "git backend clones, prints the resolved SHA, and stays writable" {
     _stub_git
     STUB_SHA="1234567890abcdef"
     local dest="${_KNIT_TEST_TMPDIR}/inst"
@@ -65,7 +55,8 @@ _stub_git() {
     [ "${status}" -eq 0 ]
     [ "${output}" = "1234567890abcdef" ]
     [ -f "${dest}/README" ]
-    _is_readonly_tree "${dest}"
+    # The fetched tree is left writable (not marked read-only).
+    [ -w "${dest}/README" ]
 }
 
 @test "git backend fails when git is missing" {
@@ -81,7 +72,7 @@ _stub_git() {
 
 # ---------- _knit_fetch_url ----------
 
-@test "url backend downloads the artifact and is read-only" {
+@test "url backend downloads the artifact and stays writable" {
     curl() {
         local out=""
         while [[ $# -gt 0 ]]; do
@@ -93,7 +84,8 @@ _stub_git() {
     run _knit_fetch_url "${dest}" "https://example.org/data.tar.gz" "false"
     [ "${status}" -eq 0 ]
     [ -f "${dest}/data.tar.gz" ]
-    _is_readonly_tree "${dest}"
+    # The downloaded instance is left writable (not marked read-only).
+    [ -w "${dest}/data.tar.gz" ]
 }
 
 @test "url backend uncompresses and removes the archive" {
@@ -117,7 +109,8 @@ _stub_git() {
     [ "${status}" -eq 0 ]
     [ -f "${dest}/extracted/f" ]
     [ ! -e "${dest}/data.tar.gz" ]
-    _is_readonly_tree "${dest}"
+    # The unpacked instance is left writable (not marked read-only).
+    [ -w "${dest}/extracted/f" ]
 }
 
 @test "url backend fails when curl fails" {
@@ -142,7 +135,7 @@ _stub_git() {
     [ -w "${src}/file" ]
 }
 
-@test "local backend copies a read-only snapshot with --copy" {
+@test "local backend copies a self-contained snapshot with --copy" {
     local src="${_KNIT_TEST_TMPDIR}/src"
     mkdir -p "${src}"
     printf 'data\n' > "${src}/file"
@@ -151,7 +144,8 @@ _stub_git() {
     [ "${status}" -eq 0 ]
     [ ! -L "${dest}" ]
     [ -f "${dest}/file" ]
-    _is_readonly_tree "${dest}"
+    # The copied snapshot is left writable (not marked read-only).
+    [ -w "${dest}/file" ]
 }
 
 @test "local backend fails when the source is missing" {
@@ -162,11 +156,13 @@ _stub_git() {
 
 # ---------- _knit_resource_cleanup_dir ----------
 
-@test "cleanup removes a read-only tree" {
+@test "cleanup removes a tree containing read-only files" {
     local dir="${_KNIT_TEST_TMPDIR}/inst"
     mkdir -p "${dir}/sub"
     printf 'x\n' > "${dir}/sub/f"
-    _knit_resource_make_readonly "${dir}"
+    # Simulate read-only files a source may bring in (e.g. git pack objects); the
+    # cleanup must restore write before removing them.
+    chmod -R a-w "${dir}"
     _knit_resource_cleanup_dir "${dir}"
     [ ! -e "${dir}" ]
 }

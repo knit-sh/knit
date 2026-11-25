@@ -8,7 +8,7 @@
 #   - a url resource is downloaded and unpacked from a local archive;
 #   - re-fetching the git resource with the same source is an idempotent no-op
 #     (no second row);
-#   - both instances are read-only on disk;
+#   - both instances are ordinary writable trees on disk;
 #   - a consumer declaring `knit_with_resource` reads both through
 #     `knit_resource_path`, records its row, and leaves a `used_by` provenance
 #     edge from each resource to the consumer.
@@ -25,8 +25,8 @@ set -euo pipefail
 source /shared/knit/tests/integration/lib/assert.sh
 
 WORKDIR=$(mktemp -d /shared/runs/18-resources-XXXXXX)
-# Fetched instances are made read-only (immutable), so restore write before the
-# recursive remove or rm cannot descend into them.
+# A git clone leaves read-only pack objects, so restore write before the recursive
+# remove or rm cannot descend into them.
 trap 'chmod -R u+w "${WORKDIR}" 2>/dev/null; rm -rf "${WORKDIR}"' EXIT
 
 cp /shared/knit/tests/integration/experiments/18_resources/experiment.sh \
@@ -90,11 +90,12 @@ else
     fail "resource:srctree.commit is not a 40-hex SHA: \"${commit}\""
 fi
 
-# The git instance is immutable: creating a file inside it must fail.
+# The git instance is an ordinary writable tree (not marked read-only).
 if : > "resources/srccode/should-not-write" 2>/dev/null; then
-    fail "git instance directory should be read-only"
+    rm -f "resources/srccode/should-not-write"
+    __assert_pass "git instance directory is writable"
 else
-    __assert_pass "git instance directory is read-only"
+    fail "git instance directory should be writable"
 fi
 
 # --------------------------------------------------------------------------
@@ -112,11 +113,12 @@ check_sqlite ".knit/knit.db" 'SELECT directory FROM "resource:dataset";' \
     "${WORKDIR}/resources/data" \
     "url resource row records the instance directory"
 
-# The url instance is immutable as well.
+# The url instance is an ordinary writable tree as well.
 if : > "resources/data/should-not-write" 2>/dev/null; then
-    fail "url instance directory should be read-only"
+    rm -f "resources/data/should-not-write"
+    __assert_pass "url instance directory is writable"
 else
-    __assert_pass "url instance directory is read-only"
+    fail "url instance directory should be writable"
 fi
 
 # --------------------------------------------------------------------------

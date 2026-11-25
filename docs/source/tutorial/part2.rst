@@ -60,9 +60,9 @@ and ``@with_url`` are the other two backends. Fetch a named instance with the
    $ ./exp.sh fetch --name julia_src -- julia_code --ref main   # pin another ref
 
 ``fetch`` clones the repository once at its pinned ref into the ``resources``
-directory, makes it read-only, records the resolved commit in the
-``resource:julia_code`` table, and prints the on-disk path. Fetching is
-idempotent by name: re-fetching ``julia_src`` from the same source does nothing.
+directory, records the resolved commit in the ``resource:julia_code`` table, and
+prints the on-disk path. Fetching is idempotent by name: re-fetching
+``julia_src`` from the same source does nothing.
 
 Now the setup declares the resource it needs instead of cloning it:
 
