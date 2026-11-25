@@ -362,10 +362,15 @@ TOML
 # its validation accuracy.
 #
 # The job declares the cnnenv setup (so cifar-cnn is on PATH) and the cifar
-# resource (so the datasets are staged). Its body runs `cifar-cnn train`,
-# captures the output, reads the machine-readable "RESULT val_accuracy=..." line
-# the program prints, and records it with knit_output. That recorded column is
-# the objective the sweep ranks and the ax optimizer maximizes.
+# resource (so the datasets are staged). Its body does NOT run `cifar-cnn`
+# directly: it launches the `cifar-cnn-train` app through `knit run` (one rank on
+# the job's allocated node), captures the app's output, reads the machine-readable
+# "RESULT val_accuracy=..." line back, and re-records it with knit_output. Going
+# through `knit run` is what places the training on the assigned node; under a
+# pilot the sub-job body itself runs on the launch node, so a bare `cifar-cnn`
+# call would never reach the node the daemon set aside for it (see the
+# cifar-cnn-train section). That recorded column is the objective the sweep ranks
+# and the ax optimizer maximizes.
 #
 # Every parameter the sweep or the optimizer can vary carries a --domain descriptor:
 # a set {a,b,c} of discrete values, or a range [lo..hi]. --dataset and --epochs
@@ -394,43 +399,117 @@ TOML
 @with_optional "device:string"         "auto"    "Requested compute device: auto, cpu, cuda, or xpu (an explicit cuda/xpu fails if absent)."
 @with_output   "val_accuracy:real" "Final-epoch validation accuracy (%)." --unset "0"
 _train_job() {
-    # Resolve the staged dataset directory and the dataset choice.
-    local datadir dataset residual
+    # Resolve the staged dataset directory and where to write the model.
+    local datadir model out acc
     datadir="$(knit_resource_path "$(knit_get_parameter data "$@")")"
-    dataset="$(knit_get_parameter dataset "$@")"
+    model="${KNIT_JOB_PREFIX%/}/model.pt"
 
-    # The program takes --residual as a bare flag, so turn the true/false parameter
-    # into the flag's presence or absence.
-    local -a resflag=()
-    residual="$(knit_get_parameter residual "$@")"
-    [[ "${residual}" == "true" ]] && resflag=(--residual)
-
-    # Train, merging stderr into stdout and teeing to stderr so progress shows
-    # live while the full output is captured for parsing.
-    local model="${KNIT_JOB_PREFIX%/}/model.pt"
-    local out
-    out="$(cifar-cnn train \
-        --model        "${model}" \
-        --dataset      "${dataset}" \
-        --data         "${datadir}" \
-        --num-blocks   "$(knit_get_parameter num-blocks "$@")" \
+    # Launch the training through `knit run` as the cifar-cnn-train app, one rank
+    # placed on the job's allocated node. Launching it this way (not a bare
+    # `cifar-cnn` call) is what puts the work on the assigned node — essential
+    # under a pilot, where the sub-job body itself runs on the launch node. The
+    # app streams progress to its stderr (shown live) and prints just the metric
+    # line to stdout, which `knit run` forwards here for capture. --residual is
+    # passed through verbatim; the app turns it into the bare flag.
+    out="$(knit run --procs 1 --procs-per-node 1 -- cifar-cnn-train \
+        --model         "${model}" \
+        --datadir       "${datadir}" \
+        --dataset       "$(knit_get_parameter dataset "$@")" \
+        --num-blocks    "$(knit_get_parameter num-blocks "$@")" \
         --base-channels "$(knit_get_parameter base-channels "$@")" \
-        --kernel-size  "$(knit_get_parameter kernel-size "$@")" \
-        --dropout      "$(knit_get_parameter dropout "$@")" \
-        --activation   "$(knit_get_parameter activation "$@")" \
-        "${resflag[@]}" \
-        --lr           "$(knit_get_parameter lr "$@")" \
-        --batch-size   "$(knit_get_parameter batch-size "$@")" \
-        --epochs       "$(knit_get_parameter epochs "$@")" \
-        --device       "$(knit_get_parameter device "$@")" \
-        2>&1 | tee /dev/stderr)"
+        --kernel-size   "$(knit_get_parameter kernel-size "$@")" \
+        --dropout       "$(knit_get_parameter dropout "$@")" \
+        --activation    "$(knit_get_parameter activation "$@")" \
+        --residual      "$(knit_get_parameter residual "$@")" \
+        --lr            "$(knit_get_parameter lr "$@")" \
+        --batch-size    "$(knit_get_parameter batch-size "$@")" \
+        --epochs        "$(knit_get_parameter epochs "$@")" \
+        --device        "$(knit_get_parameter device "$@")")"
 
-    # Read the machine-readable metric line and record it as the objective. The
-    # device is an input (--device), honored or the run fails, so there is no
-    # separate "device used" to record.
-    local acc
+    # The cifar-cnn-train app recorded val_accuracy on its own row; re-emit it
+    # here so the objective also lives on the `train` row, where the sweep ranks
+    # it, the ax optimizer reads it, and `inspect` joins on it. The device is an
+    # input (--device), honored or the run fails, so there is no separate "device
+    # used" to record.
     acc="$(grep -oE 'RESULT val_accuracy=[0-9.]+' <<<"${out}" | tail -1 | cut -d= -f2)"
     knit_output "val_accuracy" "${acc:-0}"
+}
+@done
+
+# -----------------------------------------------------------------------------
+# cifar-cnn-train — the app the `train` job launches through `knit run`.
+#
+# This app is the unit `knit run` places on a node: its body runs one
+# `cifar-cnn train`. `train` launches it rather than calling `cifar-cnn`
+# directly so the work lands on the node the scheduler — or, inside a pilot, the
+# in-allocation daemon — assigned to the job. That is the load-bearing rule: a
+# pilot sub-job's body runs on the pilot's LAUNCH node, and only work launched
+# through `knit run` (which reads the daemon's per-job node assignment) reaches
+# the node set aside for it. A bare `cifar-cnn` call would run on the launch node
+# and, with several trials in flight, pile them all onto it, contending for its
+# one GPU. The app mirrors the julia `render` app.
+#
+# It takes one rank (--procs 1): a single training process, not a data-parallel
+# job. It declares no setup — an app inherits the launching job's activated
+# cnnenv environment, so `cifar-cnn` is already on PATH. It records val_accuracy
+# on its own row and echoes the metric line on stdout so the `train` job can read
+# it back (training progress goes to stderr, shown live).
+# -----------------------------------------------------------------------------
+@app "cifar-cnn-train" "Train the CNN on the assigned node and record its accuracy."
+@with_required "model:string"           "Absolute path for the trained model (the job supplies one)."
+@with_required "datadir:string"         "Absolute path of the staged dataset directory."
+@with_optional "dataset:string"        "cifar10" "Dataset to train on: cifar10 or cifar100."
+@with_optional "num-blocks:integer"    "3"       "Convolution blocks (max 5)."
+@with_optional "base-channels:integer" "32"      "Channels in the first block."
+@with_optional "kernel-size:integer"   "3"       "Convolution kernel size."
+@with_optional "dropout:real"          "0.3"     "Dropout before the classifier head."
+@with_optional "activation:string"     "relu"    "Activation function."
+@with_optional "residual:string"       "false"   "Residual skip connections (true or false)."
+@with_optional "lr:real"               "0.001"   "Initial learning rate."
+@with_optional "batch-size:integer"    "128"     "Mini-batch size."
+@with_optional "epochs:integer"        "3"       "Training epochs."
+@with_optional "device:string"         "auto"    "Requested compute device: auto, cpu, cuda, or xpu."
+@with_output   "val_accuracy:real" "Final-epoch validation accuracy (%)." --unset "0"
+_cifar_cnn_train_app() {
+    # Report where the launcher placed this rank (on stderr, so it stays out of
+    # the metric line the job captures on stdout). Under a pilot this is the node
+    # the daemon assigned to the job via knit run, not the pilot's launch node.
+    printf 'cifar-cnn-train running on host: %s\n' "$(hostname)" >&2
+
+    # The program takes --residual as a bare flag, so turn the true/false value
+    # into the flag's presence or absence.
+    local -a resflag=()
+    [[ "$(knit_get_parameter residual "$@")" == "true" ]] && resflag=(--residual)
+
+    # Train, merging stderr into stdout and teeing to stderr so progress streams
+    # live (the launcher forwards this rank's stderr to the job) while the full
+    # output is captured for parsing.
+    local out acc
+    out="$(cifar-cnn train \
+        --model         "$(knit_get_parameter model "$@")" \
+        --dataset       "$(knit_get_parameter dataset "$@")" \
+        --data          "$(knit_get_parameter datadir "$@")" \
+        --num-blocks    "$(knit_get_parameter num-blocks "$@")" \
+        --base-channels "$(knit_get_parameter base-channels "$@")" \
+        --kernel-size   "$(knit_get_parameter kernel-size "$@")" \
+        --dropout       "$(knit_get_parameter dropout "$@")" \
+        --activation    "$(knit_get_parameter activation "$@")" \
+        "${resflag[@]}" \
+        --lr            "$(knit_get_parameter lr "$@")" \
+        --batch-size    "$(knit_get_parameter batch-size "$@")" \
+        --epochs        "$(knit_get_parameter epochs "$@")" \
+        --device        "$(knit_get_parameter device "$@")" \
+        2>&1 | tee -a /dev/stderr)"
+
+    # Read the machine-readable metric line and record it on this app's row. Knit
+    # records outputs from rank 0 only, so one knit_output writes one row.
+    acc="$(grep -oE 'RESULT val_accuracy=[0-9.]+' <<<"${out}" | tail -1 | cut -d= -f2)"
+    knit_output "val_accuracy" "${acc:-0}"
+
+    # Emit just the metric as a clean machine-readable line on stdout, which
+    # `knit run` forwards to the launching job (the training log above went to
+    # stderr, so the job's capture sees only this line).
+    printf 'RESULT val_accuracy=%s\n' "${acc:-0}"
 }
 @done
 

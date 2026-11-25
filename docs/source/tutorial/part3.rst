@@ -89,10 +89,18 @@ URL:
    Probably due to CIFAR-10's popularity, download is usually slow from its
    source website.
 
-Finally the ``train`` job. It depends on the setup (so ``cifar-cnn`` is on
-``PATH``) and the resource (so the dataset is staged), runs ``cifar-cnn train``,
-parses the ``RESULT val_accuracy=`` line, and records the number as a declared
-**output** --- the column every later step reads as the objective:
+Finally the ``train`` job --- and the small ``cifar-cnn-train`` **app** it
+launches. The job depends on the setup (so ``cifar-cnn`` is on ``PATH``) and the
+resource (so the dataset is staged). Rather than run the trainer directly, it
+launches it through ``knit run`` as the ``cifar-cnn-train`` app: a single rank
+(``--procs 1``) on the node assigned to the job. On a laptop that indirection
+does nothing you can see --- but it is what lets the *same* job run correctly
+inside a **pilot** later (Step 6): ``knit run`` places the work on the node the
+scheduler, or the pilot's daemon, set aside for it, whereas a bare command would
+run wherever the job body happens to sit. The app trains the network, parses the
+``RESULT val_accuracy=`` line, and records the number as a declared **output**;
+the job reads that value back from the app and re-records it on its own row ---
+the column every later step reads as the objective:
 
 .. knit-code:: ../_code/cnn_train.sh
    :language: bash
@@ -302,6 +310,19 @@ pilot:
    :language: bash
    :start-after: # START pilot
    :end-before: # END pilot
+
+.. warning::
+
+   A pilot sub-job's body runs on the pilot's **launch node** --- the daemon
+   dispatches each sub-job there, not on the subpartition it allocated to that
+   job. The allocated node(s) are reached only by work launched through ``knit
+   run``, which reads the daemon's per-job assignment and places the ranks on it.
+   This is why ``train`` runs the trainer through the ``cifar-cnn-train`` app and
+   ``knit run`` (Step 1) instead of calling ``cifar-cnn`` directly: a bare command
+   would stay on the launch node, and with several sub-jobs in flight they would
+   all pile onto it --- oversubscribing one node while the rest of the allocation
+   sits idle. Any compute a sub-job does must go through ``knit run`` to land on
+   the node the pilot set aside for it.
 
 The pilot trains nothing itself, so it declares ``@without_setup``; each
 ``train`` job it drains still carries the ``--setup cnnenv`` frozen into it at
@@ -545,9 +566,9 @@ The complete experiment (Part III)
 ----------------------------------
 
 Here is the whole experiment in one file --- the setup, the resource, the
-eight-parameter ``train`` job, and the two pilots (``sweep-pilot`` for the grid,
-``tune-pilot`` for the campaign). Save it as ``exp.sh`` next to a copy of
-``knit.sh``:
+eight-parameter ``train`` job and the ``cifar-cnn-train`` app it launches through
+``knit run``, and the two pilots (``sweep-pilot`` for the grid, ``tune-pilot``
+for the campaign). Save it as ``exp.sh`` next to a copy of ``knit.sh``:
 
 .. knit-code:: ../_code/cnn_full.sh
    :language: bash
