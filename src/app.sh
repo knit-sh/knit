@@ -236,6 +236,16 @@ _knit_run() {
             "launcher=${resolved_backend}"
     fi
 
+    # Pre-mint the per-app row id so the dispatcher holds it directly. Rank 0
+    # records the per-app row under this id (injected through the launcher
+    # environment and adopted below) instead of minting its own, so the
+    # dispatcher can expose it after the launcher returns without a cross-host
+    # read-back of a value a remote rank 0 wrote. The id stays distinct from the
+    # runs row id; the run -> run:<app> edge (source runs id, target this id) is
+    # unchanged.
+    local app_row_id
+    app_row_id=$(_knit_uuidv7)
+
     # Log the resolved command before issuing it, then launch the per-rank worker
     # under the resolved backend and return its status. The worker re-enters this
     # experiment as the hidden `_run` verb; the launcher forwards the job's
@@ -255,6 +265,10 @@ _knit_run() {
         export KNIT_RUN_ID="${uuid}"
         export KNIT_SOURCE_ID="${uuid}"
         export KNIT_SOURCE_COMMAND=run
+        # The pre-minted per-app row id: rank 0 adopts it (see _knit_run_worker)
+        # so its per-app row records under the id the dispatcher already holds.
+        # shellcheck disable=SC2030 # read by _knit_run_worker, a separate process re-entered via the launcher
+        export KNIT_RUN_APP_ROW_ID="${app_row_id}"
         # Forward each input's precomputed digest so rank 0 records it verbatim
         # (KNIT_CHECKSUM_<param> = bare 64-hex; the recorder re-applies the
         # sha256: prefix). Exported inside this subshell so the digests reach the
@@ -704,8 +718,25 @@ _knit_run_worker() {
     # and _knit_record_invocation writes neither row nor edge when set). We may
     # later allow non-zero ranks to record per-rank rows/edges; for now a run is
     # a single logical invocation recorded once.
+    # SC2031: KNIT_RUN_APP_ROW_ID is exported by the dispatcher's launcher
+    # subshell, but it reaches this worker through the launcher as a fresh
+    # process; the subshell-modification data flow shellcheck sees across these
+    # two functions in one file does not apply at runtime.
+    # shellcheck disable=SC2031
     if [[ "${KNIT_MPI_RANK}" != "0" ]]; then
         _KNIT_RECORDING_SUPPRESSED="1"
+    elif [[ -n "${KNIT_RUN_APP_ROW_ID:-}" ]]; then
+        # Rank 0 adopts the per-app row id the dispatcher pre-minted and exported,
+        # so the per-app row records under that known id. The injection is
+        # single-use and keyed on the app command, so only the app frame adopts
+        # it: the hidden _run frame and any commands nested in the app body still
+        # mint their own distinct ids. _KNIT_INJECTED_ROW_ID (not
+        # _KNIT_CMD_<cmd>_row_id) carries it because _knit_invoke_command clears
+        # the latter before resolving the frame's id.
+        local subcmd
+        _knit_command_mangle subcmd "run:${app_name}"
+        # shellcheck disable=SC2031 # see the note on the enclosing if (cross-process env, not a subshell read)
+        _KNIT_INJECTED_ROW_ID["${subcmd}"]="${KNIT_RUN_APP_ROW_ID}"
     fi
 
     _knit_invoke_command "run" "${app_name}" "${app_args[@]}"
