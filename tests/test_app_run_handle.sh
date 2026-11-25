@@ -9,7 +9,10 @@
 setup() {
     source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
     knit_test_require_sqlite
+    knit_test_require_jq
     knit_test_db_setup
+    # The `run` dispatcher's placement params carry enum constraints evaluated via jq.
+    _KNIT_JQ_EXE="jq"
 
     # Clean run/job and launcher-native MPI environment so nothing leaks in.
     unset KNIT_JOB_PREFIX KNIT_RUN_ID KNIT_SOURCE_ID KNIT_SOURCE_COMMAND
@@ -90,4 +93,89 @@ teardown() {
     run sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM myapp;"
     [ "$output" = "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb" ]
     [ "$output" != "${KNIT_RUN_ID}" ]
+}
+
+# ---------- dispatcher exposes KNIT_LAST_RUN_UUID / KNIT_LAST_RUN_TABLE ----------
+
+# Stub the dispatcher's launch chain, and have the launcher simulate rank 0: the
+# dispatcher's subshell has already exported KNIT_RUN_APP_ROW_ID and the source
+# context, and app_name / app_args are visible here by bash dynamic scoping (this
+# runs from within _knit_run), so running the worker records the per-app row under
+# the pre-minted id — exactly as a real rank 0 would.
+_stub_dispatch_with_rank0() {
+    knit_job_hostnames() { printf '%s\n' "nodeA"; }
+    _knit_metadata_get() { local -n __r=$1; __r=''; }
+    _knit_launch_backend() { local -n __r=$1; __r='none'; }
+    _knit_launch_cmdline() { local -n _argv="$3"; _argv=(launcher); }
+    _knit_launch_exec() { _knit_run_worker -- "${app_name}" "${app_args[@]}"; }
+}
+
+# Stub that reports a failed launch without recording any per-app row.
+_stub_dispatch_failed() {
+    knit_job_hostnames() { printf '%s\n' "nodeA"; }
+    _knit_metadata_get() { local -n __r=$1; __r=''; }
+    _knit_launch_backend() { local -n __r=$1; __r='none'; }
+    _knit_launch_cmdline() { local -n _argv="$3"; _argv=(launcher); }
+    _knit_launch_exec() { return 1; }
+}
+
+_register_optout_app() {
+    _rh_optout_fn() { :; }
+    knit_register_app "optout" "_rh_optout_fn" "An opt-out run-handle app."
+    knit_no_record_on_failure
+    knit_done
+}
+
+@test "a successful run exposes the per-app row as KNIT_LAST_RUN_UUID/TABLE" {
+    _stub_dispatch_with_rank0
+    export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
+    KNIT_LAST_RUN_UUID="stale"
+    KNIT_LAST_RUN_TABLE="stale"
+
+    _knit_invoke_command run --procs 1 -- myapp --n 5
+
+    local app_id runs_id
+    app_id="$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM myapp;")"
+    runs_id="$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM runs;")"
+    [ -n "${app_id}" ]
+    # The handle names the real per-app row (recorded under the pre-minted id) in
+    # the app's own table, and stays distinct from the runs row id.
+    [ "${KNIT_LAST_RUN_UUID}" = "${app_id}" ]
+    [ "${KNIT_LAST_RUN_TABLE}" = "myapp" ]
+    [ "${KNIT_LAST_RUN_UUID}" != "${runs_id}" ]
+}
+
+@test "a failed non-opt-out run still exposes the per-app row handle" {
+    _stub_dispatch_failed
+    export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
+    KNIT_LAST_RUN_UUID="stale"
+    KNIT_LAST_RUN_TABLE="stale"
+
+    local st=0
+    _knit_invoke_command run --procs 1 -- myapp --n 5 || st=$?
+    [ "${st}" -eq 1 ]
+
+    # myapp did not opt out: its row survives as the failure trace, so the handle
+    # names it (a fresh uuid, distinct from the runs row id) in the app's table.
+    knit_type_check "uuid" "${KNIT_LAST_RUN_UUID}"
+    [ "${KNIT_LAST_RUN_TABLE}" = "myapp" ]
+    local runs_id
+    runs_id="$(sqlite3 "${_KNIT_DATABASE}" "SELECT id FROM runs;")"
+    [ "${KNIT_LAST_RUN_UUID}" != "${runs_id}" ]
+}
+
+@test "an opt-out failed run empties KNIT_LAST_RUN_UUID/TABLE" {
+    _stub_dispatch_failed
+    _register_optout_app
+    export KNIT_JOB_PREFIX="/some/where/jobs/job-uuid"
+    KNIT_LAST_RUN_UUID="stale"
+    KNIT_LAST_RUN_TABLE="stale"
+
+    local st=0
+    _knit_invoke_command run --procs 1 -- optout || st=$?
+    [ "${st}" -eq 1 ]
+
+    # The per-app row was removed with the runs row; leave no stale handle.
+    [ -z "${KNIT_LAST_RUN_UUID}" ]
+    [ -z "${KNIT_LAST_RUN_TABLE}" ]
 }

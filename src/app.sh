@@ -32,6 +32,28 @@ declare -g KNIT_MPI_SIZE
 declare -g KNIT_MPI_LOCAL_RANK
 
 # ------------------------------------------------------------------------------
+# @var KNIT_LAST_RUN_UUID
+#
+# Id of the per-app row the most recent `knit run` recorded (the row in the app's
+# own table, not the "runs" row). Set in the caller's shell after `knit run`
+# returns, so a job body can read the app's recorded outputs with a single direct
+# lookup: `SELECT <output> FROM ${KNIT_LAST_RUN_TABLE} WHERE
+# id='${KNIT_LAST_RUN_UUID}'`. Both are emptied when a run records no per-app row
+# (an app that opted out of recording a failed invocation). Plain shell global,
+# not exported — the consumer is the in-process job body that called `knit run`.
+# ------------------------------------------------------------------------------
+declare -g KNIT_LAST_RUN_UUID=""
+
+# ------------------------------------------------------------------------------
+# @var KNIT_LAST_RUN_TABLE
+#
+# Table the most recent `knit run` recorded its per-app row in: the app's own
+# table (named after the app), not "runs" (see KNIT_LAST_RUN_UUID). Plain shell
+# global, not exported.
+# ------------------------------------------------------------------------------
+declare -g KNIT_LAST_RUN_TABLE=""
+
+# ------------------------------------------------------------------------------
 # @var _KNIT_APPS
 #
 # Associative array mapping registered app names to 1. Used to validate that an
@@ -307,6 +329,12 @@ _knit_run() {
         _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${uuid}" "false"
         # Fill in the runs row's exit status (left NULL by the eager insert).
         _knit_run_record_exit_status "${uuid}" "${run_status}"
+        # Expose the per-app row as a handle for the job body: the row rank 0
+        # recorded under the pre-minted id, in the app's own table.
+        # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+        KNIT_LAST_RUN_UUID="${app_row_id}"
+        # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+        KNIT_LAST_RUN_TABLE="${app_name}"
     else
         # A failed run leaves the eagerly-recorded runs row as a trace by default.
         # But when the app opted out of recording a failed invocation
@@ -320,9 +348,19 @@ _knit_run() {
         local no_fail_var="_KNIT_CMD_${subcmd}_no_record_on_failure"
         if [[ "${!no_fail_var:-}" == "true" ]]; then
             _knit_run_delete_row "${uuid}"
+            # No per-app row survives, so leave no stale handle for the job body.
+            # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+            KNIT_LAST_RUN_UUID=""
+            # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+            KNIT_LAST_RUN_TABLE=""
         else
             _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${uuid}" "true"
             _knit_run_record_exit_status "${uuid}" "${run_status}"
+            # The per-app row survives as the failure trace; expose it.
+            # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+            KNIT_LAST_RUN_UUID="${app_row_id}"
+            # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+            KNIT_LAST_RUN_TABLE="${app_name}"
         fi
     fi
     return "${run_status}"
