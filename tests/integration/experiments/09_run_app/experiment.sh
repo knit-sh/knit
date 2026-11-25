@@ -59,6 +59,12 @@ __launch_job_fn() {
     launcher=$(knit_get_parameter "launcher" "$@")
     knit run --procs "${procs}" --procs-per-node "${ppn}" \
         --launcher "${launcher}" -- ranks
+    # Surface the post-run handles so the driver can assert them: the per-app row
+    # the run recorded (KNIT_LAST_RUN_*), and the dispatcher's own runs row
+    # (KNIT_LAST_COMMAND_*, the last data row this job body recorded in-process).
+    printf 'HANDLE RUN_UUID=%s RUN_TABLE=%s CMD_UUID=%s CMD_TABLE=%s\n' \
+        "${KNIT_LAST_RUN_UUID}" "${KNIT_LAST_RUN_TABLE}" \
+        "${KNIT_LAST_COMMAND_UUID}" "${KNIT_LAST_COMMAND_TABLE}"
 }
 knit_done
 
