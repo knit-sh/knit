@@ -83,11 +83,11 @@ _train_job() {
     out="$(knit run --procs 1 --procs-per-node 1 -- cifar-cnn-train \
         --model         "${KNIT_JOB_PREFIX%/}/model.pt" \
         --datadir       "${datadir}" \
-        --dataset       "$(knit_get_parameter dataset "$@")" \
-        --num-blocks    "$(knit_get_parameter num-blocks "$@")" \
-        --base-channels "$(knit_get_parameter base-channels "$@")" \
-        --kernel-size   "$(knit_get_parameter kernel-size "$@")" \
-        --epochs        "$(knit_get_parameter epochs "$@")")"
+        $(knit_forward_parameter_as --dataset       dataset       "$@") \
+        $(knit_forward_parameter_as --num-blocks    num-blocks    "$@") \
+        $(knit_forward_parameter_as --base-channels base-channels "$@") \
+        $(knit_forward_parameter_as --kernel-size   kernel-size   "$@") \
+        $(knit_forward_parameter_as --epochs        epochs        "$@"))"
 
     acc="$(grep -oE 'RESULT val_accuracy=[0-9.]+' <<<"${out}" | tail -1 | cut -d= -f2)"
     knit_output "val_accuracy" "${acc:-0}"
@@ -115,13 +115,13 @@ _cifar_cnn_train_app() {
 
     local out acc
     out="$(cifar-cnn train \
-        --model         "$(knit_get_parameter model "$@")" \
-        --dataset       "$(knit_get_parameter dataset "$@")" \
-        --data          "$(knit_get_parameter datadir "$@")" \
-        --num-blocks    "$(knit_get_parameter num-blocks "$@")" \
-        --base-channels "$(knit_get_parameter base-channels "$@")" \
-        --kernel-size   "$(knit_get_parameter kernel-size "$@")" \
-        --epochs        "$(knit_get_parameter epochs "$@")" \
+        $(knit_forward_parameter_as --model         model         "$@") \
+        $(knit_forward_parameter_as --dataset       dataset       "$@") \
+        $(knit_forward_parameter_as --data          datadir       "$@") \
+        $(knit_forward_parameter_as --num-blocks    num-blocks    "$@") \
+        $(knit_forward_parameter_as --base-channels base-channels "$@") \
+        $(knit_forward_parameter_as --kernel-size   kernel-size   "$@") \
+        $(knit_forward_parameter_as --epochs        epochs        "$@") \
         2>&1 | tee -a /dev/stderr)"
 
     acc="$(grep -oE 'RESULT val_accuracy=[0-9.]+' <<<"${out}" | tail -1 | cut -d= -f2)"
