@@ -60,6 +60,86 @@ teardown() {
     [ "$status" -eq 1 ]
 }
 
+# ---------- knit_get_parameter_with_default ----------
+
+@test "knit_get_parameter_with_default returns the value when present" {
+    local args=("--abc" "ABC")
+    run knit_get_parameter_with_default "abc" "fallback" "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "ABC" ]
+}
+
+@test "knit_get_parameter_with_default returns the default when absent" {
+    local args=("--abc" "ABC")
+    run knit_get_parameter_with_default "def" "fallback" "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "fallback" ]
+}
+
+@test "knit_get_parameter_with_default returns an explicit empty value, not the default" {
+    local args=("--abc=")
+    run knit_get_parameter_with_default "abc" "fallback" "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}
+
+# ---------- knit_forward_parameter_as ----------
+
+@test "knit_forward_parameter_as prints the option and value when present" {
+    local args=("--y" "value")
+    run knit_forward_parameter_as "--x" "y" "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "--x value" ]
+}
+
+@test "knit_forward_parameter_as prints nothing when absent" {
+    local args=("--y" "value")
+    run knit_forward_parameter_as "--x" "z" "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}
+
+@test "knit_forward_parameter_as forwards an explicit empty value" {
+    local args=("--y=")
+    run knit_forward_parameter_as "--x" "y" "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "--x " ]
+}
+
+# ---------- knit_forward_flag_as ----------
+
+@test "knit_forward_flag_as prints the true text when the flag is true" {
+    local args=("--enable" "true")
+    run knit_forward_flag_as "--on" "--off" "enable" "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "--on" ]
+}
+
+@test "knit_forward_flag_as prints the false text when the flag is false" {
+    local args=("--enable" "false")
+    run knit_forward_flag_as "--on" "--off" "enable" "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "--off" ]
+}
+
+@test "knit_forward_flag_as forwards a negation with an empty true text" {
+    local args=("--enable-feature" "false")
+    run knit_forward_flag_as "" "--disable-feature" "enable-feature" "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "--disable-feature" ]
+    local on=("--enable-feature" "true")
+    run knit_forward_flag_as "" "--disable-feature" "enable-feature" "${on[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}
+
+@test "knit_forward_flag_as prints nothing when the flag is absent" {
+    local args=("--other" "true")
+    run knit_forward_flag_as "--on" "--off" "enable" "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}
+
 # ---------- knit_with_required type annotations ----------
 
 @test "knit_with_required accepts name:type syntax" {

@@ -414,17 +414,17 @@ _train_job() {
     out="$(knit run --procs 1 --procs-per-node 1 -- cifar-cnn-train \
         --model         "${model}" \
         --datadir       "${datadir}" \
-        --dataset       "$(knit_get_parameter dataset "$@")" \
-        --num-blocks    "$(knit_get_parameter num-blocks "$@")" \
-        --base-channels "$(knit_get_parameter base-channels "$@")" \
-        --kernel-size   "$(knit_get_parameter kernel-size "$@")" \
-        --dropout       "$(knit_get_parameter dropout "$@")" \
-        --activation    "$(knit_get_parameter activation "$@")" \
-        --residual      "$(knit_get_parameter residual "$@")" \
-        --lr            "$(knit_get_parameter lr "$@")" \
-        --batch-size    "$(knit_get_parameter batch-size "$@")" \
-        --epochs        "$(knit_get_parameter epochs "$@")" \
-        --device        "$(knit_get_parameter device "$@")")"
+        $(knit_forward_parameter_as --dataset       dataset       "$@") \
+        $(knit_forward_parameter_as --num-blocks    num-blocks    "$@") \
+        $(knit_forward_parameter_as --base-channels base-channels "$@") \
+        $(knit_forward_parameter_as --kernel-size   kernel-size   "$@") \
+        $(knit_forward_parameter_as --dropout       dropout       "$@") \
+        $(knit_forward_parameter_as --activation    activation    "$@") \
+        $(knit_forward_parameter_as --residual      residual      "$@") \
+        $(knit_forward_parameter_as --lr            lr            "$@") \
+        $(knit_forward_parameter_as --batch-size    batch-size    "$@") \
+        $(knit_forward_parameter_as --epochs        epochs        "$@") \
+        $(knit_forward_parameter_as --device        device        "$@"))"
 
     # The cifar-cnn-train app recorded val_accuracy on its own row; re-emit it
     # here so the objective also lives on the `train` row, where the sweep ranks
@@ -476,29 +476,25 @@ _cifar_cnn_train_app() {
     # the daemon assigned to the job via knit run, not the pilot's launch node.
     printf 'cifar-cnn-train running on host: %s\n' "$(hostname)" >&2
 
-    # The program takes --residual as a bare flag, so turn the true/false value
-    # into the flag's presence or absence.
-    local -a resflag=()
-    [[ "$(knit_get_parameter residual "$@")" == "true" ]] && resflag=(--residual)
-
     # Train, merging stderr into stdout and teeing to stderr so progress streams
     # live (the launcher forwards this rank's stderr to the job) while the full
-    # output is captured for parsing.
+    # output is captured for parsing. The program takes --residual as a bare flag,
+    # so its true/false value becomes the flag's presence or absence.
     local out acc
     out="$(cifar-cnn train \
-        --model         "$(knit_get_parameter model "$@")" \
-        --dataset       "$(knit_get_parameter dataset "$@")" \
-        --data          "$(knit_get_parameter datadir "$@")" \
-        --num-blocks    "$(knit_get_parameter num-blocks "$@")" \
-        --base-channels "$(knit_get_parameter base-channels "$@")" \
-        --kernel-size   "$(knit_get_parameter kernel-size "$@")" \
-        --dropout       "$(knit_get_parameter dropout "$@")" \
-        --activation    "$(knit_get_parameter activation "$@")" \
-        "${resflag[@]}" \
-        --lr            "$(knit_get_parameter lr "$@")" \
-        --batch-size    "$(knit_get_parameter batch-size "$@")" \
-        --epochs        "$(knit_get_parameter epochs "$@")" \
-        --device        "$(knit_get_parameter device "$@")" \
+        $(knit_forward_parameter_as --model         model         "$@") \
+        $(knit_forward_parameter_as --dataset       dataset       "$@") \
+        $(knit_forward_parameter_as --data          datadir       "$@") \
+        $(knit_forward_parameter_as --num-blocks    num-blocks    "$@") \
+        $(knit_forward_parameter_as --base-channels base-channels "$@") \
+        $(knit_forward_parameter_as --kernel-size   kernel-size   "$@") \
+        $(knit_forward_parameter_as --dropout       dropout       "$@") \
+        $(knit_forward_parameter_as --activation    activation    "$@") \
+        $(knit_forward_flag_as "--residual" "" residual "$@") \
+        $(knit_forward_parameter_as --lr            lr            "$@") \
+        $(knit_forward_parameter_as --batch-size    batch-size    "$@") \
+        $(knit_forward_parameter_as --epochs        epochs        "$@") \
+        $(knit_forward_parameter_as --device        device        "$@") \
         2>&1 | tee -a /dev/stderr)"
 
     # Read the machine-readable metric line and record it on this app's row. Knit
@@ -619,8 +615,8 @@ _tune_pilot_job() {
     # that `ax optimize` issues for each trial are scheduled onto this
     # allocation's nodes rather than sent to the batch scheduler.
     knit ax optimize \
-        --campaign     "$(knit_get_parameter campaign "$@")" \
-        --max-inflight "$(knit_get_parameter max-inflight "$@")"
+        $(knit_forward_parameter_as --campaign     campaign     "$@") \
+        $(knit_forward_parameter_as --max-inflight max-inflight "$@")
 }
 @done
 
@@ -651,8 +647,8 @@ _sweep_pilot_job() {
     # `submit drain` issues for each prepared job is packed onto this allocation's
     # nodes rather than sent to the batch scheduler.
     knit submit drain \
-        --group        "$(knit_get_parameter group "$@")" \
-        --max-inflight "$(knit_get_parameter max-inflight "$@")"
+        $(knit_forward_parameter_as --group        group        "$@") \
+        $(knit_forward_parameter_as --max-inflight max-inflight "$@")
 }
 @done
 

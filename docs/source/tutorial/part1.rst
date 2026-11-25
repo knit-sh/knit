@@ -416,6 +416,30 @@ configure the launch (``--procs`` total ranks, ``--procs-per-node`` how many lan
 on each node), and the arguments *after* ``--`` select what to launch (``render``)
 and pass its parameters.
 
+.. note::
+
+   **Forwarding parameters without the sharp edges.** The body above forwards
+   each value by hand --- ``--width "$(knit_get_parameter width "$@")"`` --- which
+   is clear and fine here, because every parameter is present and keeps its name.
+   Two cases make that pattern fragile, and Knit has a helper for each:
+
+   - An **absent** parameter makes ``knit_get_parameter`` print nothing, so
+     ``--width "$(...)"`` becomes a dangling ``--width`` with no value.
+     ``knit_forward_parameter_as --width width "$@"`` prints the whole
+     ``--width <value>`` pair when the parameter is present and *nothing* when it
+     is absent (used unquoted, so the shell drops it). It also forwards under a
+     different name --- ``knit_forward_parameter_as --data datadir "$@"`` sends the
+     local ``datadir`` parameter on as ``--data``.
+   - A **flag** reads back as the literal string ``true`` or ``false``, which is
+     rarely what the downstream program wants. ``knit_forward_flag_as <if-true>
+     <if-false> <flag> "$@"`` picks the text from the flag's value, so a flag can
+     even be forwarded under its negation.
+
+   A third helper, ``knit_get_parameter_with_default <name> <default> "$@"``,
+   supplies a fallback for an absent parameter (which ``knit_get_parameter``
+   cannot tell apart from an empty value). The *Forward parameters to another
+   command* recipe in the Stitch Guide has the details.
+
 But ``knit run`` launches something new: an **app**. An app is the unit of
 parallel work --- ``knit run`` starts one copy of it per rank. Our job launches an
 app called ``render`` that wraps the actual ``julia-fractal`` call. So we register

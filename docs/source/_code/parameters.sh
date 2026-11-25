@@ -107,6 +107,40 @@ _forward() {
 @done
 # END extra
 
+# START forward
+# Forward parameters to another command WITHOUT emitting dangling options. Each
+# helper prints tokens meant to be used UNQUOTED so the shell splits them (or
+# drops them entirely when the helper prints nothing).
+@command "relay" "Forward its parameters on to a plain helper."
+@with_optional "size:integer" "8" "Image size to forward."
+@with_flag "quiet" "When set, drop the banner."
+_relay() {
+    # knit_forward_parameter_as forwards "size" under the name "--dim" without
+    # hand-building the "--dim <value>" pair (and prints nothing if it is absent).
+    # knit_forward_flag_as maps the declared "quiet" flag (expanded to true/false
+    # in the body) to its negation: "--banner" appears only when --quiet is absent.
+    _render_opts \
+        $(knit_forward_parameter_as "--dim" "size" "$@") \
+        $(knit_forward_flag_as "" "--banner" "quiet" "$@")
+}
+# A stand-in for a downstream command: echo the arguments it received.
+_render_opts() { printf '%s\n' "$*"; }
+
+# knit_get_parameter_with_default fills in a fallback when a parameter is absent
+# from a raw list (one the CLI did not expand, such as a plain helper's own "$@").
+_pick_color() {
+    echo "color=$(knit_get_parameter_with_default "color" "auto" "$@")"
+}
+@command "paint" "Pick a color, defaulting to auto."
+@with_extra "Optional: --color NAME."
+_paint() {
+    local args=("$@") extra_index
+    extra_index=$(knit_extra_index "${args[@]}")
+    _pick_color "${args[@]:extra_index}"
+}
+@done
+# END forward
+
 # START check-args
 # A plain helper (not registered) can validate its own "$@" with
 # knit_check_arguments: the first list names options that take a value, the second

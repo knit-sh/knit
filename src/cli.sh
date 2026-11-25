@@ -4582,6 +4582,99 @@ knit_get_parameter() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn knit_get_parameter_with_default()
+#
+# Like knit_get_parameter, but print a fallback value when the parameter is
+# absent from the arguments instead of printing nothing. This spares a caller the
+# "empty string on a miss" trap: knit_get_parameter prints an empty string both
+# when the parameter is set to an empty value and when it is absent, so a caller
+# that wants a non-empty default would otherwise have to test the return status.
+# Always returns 0.
+#
+# @param[in] param   Parameter to search for (without the -- prefix).
+# @param[in] default Value to print when the parameter is absent.
+# @param[in] ...     Arguments in which to search for the parameter.
+# ------------------------------------------------------------------------------
+knit_get_parameter_with_default() {
+    local param="$1"
+    local default="$2"
+    shift 2
+    local value
+    if _knit_get_parameter_ref value "${param}" "$@"; then
+        printf "%s" "${value}"
+    else
+        printf "%s" "${default}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_forward_parameter_as()
+#
+# Forward a parameter to another command under a (possibly different) option
+# name. When the named parameter is present in the arguments, print the option
+# token followed by the parameter's value (e.g. "--x value"); when it is absent,
+# print nothing. This lets a command body forward an optional parameter without
+# emitting a dangling option: the common idiom
+# "--x $(knit_get_parameter y "$@")" produces a bare "--x" with no value when y
+# is absent, whereas "$(knit_forward_parameter_as --x y "$@")" produces nothing.
+# The output is meant to be used unquoted so the shell splits it into the two (or
+# zero) tokens; a value containing whitespace is therefore not supported, the
+# same limitation as any unquoted command-substitution forwarding.
+#
+# @param[in] option The option token to print before the value (e.g. "--x").
+# @param[in] param  Parameter to search for (without the -- prefix).
+# @param[in] ...    Arguments in which to search for the parameter.
+# ------------------------------------------------------------------------------
+knit_forward_parameter_as() {
+    local option="$1"
+    local param="$2"
+    shift 2
+    local value
+    if _knit_get_parameter_ref value "${param}" "$@"; then
+        printf "%s %s" "${option}" "${value}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# @fn knit_forward_flag_as()
+#
+# Forward a flag to another command, choosing the printed text from the flag's
+# value. When the flag is "true", print value-if-true; when it is "false", print
+# value-if-false; when the flag is absent from the arguments, print nothing. A
+# flag declared with knit_with_flag is always expanded to "--flag true" or
+# "--flag false" before a command body runs, so the absent case only arises when
+# parsing an arbitrary argument list.
+#
+# Providing both the true and the false text lets a caller forward a flag under a
+# different polarity. For example, to turn an "enable-feature" flag into a
+# "--disable-feature" option that appears only when the feature is turned off:
+#
+#     knit_forward_flag_as "" "--disable-feature" "enable-feature" "$@"
+#
+# The output is meant to be used unquoted so the shell splits it into tokens;
+# text containing whitespace is therefore not supported.
+#
+# @param[in] if_true  Text to print when the flag is "true".
+# @param[in] if_false Text to print when the flag is "false".
+# @param[in] flag     Flag to search for (without the -- prefix).
+# @param[in] ...      Arguments in which to search for the flag.
+# ------------------------------------------------------------------------------
+knit_forward_flag_as() {
+    local if_true="$1"
+    local if_false="$2"
+    local flag="$3"
+    shift 3
+    local value
+    if _knit_get_parameter_ref value "${flag}" "$@"; then
+        if [[ "${value}" == "true" ]]; then
+            printf "%s" "${if_true}"
+        else
+            printf "%s" "${if_false}"
+        fi
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn knit_output()
 #
 # Record a named output value from within a registered command function.

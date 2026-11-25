@@ -36,6 +36,14 @@ check_eq "$(exp flat-area --width 3 --height 4)" "12" "the re-declared optional 
 # forward: everything after -- is forwarded to the body.
 check_eq "$(exp forward -- a b c)" "a b c" "trailing arguments are forwarded"
 
+# relay: forward a parameter under a new name, and a flag under its negation.
+check_eq "$(exp relay)" "--dim 8 --banner" "the default size and the negated flag are forwarded"
+check_eq "$(exp relay --size 16 --quiet)" "--dim 16" "a set flag drops the negated option"
+
+# paint: a fallback fills in for an absent parameter in a raw list.
+check_eq "$(exp paint)" "color=auto" "the default applies when the parameter is absent"
+check_eq "$(exp paint -- --color red)" "color=red" "an explicit value overrides the default"
+
 # render: the plain helper validates its own arguments (happy path).
 check_eq "$(exp render --size 4)" "size=4" "a plain helper validates its own arguments"
 

@@ -65,16 +65,16 @@ _train_job() {
     out="$(knit run --procs 1 --procs-per-node 1 -- cifar-cnn-train \
         --model         "${KNIT_JOB_PREFIX%/}/model.pt" \
         --datadir       "${datadir}" \
-        --dataset       "$(knit_get_parameter dataset "$@")" \
-        --num-blocks    "$(knit_get_parameter num-blocks "$@")" \
-        --base-channels "$(knit_get_parameter base-channels "$@")" \
-        --kernel-size   "$(knit_get_parameter kernel-size "$@")" \
-        --dropout       "$(knit_get_parameter dropout "$@")" \
-        --activation    "$(knit_get_parameter activation "$@")" \
-        --residual      "$(knit_get_parameter residual "$@")" \
-        --lr            "$(knit_get_parameter lr "$@")" \
-        --batch-size    "$(knit_get_parameter batch-size "$@")" \
-        --epochs        "$(knit_get_parameter epochs "$@")")"
+        $(knit_forward_parameter_as --dataset       dataset       "$@") \
+        $(knit_forward_parameter_as --num-blocks    num-blocks    "$@") \
+        $(knit_forward_parameter_as --base-channels base-channels "$@") \
+        $(knit_forward_parameter_as --kernel-size   kernel-size   "$@") \
+        $(knit_forward_parameter_as --dropout       dropout       "$@") \
+        $(knit_forward_parameter_as --activation    activation    "$@") \
+        $(knit_forward_parameter_as --residual      residual      "$@") \
+        $(knit_forward_parameter_as --lr            lr            "$@") \
+        $(knit_forward_parameter_as --batch-size    batch-size    "$@") \
+        $(knit_forward_parameter_as --epochs        epochs        "$@"))"
 
     acc="$(grep -oE 'RESULT val_accuracy=[0-9.]+' <<<"${out}" | tail -1 | cut -d= -f2)"
     knit_output "val_accuracy" "${acc:-0}"
@@ -104,23 +104,22 @@ _cifar_cnn_train_app() {
     # the metric line the job captures on stdout).
     printf 'cifar-cnn-train running on host: %s\n' "$(hostname)" >&2
 
-    local -a resflag=()
-    [[ "$(knit_get_parameter residual "$@")" == "true" ]] && resflag=(--residual)
-
+    # The program takes --residual as a bare flag, so its true/false value becomes
+    # the flag's presence or absence.
     local out acc
     out="$(cifar-cnn train \
-        --model         "$(knit_get_parameter model "$@")" \
-        --dataset       "$(knit_get_parameter dataset "$@")" \
-        --data          "$(knit_get_parameter datadir "$@")" \
-        --num-blocks    "$(knit_get_parameter num-blocks "$@")" \
-        --base-channels "$(knit_get_parameter base-channels "$@")" \
-        --kernel-size   "$(knit_get_parameter kernel-size "$@")" \
-        --dropout       "$(knit_get_parameter dropout "$@")" \
-        --activation    "$(knit_get_parameter activation "$@")" \
-        "${resflag[@]}" \
-        --lr            "$(knit_get_parameter lr "$@")" \
-        --batch-size    "$(knit_get_parameter batch-size "$@")" \
-        --epochs        "$(knit_get_parameter epochs "$@")" \
+        $(knit_forward_parameter_as --model         model         "$@") \
+        $(knit_forward_parameter_as --dataset       dataset       "$@") \
+        $(knit_forward_parameter_as --data          datadir       "$@") \
+        $(knit_forward_parameter_as --num-blocks    num-blocks    "$@") \
+        $(knit_forward_parameter_as --base-channels base-channels "$@") \
+        $(knit_forward_parameter_as --kernel-size   kernel-size   "$@") \
+        $(knit_forward_parameter_as --dropout       dropout       "$@") \
+        $(knit_forward_parameter_as --activation    activation    "$@") \
+        $(knit_forward_flag_as "--residual" "" residual "$@") \
+        $(knit_forward_parameter_as --lr            lr            "$@") \
+        $(knit_forward_parameter_as --batch-size    batch-size    "$@") \
+        $(knit_forward_parameter_as --epochs        epochs        "$@") \
         2>&1 | tee -a /dev/stderr)"
 
     acc="$(grep -oE 'RESULT val_accuracy=[0-9.]+' <<<"${out}" | tail -1 | cut -d= -f2)"
@@ -158,8 +157,8 @@ _sweep_pilot_job() {
 @with_optional "max-inflight:integer" "4" "Trials to keep in flight on the pilot's nodes."
 _tune_pilot_job() {
     knit ax optimize \
-        --campaign     "$(knit_get_parameter campaign "$@")" \
-        --max-inflight "$(knit_get_parameter max-inflight "$@")"
+        $(knit_forward_parameter_as --campaign     campaign     "$@") \
+        $(knit_forward_parameter_as --max-inflight max-inflight "$@")
 }
 @done
 
