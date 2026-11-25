@@ -244,6 +244,31 @@ check_sqlite ".knit/knit.db" \
     "4" \
     "per-app row (found via edge) joins and records the world size"
 
+# ---- Handles: KNIT_LAST_RUN_* / KNIT_LAST_COMMAND_* the job body observed ----
+# The body printed a "HANDLE RUN_UUID=.. RUN_TABLE=.. CMD_UUID=.. CMD_TABLE=.."
+# line after its `knit run`. Assert the per-app handle names the per-app row (the
+# one reached via the run -> run:ranks edge), the generic handle names the runs
+# row, and the per-app handle addresses a real row carrying the app's output.
+handle_line=$(grep '^HANDLE ' "${launch_dir}/.stdout" | head -1)
+[[ -n "${handle_line}" ]] || fail "launch job body printed no HANDLE line"
+h_run_uuid=$(sed -n 's/.*\bRUN_UUID=\([^ ]*\).*/\1/p' <<<"${handle_line}")
+h_run_table=$(sed -n 's/.*\bRUN_TABLE=\([^ ]*\).*/\1/p' <<<"${handle_line}")
+h_cmd_uuid=$(sed -n 's/.*\bCMD_UUID=\([^ ]*\).*/\1/p' <<<"${handle_line}")
+h_cmd_table=$(sed -n 's/.*\bCMD_TABLE=\([^ ]*\).*/\1/p' <<<"${handle_line}")
+
+check_eq "${h_run_table}" "ranks" \
+    "KNIT_LAST_RUN_TABLE names the app's own table"
+check_eq "${h_run_uuid}" "${app_uuid}" \
+    "KNIT_LAST_RUN_UUID equals the 'run -> run:ranks' edge target (the per-app row)"
+check_eq "${h_cmd_table}" "runs" \
+    "KNIT_LAST_COMMAND_TABLE names the runs table"
+check_eq "${h_cmd_uuid}" "${run_uuid}" \
+    "KNIT_LAST_COMMAND_UUID equals the runs row id"
+check_sqlite ".knit/knit.db" \
+    "SELECT size FROM ${h_run_table} WHERE id='${h_run_uuid}';" \
+    "4" \
+    "the (KNIT_LAST_RUN_TABLE, KNIT_LAST_RUN_UUID) row carries the app's recorded size"
+
 # ==========================================================================
 # Job 2: "launch --launcher <integrated>" — same placement through the
 # scheduler-integrated launcher (srun on Slurm, PBS mpiexec on PBS), to

@@ -32,6 +32,28 @@ declare -g KNIT_MPI_SIZE
 declare -g KNIT_MPI_LOCAL_RANK
 
 # ------------------------------------------------------------------------------
+# @var KNIT_LAST_RUN_UUID
+#
+# Id of the per-app row the most recent `knit run` recorded (the row in the app's
+# own table, not the "runs" row). Set in the caller's shell after `knit run`
+# returns, so a job body can read the app's recorded outputs with a single direct
+# lookup: `SELECT <output> FROM ${KNIT_LAST_RUN_TABLE} WHERE
+# id='${KNIT_LAST_RUN_UUID}'`. Both are emptied when a run records no per-app row
+# (an app that opted out of recording a failed invocation). Plain shell global,
+# not exported — the consumer is the in-process job body that called `knit run`.
+# ------------------------------------------------------------------------------
+declare -g KNIT_LAST_RUN_UUID=""
+
+# ------------------------------------------------------------------------------
+# @var KNIT_LAST_RUN_TABLE
+#
+# Table the most recent `knit run` recorded its per-app row in: the app's own
+# table (named after the app), not "runs" (see KNIT_LAST_RUN_UUID). Plain shell
+# global, not exported.
+# ------------------------------------------------------------------------------
+declare -g KNIT_LAST_RUN_TABLE=""
+
+# ------------------------------------------------------------------------------
 # @var _KNIT_APPS
 #
 # Associative array mapping registered app names to 1. Used to validate that an
@@ -236,6 +258,16 @@ _knit_run() {
             "launcher=${resolved_backend}"
     fi
 
+    # Pre-mint the per-app row id so the dispatcher holds it directly. Rank 0
+    # records the per-app row under this id (injected through the launcher
+    # environment and adopted below) instead of minting its own, so the
+    # dispatcher can expose it after the launcher returns without a cross-host
+    # read-back of a value a remote rank 0 wrote. The id stays distinct from the
+    # runs row id; the run -> run:<app> edge (source runs id, target this id) is
+    # unchanged.
+    local app_row_id
+    app_row_id=$(_knit_uuidv7)
+
     # Log the resolved command before issuing it, then launch the per-rank worker
     # under the resolved backend and return its status. The worker re-enters this
     # experiment as the hidden `_run` verb; the launcher forwards the job's
@@ -255,6 +287,10 @@ _knit_run() {
         export KNIT_RUN_ID="${uuid}"
         export KNIT_SOURCE_ID="${uuid}"
         export KNIT_SOURCE_COMMAND=run
+        # The pre-minted per-app row id: rank 0 adopts it (see _knit_run_worker)
+        # so its per-app row records under the id the dispatcher already holds.
+        # shellcheck disable=SC2030 # read by _knit_run_worker, a separate process re-entered via the launcher
+        export KNIT_RUN_APP_ROW_ID="${app_row_id}"
         # Forward each input's precomputed digest so rank 0 records it verbatim
         # (KNIT_CHECKSUM_<param> = bare 64-hex; the recorder re-applies the
         # sha256: prefix). Exported inside this subshell so the digests reach the
@@ -290,9 +326,15 @@ _knit_run() {
     # rank 0's per-app row. Rank 0 recorded only the output paths; hashing after
     # launch keeps it off every rank and out of every measured duration.
     if [[ "${run_status}" -eq 0 ]]; then
-        _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${uuid}" "false"
+        _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${app_row_id}" "false"
         # Fill in the runs row's exit status (left NULL by the eager insert).
         _knit_run_record_exit_status "${uuid}" "${run_status}"
+        # Expose the per-app row as a handle for the job body: the row rank 0
+        # recorded under the pre-minted id, in the app's own table.
+        # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+        KNIT_LAST_RUN_UUID="${app_row_id}"
+        # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+        KNIT_LAST_RUN_TABLE="${app_name}"
     else
         # A failed run leaves the eagerly-recorded runs row as a trace by default.
         # But when the app opted out of recording a failed invocation
@@ -306,9 +348,19 @@ _knit_run() {
         local no_fail_var="_KNIT_CMD_${subcmd}_no_record_on_failure"
         if [[ "${!no_fail_var:-}" == "true" ]]; then
             _knit_run_delete_row "${uuid}"
+            # No per-app row survives, so leave no stale handle for the job body.
+            # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+            KNIT_LAST_RUN_UUID=""
+            # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+            KNIT_LAST_RUN_TABLE=""
         else
-            _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${uuid}" "true"
+            _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${app_row_id}" "true"
             _knit_run_record_exit_status "${uuid}" "${run_status}"
+            # The per-app row survives as the failure trace; expose it.
+            # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+            KNIT_LAST_RUN_UUID="${app_row_id}"
+            # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+            KNIT_LAST_RUN_TABLE="${app_name}"
         fi
     fi
     return "${run_status}"
@@ -540,13 +592,13 @@ _knit_run_checksum_inputs() {
 # keep the launcher blocked while the other ranks idle at finalize, inflating the
 # run's measured wall-clock.
 #
-# Rank 0's per-app row is found through the provenance graph: the "run -> run:app"
-# call edge (source_id is this run's UUID) points at the row's id. For each
-# checksummed output, the recorded path is read back from that row, its existence
-# verified, the digest computed, and the row's companion "<param>_checksum"
-# column updated. An output left with no value, or one that opted out with
-# --no-checksum, is skipped. When nothing was recorded (recording disabled, or no
-# such row) this is a no-op.
+# Rank 0's per-app row id is passed in directly: the `run` dispatcher pre-mints it
+# and injects it into rank 0, so it holds the id without a provenance read-back.
+# For each checksummed output, the recorded path is read back from that row, its
+# existence verified, the digest computed, and the row's companion
+# "<param>_checksum" column updated. An output left with no value (including when
+# nothing was recorded — recording disabled, or no such row), or one that opted
+# out with --no-checksum, is skipped.
 #
 # When tolerant is "false" (a successful run) a missing output is fatal (a broken
 # postcondition). When tolerant is "true" (a FAILED run whose row survives) a
@@ -555,34 +607,23 @@ _knit_run_checksum_inputs() {
 #
 # @param[in] subcmd   Mangled app command name (run:<app>).
 # @param[in] app_name The app name (its table is named after it).
-# @param[in] run_uuid This run's UUID (source of the provenance edge to the row).
+# @param[in] row_id   The per-app row's id (pre-minted by the dispatcher).
 # @param[in] tolerant "true" to skip (not fatal on) a missing output; default
 #                     "false" enforces existence.
 # ------------------------------------------------------------------------------
 _knit_run_checksum_outputs() {
     local subcmd="$1"
     local app_name="$2"
-    local run_uuid="$3"
+    local row_id="$3"
     local tolerant="${4:-false}"
     _knit_is_bootstrapped || return 0
     _knit_set_exists "_KNIT_CMD_${subcmd}_fileparams" || return 0
-
-    # Canonical (underscore) label for the provenance query; it must match the
-    # target_name recorded on the edge. A separate display form (registered
-    # spelling) is used only in the human-facing existence error below.
-    local demangled display
-    demangled=$(_knit_command_demangle "${subcmd}")
-    _knit_command_display display "${subcmd}"
-
-    # Locate rank 0's per-app row via the run -> run:<app> call edge. Its target
-    # is the row's id; absent when nothing was recorded (e.g. recording disabled).
-    local sid_esc tname_esc row_id
-    _knit_sql_escape sid_esc "${run_uuid}"
-    _knit_sql_escape tname_esc "${demangled}"
-    row_id=$(_knit_sqlite3 \
-        "SELECT target_id FROM ${_KNIT_PROV_TABLE} WHERE source_id='${sid_esc}' AND target_name='${tname_esc}' AND edge_type='call' LIMIT 1;" \
-        2>/dev/null) || row_id=""
     [[ -n "${row_id}" ]] || return 0
+
+    # Registered spelling of the app, used only in the human-facing existence
+    # error below.
+    local display
+    _knit_command_display display "${subcmd}"
 
     local table_ident id_ident rid_esc
     _knit_db_sql_ident table_ident "${app_name}"
@@ -704,8 +745,25 @@ _knit_run_worker() {
     # and _knit_record_invocation writes neither row nor edge when set). We may
     # later allow non-zero ranks to record per-rank rows/edges; for now a run is
     # a single logical invocation recorded once.
+    # SC2031: KNIT_RUN_APP_ROW_ID is exported by the dispatcher's launcher
+    # subshell, but it reaches this worker through the launcher as a fresh
+    # process; the subshell-modification data flow shellcheck sees across these
+    # two functions in one file does not apply at runtime.
+    # shellcheck disable=SC2031
     if [[ "${KNIT_MPI_RANK}" != "0" ]]; then
         _KNIT_RECORDING_SUPPRESSED="1"
+    elif [[ -n "${KNIT_RUN_APP_ROW_ID:-}" ]]; then
+        # Rank 0 adopts the per-app row id the dispatcher pre-minted and exported,
+        # so the per-app row records under that known id. The injection is
+        # single-use and keyed on the app command, so only the app frame adopts
+        # it: the hidden _run frame and any commands nested in the app body still
+        # mint their own distinct ids. _KNIT_INJECTED_ROW_ID (not
+        # _KNIT_CMD_<cmd>_row_id) carries it because _knit_invoke_command clears
+        # the latter before resolving the frame's id.
+        local subcmd
+        _knit_command_mangle subcmd "run:${app_name}"
+        # shellcheck disable=SC2031 # see the note on the enclosing if (cross-process env, not a subshell read)
+        _KNIT_INJECTED_ROW_ID["${subcmd}"]="${KNIT_RUN_APP_ROW_ID}"
     fi
 
     _knit_invoke_command "run" "${app_name}" "${app_args[@]}"

@@ -138,6 +138,38 @@ declare -gA _KNIT_USED_ALIASES=()
 declare -g _KNIT_LAST_ROW_ID=""
 
 # ------------------------------------------------------------------------------
+# Single-use row ids injected for a command about to be invoked, keyed by mangled
+# command name. _knit_resolve_row_id consumes (and removes) the entry when it
+# pushes that command's frame, so the frame adopts the given id. Unlike
+# _KNIT_CMD_<cmd>_row_id (which _knit_invoke_command unsets per invocation to
+# clear stale state, so it cannot carry an id in from outside the frame), this map
+# is untouched by that reset. The `knit run` worker uses it on rank 0 to make the
+# per-app row record under the id the dispatcher pre-minted (KNIT_RUN_APP_ROW_ID).
+# ------------------------------------------------------------------------------
+declare -gA _KNIT_INJECTED_ROW_ID=()
+
+# ------------------------------------------------------------------------------
+# @var KNIT_LAST_COMMAND_UUID
+#
+# Id of the data row the most recent command recorded in this process. Set by any
+# command that writes a data row (a command that declared a table): after a
+# `knit submit` it names the "jobs" row, after a `knit run` the "runs" row, after
+# a `metadata store` the "metadata" row, and so on. Together with
+# KNIT_LAST_COMMAND_TABLE it lets a caller address the row a command it just
+# invoked recorded. A table-less (provenance-only) command leaves it untouched.
+# Plain shell global, not exported.
+# ------------------------------------------------------------------------------
+declare -g KNIT_LAST_COMMAND_UUID=""
+
+# ------------------------------------------------------------------------------
+# @var KNIT_LAST_COMMAND_TABLE
+#
+# Table the most recent command recorded its data row in (see
+# KNIT_LAST_COMMAND_UUID). Plain shell global, not exported.
+# ------------------------------------------------------------------------------
+declare -g KNIT_LAST_COMMAND_TABLE=""
+
+# ------------------------------------------------------------------------------
 # When non-empty, output recording is suppressed: knit_output discards its value
 # (with a warning) and _knit_record_invocation records no row. This is a generic
 # recording concept (the CLI layer stays unaware of MPI); the `knit run` per-rank
@@ -4622,18 +4654,29 @@ knit_set_row_id() {
 # @fn _knit_resolve_row_id()
 #
 # Resolve the row id for an invocation of a command, used when its frame is
-# pushed onto _KNIT_EXECUTING_ROW_ID. The precedence is: an explicit id already
-# set via knit_set_row_id (_KNIT_CMD_<cmd>_row_id), otherwise a fresh uuidv7.
+# pushed onto _KNIT_EXECUTING_ROW_ID. The precedence is: a single-use id injected
+# for this command (_KNIT_INJECTED_ROW_ID, consumed here), otherwise a fresh
+# uuidv7. (_KNIT_CMD_<cmd>_row_id, set via knit_set_row_id, is unset per
+# invocation before this runs, so it carries an id only when set from within the
+# frame's own body, not across the push.)
 #
 # Every invocation gets its own distinct id: the historical couplings that made a
 # job body reuse its submission's UUID (KNIT_JOB_PREFIX) and an app's rank-0 row
 # reuse its run's UUID (KNIT_RUN_ID) are gone — the provenance edge, not a shared
-# id, links a child back to its parent.
+# id, links a child back to its parent. An injected id (used by the `knit run`
+# worker so the per-app row adopts the dispatcher's pre-minted id) is still
+# distinct from the caller's id; it is injection, not sharing.
 #
 # @param[in] cmd Mangled command name.
 # ------------------------------------------------------------------------------
 _knit_resolve_row_id() {
     local cmd="$1"
+    if [[ -v _KNIT_INJECTED_ROW_ID["${cmd}"] ]]; then
+        local injected="${_KNIT_INJECTED_ROW_ID["${cmd}"]}"
+        unset "_KNIT_INJECTED_ROW_ID[${cmd}]"
+        printf '%s' "${injected}"
+        return 0
+    fi
     local rowid_var="_KNIT_CMD_${cmd}_row_id"
     if [[ -n "${!rowid_var:-}" ]]; then
         printf '%s' "${!rowid_var}"
@@ -4943,6 +4986,17 @@ _knit_record_invocation() {
     # Expose the resolved id so a dispatcher can read it after this body returns
     # (see _KNIT_LAST_ROW_ID; knit setup writes it to .setup.id).
     _KNIT_LAST_ROW_ID="${id}"
+
+    # Expose the row as a public handle for the caller's shell, but only when a
+    # real data row is written (a declared table): a table-less, provenance-only
+    # command records an edge, not a row a caller could query, so it must not
+    # update these.
+    if [[ -n "${table}" ]]; then
+        # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+        KNIT_LAST_COMMAND_UUID="${id}"
+        # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+        KNIT_LAST_COMMAND_TABLE="${table}"
+    fi
 
     printf -v "${recorded_var}" '%s' "1"
 

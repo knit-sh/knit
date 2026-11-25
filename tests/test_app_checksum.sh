@@ -53,15 +53,18 @@ setup() {
     _knit_command_mangle OUTAPP "run:outapp"
 
     # Simulate the launcher spawning rank 0 in-process: find the "_run --" marker
-    # in the launch argv and re-enter the app command as rank 0 would (records the
-    # per-app row, with the checksum columns left empty for the dispatcher). The
-    # run context (KNIT_RUN_ID / KNIT_SOURCE_*) is already exported by the
-    # dispatcher subshell around this call.
+    # in the launch argv and re-enter through the real per-rank worker as rank 0
+    # would (records the per-app row, with the checksum columns left empty for the
+    # dispatcher). Going through the worker means rank 0 adopts the dispatcher's
+    # pre-minted per-app row id (KNIT_RUN_APP_ROW_ID), exactly as in production, so
+    # the dispatcher's post-launch checksum step lands on that same row. The run
+    # context (KNIT_RUN_ID / KNIT_SOURCE_* / KNIT_RUN_APP_ROW_ID) is already
+    # exported by the dispatcher subshell around this call.
     _stub_launch_rank0() {
         _knit_launch_backend() { local -n __r=$1; __r='none'; }
         _knit_launch_cmdline() { local -n _argv="$3"; _argv=(launcher); }
-        # Distinct ids on successive calls (run UUID, then rank 0's per-app row id)
-        # via a counter file, since Math.random/Date are unavailable in tests.
+        # Distinct ids on successive calls (run UUID, then the pre-minted per-app
+        # row id) via a counter file, since Math.random/Date are unavailable here.
         _knit_uuidv7() {
             local n
             n=$(cat "${BATS_TEST_TMPDIR}/uuid_ctr" 2>/dev/null || printf '0')
@@ -75,9 +78,7 @@ setup() {
             for ((i = 0; i < ${#a[@]}; i++)); do
                 if [[ "${a[i]}" == "_run" ]]; then start=$((i + 2)); break; fi
             done
-            export KNIT_MPI_RANK=0
-            _knit_run_normalize_mpi_env
-            _knit_invoke_command "run" "${a[@]:start}"
+            _knit_run_worker -- "${a[@]:start}"
         }
     }
 }
@@ -265,33 +266,27 @@ _stub_dispatch() {
 }
 
 @test "_knit_run_checksum_outputs fills rank 0's row checksum from the recorded path" {
-    # Seed rank 0's per-app row and the run -> run:outapp call edge by hand, then
-    # run the dispatcher's post-launch output hook in isolation.
+    # Seed rank 0's per-app row by hand, then run the dispatcher's post-launch
+    # output hook on it directly (it takes the row id the dispatcher pre-minted).
     local out="${BATS_TEST_TMPDIR}/result.txt"
     printf 'produced\n' > "${out}"
     local expected
     _knit_sha256 expected "${out}"
 
-    _knit_prov_ensure_table
     sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO outapp (id, result) VALUES ('row1', '${out}');"
-    sqlite3 "${_KNIT_DATABASE}" \
-        "INSERT INTO __provenance__ (source_id, source_name, target_id, target_name, edge_type) VALUES ('run1', 'run', 'row1', 'run:outapp', 'call');"
 
-    _knit_run_checksum_outputs "${OUTAPP}" "outapp" "run1"
+    _knit_run_checksum_outputs "${OUTAPP}" "outapp" "row1"
 
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT result_checksum FROM outapp WHERE id='row1';")" \
         = "sha256:${expected}" ]
 }
 
 @test "_knit_run_checksum_outputs fatals on a missing output on a successful run" {
-    _knit_prov_ensure_table
     sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO outapp (id, result) VALUES ('row1', '${BATS_TEST_TMPDIR}/never.txt');"
-    sqlite3 "${_KNIT_DATABASE}" \
-        "INSERT INTO __provenance__ (source_id, source_name, target_id, target_name, edge_type) VALUES ('run1', 'run', 'row1', 'run:outapp', 'call');"
 
-    run _knit_run_checksum_outputs "${OUTAPP}" "outapp" "run1"
+    run _knit_run_checksum_outputs "${OUTAPP}" "outapp" "row1"
     [ "$status" -ne 0 ]
     [[ "$output" == *"was not produced"* ]]
 }
@@ -303,34 +298,27 @@ _stub_dispatch() {
     local expected
     _knit_sha256 expected "${out}"
 
-    _knit_prov_ensure_table
     sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO outapp (id, result) VALUES ('row1', '${out}');"
-    sqlite3 "${_KNIT_DATABASE}" \
-        "INSERT INTO __provenance__ (source_id, source_name, target_id, target_name, edge_type) VALUES ('run1', 'run', 'row1', 'run:outapp', 'call');"
 
-    _knit_run_checksum_outputs "${OUTAPP}" "outapp" "run1" "true"
+    _knit_run_checksum_outputs "${OUTAPP}" "outapp" "row1" "true"
 
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT result_checksum FROM outapp WHERE id='row1';")" \
         = "sha256:${expected}" ]
 }
 
 @test "_knit_run_checksum_outputs (tolerant) skips a missing output of a failed run" {
-    _knit_prov_ensure_table
     sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO outapp (id, result) VALUES ('row1', '${BATS_TEST_TMPDIR}/never.txt');"
-    sqlite3 "${_KNIT_DATABASE}" \
-        "INSERT INTO __provenance__ (source_id, source_name, target_id, target_name, edge_type) VALUES ('run1', 'run', 'row1', 'run:outapp', 'call');"
 
-    run _knit_run_checksum_outputs "${OUTAPP}" "outapp" "run1" "true"
+    run _knit_run_checksum_outputs "${OUTAPP}" "outapp" "row1" "true"
     [ "$status" -eq 0 ]
     [[ "$output" != *"was not produced"* ]]
     [ "$(sqlite3 "${_KNIT_DATABASE}" "SELECT result_checksum FROM outapp WHERE id='row1';")" = "" ]
 }
 
-@test "_knit_run_checksum_outputs is a no-op when no row was recorded" {
-    _knit_prov_ensure_table
-    run _knit_run_checksum_outputs "${OUTAPP}" "outapp" "no-such-run"
+@test "_knit_run_checksum_outputs is a no-op for an id with no recorded row" {
+    run _knit_run_checksum_outputs "${OUTAPP}" "outapp" "no-such-row"
     [ "$status" -eq 0 ]
 }
 
