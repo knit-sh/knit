@@ -138,6 +138,27 @@ declare -gA _KNIT_USED_ALIASES=()
 declare -g _KNIT_LAST_ROW_ID=""
 
 # ------------------------------------------------------------------------------
+# @var KNIT_LAST_COMMAND_UUID
+#
+# Id of the data row the most recent command recorded in this process. Set by any
+# command that writes a data row (a command that declared a table): after a
+# `knit submit` it names the "jobs" row, after a `knit run` the "runs" row, after
+# a `metadata store` the "metadata" row, and so on. Together with
+# KNIT_LAST_COMMAND_TABLE it lets a caller address the row a command it just
+# invoked recorded. A table-less (provenance-only) command leaves it untouched.
+# Plain shell global, not exported.
+# ------------------------------------------------------------------------------
+declare -g KNIT_LAST_COMMAND_UUID=""
+
+# ------------------------------------------------------------------------------
+# @var KNIT_LAST_COMMAND_TABLE
+#
+# Table the most recent command recorded its data row in (see
+# KNIT_LAST_COMMAND_UUID). Plain shell global, not exported.
+# ------------------------------------------------------------------------------
+declare -g KNIT_LAST_COMMAND_TABLE=""
+
+# ------------------------------------------------------------------------------
 # When non-empty, output recording is suppressed: knit_output discards its value
 # (with a warning) and _knit_record_invocation records no row. This is a generic
 # recording concept (the CLI layer stays unaware of MPI); the `knit run` per-rank
@@ -4943,6 +4964,17 @@ _knit_record_invocation() {
     # Expose the resolved id so a dispatcher can read it after this body returns
     # (see _KNIT_LAST_ROW_ID; knit setup writes it to .setup.id).
     _KNIT_LAST_ROW_ID="${id}"
+
+    # Expose the row as a public handle for the caller's shell, but only when a
+    # real data row is written (a declared table): a table-less, provenance-only
+    # command records an edge, not a row a caller could query, so it must not
+    # update these.
+    if [[ -n "${table}" ]]; then
+        # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+        KNIT_LAST_COMMAND_UUID="${id}"
+        # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
+        KNIT_LAST_COMMAND_TABLE="${table}"
+    fi
 
     printf -v "${recorded_var}" '%s' "1"
 
