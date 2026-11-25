@@ -71,14 +71,49 @@ knit_set_program_description "Tune a CNN image classifier on CIFAR-10."
 @with_optional "epochs:integer"        "3"       "Training epochs (not searched)."
 @with_output   "val_accuracy:real" "Final-epoch validation accuracy (%)."
 _train_job() {
-    local datadir dataset out acc
+    local datadir out acc
     datadir="$(knit_resource_path "$(knit_get_parameter data "$@")")"
-    dataset="$(knit_get_parameter dataset "$@")"
 
-    out="$(cifar-cnn train \
+    # The job does not run cifar-cnn itself: it launches the cifar-cnn-train app
+    # through `knit run`, one rank on the job's allocated node. Launching it this
+    # way (rather than a bare cifar-cnn call) is what places the training on the
+    # assigned node --- which matters once the same job runs inside a pilot
+    # (Step 6), where the sub-job body itself runs on the pilot's launch node. The
+    # app prints just the metric line on stdout, captured here to re-record it.
+    out="$(knit run --procs 1 --procs-per-node 1 -- cifar-cnn-train \
         --model         "${KNIT_JOB_PREFIX%/}/model.pt" \
-        --dataset       "${dataset}" \
-        --data          "${datadir}" \
+        --datadir       "${datadir}" \
+        --dataset       "$(knit_get_parameter dataset "$@")" \
+        --num-blocks    "$(knit_get_parameter num-blocks "$@")" \
+        --base-channels "$(knit_get_parameter base-channels "$@")" \
+        --kernel-size   "$(knit_get_parameter kernel-size "$@")" \
+        --epochs        "$(knit_get_parameter epochs "$@")")"
+
+    acc="$(grep -oE 'RESULT val_accuracy=[0-9.]+' <<<"${out}" | tail -1 | cut -d= -f2)"
+    knit_output "val_accuracy" "${acc:-0}"
+}
+@done
+
+# The unit `knit run` launches: one `cifar-cnn train` on the assigned node. It
+# declares no setup --- an app inherits the launching job's activated cnnenv, so
+# cifar-cnn is on PATH. It streams the training log to its stderr (shown live),
+# records val_accuracy on its own row, and prints the metric line on stdout so the
+# train job can read it back.
+@app "cifar-cnn-train" "Train the CNN on the assigned node and record its accuracy."
+@with_required "model:string"   "Absolute path for the trained model (the job supplies one)."
+@with_required "datadir:string" "Absolute path of the staged dataset directory."
+@with_optional "dataset:string"        "cifar10" "Dataset loader (not searched)."
+@with_optional "num-blocks:integer"    "3"       "Convolution blocks."
+@with_optional "base-channels:integer" "32"      "Channels in the first block."
+@with_optional "kernel-size:integer"   "3"       "Convolution kernel size."
+@with_optional "epochs:integer"        "3"       "Training epochs."
+@with_output   "val_accuracy:real" "Final-epoch validation accuracy (%)."
+_cifar_cnn_train_app() {
+    local out acc
+    out="$(cifar-cnn train \
+        --model         "$(knit_get_parameter model "$@")" \
+        --dataset       "$(knit_get_parameter dataset "$@")" \
+        --data          "$(knit_get_parameter datadir "$@")" \
         --num-blocks    "$(knit_get_parameter num-blocks "$@")" \
         --base-channels "$(knit_get_parameter base-channels "$@")" \
         --kernel-size   "$(knit_get_parameter kernel-size "$@")" \
@@ -87,6 +122,7 @@ _train_job() {
 
     acc="$(grep -oE 'RESULT val_accuracy=[0-9.]+' <<<"${out}" | tail -1 | cut -d= -f2)"
     knit_output "val_accuracy" "${acc:-0}"
+    printf 'RESULT val_accuracy=%s\n' "${acc:-0}"
 }
 @done
 # END job

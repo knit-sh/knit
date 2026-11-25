@@ -52,20 +52,60 @@ knit_set_program_description "Tune a CNN image classifier with Bayesian optimiza
 @with_optional "epochs:integer"        "3"       "Training epochs (not searched)."
 @with_output   "val_accuracy:real" "Final-epoch validation accuracy (%)."
 _train_job() {
-    local datadir dataset residual out acc
+    local datadir out acc
     datadir="$(knit_resource_path "$(knit_get_parameter data "$@")")"
-    dataset="$(knit_get_parameter dataset "$@")"
 
-    # The program takes --residual as a bare flag, so turn the true/false
-    # parameter into the flag's presence or absence.
-    local -a resflag=()
-    residual="$(knit_get_parameter residual "$@")"
-    [[ "${residual}" == "true" ]] && resflag=(--residual)
-
-    out="$(cifar-cnn train \
+    # The job launches the cifar-cnn-train app through `knit run` (one rank on the
+    # assigned node) rather than running cifar-cnn directly, so the training lands
+    # on the node the scheduler --- or the pilot's daemon --- assigned to it.
+    # --residual is passed through verbatim; the app turns it into the bare flag.
+    out="$(knit run --procs 1 --procs-per-node 1 -- cifar-cnn-train \
         --model         "${KNIT_JOB_PREFIX%/}/model.pt" \
-        --dataset       "${dataset}" \
-        --data          "${datadir}" \
+        --datadir       "${datadir}" \
+        --dataset       "$(knit_get_parameter dataset "$@")" \
+        --num-blocks    "$(knit_get_parameter num-blocks "$@")" \
+        --base-channels "$(knit_get_parameter base-channels "$@")" \
+        --kernel-size   "$(knit_get_parameter kernel-size "$@")" \
+        --dropout       "$(knit_get_parameter dropout "$@")" \
+        --activation    "$(knit_get_parameter activation "$@")" \
+        --residual      "$(knit_get_parameter residual "$@")" \
+        --lr            "$(knit_get_parameter lr "$@")" \
+        --batch-size    "$(knit_get_parameter batch-size "$@")" \
+        --epochs        "$(knit_get_parameter epochs "$@")")"
+
+    acc="$(grep -oE 'RESULT val_accuracy=[0-9.]+' <<<"${out}" | tail -1 | cut -d= -f2)"
+    knit_output "val_accuracy" "${acc:-0}"
+}
+@done
+
+# The unit `knit run` launches: one `cifar-cnn train` on the assigned node. It
+# inherits the job's cnnenv setup, records val_accuracy on its own row, and prints
+# the metric line on stdout for the job to read back.
+@app "cifar-cnn-train" "Train the CNN on the assigned node and record its accuracy."
+@with_required "model:string"   "Absolute path for the trained model (the job supplies one)."
+@with_required "datadir:string" "Absolute path of the staged dataset directory."
+@with_optional "dataset:string"        "cifar10" "Dataset loader (not searched)."
+@with_optional "num-blocks:integer"    "3"       "Convolution blocks."
+@with_optional "base-channels:integer" "32"      "Channels in the first block."
+@with_optional "kernel-size:integer"   "3"       "Convolution kernel size."
+@with_optional "dropout:real"          "0.3"     "Dropout before the classifier head."
+@with_optional "activation:string"     "relu"    "Activation function."
+@with_optional "residual:string"       "false"   "Residual skip connections (true or false)."
+@with_optional "lr:real"               "0.001"   "Initial learning rate."
+@with_optional "batch-size:integer"    "128"     "Mini-batch size."
+@with_optional "epochs:integer"        "3"       "Training epochs."
+@with_output   "val_accuracy:real" "Final-epoch validation accuracy (%)."
+_cifar_cnn_train_app() {
+    # The program takes --residual as a bare flag, so turn the true/false value
+    # into the flag's presence or absence.
+    local -a resflag=()
+    [[ "$(knit_get_parameter residual "$@")" == "true" ]] && resflag=(--residual)
+
+    local out acc
+    out="$(cifar-cnn train \
+        --model         "$(knit_get_parameter model "$@")" \
+        --dataset       "$(knit_get_parameter dataset "$@")" \
+        --data          "$(knit_get_parameter datadir "$@")" \
         --num-blocks    "$(knit_get_parameter num-blocks "$@")" \
         --base-channels "$(knit_get_parameter base-channels "$@")" \
         --kernel-size   "$(knit_get_parameter kernel-size "$@")" \
@@ -79,6 +119,7 @@ _train_job() {
 
     acc="$(grep -oE 'RESULT val_accuracy=[0-9.]+' <<<"${out}" | tail -1 | cut -d= -f2)"
     knit_output "val_accuracy" "${acc:-0}"
+    printf 'RESULT val_accuracy=%s\n' "${acc:-0}"
 }
 @done
 
