@@ -471,6 +471,11 @@ _train_job() {
 @with_optional "device:string"         "auto"    "Requested compute device: auto, cpu, cuda, or xpu."
 @with_output   "val_accuracy:real" "Final-epoch validation accuracy (%)." --unset "0"
 _cifar_cnn_train_app() {
+    # Report where the launcher placed this rank (on stderr, so it stays out of
+    # the metric line the job captures on stdout). Under a pilot this is the node
+    # the daemon assigned to the job via knit run, not the pilot's launch node.
+    printf 'cifar-cnn-train running on host: %s\n' "$(hostname)" >&2
+
     # The program takes --residual as a bare flag, so turn the true/false value
     # into the flag's presence or absence.
     local -a resflag=()
@@ -494,7 +499,7 @@ _cifar_cnn_train_app() {
         --batch-size    "$(knit_get_parameter batch-size "$@")" \
         --epochs        "$(knit_get_parameter epochs "$@")" \
         --device        "$(knit_get_parameter device "$@")" \
-        2>&1 | tee /dev/stderr)"
+        2>&1 | tee -a /dev/stderr)"
 
     # Read the machine-readable metric line and record it on this app's row. Knit
     # records outputs from rank 0 only, so one knit_output writes one row.

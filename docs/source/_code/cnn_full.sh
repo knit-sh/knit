@@ -100,6 +100,10 @@ _train_job() {
 @with_optional "epochs:integer"        "3"       "Training epochs."
 @with_output   "val_accuracy:real" "Final-epoch validation accuracy (%)."
 _cifar_cnn_train_app() {
+    # Report where the launcher placed this rank (on stderr, so it stays out of
+    # the metric line the job captures on stdout).
+    printf 'cifar-cnn-train running on host: %s\n' "$(hostname)" >&2
+
     local -a resflag=()
     [[ "$(knit_get_parameter residual "$@")" == "true" ]] && resflag=(--residual)
 
@@ -117,7 +121,7 @@ _cifar_cnn_train_app() {
         --lr            "$(knit_get_parameter lr "$@")" \
         --batch-size    "$(knit_get_parameter batch-size "$@")" \
         --epochs        "$(knit_get_parameter epochs "$@")" \
-        2>&1 | tee /dev/stderr)"
+        2>&1 | tee -a /dev/stderr)"
 
     acc="$(grep -oE 'RESULT val_accuracy=[0-9.]+' <<<"${out}" | tail -1 | cut -d= -f2)"
     knit_output "val_accuracy" "${acc:-0}"
