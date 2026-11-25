@@ -326,7 +326,7 @@ _knit_run() {
     # rank 0's per-app row. Rank 0 recorded only the output paths; hashing after
     # launch keeps it off every rank and out of every measured duration.
     if [[ "${run_status}" -eq 0 ]]; then
-        _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${uuid}" "false"
+        _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${app_row_id}" "false"
         # Fill in the runs row's exit status (left NULL by the eager insert).
         _knit_run_record_exit_status "${uuid}" "${run_status}"
         # Expose the per-app row as a handle for the job body: the row rank 0
@@ -354,7 +354,7 @@ _knit_run() {
             # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
             KNIT_LAST_RUN_TABLE=""
         else
-            _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${uuid}" "true"
+            _knit_run_checksum_outputs "${subcmd}" "${app_name}" "${app_row_id}" "true"
             _knit_run_record_exit_status "${uuid}" "${run_status}"
             # The per-app row survives as the failure trace; expose it.
             # shellcheck disable=SC2034 # public API read by user job bodies, not knit.sh
@@ -592,13 +592,13 @@ _knit_run_checksum_inputs() {
 # keep the launcher blocked while the other ranks idle at finalize, inflating the
 # run's measured wall-clock.
 #
-# Rank 0's per-app row is found through the provenance graph: the "run -> run:app"
-# call edge (source_id is this run's UUID) points at the row's id. For each
-# checksummed output, the recorded path is read back from that row, its existence
-# verified, the digest computed, and the row's companion "<param>_checksum"
-# column updated. An output left with no value, or one that opted out with
-# --no-checksum, is skipped. When nothing was recorded (recording disabled, or no
-# such row) this is a no-op.
+# Rank 0's per-app row id is passed in directly: the `run` dispatcher pre-mints it
+# and injects it into rank 0, so it holds the id without a provenance read-back.
+# For each checksummed output, the recorded path is read back from that row, its
+# existence verified, the digest computed, and the row's companion
+# "<param>_checksum" column updated. An output left with no value (including when
+# nothing was recorded — recording disabled, or no such row), or one that opted
+# out with --no-checksum, is skipped.
 #
 # When tolerant is "false" (a successful run) a missing output is fatal (a broken
 # postcondition). When tolerant is "true" (a FAILED run whose row survives) a
@@ -607,34 +607,23 @@ _knit_run_checksum_inputs() {
 #
 # @param[in] subcmd   Mangled app command name (run:<app>).
 # @param[in] app_name The app name (its table is named after it).
-# @param[in] run_uuid This run's UUID (source of the provenance edge to the row).
+# @param[in] row_id   The per-app row's id (pre-minted by the dispatcher).
 # @param[in] tolerant "true" to skip (not fatal on) a missing output; default
 #                     "false" enforces existence.
 # ------------------------------------------------------------------------------
 _knit_run_checksum_outputs() {
     local subcmd="$1"
     local app_name="$2"
-    local run_uuid="$3"
+    local row_id="$3"
     local tolerant="${4:-false}"
     _knit_is_bootstrapped || return 0
     _knit_set_exists "_KNIT_CMD_${subcmd}_fileparams" || return 0
-
-    # Canonical (underscore) label for the provenance query; it must match the
-    # target_name recorded on the edge. A separate display form (registered
-    # spelling) is used only in the human-facing existence error below.
-    local demangled display
-    demangled=$(_knit_command_demangle "${subcmd}")
-    _knit_command_display display "${subcmd}"
-
-    # Locate rank 0's per-app row via the run -> run:<app> call edge. Its target
-    # is the row's id; absent when nothing was recorded (e.g. recording disabled).
-    local sid_esc tname_esc row_id
-    _knit_sql_escape sid_esc "${run_uuid}"
-    _knit_sql_escape tname_esc "${demangled}"
-    row_id=$(_knit_sqlite3 \
-        "SELECT target_id FROM ${_KNIT_PROV_TABLE} WHERE source_id='${sid_esc}' AND target_name='${tname_esc}' AND edge_type='call' LIMIT 1;" \
-        2>/dev/null) || row_id=""
     [[ -n "${row_id}" ]] || return 0
+
+    # Registered spelling of the app, used only in the human-facing existence
+    # error below.
+    local display
+    _knit_command_display display "${subcmd}"
 
     local table_ident id_ident rid_esc
     _knit_db_sql_ident table_ident "${app_name}"
