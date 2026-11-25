@@ -4,8 +4,8 @@ source "${BATS_TEST_DIRNAME}/setup_teardown.sh"
 
 setup() {
     knit_test_source_knit
-    # The openmpi backend omits --host inside a PBS allocation (TM supplies the
-    # node list); ensure a stray PBS_NODEFILE in the runner's environment does
+    # The openmpi backend places via --hostfile (not --host) inside a PBS
+    # allocation; ensure a stray PBS_NODEFILE in the runner's environment does
     # not perturb the default (non-PBS) cmdline assertions below.
     unset PBS_NODEFILE
 }
@@ -69,21 +69,43 @@ setup() {
     [ "${argv[2]}" = "h3,h7" ]
 }
 
-@test "openmpi cmdline omits --host inside a PBS allocation (TM supplies hosts)" {
-    # Open MPI built --with-tm reads the PBS allocation itself; an explicit
-    # --host conflicts with its tm mapper, so the backend drops it and keeps
-    # only -n / --npernode when $PBS_NODEFILE is set.
+@test "openmpi cmdline places via --hostfile inside a PBS allocation (--host conflicts with tm)" {
+    # Open MPI built --with-tm rejects an explicit --host (it conflicts with the
+    # tm mapper), so under PBS the backend places via --hostfile, which filters
+    # the allocation to the listed subset. The file itself is written at launch
+    # by _knit_launch_openmpi_exec; here only the flag + path are asserted.
     export PBS_NODEFILE=/tmp/does-not-need-to-exist
     declare -A opts=([procs]=4 [procs-per-node]=2 [hostnames]="h0,h1")
     declare -a argv
     _knit_launch_openmpi_cmdline argv opts
     unset PBS_NODEFILE
-    [ "${#argv[@]}" -eq 5 ]
+    [ "${#argv[@]}" -eq 7 ]
     [ "${argv[0]}" = "mpirun" ]
     [ "${argv[1]}" = "-n" ]
     [ "${argv[2]}" = "4" ]
     [ "${argv[3]}" = "--npernode" ]
     [ "${argv[4]}" = "2" ]
+    [ "${argv[5]}" = "--hostfile" ]
+    [[ "${argv[6]}" == */knit-ompi-hostfile.* ]]
+}
+
+@test "openmpi hostfile lines carry a slot count per host" {
+    local lines
+    _knit_launch_openmpi_hostfile_lines lines "h0,h1" "2" "4"
+    [ "${lines}" = $'h0 slots=2\nh1 slots=2\n' ]
+}
+
+@test "openmpi hostfile lines derive slots from procs when procs-per-node is unset" {
+    local lines
+    # ceil(4 / 2 hosts) = 2 slots per host.
+    _knit_launch_openmpi_hostfile_lines lines "h0,h1" "" "4"
+    [ "${lines}" = $'h0 slots=2\nh1 slots=2\n' ]
+}
+
+@test "openmpi hostfile lines emit bare hosts when no slot count is known" {
+    local lines
+    _knit_launch_openmpi_hostfile_lines lines "h0,h1" "" ""
+    [ "${lines}" = $'h0\nh1\n' ]
 }
 
 @test "openmpi cmdline appends launcher-args verbatim" {

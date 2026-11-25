@@ -30,16 +30,19 @@
 # SSH/none-scheduler cluster needs, where there is no resource manager to supply
 # slots at all.
 #
-# Exception — Open MPI built with PBS TM integration (--with-tm): inside a PBS
-# job Open MPI's tm RAS already knows the allocated nodes and their slot counts,
-# and an explicit --host (with or without slot suffixes) conflicts with it — the
-# mapper rejects the placement ("requested more processes than the ppr ... can
-# support", or "not enough slots"). So when $PBS_NODEFILE is set the --host flag
-# is omitted entirely and the allocation is left to TM; -n / --npernode still
-# control the rank count and per-node distribution. (Slurm's PLM, by contrast,
-# tolerates the redundant --host and needs it to honour a strict host subset, so
-# it is kept there.) A strict host *subset* of a PBS allocation via --hostnames
-# is therefore not expressible to this backend; use MPICH there.
+# Exception — inside a PBS job ($PBS_NODEFILE set) placement goes through
+# --hostfile, not --host. An explicit --host conflicts with the tm mapper of an
+# Open MPI built --with-tm: the mapper rejects it ("requested more processes than
+# the ppr ... can support", or "all nodes which are allocated for this job are
+# already filled"). --hostfile does not conflict — it filters the job's
+# allocation down to the listed hosts, which is exactly the strict subset a pilot
+# sub-job needs (its one assigned node). This was validated both ways: on a
+# tm-integrated Open MPI (the integration PBS cluster, where --host fails and
+# --hostfile places correctly) and on a tm-less site build (Improv, where a bare
+# mpirun ignores the allocation and needs explicit placement). The hostfile is
+# written per run — slot-annotated the same way as the --host path — and removed
+# when the launch returns. (Slurm's PLM, by contrast, keeps the --host form,
+# which it tolerates and needs to honour a strict subset.)
 #
 # Placement is resolved and validated upstream by the run dispatcher; this
 # backend only formats the resolved triple into an argument vector.
@@ -94,6 +97,62 @@ _knit_launch_openmpi_host_slots() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_launch_openmpi_hostfile_path()
+#
+# Return, by nameref, the path of the per-run Open MPI hostfile used for the
+# --hostfile placement under PBS. It is keyed on the launching shell's PID so the
+# cmdline builder (which records the native command) and the exec function (which
+# writes and later removes the file) agree on one path; $$ is stable across the
+# launcher subshell that runs mpirun.
+#
+# @param[out] out_path Nameref set to the hostfile path.
+# ------------------------------------------------------------------------------
+_knit_launch_openmpi_hostfile_path() {
+    local -n __knit_ret=$1
+    __knit_ret="${TMPDIR:-/tmp}/knit-ompi-hostfile.$$"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_launch_openmpi_hostfile_lines()
+#
+# Return, by nameref, the contents of an Open MPI hostfile (one "host slots=N"
+# line per host) for the resolved host list, used by the --hostfile placement
+# under PBS. The slot count is sized exactly as the --host path
+# (_knit_launch_openmpi_host_slots): --procs-per-node when set, else
+# ceil(procs / nhosts); when neither is known the hosts are emitted bare.
+#
+# @param[out] out_lines Nameref set to the newline-terminated hostfile text.
+# @param[in] hosts Comma-separated host list (the resolved --hostnames value).
+# @param[in] ppn   Resolved --procs-per-node value (may be empty).
+# @param[in] procs Resolved --procs value (may be empty).
+# ------------------------------------------------------------------------------
+_knit_launch_openmpi_hostfile_lines() {
+    local -n __knit_ret=$1
+    local hosts="$2"
+    local ppn="$3"
+    local procs="$4"
+
+    local -a hlist
+    IFS=',' read -r -a hlist <<< "${hosts}"
+    local n="${#hlist[@]}"
+
+    local slots="${ppn}"
+    if [[ -z "${slots}" && -n "${procs}" && "${n}" -gt 0 ]]; then
+        slots=$(( (procs + n - 1) / n ))
+    fi
+
+    local out="" h
+    for h in "${hlist[@]}"; do
+        if [[ -n "${slots}" ]]; then
+            out+="${h} slots=${slots}"$'\n'
+        else
+            out+="${h}"$'\n'
+        fi
+    done
+    __knit_ret="${out}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_launch_openmpi_cmdline()
 #
 # Build the launcher argument vector for the openmpi backend (the mpirun
@@ -124,12 +183,20 @@ _knit_launch_openmpi_cmdline() {
     _launch_argv=(mpirun)
     [[ -n "${procs}" ]] && _launch_argv+=(-n "${procs}")
     [[ -n "${ppn}" ]] && _launch_argv+=(--npernode "${ppn}")
-    # Under a PBS allocation, defer host/slot placement to Open MPI's tm RAS: an
-    # explicit --host conflicts with it (see the file header). Elsewhere (Slurm,
-    # or a plain SSH/none cluster) the slot-annotated --host is required.
-    if [[ -n "${hosts}" && -z "${PBS_NODEFILE:-}" ]]; then
-        _launch_argv+=(--host \
-            "$(_knit_launch_openmpi_host_slots "${hosts}" "${ppn}" "${procs}")")
+    # Place the ranks on the resolved hosts. Under a PBS allocation an explicit
+    # --host conflicts with the tm mapper, so use --hostfile there (it filters the
+    # allocation to the subset and works with and without tm — see the file
+    # header); the file itself is written by _knit_launch_openmpi_exec. Elsewhere
+    # (Slurm, or a plain SSH/none cluster) the slot-annotated --host is used.
+    if [[ -n "${hosts}" ]]; then
+        if [[ -n "${PBS_NODEFILE:-}" ]]; then
+            local __hostfile
+            _knit_launch_openmpi_hostfile_path __hostfile
+            _launch_argv+=(--hostfile "${__hostfile}")
+        else
+            _launch_argv+=(--host \
+                "$(_knit_launch_openmpi_host_slots "${hosts}" "${ppn}" "${procs}")")
+        fi
     fi
     [[ -n "${cpp}" ]] && _launch_argv+=(--map-by "slot:PE=${cpp}")
     if [[ -n "${bind}" ]]; then
@@ -212,6 +279,21 @@ _knit_launch_openmpi_exec() {
 
     local -a fwd
     _knit_launch_openmpi_env_forward fwd
+
+    # When the cmdline placed via --hostfile (the PBS branch), materialize that
+    # file now from the same resolved options and remove it when this function
+    # returns. The path matches what the cmdline recorded (keyed on $$).
+    # shellcheck disable=SC2178 # nameref to the caller's associative array
+    local -n _opts="${arr_name}"
+    local hostfile=""
+    if [[ -n "${_opts[hostnames]:-}" && -n "${PBS_NODEFILE:-}" ]]; then
+        _knit_launch_openmpi_hostfile_path hostfile
+        local lines
+        _knit_launch_openmpi_hostfile_lines lines \
+            "${_opts[hostnames]}" "${_opts[procs-per-node]:-}" "${_opts[procs]:-}"
+        printf '%s' "${lines}" > "${hostfile}"
+    fi
+    [[ -n "${hostfile}" ]] && trap 'rm -f "${hostfile}"' RETURN
 
     "${launcher[0]}" "${fwd[@]}" "${launcher[@]:1}" "$@"
 }
