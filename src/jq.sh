@@ -35,26 +35,6 @@ _knit_jq_platform() {
 }
 
 # ------------------------------------------------------------------------------
-# @fn _knit_jq_framed_run()
-#
-# Run a command with its combined stdout/stderr written to _KNIT_TRACE_FILE and,
-# when KNIT_LOG_LEVEL is trace, also displayed live in a 10-line frame.
-# Returns the exit status of the command.
-#
-# @param[in] title Title shown on the frame's top border.
-# @param[in] ... Command and arguments to execute.
-# ------------------------------------------------------------------------------
-_knit_jq_framed_run() {
-    local title="$1"
-    shift
-    _knit_ensure_trace_file
-    "$@" 2>&1 | tee "${_KNIT_TRACE_FILE}" | \
-        knit_framed 10 -1 --title "${title}" --log-level trace --cleanup
-    local -a pipe_status=("${PIPESTATUS[@]}")
-    return "${pipe_status[0]}"
-}
-
-# ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_jq()
 #
 # Make a jq program available at _KNIT_JQ_EXE. By default the prebuilt jq binary
@@ -113,25 +93,30 @@ _knit_bootstrap_update_jq() {
 # ------------------------------------------------------------------------------
 # @fn _knit_download_jq()
 #
-# Download the prebuilt jq binary for the current platform and install it in
-# the .knit directory.
+# Provision the prebuilt jq binary for the current platform into the .knit
+# directory. jq is a single prebuilt binary, so its download is its install: it
+# uses only the source-artifact cache (no separate built layer). With the cache
+# enabled the binary is fetched into (or served from) the cache and copied into
+# place; with the cache disabled it is downloaded straight to its install path.
 # ------------------------------------------------------------------------------
 _knit_download_jq() {
-    local platform
-    platform=$(_knit_jq_platform)
-    local url="https://github.com/jqlang/jq/releases/download/jq-${_KNIT_JQ_VERSION}/${platform}"
-    knit_trace "Downloading jq binary (${platform})..."
+    local asset
+    asset=$(_knit_jq_platform)
+    local url="https://github.com/jqlang/jq/releases/download/jq-${_KNIT_JQ_VERSION}/${asset}"
+    knit_trace "Downloading jq binary (${asset})..."
     mkdir -p "$(dirname "${_KNIT_JQ_EXE}")"
-    # -f turns a rate-limited/error GitHub response into a clean failure rather
-    # than a saved error body; --retry rides out a transient network error; a
-    # GITHUB_TOKEN/GH_TOKEN, when set, lifts the anonymous rate limit CI shares.
-    local -a curl_args=(-fL --retry 3 --retry-delay 2 -o "${_KNIT_JQ_EXE}")
-    local gh_token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-    [[ -n "${gh_token}" ]] && curl_args+=(-H "Authorization: Bearer ${gh_token}")
-    if ! _knit_jq_framed_run "jq: download" \
-            curl "${curl_args[@]}" "${url}" ; then
+
+    if _knit_tool_cache_enabled; then
+        local src
+        if ! _knit_tool_cache_fetch_source src jq "${_KNIT_JQ_VERSION}" jq \
+                "$(_knit_tool_platform)" "${url}" "jq: download" ; then
+            knit_fatal "Could not download jq binary. See ${_KNIT_TRACE_FILE} for more information."
+        fi
+        cp "${src}" "${_KNIT_JQ_EXE}"
+    elif ! _knit_tool_download_curl "${_KNIT_JQ_EXE}" "${url}" "jq: download" ; then
         knit_fatal "Could not download jq binary. See ${_KNIT_TRACE_FILE} for more information."
     fi
+
     chmod +x "${_KNIT_JQ_EXE}"
     knit_trace "jq installed at ${_KNIT_JQ_EXE}."
 }

@@ -31,11 +31,13 @@ _knit_pilotd_url() {
 # ------------------------------------------------------------------------------
 # @fn _knit_build_pilotd()
 #
-# Download the knit-pilotd release tarball, build it, and install it under
-# .knit/knit-pilotd. The daemon is a single dependency-free POSIX C file, so the
-# build needs only a C compiler: the release tarball ships a hand-written
-# configure script (no autotools), built out of tree with
-# "../configure --prefix=... && make && make install".
+# Provision knit-pilotd under .knit/knit-pilotd. A built-binary cache hit (matched
+# to this version, platform, and toolchain) is installed with no compile;
+# otherwise the release tarball is downloaded (through the source cache), built,
+# and installed, and the fresh build is published to the cache. The daemon is a
+# single dependency-free POSIX C file, so the build needs only a C compiler: the
+# release tarball ships a hand-written configure script (no autotools), built out
+# of tree with "../configure --prefix=... && make && make install".
 #
 # @param[in] version knit-pilotd release version to build.
 # @param[in] url URL of the knit-pilotd release tarball.
@@ -45,6 +47,10 @@ _knit_build_pilotd() {
     local url="$2"
     local srcname="knit-pilotd-${version}"
     local tarball="${srcname}.tar.gz"
+
+    if _knit_tool_cache_install pilotd "${version}" "${_KNIT_PREFIX}/knit-pilotd"; then
+        return 0
+    fi
 
     knit_pushd "${_KNIT_PREFIX}"
 
@@ -82,6 +88,8 @@ _knit_build_pilotd() {
     rm -rf "${srcname}" "${tarball}" 2>"${_KNIT_TRACE_FILE}"
 
     knit_popd # from "${_KNIT_PREFIX}"
+
+    _knit_tool_cache_publish_built pilotd "${version}" "${_KNIT_PREFIX}/knit-pilotd"
 }
 
 # ------------------------------------------------------------------------------

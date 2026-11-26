@@ -276,3 +276,76 @@ _fake_prefix() {
     [ -x "${_KNIT_PREFIX}/sqlite/bin/sqlite3" ]
     rm -rf "${work}"
 }
+
+@test "_knit_build_cypher_to_sql installs from the built cache with no compile" {
+    local work; work="$(mktemp -d)"
+    _KNIT_PREFIX="${work}/.knit"
+    mkdir -p "${_KNIT_PREFIX}"
+
+    _fake_prefix "${work}/built-src" knit-cypher-to-sql
+    _knit_tool_cache_publish_built cypher-to-sql 0.1.0 "${work}/built-src"
+
+    _knit_tool_cache_fetch_source() { echo "FETCHED" >&2; return 1; }
+    _knit_cypher_to_sql_framed_run() { echo "COMPILED" >&2; return 1; }
+
+    run _knit_build_cypher_to_sql 0.1.0 https://example.invalid/x.tar.gz
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"FETCHED"* ]]
+    [[ "$output" != *"COMPILED"* ]]
+    [ -x "${_KNIT_PREFIX}/knit-cypher-to-sql/bin/knit-cypher-to-sql" ]
+    rm -rf "${work}"
+}
+
+@test "_knit_build_pilotd installs from the built cache with no compile" {
+    local work; work="$(mktemp -d)"
+    _KNIT_PREFIX="${work}/.knit"
+    mkdir -p "${_KNIT_PREFIX}"
+
+    _fake_prefix "${work}/built-src" knit-pilotd
+    _knit_tool_cache_publish_built pilotd 0.1.1 "${work}/built-src"
+
+    _knit_tool_cache_fetch_source() { echo "FETCHED" >&2; return 1; }
+    knit_framed_run() { echo "COMPILED" >&2; return 1; }
+
+    run _knit_build_pilotd 0.1.1 https://example.invalid/x.tar.gz
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"FETCHED"* ]]
+    [[ "$output" != *"COMPILED"* ]]
+    [ -x "${_KNIT_PREFIX}/knit-pilotd/bin/knit-pilotd" ]
+    rm -rf "${work}"
+}
+
+# ---------- _knit_download_jq single-layer path ----------
+
+@test "_knit_download_jq installs jq from the source cache with no download" {
+    local work; work="$(mktemp -d)"
+    _KNIT_JQ_EXE="${work}/jq/bin/jq"
+
+    # Seed the source cache for the current jq version and platform.
+    local cached
+    _knit_tool_cache_source_path cached jq "${_KNIT_JQ_VERSION}" jq "$(_knit_tool_platform)"
+    mkdir -p "$(dirname "${cached}")"
+    printf '#!/bin/sh\necho jq\n' > "${cached}"
+
+    _knit_tool_download_curl() { echo "DOWNLOADED" >&2; return 1; }
+
+    run _knit_download_jq
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"DOWNLOADED"* ]]
+    [ -x "${_KNIT_JQ_EXE}" ]
+    rm -rf "${work}"
+}
+
+@test "_knit_download_jq with the cache disabled downloads straight to the install path" {
+    local work; work="$(mktemp -d)"
+    _KNIT_JQ_EXE="${work}/jq/bin/jq"
+
+    _knit_tool_download_curl() { printf 'jqbin' > "$1"; return 0; }
+
+    KNIT_TOOL_CACHE=0 run _knit_download_jq
+    [ "$status" -eq 0 ]
+    [ -x "${_KNIT_JQ_EXE}" ]
+    # Nothing was published into the cache.
+    [ ! -d "${_KNIT_TOOL_CACHE_ROOT}/sources" ]
+    rm -rf "${work}"
+}

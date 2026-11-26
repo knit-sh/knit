@@ -51,11 +51,14 @@ _knit_cypher_to_sql_url() {
 # ------------------------------------------------------------------------------
 # @fn _knit_build_cypher_to_sql()
 #
-# Download the knit-cypher-to-sql release tarball, build it, and install it under
-# .knit/knit-cypher-to-sql. The transpiler links nothing from SQLite, so the
-# build needs no SQLite development files (no --with-sqlite3). The release tarball
-# ships the pre-generated parser/scanner and configure script, so only a C
-# compiler is needed (no autotools/bison/flex).
+# Provision knit-cypher-to-sql under .knit/knit-cypher-to-sql. A built-binary
+# cache hit (matched to this version, platform, and toolchain) is installed with
+# no compile; otherwise the release tarball is downloaded (through the source
+# cache), built, and installed, and the fresh build is published to the cache.
+# The transpiler links nothing from SQLite, so the build needs no SQLite
+# development files (no --with-sqlite3). The release tarball ships the
+# pre-generated parser/scanner and configure script, so only a C compiler is
+# needed (no autotools/bison/flex).
 #
 # @param[in] version knit-cypher-to-sql release version to build.
 # @param[in] url URL of the knit-cypher-to-sql release tarball.
@@ -65,6 +68,11 @@ _knit_build_cypher_to_sql() {
     local url="$2"
     local srcname="knit-cypher-to-sql-${version}"
     local tarball="${srcname}.tar.gz"
+
+    if _knit_tool_cache_install cypher-to-sql "${version}" \
+            "${_KNIT_PREFIX}/knit-cypher-to-sql"; then
+        return 0
+    fi
 
     knit_pushd "${_KNIT_PREFIX}"
 
@@ -102,6 +110,9 @@ _knit_build_cypher_to_sql() {
     rm -rf "${srcname}" "${tarball}" 2>"${_KNIT_TRACE_FILE}"
 
     knit_popd # from "${_KNIT_PREFIX}"
+
+    _knit_tool_cache_publish_built cypher-to-sql "${version}" \
+        "${_KNIT_PREFIX}/knit-cypher-to-sql"
 }
 
 # ------------------------------------------------------------------------------
