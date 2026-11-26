@@ -595,6 +595,7 @@ _knit_bootstrap() {
     local use_system_sqlite
     local use_system_jq
     local db_lock
+    local db_journal
     local cypher_to_sql_version
     local cypher_to_sql_url
     local ai_api_key_env
@@ -671,6 +672,16 @@ _knit_bootstrap() {
     db_lock="${db_lock:-flock}"
     printf '%s\n' "${db_lock}" > "${_KNIT_PREFIX}/db-lock"
     _KNIT_DB_LOCK_MODE=""
+
+    # Record the database journal mode before the first database write, for the
+    # same reason as the db-lock marker: it must be knowable without opening the
+    # database it describes. Default an empty value to "delete" (SQLite's rollback
+    # journal) so the marker is always a valid mode. Clear the process cache so
+    # this freshly written value is the one that is resolved when the tables are
+    # created just below.
+    db_journal="${db_journal:-delete}"
+    printf '%s\n' "${db_journal}" > "${_KNIT_PREFIX}/db-journal"
+    _KNIT_DB_JOURNAL_MODE=""
 
     # Knit uses the sqlite3 CLI only (no library linkage). _knit_bootstrap_sqlite
     # builds it from source by default (self-contained, portable to compute nodes)
