@@ -501,6 +501,8 @@ knit_enum "__launcher__"  "auto" "openmpi" "mpich" "pals" "flux" "slurm" "pbs" "
 _knit_is_builtin
 knit_enum "__db_lock__" "flock" "mkdir" "none"
 _knit_is_builtin
+knit_enum "__db_journal__" "delete" "wal"
+_knit_is_builtin
 knit_register "bootstrap" _knit_bootstrap "Bootstrap the Knit framework."
 _knit_is_builtin
 # bootstrap stays a provenance node on purpose: it is the in-process parent for
@@ -546,6 +548,8 @@ knit_with_flag "use-system-jq" \
     "Symlink the system jq (if on PATH) instead of downloading it. The default download is self-contained and portable to compute nodes; a system symlink can dangle where the login-node binary is absent."
 knit_with_optional "db-lock:__db_lock__" "flock" \
     "How to serialize database writes. 'flock' (default) uses advisory file locks and needs a filesystem that supports them. 'mkdir' uses an atomic directory lock that works on filesystems without flock (e.g. NERSC DVS-projected home); a writer that cannot acquire the lock within 60s fails and asks you to remove a stray lock by hand. 'none' disables locking entirely (only safe when no two Knit writes ever overlap)."
+knit_with_optional "db-journal:__db_journal__" "delete" \
+    "Database journal mode. 'delete' (default) is SQLite's rollback journal and works everywhere, including across nodes. 'wal' (write-ahead log) lets readers never block on a writer, which avoids 'database is locked' under heavy concurrency, but WAL works only when every process touching the database runs on the SAME host; never use it across nodes or on a network filesystem."
 knit_with_optional "knit-cypher-to-sql-version:string" "" \
     "knit-cypher-to-sql release version to provision. Empty uses the pinned default."
 knit_with_optional "knit-cypher-to-sql-url:string" "" \
@@ -619,6 +623,7 @@ _knit_bootstrap() {
     use_system_sqlite="$(knit_get_parameter "use-system-sqlite" "$@")"
     use_system_jq="$(knit_get_parameter "use-system-jq" "$@")"
     db_lock="$(knit_get_parameter "db-lock" "$@")"
+    db_journal="$(knit_get_parameter "db-journal" "$@")"
     cypher_to_sql_version="$(knit_get_parameter "knit-cypher-to-sql-version" "$@")"
     cypher_to_sql_url="$(knit_get_parameter "knit-cypher-to-sql-url" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
@@ -837,6 +842,9 @@ _knit_bootstrap() {
     # written above) into metadata for visibility in "metadata show" and the
     # machine fingerprint.
     knit metadata store --key "__db_lock__"                --value "${db_lock}"
+    # Mirror the journal mode (source of truth is the .knit/db-journal marker
+    # written above) into metadata for visibility in "metadata show".
+    knit metadata store --key "__db_journal__"             --value "${db_journal}"
     # Machine fingerprint, recorded once at first bootstrap. A cross-platform
     # query filters on or returns the architecture, and the Knit version that
     # produced this database is a drift signal when the same experiment ran on

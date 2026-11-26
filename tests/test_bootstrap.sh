@@ -498,6 +498,52 @@ _bootstrap_launcher_stubs() {
     [ -e "${calls}.marker-present" ]
 }
 
+# ---------- first bootstrap: database journal mode (--db-journal) ----------
+
+@test "bootstrap __db_journal__ enum accepts every documented mode" {
+    local v
+    for v in delete wal; do
+        knit_type_check "__db_journal__" "${v}"
+    done
+}
+
+@test "bootstrap defaults the db-journal marker and metadata to delete" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+
+    run _knit_bootstrap --scheduler local --launcher none
+    [ "$status" -eq 0 ]
+
+    [ "$(cat "${_KNIT_PREFIX}/db-journal")" = "delete" ]
+    grep -q -- '--key __db_journal__ --value delete' "${meta}"
+}
+
+@test "bootstrap --db-journal wal writes the marker and metadata" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+
+    run _knit_bootstrap --scheduler local --launcher none --db-journal wal
+    [ "$status" -eq 0 ]
+
+    [ "$(cat "${_KNIT_PREFIX}/db-journal")" = "wal" ]
+    grep -q -- '--key __db_journal__ --value wal' "${meta}"
+}
+
+@test "bootstrap writes the db-journal marker before the first database write" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+    # The journal mode is applied by the first database write (inside sqlite
+    # provisioning); override that stub to record whether the marker already
+    # exists by the time that write would run.
+    eval '_knit_bootstrap_sqlite() {
+        [ -f "'"${_KNIT_PREFIX}"'/db-journal" ] && : > "'"${calls}"'.journal-marker-present"
+    }'
+
+    run _knit_bootstrap --scheduler local --launcher none --db-journal wal
+    [ "$status" -eq 0 ]
+    [ -e "${calls}.journal-marker-present" ]
+}
+
 # ---------- first bootstrap: leftover setup root ----------
 
 @test "bootstrap fails fast and creates no prefix when a leftover default setup exists" {
