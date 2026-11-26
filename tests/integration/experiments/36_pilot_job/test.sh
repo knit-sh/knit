@@ -100,8 +100,22 @@ subjob_uuids_for_pilot() {
            AND target_name='submit' AND edge_type='call';"
 }
 
+# Read a job's recorded state. During the pilot-cancel burst several writers
+# (the daemon, worker sub-jobs, the login-side cancel/reconcile, the compute-side
+# kill trap) touch the database at once, so a bare read can momentarily lose to a
+# writer and come back empty — either a transient "database is locked" or the
+# asynchronous "killed" write landing a beat late. The read therefore carries a
+# busy timeout (bounded wait instead of an instant lock error) and is retried a
+# few times rather than trusted once.
 job_state() {
-    ${__ASSERT_SQLITE3} "${DB}" "SELECT state FROM jobs WHERE id='$1';"
+    local id="$1" st i
+    for i in $(seq 1 10); do
+        st=$(${__ASSERT_SQLITE3} -cmd ".timeout 10000" "${DB}" \
+                 "SELECT state FROM jobs WHERE id='${id}';" 2>/dev/null)
+        [[ -n "${st}" ]] && { printf '%s\n' "${st}"; return 0; }
+        sleep 0.5
+    done
+    printf '%s\n' "${st}"
 }
 
 worker_field() {

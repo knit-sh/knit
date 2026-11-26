@@ -38,9 +38,10 @@ _KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
 # Busy timeout (milliseconds) applied to every sqlite3 invocation. If another
 # writer holds the database lock, sqlite retries for up to this long before
 # giving up with "database is locked". A second line of defence behind the
-# write lock taken by _knit_sqlite3_write.
+# write lock taken by _knit_sqlite3_write. Honours an inherited value so a
+# high-concurrency path (or a test) can raise it without editing this file.
 # ------------------------------------------------------------------------------
-_KNIT_SQLITE_BUSY_TIMEOUT_MS="10000"
+_KNIT_SQLITE_BUSY_TIMEOUT_MS="${_KNIT_SQLITE_BUSY_TIMEOUT_MS:-10000}"
 
 # ------------------------------------------------------------------------------
 # @fn _knit_sqlite_framed_run()

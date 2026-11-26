@@ -94,7 +94,10 @@ check_sqlite() {
     local expected="$3"
     local msg="${4:-"sqlite query: ${query}"}"
     local actual
-    actual=$("${__ASSERT_SQLITE3:-sqlite3}" "${db}" "${query}" 2>&1)
+    # A busy timeout turns a momentary writer lock into a bounded wait instead of
+    # an immediate "database is locked", so a read taken during concurrent writes
+    # (e.g. the pilot-cancel burst in 36_pilot_job) sees the committed value.
+    actual=$("${__ASSERT_SQLITE3:-sqlite3}" -cmd ".timeout 10000" "${db}" "${query}" 2>&1)
     if [[ "${actual}" == "${expected}" ]]; then
         __assert_pass "${msg}"
     else

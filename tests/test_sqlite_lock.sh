@@ -248,3 +248,19 @@ EOF
     [ "$(_knit_sqlite3 "PRAGMA journal_mode;")" != "wal" ]
     [ "$(_knit_sqlite3 "SELECT x FROM t;")" = "a" ]
 }
+
+# ---------- busy timeout is overridable at source time ----------
+
+@test "busy timeout honours an inherited value at source time" {
+    run env _KNIT_SQLITE_BUSY_TIMEOUT_MS=54321 \
+        bash -c 'source "'"${BATS_TEST_DIRNAME}"'/../knit.sh"; printf "%s" "${_KNIT_SQLITE_BUSY_TIMEOUT_MS}"'
+    [ "$status" -eq 0 ]
+    [ "$output" = "54321" ]
+}
+
+@test "busy timeout defaults to 10000 when not inherited" {
+    run env -u _KNIT_SQLITE_BUSY_TIMEOUT_MS \
+        bash -c 'source "'"${BATS_TEST_DIRNAME}"'/../knit.sh"; printf "%s" "${_KNIT_SQLITE_BUSY_TIMEOUT_MS}"'
+    [ "$status" -eq 0 ]
+    [ "$output" = "10000" ]
+}
