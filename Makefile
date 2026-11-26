@@ -11,6 +11,7 @@ KNIT_SOURCE = src/global.sh   \
               src/frame.sh    \
               src/boostrap.sh \
               src/profile.sh  \
+              src/tool_cache.sh \
               src/sqlite.sh   \
               src/jq.sh       \
               src/cypher.sh   \
