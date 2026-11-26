@@ -183,3 +183,96 @@ _spy_calls() {
     # No half-written artifact was published.
     [ ! -f "${_KNIT_TOOL_CACHE_ROOT}/sources/pilotd/0.1.1/knit-pilotd-0.1.1.tar.gz" ]
 }
+
+# ---------- built-binary cache: install + publish ----------
+
+# Make a fake installed prefix tree with a runnable "bin/<name>".
+_fake_prefix() {
+    local dir="$1" name="$2"
+    mkdir -p "${dir}/bin"
+    printf '#!/bin/sh\necho ok\n' > "${dir}/bin/${name}"
+    chmod +x "${dir}/bin/${name}"
+}
+
+@test "install reports a miss when nothing is cached" {
+    local dest; dest="$(mktemp -d)/sqlite"
+    run _knit_tool_cache_install sqlite 3480000 "${dest}"
+    [ "$status" -eq 1 ]
+    [ ! -e "${dest}" ]
+}
+
+@test "publish then install round-trips a built tree" {
+    local work; work="$(mktemp -d)"
+    _fake_prefix "${work}/src" sqlite3
+
+    _knit_tool_cache_publish_built sqlite 3480000 "${work}/src"
+    local built
+    _knit_tool_cache_built_path built sqlite 3480000
+    [ -x "${built}/bin/sqlite3" ]
+
+    _knit_tool_cache_install sqlite 3480000 "${work}/dest"
+    [ -x "${work}/dest/bin/sqlite3" ]
+    rm -rf "${work}"
+}
+
+@test "install overwrites an existing destination prefix" {
+    local work; work="$(mktemp -d)"
+    _fake_prefix "${work}/src" sqlite3
+    _knit_tool_cache_publish_built sqlite 3480000 "${work}/src"
+    # A stale file under dest must not survive the install.
+    mkdir -p "${work}/dest/bin"
+    printf 'stale' > "${work}/dest/stale"
+    _knit_tool_cache_install sqlite 3480000 "${work}/dest"
+    [ -x "${work}/dest/bin/sqlite3" ]
+    [ ! -e "${work}/dest/stale" ]
+    rm -rf "${work}"
+}
+
+@test "publish is a no-op when the key is already populated" {
+    local work; work="$(mktemp -d)"
+    _fake_prefix "${work}/a" sqlite3
+    _fake_prefix "${work}/b" sqlite3
+    printf 'marker' > "${work}/a/bin/sqlite3"   # distinguish the two trees
+
+    _knit_tool_cache_publish_built sqlite 3480000 "${work}/a"
+    _knit_tool_cache_publish_built sqlite 3480000 "${work}/b"   # must not replace
+    local built
+    _knit_tool_cache_built_path built sqlite 3480000
+    [ "$(cat "${built}/bin/sqlite3")" = "marker" ]
+    rm -rf "${work}"
+}
+
+@test "install and publish are no-ops when the cache is disabled" {
+    local work; work="$(mktemp -d)"
+    _fake_prefix "${work}/src" sqlite3
+    KNIT_TOOL_CACHE=0 _knit_tool_cache_publish_built sqlite 3480000 "${work}/src"
+    [ ! -d "${_KNIT_TOOL_CACHE_ROOT}/built" ]
+    KNIT_TOOL_CACHE=0 run _knit_tool_cache_install sqlite 3480000 "${work}/dest"
+    [ "$status" -eq 1 ]
+    [ ! -e "${work}/dest" ]
+    rm -rf "${work}"
+}
+
+# ---------- _knit_build_sqlite cascade ----------
+
+@test "_knit_build_sqlite installs from the built cache with no compile" {
+    local work; work="$(mktemp -d)"
+    _KNIT_PREFIX="${work}/.knit"
+    mkdir -p "${_KNIT_PREFIX}"
+
+    # Seed a built-cache entry for the current sqlite version.
+    local version="${_KNIT_SQLITE_SOURCE_NAME##*-}"
+    _fake_prefix "${work}/built-src" sqlite3
+    _knit_tool_cache_publish_built sqlite "${version}" "${work}/built-src"
+
+    # A compile or a download must not happen on a built hit.
+    _knit_tool_cache_fetch_source() { echo "FETCHED" >&2; return 1; }
+    _knit_sqlite_framed_run() { echo "COMPILED" >&2; return 1; }
+
+    run _knit_build_sqlite
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"FETCHED"* ]]
+    [[ "$output" != *"COMPILED"* ]]
+    [ -x "${_KNIT_PREFIX}/sqlite/bin/sqlite3" ]
+    rm -rf "${work}"
+}

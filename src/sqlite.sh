@@ -130,14 +130,22 @@ _knit_bootstrap_update_sqlite() {
 # ------------------------------------------------------------------------------
 # @fn _knit_build_sqlite()
 #
-# Download and build Sqlite3, and install it in the .knit directory.
+# Provision Sqlite3 into the .knit directory. A built-binary cache hit (matched to
+# this version, platform, and toolchain) is installed with no compile; otherwise
+# sqlite is downloaded (through the source cache) and built, and the fresh build
+# is published to the cache for next time.
 # ------------------------------------------------------------------------------
 _knit_build_sqlite() {
+    local version="${_KNIT_SQLITE_SOURCE_NAME##*-}"
+    if _knit_tool_cache_install sqlite "${version}" "${_KNIT_PREFIX}/sqlite"; then
+        return 0
+    fi
+
     knit_pushd "${_KNIT_PREFIX}"
 
     knit_trace "Downloading sqlite source..."
     local src
-    if ! _knit_tool_cache_fetch_source src sqlite "${_KNIT_SQLITE_SOURCE_NAME##*-}" \
+    if ! _knit_tool_cache_fetch_source src sqlite "${version}" \
             "${_KNIT_SQLITE_SOURCE_NAME}.tar.gz" "" \
             "${_KNIT_SQLITE_SOURCE_URL}" "sqlite: download" ; then
         knit_fatal "Could not download sqlite sources. See ${_KNIT_TRACE_FILE} for more information."
@@ -170,6 +178,8 @@ _knit_build_sqlite() {
     rm -rf "${_KNIT_SQLITE_SOURCE_NAME}" "${_KNIT_SQLITE_SOURCE_NAME}.tar.gz" 2>"${_KNIT_TRACE_FILE}"
 
     knit_popd # from "${_KNIT_PREFIX}"
+
+    _knit_tool_cache_publish_built sqlite "${version}" "${_KNIT_PREFIX}/sqlite"
 }
 
 # ------------------------------------------------------------------------------

@@ -225,3 +225,76 @@ available at ${cached}; cannot download it."
     __knit_ret="${cached}"
     return 0
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_tool_cache_install()
+#
+# Install a tool from the built-binary cache by copying its cached prefix tree
+# into the destination prefix, skipping the compile entirely. The cached tree is
+# keyed by version, platform, and toolchain (see _knit_tool_cache_built_path), so
+# a hit is already matched to the current host. A whole-tree copy (not a symlink)
+# keeps ".knit" self-contained: a later cache prune cannot dangle a live install,
+# and the install survives a compute node that cannot see the cache.
+#
+# @param[in] tool    Tool key ("sqlite", "cypher-to-sql", "pilotd").
+# @param[in] version Version token keying the built tree.
+# @param[in] dest    Destination prefix to install into (e.g. ".knit/sqlite").
+# @return 0 when a cached tree was installed, 1 on a miss (or a disabled cache).
+# ------------------------------------------------------------------------------
+_knit_tool_cache_install() {
+    local tool="$1"
+    local version="$2"
+    local dest="$3"
+    _knit_tool_cache_enabled || return 1
+    local built
+    _knit_tool_cache_built_path built "${tool}" "${version}"
+    [[ -d "${built}" ]] || return 1
+    knit_trace "Installing ${tool} from the built cache at ${built}."
+    rm -rf "${dest}"
+    mkdir -p "$(dirname "${dest}")"
+    if ! cp -a "${built}" "${dest}"; then
+        rm -rf "${dest}"
+        return 1
+    fi
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_tool_cache_publish_built()
+#
+# Publish a freshly built prefix tree into the built-binary cache so a later
+# provision at the same version/platform/toolchain installs without a compile.
+# The tree is copied into a temporary sibling and renamed into place, so a
+# concurrent provision never sees a half-written tree; a destination that already
+# exists (another provision won the race) is left untouched. Publishing is
+# best-effort: a cache-write failure never fails the build (returns 0 regardless).
+# A no-op when the cache is disabled.
+#
+# @param[in] tool    Tool key ("sqlite", "cypher-to-sql", "pilotd").
+# @param[in] version Version token keying the built tree.
+# @param[in] src     Prefix tree just built (e.g. ".knit/sqlite").
+# ------------------------------------------------------------------------------
+_knit_tool_cache_publish_built() {
+    local tool="$1"
+    local version="$2"
+    local src="$3"
+    _knit_tool_cache_enabled || return 0
+    [[ -d "${src}" ]] || return 0
+    local built
+    _knit_tool_cache_built_path built "${tool}" "${version}"
+    [[ -d "${built}" ]] && return 0
+    mkdir -p "$(dirname "${built}")"
+    local tmp
+    tmp="$(mktemp -d "${built}.XXXXXX")" || return 0
+    if ! cp -a "${src}/." "${tmp}/"; then
+        rm -rf "${tmp}"
+        return 0
+    fi
+    # Publish atomically; if a racer beat us to it, discard our copy.
+    if [[ -d "${built}" ]] || ! mv "${tmp}" "${built}" 2>/dev/null; then
+        rm -rf "${tmp}"
+        return 0
+    fi
+    knit_trace "Cached ${tool} build at ${built}."
+    return 0
+}
