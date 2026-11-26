@@ -146,6 +146,52 @@ teardown() {
     rm -rf "${dest}"
 }
 
+# ---------- WAL database is shipped as a portable rollback snapshot ----------
+
+@test "bundling a WAL database ships a rollback-journal, sidecar-free copy" {
+    # Put the live database into WAL mode, with a committed row, then bundle it.
+    printf 'wal\n' > "${_KNIT_PREFIX}/db-journal"
+    _KNIT_DB_JOURNAL_MODE=""
+    _knit_db_apply_journal_mode
+    _knit_sqlite3_write "CREATE TABLE t (x TEXT); INSERT INTO t VALUES ('kept');"
+    [ "$(_knit_sqlite3 "PRAGMA journal_mode;")" = "wal" ]
+
+    local out="${BUNDLE_ROOT}/out.tar.gz"
+    _knit_bundle --output "${out}"
+
+    local dest; dest="$(mktemp -d)"
+    tar -xzf "${out}" -C "${dest}"
+    # The extracted database is present, is NOT in WAL mode, carries no -wal/-shm
+    # sidecar, and kept the row that lived in the live database's WAL.
+    [ -f "${dest}/.knit/knit.db" ]
+    [ ! -e "${dest}/.knit/knit.db-wal" ]
+    [ ! -e "${dest}/.knit/knit.db-shm" ]
+    [ "$(_knit_run_isolated "${_KNIT_SQLITE_EXE}" "${dest}/.knit/knit.db" "PRAGMA journal_mode;")" != "wal" ]
+    [ "$(_knit_run_isolated "${_KNIT_SQLITE_EXE}" "${dest}/.knit/knit.db" "SELECT x FROM t;")" = "kept" ]
+
+    # The live database is untouched: still WAL.
+    _KNIT_DB_JOURNAL_MODE=""
+    [ "$(_knit_sqlite3 "PRAGMA journal_mode;")" = "wal" ]
+    rm -rf "${dest}"
+}
+
+@test "bundling a rollback database needs no snapshot (helper returns empty)" {
+    printf 'delete\n' > "${_KNIT_PREFIX}/db-journal"
+    _KNIT_DB_JOURNAL_MODE=""
+    local dir="sentinel"
+    _knit_bundle_portable_db dir "${BUNDLE_ROOT}" ".knit/knit.db"
+    [ -z "${dir}" ]
+}
+
+@test "the portable-db helper is a no-op when the database is not bundled" {
+    printf 'wal\n' > "${_KNIT_PREFIX}/db-journal"
+    _KNIT_DB_JOURNAL_MODE=""
+    local dir="sentinel"
+    # No ".knit/knit.db" among the packed paths (e.g. --no-db).
+    _knit_bundle_portable_db dir "${BUNDLE_ROOT}" "experiment.sh" "knit.sh"
+    [ -z "${dir}" ]
+}
+
 @test "bundle includes a declared required file" {
     mkdir -p "${BUNDLE_ROOT}/config"
     printf 'a: 1\n' > "${BUNDLE_ROOT}/config/params.yaml"

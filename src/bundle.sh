@@ -718,6 +718,60 @@ _knit_bundle_write_archive() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bundle_portable_db()
+#
+# When the database being bundled is in WAL journal mode, produce a portable
+# rollback-journal snapshot of it in a fresh temporary directory and return that
+# directory (nameref). The caller maps ".knit/knit.db" to "<dir>/knit.db" through
+# the extern map so the snapshot is packed in place of the live database, then
+# removes the directory after writing.
+#
+# WAL is a single-host-only mode: a WAL-mode database carries WAL in its header,
+# so an extracted bundle would try to open a -wal/-shm shared-memory sidecar on
+# the reproducer's filesystem, which fails where that filesystem is WAL-hostile
+# (a network filesystem, or a different host). The snapshot is made with
+# "VACUUM INTO", which writes a consistent copy in the default rollback journal
+# mode without touching the live database and without leaving any sidecar; the
+# reproducer can re-enable WAL at their site with `bootstrap --db-journal wal`.
+#
+# Returns an empty string (no snapshot needed) when the database is not part of
+# the bundle or is already in rollback-journal mode.
+#
+# @param[out] out  Name of the variable to receive the temp directory (or "").
+# @param[in]  root The absolute experiment root (unused; kept for symmetry).
+# @param[in]  ...  The relative paths that will be packed.
+# ------------------------------------------------------------------------------
+# shellcheck disable=SC2178 # __knit_ret is a string nameref here (it is used as
+# an array by other helpers in this file, which is what trips the check).
+_knit_bundle_portable_db() {
+    local -n __knit_ret=$1; shift
+    shift  # root — not needed; the live database is at _KNIT_DATABASE
+    __knit_ret=""
+
+    # Only when the database is actually part of the bundle (not --no-db).
+    local rel in_bundle="false"
+    for rel in "$@"; do
+        [[ "${rel}" == ".knit/knit.db" ]] && { in_bundle="true"; break; }
+    done
+    [[ "${in_bundle}" == "true" ]] || return 0
+
+    # Only a WAL database needs converting; a rollback-journal one ships as-is.
+    local mode
+    _knit_db_journal_mode mode
+    [[ "${mode}" == "wal" ]] || return 0
+
+    local dir target esc
+    dir="$(mktemp -d)"
+    target="${dir}/knit.db"
+    _knit_sql_escape esc "${target}"
+    if ! _knit_sqlite3 "VACUUM INTO '${esc}';"; then
+        rm -rf -- "${dir}"
+        knit_fatal "bundle: failed to make a portable copy of the database."
+    fi
+    __knit_ret="${dir}"
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_bundle_print_list()
 #
 # Print the planned bundle contents as a flat list, one path per line, each
@@ -980,8 +1034,20 @@ _knit_bundle() {
         return 0
     fi
 
+    # A WAL-mode database is not portable (WAL lives in the header and needs a
+    # same-host shared-memory sidecar). Ship a rollback-journal snapshot instead,
+    # mapped in through the extern map like the ro-crate manifest; the live
+    # database is left untouched. Only ".knit/knit.db" is ever bundled from .knit,
+    # so the ".knit/db-journal" marker is already excluded — the extract reads as
+    # the default rollback mode.
+    local portable_db_dir=""
+    _knit_bundle_portable_db portable_db_dir "${root}" "${paths[@]}"
+    [[ -n "${portable_db_dir}" ]] \
+        && _KNIT_BUNDLE_EXTERN[".knit/knit.db"]="${portable_db_dir}/knit.db"
+
     _knit_bundle_write_archive "${fmt}" "${output}" "${root}" "${paths[@]}"
 
+    [[ -n "${portable_db_dir}" ]] && rm -rf -- "${portable_db_dir}"
     [[ -n "${rocrate_tmp}" ]] && rm -f -- "${rocrate_tmp}"
 
     knit_info "Wrote bundle to %s" "${output}"
