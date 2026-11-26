@@ -69,21 +69,15 @@ _knit_build_cypher_to_sql() {
     knit_pushd "${_KNIT_PREFIX}"
 
     knit_trace "Downloading knit-cypher-to-sql source..."
-    # -f makes an HTTP error status (e.g. a rate-limited GitHub response) a clean
-    # failure instead of a saved error body that would later fail to extract;
-    # --retry rides out a transient network error. A GITHUB_TOKEN/GH_TOKEN, when
-    # set, lifts the low anonymous rate limit that CI runners share by address.
-    local -a curl_args=(-fL --retry 3 --retry-delay 2 -o "${tarball}")
-    local gh_token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-    [[ -n "${gh_token}" ]] && curl_args+=(-H "Authorization: Bearer ${gh_token}")
-    if ! _knit_cypher_to_sql_framed_run "knit-cypher-to-sql: download" \
-            curl "${curl_args[@]}" "${url}" ; then
+    local src
+    if ! _knit_tool_cache_fetch_source src cypher-to-sql "${version}" \
+            "${tarball}" "" "${url}" "knit-cypher-to-sql: download" ; then
         knit_fatal "Could not download knit-cypher-to-sql from ${url}. See ${_KNIT_TRACE_FILE} for more information."
     fi
 
     knit_trace "Extracting knit-cypher-to-sql source..."
     if ! _knit_cypher_to_sql_framed_run "knit-cypher-to-sql: extract" \
-            tar -xzf "${tarball}" ; then
+            tar -xzf "${src}" ; then
         knit_fatal "Could not extract knit-cypher-to-sql sources. See ${_KNIT_TRACE_FILE} for more information."
     fi
 

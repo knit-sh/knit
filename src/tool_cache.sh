@@ -126,3 +126,102 @@ _knit_tool_cache_built_path() {
     __knit_ret="${_KNIT_TOOL_CACHE_ROOT}/built/${tool}/${version}/\
 $(_knit_tool_platform)/$(_knit_tool_toolchain_id)"
 }
+
+# ------------------------------------------------------------------------------
+# @fn _knit_tool_download_curl()
+#
+# Download a URL to a destination path inside a titled frame, with the retry and
+# fail-on-HTTP-error behavior every tool download shares. A GITHUB_TOKEN/GH_TOKEN
+# (when set) is attached only to a github.com URL — never to a third-party host,
+# so the token is not leaked to, e.g., sqlite.org. The combined output goes to
+# _KNIT_TRACE_FILE so a failure points at the trace.
+#
+# @param[in] dest  Path to write the downloaded artifact to.
+# @param[in] url   URL to download.
+# @param[in] title Title shown on the download frame's top border.
+# @return The curl exit status (0 on success).
+# ------------------------------------------------------------------------------
+_knit_tool_download_curl() {
+    local dest="$1"
+    local url="$2"
+    local title="$3"
+    # -f makes an HTTP error status (e.g. a rate-limited GitHub response) a clean
+    # failure instead of a saved error body that would later fail to extract;
+    # --retry rides out a transient network error.
+    local -a curl_args=(-fL --retry 3 --retry-delay 2 -o "${dest}")
+    if [[ "${url}" == https://github.com/* || "${url}" == https://*.github.com/* ]]; then
+        # The token lifts the low anonymous rate limit CI runners share by
+        # address; it is only ever sent to GitHub.
+        local gh_token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+        [[ -n "${gh_token}" ]] && curl_args+=(-H "Authorization: Bearer ${gh_token}")
+    fi
+    knit_framed_run "${title}" curl "${curl_args[@]}" "${url}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_tool_cache_fetch_source()
+#
+# Resolve a tool's downloaded source artifact (a tarball or a prebuilt binary) to
+# a local path the caller can build from, using the source-artifact cache when it
+# is enabled. The returned path is in the cache on a hit, or freshly downloaded on
+# a miss; with the cache disabled (KNIT_TOOL_CACHE=0) the artifact is downloaded
+# into the current directory (under its bare filename) and that relative path is
+# returned, so the caller's own cleanup removes it.
+#
+# A cache miss downloads to a temporary sibling and publishes it atomically, so a
+# concurrent provision never sees a half-written artifact. KNIT_OFFLINE=1 with no
+# cached artifact is fatal (it forbids the download). A download failure returns
+# non-zero without a message, leaving the caller to emit its tool-specific fatal.
+#
+# @param[out] path_out  Nameref receiving the path to build from.
+# @param[in]  tool      Tool key ("sqlite", "cypher-to-sql", "pilotd").
+# @param[in]  version   Version token keying the artifact.
+# @param[in]  filename  Artifact file name (also the download destination when the
+#             cache is disabled).
+# @param[in]  platform  Platform key, or empty for a platform-independent source.
+# @param[in]  url       URL to download the artifact from on a miss.
+# @param[in]  title     Title shown on the download frame.
+# @return 0 on a hit or a successful download, 1 on a download failure.
+# ------------------------------------------------------------------------------
+_knit_tool_cache_fetch_source() {
+    local -n __knit_ret=$1
+    local tool="$2"
+    local version="$3"
+    local filename="$4"
+    local platform="$5"
+    local url="$6"
+    local title="$7"
+
+    # Cache off: download into the current directory and hand back that path; the
+    # caller deletes it with the rest of its build scratch.
+    if ! _knit_tool_cache_enabled; then
+        _knit_tool_download_curl "${filename}" "${url}" "${title}" || return 1
+        __knit_ret="${filename}"
+        return 0
+    fi
+
+    local cached
+    _knit_tool_cache_source_path cached "${tool}" "${version}" "${filename}" "${platform}"
+    if [[ -f "${cached}" ]]; then
+        knit_trace "Using cached ${tool} source at ${cached}."
+        __knit_ret="${cached}"
+        return 0
+    fi
+
+    if [[ "${KNIT_OFFLINE:-}" == "1" ]]; then
+        knit_fatal "KNIT_OFFLINE=1 is set but no cached ${tool} source is \
+available at ${cached}; cannot download it."
+    fi
+
+    mkdir -p "$(dirname "${cached}")"
+    local tmp
+    tmp="$(mktemp "${cached}.XXXXXX")"
+    if ! _knit_tool_download_curl "${tmp}" "${url}" "${title}"; then
+        rm -f "${tmp}"
+        return 1
+    fi
+    mv -f "${tmp}" "${cached}"
+    knit_trace "Cached ${tool} source at ${cached}."
+    __knit_ret="${cached}"
+    return 0
+}
