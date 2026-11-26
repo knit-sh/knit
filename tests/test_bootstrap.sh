@@ -498,6 +498,52 @@ _bootstrap_launcher_stubs() {
     [ -e "${calls}.marker-present" ]
 }
 
+# ---------- first bootstrap: database journal mode (--db-journal) ----------
+
+@test "bootstrap __db_journal__ enum accepts every documented mode" {
+    local v
+    for v in delete wal; do
+        knit_type_check "__db_journal__" "${v}"
+    done
+}
+
+@test "bootstrap defaults the db-journal marker and metadata to delete" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+
+    run _knit_bootstrap --scheduler local --launcher none
+    [ "$status" -eq 0 ]
+
+    [ "$(cat "${_KNIT_PREFIX}/db-journal")" = "delete" ]
+    grep -q -- '--key __db_journal__ --value delete' "${meta}"
+}
+
+@test "bootstrap --db-journal wal writes the marker and metadata" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+
+    run _knit_bootstrap --scheduler local --launcher none --db-journal wal
+    [ "$status" -eq 0 ]
+
+    [ "$(cat "${_KNIT_PREFIX}/db-journal")" = "wal" ]
+    grep -q -- '--key __db_journal__ --value wal' "${meta}"
+}
+
+@test "bootstrap writes the db-journal marker before the first database write" {
+    local calls="${__TEST_TMPDIR}/calls" meta="${__TEST_TMPDIR}/meta"
+    _bootstrap_launcher_stubs "${calls}" "${meta}"
+    # The journal mode is applied by the first database write (inside sqlite
+    # provisioning); override that stub to record whether the marker already
+    # exists by the time that write would run.
+    eval '_knit_bootstrap_sqlite() {
+        [ -f "'"${_KNIT_PREFIX}"'/db-journal" ] && : > "'"${calls}"'.journal-marker-present"
+    }'
+
+    run _knit_bootstrap --scheduler local --launcher none --db-journal wal
+    [ "$status" -eq 0 ]
+    [ -e "${calls}.journal-marker-present" ]
+}
+
 # ---------- first bootstrap: leftover setup root ----------
 
 @test "bootstrap fails fast and creates no prefix when a leftover default setup exists" {
@@ -823,6 +869,82 @@ _setup_update_mode() {
     [ ! -s "${__update_meta}" ]
     # The marker is left untouched.
     [ "$(cat "${_KNIT_PREFIX}/db-lock")" = "flock" ]
+}
+
+# ---------- update mode: db-journal switch ----------
+
+@test "update mode switches the db-journal marker and metadata to wal" {
+    _setup_update_mode
+    printf 'delete\n' > "${_KNIT_PREFIX}/db-journal"
+    local sqlcap="${__TEST_TMPDIR}/sqlcap"; : > "${sqlcap}"
+    eval '_knit_sqlite3_write() { printf "%s\n" "$*" >> "'"${sqlcap}"'"; }'
+    _KNIT_INVOCATION_RAW_ARGS=(--db-journal wal)
+
+    run _knit_bootstrap --db-journal wal
+    [ "$status" -eq 0 ]
+
+    [ "$(cat "${_KNIT_PREFIX}/db-journal")" = "wal" ]
+    grep -q -- '--key __db_journal__ --value wal --force' "${__update_meta}"
+    grep -q -- 'PRAGMA journal_mode=WAL' "${sqlcap}"
+}
+
+@test "update db-journal helper writes and issues WAL pragma when switching to wal" {
+    mkdir -p "${_KNIT_PREFIX}"
+    printf 'delete\n' > "${_KNIT_PREFIX}/db-journal"
+    __update_meta="${__TEST_TMPDIR}/update-meta"; : > "${__update_meta}"
+    local sqlcap="${__TEST_TMPDIR}/sqlcap"; : > "${sqlcap}"
+    eval 'knit() { printf "%s\n" "$*" >> "'"${__update_meta}"'"; }'
+    eval '_knit_sqlite3_write() { printf "%s\n" "$*" >> "'"${sqlcap}"'"; }'
+
+    run _knit_bootstrap_update_db_journal "wal" "--db-journal" "wal"
+    [ "$status" -eq 0 ]
+    [ "$(cat "${_KNIT_PREFIX}/db-journal")" = "wal" ]
+    grep -q -- 'metadata store --key __db_journal__ --value wal --force' "${__update_meta}"
+    grep -q -- 'PRAGMA journal_mode=WAL' "${sqlcap}"
+}
+
+@test "update db-journal helper checkpoints and switches to delete when leaving wal" {
+    mkdir -p "${_KNIT_PREFIX}"
+    printf 'wal\n' > "${_KNIT_PREFIX}/db-journal"
+    __update_meta="${__TEST_TMPDIR}/update-meta"; : > "${__update_meta}"
+    local sqlcap="${__TEST_TMPDIR}/sqlcap"; : > "${sqlcap}"
+    eval 'knit() { printf "%s\n" "$*" >> "'"${__update_meta}"'"; }'
+    eval '_knit_sqlite3_write() { printf "%s\n" "$*" >> "'"${sqlcap}"'"; }'
+
+    run _knit_bootstrap_update_db_journal "delete" "--db-journal" "delete"
+    [ "$status" -eq 0 ]
+    [ "$(cat "${_KNIT_PREFIX}/db-journal")" = "delete" ]
+    grep -q -- 'wal_checkpoint(TRUNCATE)' "${sqlcap}"
+    grep -q -- 'PRAGMA journal_mode=DELETE' "${sqlcap}"
+}
+
+@test "update db-journal helper is a no-op when the typed mode equals the stored one" {
+    mkdir -p "${_KNIT_PREFIX}"
+    printf 'wal\n' > "${_KNIT_PREFIX}/db-journal"
+    __update_meta="${__TEST_TMPDIR}/update-meta"; : > "${__update_meta}"
+    local sqlcap="${__TEST_TMPDIR}/sqlcap"; : > "${sqlcap}"
+    eval 'knit() { printf "%s\n" "$*" >> "'"${__update_meta}"'"; }'
+    eval '_knit_sqlite3_write() { printf "%s\n" "$*" >> "'"${sqlcap}"'"; }'
+
+    run _knit_bootstrap_update_db_journal "wal" "--db-journal" "wal"
+    [ "$status" -eq 1 ]
+    [ ! -s "${__update_meta}" ]
+    [ ! -s "${sqlcap}" ]
+}
+
+@test "update db-journal helper is a no-op for an untyped option" {
+    mkdir -p "${_KNIT_PREFIX}"
+    printf 'delete\n' > "${_KNIT_PREFIX}/db-journal"
+    __update_meta="${__TEST_TMPDIR}/update-meta"; : > "${__update_meta}"
+    local sqlcap="${__TEST_TMPDIR}/sqlcap"; : > "${sqlcap}"
+    eval 'knit() { printf "%s\n" "$*" >> "'"${__update_meta}"'"; }'
+    eval '_knit_sqlite3_write() { printf "%s\n" "$*" >> "'"${sqlcap}"'"; }'
+
+    run _knit_bootstrap_update_db_journal "wal" "--project" "demo"
+    [ "$status" -eq 1 ]
+    [ ! -s "${__update_meta}" ]
+    [ ! -s "${sqlcap}" ]
+    [ "$(cat "${_KNIT_PREFIX}/db-journal")" = "delete" ]
 }
 
 # ---------- update mode: AI provider (--ai-*) per-key ----------

@@ -38,9 +38,10 @@ _KNIT_DATABASE="${_KNIT_PREFIX}/knit.db"
 # Busy timeout (milliseconds) applied to every sqlite3 invocation. If another
 # writer holds the database lock, sqlite retries for up to this long before
 # giving up with "database is locked". A second line of defence behind the
-# write lock taken by _knit_sqlite3_write.
+# write lock taken by _knit_sqlite3_write. Honours an inherited value so a
+# high-concurrency path (or a test) can raise it without editing this file.
 # ------------------------------------------------------------------------------
-_KNIT_SQLITE_BUSY_TIMEOUT_MS="10000"
+_KNIT_SQLITE_BUSY_TIMEOUT_MS="${_KNIT_SQLITE_BUSY_TIMEOUT_MS:-10000}"
 
 # ------------------------------------------------------------------------------
 # @fn _knit_sqlite_framed_run()
@@ -99,6 +100,11 @@ _knit_bootstrap_sqlite() {
     _knit_prov_create_table
     _knit_artifacts_create_table
     _knit_history_create_table
+
+    # Apply the journal mode chosen at bootstrap (no-op for the default "delete";
+    # a persistent "PRAGMA journal_mode=WAL" for "wal"). The marker is already
+    # written, so _knit_db_apply_journal_mode resolves the right mode.
+    _knit_db_apply_journal_mode
 }
 
 # ------------------------------------------------------------------------------
@@ -335,6 +341,73 @@ _knit_db_lock_mode() {
     fi
     _KNIT_DB_LOCK_MODE="${__knit_mode}"
     __knit_ret="${__knit_mode}"
+}
+
+# ------------------------------------------------------------------------------
+# @var _KNIT_DB_JOURNAL_MODE
+#
+# Process-level cache for _knit_db_journal_mode(): the resolved database journal
+# mode ("delete" or "wal"). Empty means "not yet resolved".
+# ------------------------------------------------------------------------------
+declare -g _KNIT_DB_JOURNAL_MODE
+_KNIT_DB_JOURNAL_MODE=""
+
+# ------------------------------------------------------------------------------
+# @fn _knit_db_journal_mode()
+#
+# Resolve the database journal mode chosen at bootstrap and cache it for the rest
+# of the process. The mode is read from the plain marker file
+# "${_KNIT_PREFIX}/db-journal" (written by bootstrap before the first database
+# write, like the db-lock marker). A missing or unreadable marker resolves to
+# "delete", SQLite's default rollback journal, so a database created before this
+# feature — or a .knit copied without the marker — keeps today's behavior. An
+# unrecognized value warns and also falls back to "delete".
+#
+# @param[out] out Name of the variable to receive the mode (nameref output).
+# ------------------------------------------------------------------------------
+_knit_db_journal_mode() {
+    local -n __knit_ret=$1
+    if [[ -n "${_KNIT_DB_JOURNAL_MODE}" ]]; then
+        __knit_ret="${_KNIT_DB_JOURNAL_MODE}"
+        return 0
+    fi
+    # Named __knit_mode (not "mode") so it cannot shadow a caller that passes its
+    # own "mode" variable as the output argument; see _knit_db_lock_mode.
+    local __knit_mode="delete"
+    local marker="${_KNIT_PREFIX}/db-journal"
+    if [[ -f "${marker}" ]]; then
+        local content
+        content="$(<"${marker}")"
+        case "${content}" in
+            delete|wal) __knit_mode="${content}" ;;
+            *) knit_warning "Unknown database journal mode \"%s\" in %s; using \"delete\"." \
+                   "${content}" "${marker}" ;;
+        esac
+    fi
+    _KNIT_DB_JOURNAL_MODE="${__knit_mode}"
+    __knit_ret="${__knit_mode}"
+}
+
+# ------------------------------------------------------------------------------
+# @fn _knit_db_apply_journal_mode()
+#
+# Apply the resolved database journal mode to the database. "delete" is SQLite's
+# default rollback journal, so it is a no-op. "wal" is a persistent, database-
+# level property: setting "PRAGMA journal_mode=WAL" once writes the database
+# header, and every later connection then reads in WAL mode from that header, so
+# it is applied here (at bootstrap, and when switched in update mode) rather than
+# on every connection. The write is routed through _knit_sqlite3_write so it is
+# serialized by the write lock like any other write.
+#
+# WAL requires that every process touching the database run on the same host (it
+# coordinates readers and the writer through a memory-mapped shared-memory file),
+# so "wal" is an explicit single-host opt-in, never the default.
+# ------------------------------------------------------------------------------
+_knit_db_apply_journal_mode() {
+    local mode
+    _knit_db_journal_mode mode
+    [[ "${mode}" == "wal" ]] || return 0
+    _knit_sqlite3_write "PRAGMA journal_mode=WAL;" >/dev/null
 }
 
 # shellcheck disable=SC2120

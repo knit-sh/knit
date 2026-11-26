@@ -9,18 +9,25 @@ setup() {
     # the lock-mode resolution is controlled entirely by this test.
     _KNIT_PREFIX="$(mktemp -d)"
     _KNIT_DB_LOCK_MODE=""
+    _KNIT_DB_JOURNAL_MODE=""
 }
 
 teardown() {
     rm -rf "${_KNIT_PREFIX}" \
         "${_KNIT_DATABASE}.lock" \
         "${_KNIT_DATABASE}.lock.d" \
-        "${_KNIT_DATABASE}.lock.d.owner"
+        "${_KNIT_DATABASE}.lock.d.owner" \
+        "${_KNIT_DATABASE}-wal" \
+        "${_KNIT_DATABASE}-shm"
     knit_test_db_teardown
 }
 
 _write_marker() {
     printf '%s\n' "$1" > "${_KNIT_PREFIX}/db-lock"
+}
+
+_write_journal_marker() {
+    printf '%s\n' "$1" > "${_KNIT_PREFIX}/db-journal"
 }
 
 # ---------- _knit_db_lock_mode ----------
@@ -142,4 +149,118 @@ EOF
     [ "$(_knit_sqlite3 "SELECT COUNT(*) FROM t;")" -eq "$n" ]
     [ "$(_knit_sqlite3 "SELECT COUNT(DISTINCT n) FROM t;")" -eq "$n" ]
     [ ! -d "${_KNIT_DATABASE}.lock.d" ]
+}
+
+# ---------- _knit_db_journal_mode ----------
+
+@test "journal mode defaults to delete when the marker is absent" {
+    local mode
+    _knit_db_journal_mode mode
+    [ "$mode" = "delete" ]
+}
+
+@test "journal mode reads 'wal' from the marker" {
+    _write_journal_marker wal
+    local mode
+    _knit_db_journal_mode mode
+    [ "$mode" = "wal" ]
+}
+
+@test "journal mode reads 'delete' from the marker" {
+    _write_journal_marker delete
+    local mode
+    _knit_db_journal_mode mode
+    [ "$mode" = "delete" ]
+}
+
+@test "journal mode falls back to delete and warns on an unknown marker value" {
+    _write_journal_marker bogus
+    run _knit_db_journal_mode mode
+    [[ "$output" == *"Unknown database journal mode"* ]]
+    # A fresh direct call (the cache stays empty in this shell; run used a
+    # subshell) resolves to delete.
+    local mode
+    _knit_db_journal_mode mode
+    [ "$mode" = "delete" ]
+}
+
+@test "journal mode caches the first resolution for the process" {
+    _write_journal_marker wal
+    local m1 m2
+    _knit_db_journal_mode m1
+    [ "$m1" = "wal" ]
+    # Change the marker behind knit's back; the cached value must stand.
+    _write_journal_marker delete
+    _knit_db_journal_mode m2
+    [ "$m2" = "wal" ]
+}
+
+# ---------- _knit_db_apply_journal_mode ----------
+
+@test "apply journal mode leaves the database in WAL when 'wal' is selected" {
+    _write_journal_marker wal
+    _knit_db_apply_journal_mode
+    [ "$(_knit_sqlite3 "PRAGMA journal_mode;")" = "wal" ]
+}
+
+@test "apply journal mode is a no-op (rollback journal) for 'delete'" {
+    _write_journal_marker delete
+    _knit_db_apply_journal_mode
+    # The default rollback journal reports as "delete" (or "memory" for an
+    # in-memory db); either way it is never "wal".
+    [ "$(_knit_sqlite3 "PRAGMA journal_mode;")" != "wal" ]
+}
+
+@test "applied WAL mode persists for a later independent connection" {
+    _write_journal_marker wal
+    _knit_db_apply_journal_mode
+    # WAL is written into the database header, so a fresh sqlite3 process (and the
+    # resolver cache cleared) reads it back without re-issuing the pragma.
+    _KNIT_DB_JOURNAL_MODE=""
+    [ "$(_knit_sqlite3 "PRAGMA journal_mode;")" = "wal" ]
+}
+
+# ---------- _knit_bootstrap_update_db_journal against a real database ----------
+
+@test "update helper leaves the real database reporting wal when switching to wal" {
+    _write_journal_marker delete
+    # Give the database a table so it is a real, non-empty db file.
+    _knit_sqlite3_write "CREATE TABLE t (x TEXT);"
+    # Capture only the metadata mirror; keep the real _knit_sqlite3_write.
+    eval 'knit() { :; }'
+
+    _knit_bootstrap_update_db_journal "wal" "--db-journal" "wal"
+    [ "$(cat "${_KNIT_PREFIX}/db-journal")" = "wal" ]
+    _KNIT_DB_JOURNAL_MODE=""
+    [ "$(_knit_sqlite3 "PRAGMA journal_mode;")" = "wal" ]
+}
+
+@test "update helper checkpoints a real wal database back to a rollback journal" {
+    _write_journal_marker wal
+    _knit_db_apply_journal_mode
+    _knit_sqlite3_write "CREATE TABLE t (x TEXT); INSERT INTO t VALUES ('a');"
+    eval 'knit() { :; }'
+
+    _knit_bootstrap_update_db_journal "delete" "--db-journal" "delete"
+    [ "$(cat "${_KNIT_PREFIX}/db-journal")" = "delete" ]
+    _KNIT_DB_JOURNAL_MODE=""
+    # No longer WAL, and the data that was in the WAL survived the checkpoint.
+    [ "$(_knit_sqlite3 "PRAGMA journal_mode;")" != "wal" ]
+    [ "$(_knit_sqlite3 "SELECT x FROM t;")" = "a" ]
+}
+
+# ---------- busy timeout is overridable at source time ----------
+
+@test "busy timeout honours an inherited value at source time" {
+    run env _KNIT_SQLITE_BUSY_TIMEOUT_MS=54321 \
+        bash -c 'source "'"${BATS_TEST_DIRNAME}"'/../knit.sh"; printf "%s" "${_KNIT_SQLITE_BUSY_TIMEOUT_MS}"'
+    [ "$status" -eq 0 ]
+    [ "$output" = "54321" ]
+}
+
+@test "busy timeout defaults to 10000 when not inherited" {
+    run env -u _KNIT_SQLITE_BUSY_TIMEOUT_MS \
+        bash -c 'source "'"${BATS_TEST_DIRNAME}"'/../knit.sh"; printf "%s" "${_KNIT_SQLITE_BUSY_TIMEOUT_MS}"'
+    [ "$status" -eq 0 ]
+    [ "$output" = "10000" ]
 }

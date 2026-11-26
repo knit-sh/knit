@@ -331,6 +331,46 @@ _knit_bootstrap_update_db_lock() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_update_db_journal()
+#
+# Update-mode handler for --db-journal. When the option is typed and its value
+# differs from the stored one (read from the .knit/db-journal marker, the source
+# of truth), rewrite the marker, mirror the new value to metadata, clear the
+# process journal-mode cache, and convert the live database:
+#   - delete -> wal: PRAGMA journal_mode=WAL (persists in the header).
+#   - wal -> delete: checkpoint the WAL back into the database, then switch to the
+#     rollback journal.
+# Switching journal mode is pure configuration — there is nothing in the data to
+# migrate — so it is allowed at any time (e.g. to enable WAL before a run with
+# heavy single-host concurrency). It is a login-node, single-process operation, so
+# no other connection is in flight. A typed value equal to the stored one, or an
+# untyped option, is a no-op.
+#
+# @param[in] value Resolved value typed for --db-journal.
+# @param[in] ...   Raw argument tokens of this invocation (see
+#              _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option from a
+#              defaulted one.
+# @return 0 when the mode was changed, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_bootstrap_update_db_journal() {
+    local value="$1"
+    shift
+    _knit_arg_was_provided "db-journal" "$@" || return 1
+    local stored="delete"
+    [[ -f "${_KNIT_PREFIX}/db-journal" ]] && stored="$(<"${_KNIT_PREFIX}/db-journal")"
+    [[ "${value}" == "${stored}" ]] && return 1
+    printf '%s\n' "${value}" > "${_KNIT_PREFIX}/db-journal"
+    _KNIT_DB_JOURNAL_MODE=""
+    if [[ "${value}" == "wal" ]]; then
+        _knit_sqlite3_write "PRAGMA journal_mode=WAL;" >/dev/null
+    else
+        _knit_sqlite3_write "PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode=DELETE;" >/dev/null
+    fi
+    knit metadata store --key "__db_journal__" --value "${value}" --force
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_update()
 #
 # Run bootstrap in update mode on an experiment that is already bootstrapped. It
@@ -351,8 +391,9 @@ _knit_bootstrap_update_db_lock() {
 # (a changed profile is out of scope and fatals), and the
 # tooling options: --use-system-sqlite/--use-system-jq (switch a from-source/
 # downloaded tool to a system symlink), --db-lock (switch the database write-lock
-# mechanism — pure configuration, no migration) and
-# --knit-cypher-to-sql-version/--knit-cypher-to-sql-url (re-provision
+# mechanism — pure configuration, no migration), --db-journal (switch the database
+# journal mode, converting the live database between the rollback journal and WAL)
+# and --knit-cypher-to-sql-version/--knit-cypher-to-sql-url (re-provision
 # knit-cypher-to-sql on a changed version or URL). When no handled option was typed,
 # it reports that there is nothing to update and succeeds.
 #
@@ -378,6 +419,7 @@ _knit_bootstrap_update() {
     local setup_path_opt job_path_opt resource_path_opt
     local profile
     local db_lock
+    local db_journal
     local cypher_to_sql_version cypher_to_sql_url
     local ai_api_key_env ai_base_url_env ai_model_env ai_base_url ai_model
     project="$(knit_get_parameter "project" "$@")"
@@ -394,6 +436,7 @@ _knit_bootstrap_update() {
     resource_path_opt="$(knit_get_parameter "resource-path" "$@")"
     profile="$(knit_get_parameter "profile" "$@")"
     db_lock="$(knit_get_parameter "db-lock" "$@")"
+    db_journal="$(knit_get_parameter "db-journal" "$@")"
     cypher_to_sql_version="$(knit_get_parameter "knit-cypher-to-sql-version" "$@")"
     cypher_to_sql_url="$(knit_get_parameter "knit-cypher-to-sql-url" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
@@ -476,6 +519,7 @@ _knit_bootstrap_update() {
     _knit_bootstrap_update_sqlite "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_jq "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_db_lock "${db_lock}" "${__knit_raw[@]}" && updated="true"
+    _knit_bootstrap_update_db_journal "${db_journal}" "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_cypher_to_sql "${cypher_to_sql_version}" "${cypher_to_sql_url}" "${__knit_raw[@]}" && updated="true"
 
     # Record any plugins the experiment imports (idempotent): a plugin added to
@@ -500,6 +544,8 @@ _knit_is_builtin
 knit_enum "__launcher__"  "auto" "openmpi" "mpich" "pals" "flux" "slurm" "pbs" "none"
 _knit_is_builtin
 knit_enum "__db_lock__" "flock" "mkdir" "none"
+_knit_is_builtin
+knit_enum "__db_journal__" "delete" "wal"
 _knit_is_builtin
 knit_register "bootstrap" _knit_bootstrap "Bootstrap the Knit framework."
 _knit_is_builtin
@@ -546,6 +592,8 @@ knit_with_flag "use-system-jq" \
     "Symlink the system jq (if on PATH) instead of downloading it. The default download is self-contained and portable to compute nodes; a system symlink can dangle where the login-node binary is absent."
 knit_with_optional "db-lock:__db_lock__" "flock" \
     "How to serialize database writes. 'flock' (default) uses advisory file locks and needs a filesystem that supports them. 'mkdir' uses an atomic directory lock that works on filesystems without flock (e.g. NERSC DVS-projected home); a writer that cannot acquire the lock within 60s fails and asks you to remove a stray lock by hand. 'none' disables locking entirely (only safe when no two Knit writes ever overlap)."
+knit_with_optional "db-journal:__db_journal__" "delete" \
+    "Database journal mode. 'delete' (default) is SQLite's rollback journal and works everywhere, including across nodes. 'wal' (write-ahead log) lets readers never block on a writer, which avoids 'database is locked' under heavy concurrency, but WAL works only when every process touching the database runs on the SAME host; never use it across nodes or on a network filesystem."
 knit_with_optional "knit-cypher-to-sql-version:string" "" \
     "knit-cypher-to-sql release version to provision. Empty uses the pinned default."
 knit_with_optional "knit-cypher-to-sql-url:string" "" \
@@ -595,6 +643,7 @@ _knit_bootstrap() {
     local use_system_sqlite
     local use_system_jq
     local db_lock
+    local db_journal
     local cypher_to_sql_version
     local cypher_to_sql_url
     local ai_api_key_env
@@ -618,6 +667,7 @@ _knit_bootstrap() {
     use_system_sqlite="$(knit_get_parameter "use-system-sqlite" "$@")"
     use_system_jq="$(knit_get_parameter "use-system-jq" "$@")"
     db_lock="$(knit_get_parameter "db-lock" "$@")"
+    db_journal="$(knit_get_parameter "db-journal" "$@")"
     cypher_to_sql_version="$(knit_get_parameter "knit-cypher-to-sql-version" "$@")"
     cypher_to_sql_url="$(knit_get_parameter "knit-cypher-to-sql-url" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
@@ -671,6 +721,16 @@ _knit_bootstrap() {
     db_lock="${db_lock:-flock}"
     printf '%s\n' "${db_lock}" > "${_KNIT_PREFIX}/db-lock"
     _KNIT_DB_LOCK_MODE=""
+
+    # Record the database journal mode before the first database write, for the
+    # same reason as the db-lock marker: it must be knowable without opening the
+    # database it describes. Default an empty value to "delete" (SQLite's rollback
+    # journal) so the marker is always a valid mode. Clear the process cache so
+    # this freshly written value is the one that is resolved when the tables are
+    # created just below.
+    db_journal="${db_journal:-delete}"
+    printf '%s\n' "${db_journal}" > "${_KNIT_PREFIX}/db-journal"
+    _KNIT_DB_JOURNAL_MODE=""
 
     # Knit uses the sqlite3 CLI only (no library linkage). _knit_bootstrap_sqlite
     # builds it from source by default (self-contained, portable to compute nodes)
@@ -826,6 +886,9 @@ _knit_bootstrap() {
     # written above) into metadata for visibility in "metadata show" and the
     # machine fingerprint.
     knit metadata store --key "__db_lock__"                --value "${db_lock}"
+    # Mirror the journal mode (source of truth is the .knit/db-journal marker
+    # written above) into metadata for visibility in "metadata show".
+    knit metadata store --key "__db_journal__"             --value "${db_journal}"
     # Machine fingerprint, recorded once at first bootstrap. A cross-platform
     # query filters on or returns the architecture, and the Knit version that
     # produced this database is a drift signal when the same experiment ran on

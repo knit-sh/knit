@@ -96,7 +96,9 @@ the command itself failed, because nothing has built or installed
    ``flock`` --- such as a compute-node ``$HOME`` at some HPC centers --- run it
    from a lock-capable filesystem (for example ``$PSCRATCH``), or add
    ``--db-lock mkdir`` to ``bootstrap``. See the *Run on a filesystem without
-   flock* stitch.
+   flock* stitch. For heavy single-host concurrency (a read failing with
+   ``database is locked``), ``--db-journal wal`` is the companion option; see the
+   *Avoid "database is locked" with WAL* stitch.
 
 .. note::
 
