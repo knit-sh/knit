@@ -49,7 +49,13 @@ check-all: check-slurm check-pbs check-flux
 # Cluster lifecycle
 # ---------------------------------------------------------------------------
 
+# Each cluster-up provisions its image first: provision-image.sh reuses the local
+# image when it already matches the current docker/<cluster>/ context, and
+# rebuilds it (or pulls, when an owner is set) when the context has changed. This
+# keeps a local `cluster-up`/`check` run in step with CI instead of silently
+# reusing a stale image that no longer matches the baked cluster config.
 cluster-up-slurm:
+	bash lib/provision-image.sh slurm
 	docker compose -f $(SLURM_COMPOSE) up -d
 	docker exec slurm-login \
 	    bash $(INTEGRATION_DIR)/lib/wait-for-cluster.sh slurm
@@ -58,6 +64,7 @@ cluster-down-slurm:
 	docker compose -f $(SLURM_COMPOSE) down -v
 
 cluster-up-pbs:
+	bash lib/provision-image.sh pbs
 	docker compose -f $(PBS_COMPOSE) up -d
 	docker exec pbs-login \
 	    bash $(INTEGRATION_DIR)/lib/wait-for-cluster.sh pbs
@@ -66,6 +73,7 @@ cluster-down-pbs:
 	docker compose -f $(PBS_COMPOSE) down -v
 
 cluster-up-flux:
+	bash lib/provision-image.sh flux
 	docker compose -f $(FLUX_COMPOSE) up -d
 	# The Flux instance is owned by hpcuser (single-user instance), so the
 	# readiness probe must run as hpcuser — root is an unauthorized guest.

@@ -76,6 +76,15 @@ docker exec -it --user hpcuser slurm-login bash
 make cluster-down-slurm
 ```
 
+`cluster-up-*` (and therefore `check-*`) provisions its image first: it reuses the
+local image when it already matches the current `docker/<cluster>/` context and
+rebuilds it (or pulls, when an owner is set) only when that context has changed.
+So after editing a Dockerfile, compose file, or cluster script, a plain
+`make cluster-up-<cluster>` picks up the change automatically — you do not need to
+remember a separate `make build-<cluster>`, and a months-old local image can no
+longer silently diverge from the baked cluster config while `knit.sh` (which is
+bind-mounted, not baked) stays fresh.
+
 ### Override cluster software versions
 
 ```bash
@@ -144,6 +153,15 @@ are pull-or-build only — they never push (a push needs a `GITHUB_TOKEN` that o
 exists in CI). Running `make check-slurm` / `make check-pbs` locally with no ghcr
 owner configured simply builds the image as before. Optionally, set
 `KNIT_IMAGE_OWNER=<gh-user-or-org>` to pull public images locally too.
+
+The `cluster-up-*` targets call `provision-image.sh` on every run, so a local
+image that no longer matches the current context is rebuilt automatically rather
+than reused. The script tags each image it makes available with its content hash
+and, on the next call, reuses the local image when that tag already matches
+`:latest` — so the common (unchanged) case is a cheap no-op, and CI calling the
+script twice (its own step, then `cluster-up`) rebuilds or pulls only once. The
+reuse short-circuit leaves the `built`/`pulled` state marker untouched, so
+publishing still keys off how the image was first obtained this run.
 
 **Weekly refresh.** A weekly `schedule` (plus manual `workflow_dispatch`) rebuilds
 and republishes the images to pick up base-image (`rockylinux:9`) updates, even
