@@ -57,7 +57,9 @@ check_dir "cache/knit/tools/sources/jq"          "jq binary cached"
 # --------------------------------------------------------------------------
 # Remove the provisioned tools, keep the warm cache, re-bootstrap OFFLINE.
 # --------------------------------------------------------------------------
-rm -rf .knit
+# The default setup lives under setups/ (the setup path), outside .knit, so it
+# must be cleared too for a fresh bootstrap to re-instantiate it.
+rm -rf .knit setups
 
 # KNIT_OFFLINE=1 forbids every download, so this can only succeed by installing
 # from the warm cache.
