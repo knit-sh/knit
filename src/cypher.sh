@@ -51,11 +51,14 @@ _knit_cypher_to_sql_url() {
 # ------------------------------------------------------------------------------
 # @fn _knit_build_cypher_to_sql()
 #
-# Download the knit-cypher-to-sql release tarball, build it, and install it under
-# .knit/knit-cypher-to-sql. The transpiler links nothing from SQLite, so the
-# build needs no SQLite development files (no --with-sqlite3). The release tarball
-# ships the pre-generated parser/scanner and configure script, so only a C
-# compiler is needed (no autotools/bison/flex).
+# Provision knit-cypher-to-sql under .knit/knit-cypher-to-sql. A built-binary
+# cache hit (matched to this version, platform, and toolchain) is installed with
+# no compile; otherwise the release tarball is downloaded (through the source
+# cache), built, and installed, and the fresh build is published to the cache.
+# The transpiler links nothing from SQLite, so the build needs no SQLite
+# development files (no --with-sqlite3). The release tarball ships the
+# pre-generated parser/scanner and configure script, so only a C compiler is
+# needed (no autotools/bison/flex).
 #
 # @param[in] version knit-cypher-to-sql release version to build.
 # @param[in] url URL of the knit-cypher-to-sql release tarball.
@@ -66,24 +69,24 @@ _knit_build_cypher_to_sql() {
     local srcname="knit-cypher-to-sql-${version}"
     local tarball="${srcname}.tar.gz"
 
+    if _knit_tool_cache_install cypher-to-sql "${version}" \
+            "${_KNIT_PREFIX}/knit-cypher-to-sql" \
+            bin/knit-cypher-to-sql --version; then
+        return 0
+    fi
+
     knit_pushd "${_KNIT_PREFIX}"
 
     knit_trace "Downloading knit-cypher-to-sql source..."
-    # -f makes an HTTP error status (e.g. a rate-limited GitHub response) a clean
-    # failure instead of a saved error body that would later fail to extract;
-    # --retry rides out a transient network error. A GITHUB_TOKEN/GH_TOKEN, when
-    # set, lifts the low anonymous rate limit that CI runners share by address.
-    local -a curl_args=(-fL --retry 3 --retry-delay 2 -o "${tarball}")
-    local gh_token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-    [[ -n "${gh_token}" ]] && curl_args+=(-H "Authorization: Bearer ${gh_token}")
-    if ! _knit_cypher_to_sql_framed_run "knit-cypher-to-sql: download" \
-            curl "${curl_args[@]}" "${url}" ; then
+    local src
+    if ! _knit_tool_cache_fetch_source src cypher-to-sql "${version}" \
+            "${tarball}" "" "${url}" "knit-cypher-to-sql: download" ; then
         knit_fatal "Could not download knit-cypher-to-sql from ${url}. See ${_KNIT_TRACE_FILE} for more information."
     fi
 
     knit_trace "Extracting knit-cypher-to-sql source..."
     if ! _knit_cypher_to_sql_framed_run "knit-cypher-to-sql: extract" \
-            tar -xzf "${tarball}" ; then
+            tar -xzf "${src}" ; then
         knit_fatal "Could not extract knit-cypher-to-sql sources. See ${_KNIT_TRACE_FILE} for more information."
     fi
 
@@ -108,6 +111,9 @@ _knit_build_cypher_to_sql() {
     rm -rf "${srcname}" "${tarball}" 2>"${_KNIT_TRACE_FILE}"
 
     knit_popd # from "${_KNIT_PREFIX}"
+
+    _knit_tool_cache_publish_built cypher-to-sql "${version}" \
+        "${_KNIT_PREFIX}/knit-cypher-to-sql"
 }
 
 # ------------------------------------------------------------------------------
