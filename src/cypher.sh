@@ -70,7 +70,8 @@ _knit_build_cypher_to_sql() {
     local tarball="${srcname}.tar.gz"
 
     if _knit_tool_cache_install cypher-to-sql "${version}" \
-            "${_KNIT_PREFIX}/knit-cypher-to-sql"; then
+            "${_KNIT_PREFIX}/knit-cypher-to-sql" \
+            bin/knit-cypher-to-sql --version; then
         return 0
     fi
 

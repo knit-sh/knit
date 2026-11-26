@@ -18,6 +18,17 @@ declare -g _KNIT_TOOL_CACHE_ROOT
 _KNIT_TOOL_CACHE_ROOT="${XDG_CACHE_HOME:-${HOME}/.cache}/knit/tools"
 
 # ------------------------------------------------------------------------------
+# @var _KNIT_TOOL_SMOKE_TIMEOUT
+#
+# Seconds a built-cache smoke test may run before it is treated as a hang (and
+# the cached binary rejected). Bounds the probe so a binary that blocks — e.g. a
+# tool that does not recognize the probe flag and waits on stdin — cannot stall a
+# provision. A test may lower it.
+# ------------------------------------------------------------------------------
+declare -g _KNIT_TOOL_SMOKE_TIMEOUT
+_KNIT_TOOL_SMOKE_TIMEOUT="10"
+
+# ------------------------------------------------------------------------------
 # @fn _knit_tool_cache_enabled()
 #
 # Report whether the tool cache is in use. The cache is on by default and off
@@ -227,6 +238,35 @@ available at ${cached}; cannot download it."
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_tool_smoke_test()
+#
+# Check that an installed tool binary actually runs on this host. The binary is
+# executed with a caller-supplied probe (typically "--version") under a timeout,
+# with stdin closed so a tool that does not recognize the probe cannot block
+# waiting for input, and with output discarded. It passes unless the binary is
+# not executable, exec itself failed (126/127), it was killed by the timeout
+# (124), or it crashed on a signal (>128) — i.e. a corrupt or incompatible cached
+# binary. An ordinary non-zero application exit still passes: the binary ran.
+#
+# @param[in] bin  Path to the binary to probe.
+# @param[in] ...  Probe arguments (e.g. "--version").
+# @return 0 when the binary runs, 1 when it does not.
+# ------------------------------------------------------------------------------
+_knit_tool_smoke_test() {
+    local bin="$1"
+    shift
+    [[ -x "${bin}" ]] || return 1
+    local rc=0
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "${_KNIT_TOOL_SMOKE_TIMEOUT}" "${bin}" "$@" </dev/null >/dev/null 2>&1 || rc=$?
+    else
+        "${bin}" "$@" </dev/null >/dev/null 2>&1 || rc=$?
+    fi
+    (( rc == 124 || rc >= 126 )) && return 1
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_tool_cache_install()
 #
 # Install a tool from the built-binary cache by copying its cached prefix tree
@@ -236,15 +276,28 @@ available at ${cached}; cannot download it."
 # keeps ".knit" self-contained: a later cache prune cannot dangle a live install,
 # and the install survives a compute node that cannot see the cache.
 #
+# When a relative binary path is given, the installed binary is smoke-tested (see
+# _knit_tool_smoke_test). A binary that fails to run is a poisoned cache entry: it
+# is removed from the cache and the install reports a miss, so the caller rebuilds
+# and republishes a working tree.
+#
 # @param[in] tool    Tool key ("sqlite", "cypher-to-sql", "pilotd").
 # @param[in] version Version token keying the built tree.
 # @param[in] dest    Destination prefix to install into (e.g. ".knit/sqlite").
-# @return 0 when a cached tree was installed, 1 on a miss (or a disabled cache).
+# @param[in] relbin  Optional binary path relative to the prefix to smoke-test
+#            (e.g. "bin/sqlite3"); omit to skip the smoke test.
+# @param[in] ...     Probe arguments passed to the smoke test (e.g. "--version").
+# @return 0 when a cached tree was installed, 1 on a miss, a disabled cache, or a
+#            rejected (poisoned) entry.
 # ------------------------------------------------------------------------------
 _knit_tool_cache_install() {
     local tool="$1"
     local version="$2"
     local dest="$3"
+    shift 3
+    local relbin="${1:-}"
+    [[ $# -gt 0 ]] && shift
+    local -a probe=("$@")
     _knit_tool_cache_enabled || return 1
     local built
     _knit_tool_cache_built_path built "${tool}" "${version}"
@@ -254,6 +307,13 @@ _knit_tool_cache_install() {
     mkdir -p "$(dirname "${dest}")"
     if ! cp -a "${built}" "${dest}"; then
         rm -rf "${dest}"
+        return 1
+    fi
+    if [[ -n "${relbin}" ]] && \
+            ! _knit_tool_smoke_test "${dest}/${relbin}" "${probe[@]}"; then
+        knit_warning "Cached ${tool} at ${built} failed its smoke test; \
+discarding it and rebuilding."
+        rm -rf "${dest}" "${built}"
         return 1
     fi
     return 0

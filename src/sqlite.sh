@@ -137,7 +137,8 @@ _knit_bootstrap_update_sqlite() {
 # ------------------------------------------------------------------------------
 _knit_build_sqlite() {
     local version="${_KNIT_SQLITE_SOURCE_NAME##*-}"
-    if _knit_tool_cache_install sqlite "${version}" "${_KNIT_PREFIX}/sqlite"; then
+    if _knit_tool_cache_install sqlite "${version}" "${_KNIT_PREFIX}/sqlite" \
+            bin/sqlite3 --version; then
         return 0
     fi
 

@@ -48,7 +48,8 @@ _knit_build_pilotd() {
     local srcname="knit-pilotd-${version}"
     local tarball="${srcname}.tar.gz"
 
-    if _knit_tool_cache_install pilotd "${version}" "${_KNIT_PREFIX}/knit-pilotd"; then
+    if _knit_tool_cache_install pilotd "${version}" "${_KNIT_PREFIX}/knit-pilotd" \
+            bin/knit-pilotd --version; then
         return 0
     fi
 

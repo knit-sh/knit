@@ -242,6 +242,70 @@ _fake_prefix() {
     rm -rf "${work}"
 }
 
+# ---------- _knit_tool_smoke_test ----------
+
+_make_bin() {
+    local path="$1" body="$2"
+    printf '#!/bin/sh\n%s\n' "${body}" > "${path}"
+    chmod +x "${path}"
+}
+
+@test "smoke test passes a runnable binary" {
+    local bin; bin="$(mktemp -d)/b"
+    _make_bin "${bin}" "exit 0"
+    run _knit_tool_smoke_test "${bin}" --version
+    [ "$status" -eq 0 ]
+    rm -rf "$(dirname "${bin}")"
+}
+
+@test "smoke test passes a binary that exits non-zero (it still ran)" {
+    local bin; bin="$(mktemp -d)/b"
+    _make_bin "${bin}" "exit 2"
+    run _knit_tool_smoke_test "${bin}"
+    [ "$status" -eq 0 ]
+    rm -rf "$(dirname "${bin}")"
+}
+
+@test "smoke test rejects a non-executable binary" {
+    local bin; bin="$(mktemp -d)/b"
+    printf 'not a program' > "${bin}"
+    run _knit_tool_smoke_test "${bin}"
+    [ "$status" -eq 1 ]
+    rm -rf "$(dirname "${bin}")"
+}
+
+@test "smoke test rejects a binary that hangs" {
+    local bin; bin="$(mktemp -d)/b"
+    _make_bin "${bin}" "sleep 5"
+    _KNIT_TOOL_SMOKE_TIMEOUT=1 run _knit_tool_smoke_test "${bin}"
+    [ "$status" -eq 1 ]
+    rm -rf "$(dirname "${bin}")"
+}
+
+@test "smoke test rejects a binary killed by a signal" {
+    local bin; bin="$(mktemp -d)/b"
+    _make_bin "${bin}" 'kill -9 $$'
+    run _knit_tool_smoke_test "${bin}"
+    [ "$status" -eq 1 ]
+    rm -rf "$(dirname "${bin}")"
+}
+
+@test "install rejects and purges a poisoned built entry" {
+    local work; work="$(mktemp -d)"
+    _fake_prefix "${work}/src" sqlite3
+    _knit_tool_cache_publish_built sqlite 3480000 "${work}/src"
+    local built
+    _knit_tool_cache_built_path built sqlite 3480000
+    chmod -x "${built}/bin/sqlite3"   # make the cached binary un-runnable
+
+    run _knit_tool_cache_install sqlite 3480000 "${work}/dest" bin/sqlite3 --version
+    [ "$status" -eq 1 ]
+    [ ! -e "${work}/dest" ]
+    # The poisoned entry was discarded so a rebuild can republish a good one.
+    [ ! -d "${built}" ]
+    rm -rf "${work}"
+}
+
 @test "install and publish are no-ops when the cache is disabled" {
     local work; work="$(mktemp -d)"
     _fake_prefix "${work}/src" sqlite3
@@ -347,5 +411,36 @@ _fake_prefix() {
     [ -x "${_KNIT_JQ_EXE}" ]
     # Nothing was published into the cache.
     [ ! -d "${_KNIT_TOOL_CACHE_ROOT}/sources" ]
+    rm -rf "${work}"
+}
+
+# ---------- offline behavior ----------
+
+@test "offline built-cache hit installs sqlite with no network" {
+    local work; work="$(mktemp -d)"
+    _KNIT_PREFIX="${work}/.knit"
+    mkdir -p "${_KNIT_PREFIX}"
+    local version="${_KNIT_SQLITE_SOURCE_NAME##*-}"
+    _fake_prefix "${work}/built-src" sqlite3
+    _knit_tool_cache_publish_built sqlite "${version}" "${work}/built-src"
+
+    # Any attempt to fetch a source would be a bug offline.
+    _knit_tool_cache_fetch_source() { echo "FETCHED" >&2; return 1; }
+
+    KNIT_OFFLINE=1 run _knit_build_sqlite
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"FETCHED"* ]]
+    [ -x "${_KNIT_PREFIX}/sqlite/bin/sqlite3" ]
+    rm -rf "${work}"
+}
+
+@test "offline with no cached sqlite source is a clear fatal" {
+    local work; work="$(mktemp -d)"
+    _KNIT_PREFIX="${work}/.knit"
+    mkdir -p "${_KNIT_PREFIX}"
+    # Neither a built entry nor a source entry is cached.
+    KNIT_OFFLINE=1 run _knit_build_sqlite
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"KNIT_OFFLINE=1"* ]]
     rm -rf "${work}"
 }
