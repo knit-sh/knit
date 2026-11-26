@@ -219,3 +219,32 @@ EOF
     _KNIT_DB_JOURNAL_MODE=""
     [ "$(_knit_sqlite3 "PRAGMA journal_mode;")" = "wal" ]
 }
+
+# ---------- _knit_bootstrap_update_db_journal against a real database ----------
+
+@test "update helper leaves the real database reporting wal when switching to wal" {
+    _write_journal_marker delete
+    # Give the database a table so it is a real, non-empty db file.
+    _knit_sqlite3_write "CREATE TABLE t (x TEXT);"
+    # Capture only the metadata mirror; keep the real _knit_sqlite3_write.
+    eval 'knit() { :; }'
+
+    _knit_bootstrap_update_db_journal "wal" "--db-journal" "wal"
+    [ "$(cat "${_KNIT_PREFIX}/db-journal")" = "wal" ]
+    _KNIT_DB_JOURNAL_MODE=""
+    [ "$(_knit_sqlite3 "PRAGMA journal_mode;")" = "wal" ]
+}
+
+@test "update helper checkpoints a real wal database back to a rollback journal" {
+    _write_journal_marker wal
+    _knit_db_apply_journal_mode
+    _knit_sqlite3_write "CREATE TABLE t (x TEXT); INSERT INTO t VALUES ('a');"
+    eval 'knit() { :; }'
+
+    _knit_bootstrap_update_db_journal "delete" "--db-journal" "delete"
+    [ "$(cat "${_KNIT_PREFIX}/db-journal")" = "delete" ]
+    _KNIT_DB_JOURNAL_MODE=""
+    # No longer WAL, and the data that was in the WAL survived the checkpoint.
+    [ "$(_knit_sqlite3 "PRAGMA journal_mode;")" != "wal" ]
+    [ "$(_knit_sqlite3 "SELECT x FROM t;")" = "a" ]
+}

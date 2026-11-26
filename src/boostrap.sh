@@ -331,6 +331,46 @@ _knit_bootstrap_update_db_lock() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_bootstrap_update_db_journal()
+#
+# Update-mode handler for --db-journal. When the option is typed and its value
+# differs from the stored one (read from the .knit/db-journal marker, the source
+# of truth), rewrite the marker, mirror the new value to metadata, clear the
+# process journal-mode cache, and convert the live database:
+#   - delete -> wal: PRAGMA journal_mode=WAL (persists in the header).
+#   - wal -> delete: checkpoint the WAL back into the database, then switch to the
+#     rollback journal.
+# Switching journal mode is pure configuration — there is nothing in the data to
+# migrate — so it is allowed at any time (e.g. to enable WAL before a run with
+# heavy single-host concurrency). It is a login-node, single-process operation, so
+# no other connection is in flight. A typed value equal to the stored one, or an
+# untyped option, is a no-op.
+#
+# @param[in] value Resolved value typed for --db-journal.
+# @param[in] ...   Raw argument tokens of this invocation (see
+#              _KNIT_INVOCATION_RAW_ARGS), used to tell a typed option from a
+#              defaulted one.
+# @return 0 when the mode was changed, 1 otherwise.
+# ------------------------------------------------------------------------------
+_knit_bootstrap_update_db_journal() {
+    local value="$1"
+    shift
+    _knit_arg_was_provided "db-journal" "$@" || return 1
+    local stored="delete"
+    [[ -f "${_KNIT_PREFIX}/db-journal" ]] && stored="$(<"${_KNIT_PREFIX}/db-journal")"
+    [[ "${value}" == "${stored}" ]] && return 1
+    printf '%s\n' "${value}" > "${_KNIT_PREFIX}/db-journal"
+    _KNIT_DB_JOURNAL_MODE=""
+    if [[ "${value}" == "wal" ]]; then
+        _knit_sqlite3_write "PRAGMA journal_mode=WAL;" >/dev/null
+    else
+        _knit_sqlite3_write "PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode=DELETE;" >/dev/null
+    fi
+    knit metadata store --key "__db_journal__" --value "${value}" --force
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_bootstrap_update()
 #
 # Run bootstrap in update mode on an experiment that is already bootstrapped. It
@@ -351,8 +391,9 @@ _knit_bootstrap_update_db_lock() {
 # (a changed profile is out of scope and fatals), and the
 # tooling options: --use-system-sqlite/--use-system-jq (switch a from-source/
 # downloaded tool to a system symlink), --db-lock (switch the database write-lock
-# mechanism — pure configuration, no migration) and
-# --knit-cypher-to-sql-version/--knit-cypher-to-sql-url (re-provision
+# mechanism — pure configuration, no migration), --db-journal (switch the database
+# journal mode, converting the live database between the rollback journal and WAL)
+# and --knit-cypher-to-sql-version/--knit-cypher-to-sql-url (re-provision
 # knit-cypher-to-sql on a changed version or URL). When no handled option was typed,
 # it reports that there is nothing to update and succeeds.
 #
@@ -378,6 +419,7 @@ _knit_bootstrap_update() {
     local setup_path_opt job_path_opt resource_path_opt
     local profile
     local db_lock
+    local db_journal
     local cypher_to_sql_version cypher_to_sql_url
     local ai_api_key_env ai_base_url_env ai_model_env ai_base_url ai_model
     project="$(knit_get_parameter "project" "$@")"
@@ -394,6 +436,7 @@ _knit_bootstrap_update() {
     resource_path_opt="$(knit_get_parameter "resource-path" "$@")"
     profile="$(knit_get_parameter "profile" "$@")"
     db_lock="$(knit_get_parameter "db-lock" "$@")"
+    db_journal="$(knit_get_parameter "db-journal" "$@")"
     cypher_to_sql_version="$(knit_get_parameter "knit-cypher-to-sql-version" "$@")"
     cypher_to_sql_url="$(knit_get_parameter "knit-cypher-to-sql-url" "$@")"
     ai_api_key_env="$(knit_get_parameter "ai-api-key-env" "$@")"
@@ -476,6 +519,7 @@ _knit_bootstrap_update() {
     _knit_bootstrap_update_sqlite "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_jq "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_db_lock "${db_lock}" "${__knit_raw[@]}" && updated="true"
+    _knit_bootstrap_update_db_journal "${db_journal}" "${__knit_raw[@]}" && updated="true"
     _knit_bootstrap_update_cypher_to_sql "${cypher_to_sql_version}" "${cypher_to_sql_url}" "${__knit_raw[@]}" && updated="true"
 
     # Record any plugins the experiment imports (idempotent): a plugin added to
