@@ -25,7 +25,7 @@ knit_set_program_description "Tune a CNN image classifier with Bayesian optimiza
 
 # The cnnenv setup and the cifar resource are unchanged from Step 1.
 @setup "cnnenv" "A uv environment with the cifar-cnn classifier installed."
-@with_uv_specs "cifar-cnn @ git+https://github.com/knit-sh/image-classifier-example.git"
+@with_uv_specs "cifar-cnn @ git+https://github.com/knit-sh/image-classifier-example.git@v1.0.0"
 @empty
 @done
 

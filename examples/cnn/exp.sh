@@ -267,7 +267,9 @@ knit_set_program_description \
 # cnnenv-cuda / cnnenv-cpu: a hermetic uv environment. The pyproject pins
 # torch+torchvision to the matching PyTorch wheel index via [tool.uv.index]; uv
 # resolves and installs the whole stack on a managed Python, with no hand-written
-# body. cifar-cnn comes from its git repository as a direct reference.
+# body. cifar-cnn comes from its git repository as a direct reference, pinned to
+# the immutable tag @v1.0.0 so every reproducer builds the same code (an
+# unpinned branch would resolve to whatever HEAD is at build time).
 @setup "cnnenv-cuda" "cifar-cnn in a hermetic uv env with CUDA PyTorch (wheel index)."
 @with_uv_env <<'TOML'
 [project]
@@ -278,7 +280,7 @@ dependencies = [
     "torch",
     "torchvision",
     "pillow",
-    "cifar-cnn @ git+https://github.com/knit-sh/image-classifier-example.git",
+    "cifar-cnn @ git+https://github.com/knit-sh/image-classifier-example.git@v1.0.0",
 ]
 
 [tool.uv.sources]
@@ -304,7 +306,7 @@ dependencies = [
     "torch",
     "torchvision",
     "pillow",
-    "cifar-cnn @ git+https://github.com/knit-sh/image-classifier-example.git",
+    "cifar-cnn @ git+https://github.com/knit-sh/image-classifier-example.git@v1.0.0",
 ]
 
 [tool.uv.sources]
@@ -326,7 +328,7 @@ TOML
 # that module's Python, and @with_uv_no_deps installs cifar-cnn without pulling a
 # PyPI torch over the module's XPU build.
 @setup "cnnenv-xpu" "cifar-cnn layered on the Aurora frameworks module (Intel XPU)."
-@with_uv_specs "cifar-cnn @ git+https://github.com/knit-sh/image-classifier-example.git"
+@with_uv_specs "cifar-cnn @ git+https://github.com/knit-sh/image-classifier-example.git@v1.0.0"
 @with_uv_layered
 @with_uv_no_deps
 @provides_setup_role "cnnenv"

@@ -61,8 +61,9 @@ accuracy.
 Part I provisioned a C++ toolchain with the **Spack** plugin. An ML stack is a
 better fit for **uv**, so Part III imports that plugin instead and declares a
 uv-backed setup. The setup names one requirement --- the ``cifar-cnn`` package,
-installed directly from its Git repository --- and has no body of its own; uv
-building and activating the environment is all it does:
+installed directly from its Git repository and pinned to the immutable tag
+``@v1.0.0`` so every reproducer builds the same code --- and has no body of its
+own; uv building and activating the environment is all it does:
 
 .. knit-code:: ../_code/cnn_train.sh
    :language: bash

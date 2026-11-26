@@ -31,7 +31,7 @@ knit_set_program_description "Tune a CNN image classifier on CIFAR-10."
 # provenance. The setup needs no body of its own --- building the environment is
 # all it does --- so @empty stands in for the body function.
 @setup "cnnenv" "A uv environment with the cifar-cnn classifier installed."
-@with_uv_specs "cifar-cnn @ git+https://github.com/knit-sh/image-classifier-example.git"
+@with_uv_specs "cifar-cnn @ git+https://github.com/knit-sh/image-classifier-example.git@v1.0.0"
 @empty
 @done
 # END setup

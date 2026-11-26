@@ -27,7 +27,7 @@ knit_set_program_description \
 # --- Setup ------------------------------------------------------------------
 # A uv environment with the cifar-cnn classifier installed from its git repo.
 @setup "cnnenv" "A uv environment with the cifar-cnn classifier installed."
-@with_uv_specs "cifar-cnn @ git+https://github.com/knit-sh/image-classifier-example.git"
+@with_uv_specs "cifar-cnn @ git+https://github.com/knit-sh/image-classifier-example.git@v1.0.0"
 @empty
 @done
 
