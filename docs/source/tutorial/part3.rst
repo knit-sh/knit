@@ -62,13 +62,25 @@ Part I provisioned a C++ toolchain with the **Spack** plugin. An ML stack is a
 better fit for **uv**, so Part III imports that plugin instead and declares a
 uv-backed setup. The setup names one requirement --- the ``cifar-cnn`` package,
 installed directly from its Git repository and pinned to the immutable tag
-``@v1.0.0`` so every reproducer builds the same code --- and has no body of its
-own; uv building and activating the environment is all it does:
+``@v1.0.0`` so every reproducer builds the same code --- and has a one-line body
+that pins ``TMPDIR`` (see the note below); uv building and activating the
+environment is the rest of what it does:
 
 .. knit-code:: ../_code/cnn_train.sh
    :language: bash
    :start-after: # START setup
    :end-before: # END setup
+
+.. note::
+
+   The setup's body calls ``knit_setup_env_set TMPDIR /tmp``. PyTorch's
+   ``DataLoader`` starts worker processes that pass tensors through an AF_UNIX
+   socket under ``TMPDIR``. On some clusters (for example Aurora and Polaris)
+   ``TMPDIR`` is a long path, so the socket path goes past the 108-byte AF_UNIX
+   limit and training stops with ``AF_UNIX path too long``. The short, node-local
+   ``/tmp`` keeps the socket path within the limit. ``knit_setup_env_set`` records
+   the assignment into the setup's ``.activate.sh``, so every job that uses the
+   setup inherits it.
 
 Because a uv-backed setup is declared, ``bootstrap`` provisions a knit-private uv
 automatically. uv installs the program and pins the exact dependency set

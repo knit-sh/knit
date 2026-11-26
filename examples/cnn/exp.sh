@@ -233,8 +233,8 @@ knit_set_program_description \
 # platforms is where PyTorch comes from; everything else — the train job, the
 # sweep, the ax campaign — is identical across machines. Rather than one setup
 # with a branch inside its body, that difference is expressed as THREE
-# declarative setups, each built entirely by the uv plugin (no hand-written
-# body), that all provide the same ROLE "cnnenv":
+# declarative setups, each built by the uv plugin from a one-line body, that all
+# provide the same ROLE "cnnenv":
 #
 #   - cnnenv-cuda / cnnenv-cpu: a self-contained (hermetic) uv environment, with
 #     torch+torchvision pinned to the matching PyTorch wheel index
@@ -253,6 +253,14 @@ knit_set_program_description \
 # that device is absent, so a run can never silently fall back to the CPU and
 # record a misleading result.
 #
+# Each setup also pins TMPDIR to the node-local /tmp. PyTorch's DataLoader starts
+# worker processes. The workers pass tensors through an AF_UNIX socket under
+# TMPDIR. On some clusters (for example Aurora and Polaris) TMPDIR is a long path,
+# so the socket path goes past the 108-byte AF_UNIX limit and the run stops with
+# "AF_UNIX path too long". The short /tmp keeps the socket path within the limit.
+# knit_setup_env_set writes the assignment into the setup's .activate.sh, so every
+# job that uses the setup gets it.
+#
 # Build the instance that fits the machine, NAMING it "cnnenv" so every downstream
 # `--setup cnnenv` line below refers to it unchanged (the instance name is free;
 # the role comes from its type):
@@ -266,8 +274,8 @@ knit_set_program_description \
 # -----------------------------------------------------------------------------
 # cnnenv-cuda / cnnenv-cpu: a hermetic uv environment. The pyproject pins
 # torch+torchvision to the matching PyTorch wheel index via [tool.uv.index]; uv
-# resolves and installs the whole stack on a managed Python, with no hand-written
-# body. cifar-cnn comes from its git repository as a direct reference, pinned to
+# resolves and installs the whole stack on a managed Python; the only body is the
+# one-line TMPDIR pin. cifar-cnn comes from its git repository as a direct reference, pinned to
 # the immutable tag @v1.0.0 so every reproducer builds the same code (an
 # unpinned branch would resolve to whatever HEAD is at build time).
 @setup "cnnenv-cuda" "cifar-cnn in a hermetic uv env with CUDA PyTorch (wheel index)."
@@ -293,7 +301,7 @@ url = "https://download.pytorch.org/whl/cu121"
 explicit = true
 TOML
 @provides_setup_role "cnnenv"
-@empty
+_cnnenv_cuda_setup() { knit_setup_env_set TMPDIR /tmp; }
 @done
 
 @setup "cnnenv-cpu" "cifar-cnn in a hermetic uv env with CPU PyTorch (wheel index)."
@@ -319,7 +327,7 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 TOML
 @provides_setup_role "cnnenv"
-@empty
+_cnnenv_cpu_setup() { knit_setup_env_set TMPDIR /tmp; }
 @done
 
 # cnnenv-xpu (Aurora): a LAYERED uv environment. torch+torchvision+XPU come from
@@ -332,7 +340,7 @@ TOML
 @with_uv_layered
 @with_uv_no_deps
 @provides_setup_role "cnnenv"
-@empty
+_cnnenv_xpu_setup() { knit_setup_env_set TMPDIR /tmp; }
 @done
 
 # -----------------------------------------------------------------------------

@@ -29,6 +29,9 @@ on the following platforms.
 | Perlmutter | `nersc/perlmutter/gpu` | `iris` |
 | Improv | `anl/improv` | `sbank` |
 
+Note: on Perlmutter's GPFS filesystem, use `--db-lock mkdir` as `flock`
+isn't supported from compute nodes.
+
 ### 2. Fetch — download the CIFAR-10 dataset
 
 ```bash

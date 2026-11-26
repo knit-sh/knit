@@ -25,10 +25,12 @@ knit_set_program_description \
     "Tune a CNN image classifier on CIFAR-10 with a sweep and Bayesian optimization."
 
 # --- Setup ------------------------------------------------------------------
-# A uv environment with the cifar-cnn classifier installed from its git repo.
+# A uv environment with the cifar-cnn classifier installed from its git repo. Its
+# one-line body pins TMPDIR to /tmp so PyTorch's DataLoader worker sockets stay
+# within the 108-byte AF_UNIX path limit (a long cluster TMPDIR overflows it).
 @setup "cnnenv" "A uv environment with the cifar-cnn classifier installed."
 @with_uv_specs "cifar-cnn @ git+https://github.com/knit-sh/image-classifier-example.git@v1.0.0"
-@empty
+_cnnenv_setup() { knit_setup_env_set TMPDIR /tmp; }
 @done
 
 # --- Resource ---------------------------------------------------------------

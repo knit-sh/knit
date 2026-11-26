@@ -28,11 +28,14 @@ knit_set_program_description "Tune a CNN image classifier on CIFAR-10."
 # straight from its git repository; knit builds and activates it as the setup's
 # first step, so the `cifar-cnn` console script is on PATH before any job that
 # declares this setup runs. It captures the resolved pyproject.toml / uv.lock as
-# provenance. The setup needs no body of its own --- building the environment is
-# all it does --- so @empty stands in for the body function.
+# provenance. The body does one more thing: it pins TMPDIR to the node-local /tmp
+# with knit_setup_env_set, which records the assignment into the setup's
+# .activate.sh so every job that uses the setup inherits it. This keeps PyTorch's
+# DataLoader worker sockets within the 108-byte AF_UNIX path limit; a long cluster
+# TMPDIR otherwise overflows it and the run stops with "AF_UNIX path too long".
 @setup "cnnenv" "A uv environment with the cifar-cnn classifier installed."
 @with_uv_specs "cifar-cnn @ git+https://github.com/knit-sh/image-classifier-example.git@v1.0.0"
-@empty
+_cnnenv_setup() { knit_setup_env_set TMPDIR /tmp; }
 @done
 # END setup
 
