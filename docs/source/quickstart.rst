@@ -88,6 +88,9 @@ already on your system, installs the tools Knit relies on):
    database fails. If your experiment sits on such a filesystem, put it on a
    lock-capable filesystem (for example ``$PSCRATCH``) or bootstrap with
    ``--db-lock mkdir``. See the *Run on a filesystem without flock* stitch.
+   Separately, if a single host runs many jobs at once and a read fails with
+   ``database is locked``, bootstrap with ``--db-journal wal``; see the *Avoid
+   "database is locked" with WAL* stitch.
 
 Now run the command:
 
