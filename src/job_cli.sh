@@ -19,10 +19,43 @@ knit_with_subcommand_discovery _knit_job_discover
 knit_done
 
 # ------------------------------------------------------------------------------
+# @fn _knit_job_format_localtime()
+#
+# Render one stored UTC lifecycle timestamp ("YYYY-MM-DD HH:MM:SS.sss") for
+# display in the local time zone, as "YYYY-MM-DD HH:MM:SS (±HH:MM)" so the zone
+# is explicit and the value matches the user's own clock (see the "UTC at rest,
+# local at the edge" rule). An empty (NULL) input prints a dash, the stage not
+# yet reached. If the local `date` cannot parse the value, the raw UTC string is
+# printed with a "UTC" marker rather than a wrong local time.
+#
+# @param[out] __knit_ret Name of the variable to hold the formatted string.
+# @param[in]  utc        Stored UTC timestamp, or empty for a NULL column.
+# ------------------------------------------------------------------------------
+_knit_job_format_localtime() {
+    local -n __knit_ret=$1
+    local utc="$2"
+    if [[ -z "${utc}" ]]; then
+        __knit_ret="-"
+        return 0
+    fi
+    local local_str
+    if local_str="$(date -d "${utc} UTC" +'%Y-%m-%d %H:%M:%S (%:z)' 2>/dev/null)" \
+        && [[ -n "${local_str}" ]]; then
+        __knit_ret="${local_str}"
+    else
+        __knit_ret="${utc} (UTC)"
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_job_status()
 #
 # Look up a job by its UUID in the jobs table and print its lifecycle state
-# (e.g. submitted, running, completed, failed, killed). An unknown id is an error.
+# (e.g. submitted, running, completed, failed, killed) on the first line,
+# followed by the four lifecycle timestamps (prepared/submitted/started/ended),
+# each shown in local time with an explicit offset. The state stays on its own
+# first line so a script that reads only it is unaffected. An unknown id is an
+# error.
 # ------------------------------------------------------------------------------
 _knit_job_status() {
     if ! _knit_is_bootstrapped; then
@@ -31,14 +64,31 @@ _knit_job_status() {
     fi
     local id
     id=$(knit_get_parameter "id" "$@")
-    local state esc_id
+    local esc_id
     _knit_sql_escape esc_id "${id}"
-    state=$(_knit_sqlite3 \
-        "SELECT state FROM jobs WHERE id = '${esc_id}';")
-    if [[ -z "${state}" ]]; then
+    # Read the state and all four timestamps as one tab-joined value, built in SQL
+    # with char(9) so it does not depend on the sqlite output separator; IFNULL
+    # maps a NULL column to the empty string, matching _knit_job_format_localtime's
+    # empty-means-not-reached contract (plain concatenation of a NULL would void
+    # the whole row). An unknown id yields no row, i.e. empty output.
+    local row
+    row=$(_knit_sqlite3 \
+        "SELECT state || char(9) || IFNULL(prepared_at,'') || char(9)
+             || IFNULL(submitted_at,'') || char(9) || IFNULL(started_at,'')
+             || char(9) || IFNULL(ended_at,'')
+         FROM jobs WHERE id = '${esc_id}';")
+    if [[ -z "${row}" ]]; then
         knit_fatal "No job found with id \"${id}\"."
     fi
+    local state prepared submitted started ended
+    IFS=$'\t' read -r state prepared submitted started ended <<< "${row}"
+
     printf '%s\n' "${state}"
+    local fmt
+    _knit_job_format_localtime fmt "${prepared}";  printf 'prepared_at:  %s\n' "${fmt}"
+    _knit_job_format_localtime fmt "${submitted}"; printf 'submitted_at: %s\n' "${fmt}"
+    _knit_job_format_localtime fmt "${started}";   printf 'started_at:   %s\n' "${fmt}"
+    _knit_job_format_localtime fmt "${ended}";     printf 'ended_at:     %s\n' "${fmt}"
 }
 
 # ------------------------------------------------------------------------------
