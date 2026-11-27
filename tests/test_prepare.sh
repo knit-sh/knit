@@ -94,6 +94,33 @@ _register_myjob_with_setup() {
         "SELECT hostnames FROM jobs WHERE id='${uuid}';")" ]
 }
 
+@test "prepare records a well-formed prepared_at and leaves the other timestamps NULL" {
+    _register_myjob_with_setup
+
+    local uuid
+    uuid="$(_knit_invoke_command prepare --setup setup -- myjob)"
+
+    # prepared_at is written at build in SQLite-canonical UTC with ms precision.
+    local prepared_at
+    prepared_at="$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT prepared_at FROM jobs WHERE id='${uuid}';")"
+    [[ "${prepared_at}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}$ ]]
+
+    # The downstream lifecycle timestamps are NULL until their transition happens.
+    [ -z "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT submitted_at FROM jobs WHERE id='${uuid}';")" ]
+    [ -z "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT started_at FROM jobs WHERE id='${uuid}';")" ]
+    [ -z "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT ended_at FROM jobs WHERE id='${uuid}';")" ]
+}
+
+@test "_knit_timestamp_now returns a SQLite-canonical UTC millisecond string" {
+    local ts
+    _knit_timestamp_now ts
+    [[ "${ts}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}$ ]]
+}
+
 @test "prepare records the --group and submission columns" {
     _register_myjob_with_setup
 

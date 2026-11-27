@@ -183,6 +183,38 @@ for (( i = 0; i < n; i++ )); do
 done
 check_eq "${overlap}" "1" "at least two workers ran concurrently (overlapping intervals)"
 
+# Lifecycle timestamps, recorded in the jobs table, corroborate the run. Every
+# completed worker carries an ordered started_at <= ended_at pair (written
+# compute-side on its assigned node), so the DB alone times each sub-job.
+for w in "${workers[@]}"; do
+    check_sqlite "${DB}" \
+        "SELECT CASE WHEN started_at IS NOT NULL
+                      AND ended_at IS NOT NULL
+                      AND started_at <= ended_at
+                 THEN 'ok' ELSE 'bad' END
+         FROM jobs WHERE id='${w}';" \
+        "ok" \
+        "worker ${w:0:8} records an ordered started/ended pair"
+done
+
+# The motivating check: no two sub-jobs shared a node with overlapping run
+# windows. A pilot sub-job records its assigned node(s) in "hostnames" (from
+# KNIT_PILOT_HOSTFILE), and the daemon gives each in-flight worker a distinct
+# node, so two workers that overlap in time are on different nodes. The same-node
+# overlap self-join therefore returns no rows — proving no double-booking from the
+# database alone.
+check_sqlite "${DB}" \
+    "SELECT COUNT(*) FROM jobs a JOIN jobs b
+       ON a.hostnames = b.hostnames
+      AND a.id < b.id
+      AND a.started_at IS NOT NULL AND a.ended_at IS NOT NULL
+      AND b.started_at IS NOT NULL AND b.ended_at IS NOT NULL
+      AND a.started_at < b.ended_at
+      AND b.started_at < a.ended_at
+     WHERE a.job='worker' AND b.job='worker';" \
+    "0" \
+    "no two sub-jobs ran on the same node at the same time"
+
 # Distribution: the daemon placed sub-jobs across both allocated compute nodes.
 distinct=$(printf '%s\n' "${assigned_all[@]}" | sed 's/\..*//' | sort -u \
     | grep -c . || true)

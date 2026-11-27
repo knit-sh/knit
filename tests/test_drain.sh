@@ -349,9 +349,11 @@ _setup_reconcile() {
     _reconcile_tmpdir="$(mktemp -d)"
     _knit_job_dir() { printf '%s/jobs/%s\n' "${_reconcile_tmpdir}" "$1"; }
     _knit_sched_backend() { local -n __b=$1; __b="local"; }
+    # ended_at is present because reconcile stamps it when it writes a terminal
+    # state (the job-timestamps feature).
     sqlite3 "${_KNIT_DATABASE}" \
         "CREATE TABLE IF NOT EXISTS jobs
-           (id TEXT, job TEXT, \"group\" TEXT, state TEXT);"
+           (id TEXT, job TEXT, \"group\" TEXT, state TEXT, ended_at TEXT);"
 }
 
 _make_running_job() {
@@ -411,13 +413,16 @@ _drain_job_state() {
     _knit_job_dir() { printf '%s/jobs/%s\n' "${_reconcile_tmpdir}" "$1"; }
     _knit_sched_backend() { local -n __b=$1; __b="local"; }
     _knit_sched_status() { local -n __r=$1; __r="killed"; }
-    # Full table: reset also writes hostnames / native_cmd / retries.
+    # Full table: reconcile stamps ended_at, and reset also writes hostnames /
+    # native_cmd / retries and NULLs submitted_at / started_at / ended_at.
     sqlite3 "${_KNIT_DATABASE}" \
         "CREATE TABLE jobs
            (id TEXT, job TEXT, \"group\" TEXT, state TEXT,
-            retries INTEGER, hostnames TEXT, native_cmd TEXT);"
+            retries INTEGER, hostnames TEXT, native_cmd TEXT,
+            submitted_at TEXT, started_at TEXT, ended_at TEXT);"
     sqlite3 "${_KNIT_DATABASE}" \
-        "INSERT INTO jobs VALUES ('r1','myjob','','running',0,'','');"
+        "INSERT INTO jobs (id, job, \"group\", state, retries, hostnames, native_cmd)
+         VALUES ('r1','myjob','','running',0,'','');"
     local d="${_reconcile_tmpdir}/jobs/r1"
     mkdir -p "${d}"
     printf 'launcher_r1\n' > "${d}/.job.id"

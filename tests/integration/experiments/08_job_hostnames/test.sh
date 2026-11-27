@@ -162,4 +162,23 @@ check_sqlite ".knit/knit.db" \
     "${expected_hostnames}" \
     "jobs row records the comma-separated deduplicated hostnames"
 
+# --------------------------------------------------------------------------
+# Lifecycle timestamps: a completed job carries all four, and they are ordered
+# prepared_at <= submitted_at <= started_at <= ended_at. The comparison is on the
+# stored UTC strings, which sort lexically in time order. The query returns "ok"
+# only when every column is non-NULL and the chain is non-decreasing.
+# --------------------------------------------------------------------------
+check_sqlite ".knit/knit.db" \
+    "SELECT CASE WHEN prepared_at IS NOT NULL
+                  AND submitted_at IS NOT NULL
+                  AND started_at IS NOT NULL
+                  AND ended_at IS NOT NULL
+                  AND prepared_at <= submitted_at
+                  AND submitted_at <= started_at
+                  AND started_at <= ended_at
+             THEN 'ok' ELSE 'bad' END
+     FROM jobs WHERE id='${uuid}';" \
+    "ok" \
+    "jobs row records ordered prepared/submitted/started/ended timestamps"
+
 assert_summary

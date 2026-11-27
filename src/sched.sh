@@ -93,6 +93,39 @@ _knit_uuidv7() {
 }
 
 # ------------------------------------------------------------------------------
+# @fn _knit_timestamp_now()
+#
+# Return the current UTC date-time in SQLite's canonical form
+# "YYYY-MM-DD HH:MM:SS.sss": a space separator, millisecond precision, no "Z"
+# suffix, always UTC by convention.
+#
+# This form is used for the job lifecycle timestamp columns (prepared_at,
+# submitted_at, started_at, ended_at). It is fixed-width and zero-padded, so it
+# sorts lexically in time order and compares byte-by-byte on any SQLite version;
+# datetime()/julianday()/strftime() also parse it for duration arithmetic. The
+# trailing "Z" is dropped on purpose: SQLite accepts it only since 3.42.0, and
+# bootstrap --use-system-sqlite can symlink an older login-node sqlite where
+# julianday('… Z') returns NULL.
+#
+# The millisecond clock falls back to whole-second precision when `date` lacks
+# nanosecond (%N) support, mirroring _knit_uuidv7.
+#
+# @param[out] __knit_ret Name of the variable to hold the timestamp string.
+# ------------------------------------------------------------------------------
+_knit_timestamp_now() {
+    # Assign straight to the nameref with no intermediate local: a caller that
+    # names its variable "now" (or any plain name) would otherwise be shadowed by
+    # an internal "local now" here (the nameref-shadow-collision gotcha).
+    local -n __knit_ret=$1
+    __knit_ret="$(date -u +'%Y-%m-%d %H:%M:%S.%3N' 2>/dev/null)"
+    # A date(1) without %N leaves the literal "%3N" (or an "N") in the string;
+    # fall back to second precision with a ".000" millisecond field.
+    if [[ ! "${__knit_ret}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}$ ]]; then
+        __knit_ret="$(date -u +'%Y-%m-%d %H:%M:%S').000"
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # @fn _knit_sched_profile_field()
 #
 # Return a field from the bootstrapped experiment's machine profile, or the

@@ -165,11 +165,12 @@ teardown() {
 
 # Create a minimal jobs table and seed one row. The lifecycle callbacks update
 # the "state" column and _knit_job_record_hostnames updates "hostnames", both by
-# id, so a three-column table is enough here.
+# id; _knit_job_set_state also writes a started_at/ended_at timestamp alongside
+# the state, so the table carries those two columns too.
 _seed_jobs() {
     local id="$1" state="$2"
     sqlite3 "${_KNIT_DATABASE}" \
-        "CREATE TABLE IF NOT EXISTS jobs (id TEXT, state TEXT, hostnames TEXT);"
+        "CREATE TABLE IF NOT EXISTS jobs (id TEXT, state TEXT, hostnames TEXT, started_at TEXT, ended_at TEXT);"
     sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO jobs (id, state, hostnames) VALUES ('${id}', '${state}', '');"
 }
@@ -180,6 +181,11 @@ _state_of() {
 
 _hostnames_of() {
     sqlite3 "${_KNIT_DATABASE}" "SELECT hostnames FROM jobs WHERE id='$1';"
+}
+
+# Read a lifecycle timestamp column (started_at/ended_at) for a seeded row.
+_ts_of() {
+    sqlite3 "${_KNIT_DATABASE}" "SELECT $2 FROM jobs WHERE id='$1';"
 }
 
 # Replace the backend host source with a fixture exercising the two raw hostfile
@@ -201,6 +207,49 @@ _stub_hostfile() {
     _seed_jobs "abc-uuid" "submitted"
     _knit_job_set_state "running"
     [ "$(_state_of "abc-uuid")" = "running" ]
+}
+
+@test "set state running sets started_at and leaves ended_at NULL" {
+    export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/abc-uuid"
+    _seed_jobs "abc-uuid" "submitted"
+    _knit_job_set_state "running"
+    [[ "$(_ts_of "abc-uuid" started_at)" \
+        =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}$ ]]
+    [ -z "$(_ts_of "abc-uuid" ended_at)" ]
+}
+
+@test "set state terminal sets ended_at for completed, failed and killed" {
+    local st
+    for st in completed failed killed; do
+        export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/${st}-uuid"
+        _seed_jobs "${st}-uuid" "running"
+        _knit_job_set_state "${st}"
+        [ "$(_state_of "${st}-uuid")" = "${st}" ]
+        [[ "$(_ts_of "${st}-uuid" ended_at)" \
+            =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}$ ]]
+    done
+}
+
+@test "a running then completed sequence leaves both timestamps set and ordered" {
+    export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/abc-uuid"
+    _seed_jobs "abc-uuid" "submitted"
+    _knit_job_set_state "running"
+    _knit_job_set_state "completed"
+    local started ended
+    started="$(_ts_of "abc-uuid" started_at)"
+    ended="$(_ts_of "abc-uuid" ended_at)"
+    [ -n "${started}" ]
+    [ -n "${ended}" ]
+    # Lexical order equals time order for this format.
+    [[ ! "${started}" > "${ended}" ]]
+}
+
+@test "set state submitting carries no lifecycle timestamp" {
+    export KNIT_JOB_PREFIX="${_KNIT_TEST_TMPDIR}/abc-uuid"
+    _seed_jobs "abc-uuid" "prepared"
+    _knit_job_set_state "submitting"
+    [ -z "$(_ts_of "abc-uuid" started_at)" ]
+    [ -z "$(_ts_of "abc-uuid" ended_at)" ]
 }
 
 # ---------- _knit_job_record_hostnames ----------

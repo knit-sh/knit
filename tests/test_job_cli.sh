@@ -14,13 +14,24 @@ teardown() {
     knit_test_db_teardown
 }
 
-# Create a jobs table and insert one row with the given id/setup/job/state.
+# Create a jobs table and insert one row with the given id/setup/job/state. The
+# four lifecycle timestamp columns exist (job status reads them) but are left
+# NULL unless a test seeds them with _seed_job_times.
 _seed_job() {
     local id="$1" setup="$2" job="$3" state="$4"
     sqlite3 "${_KNIT_DATABASE}" \
-        "CREATE TABLE IF NOT EXISTS jobs (id TEXT, setup TEXT, job TEXT, state TEXT);"
+        "CREATE TABLE IF NOT EXISTS jobs (id TEXT, setup TEXT, job TEXT, state TEXT,
+            prepared_at TEXT, submitted_at TEXT, started_at TEXT, ended_at TEXT);"
     sqlite3 "${_KNIT_DATABASE}" \
         "INSERT INTO jobs (id, setup, job, state) VALUES ('${id}', '${setup}', '${job}', '${state}');"
+}
+
+# Set the four lifecycle timestamps (UTC strings) on a seeded job row.
+_seed_job_times() {
+    local id="$1" prepared="$2" submitted="$3" started="$4" ended="$5"
+    sqlite3 "${_KNIT_DATABASE}" \
+        "UPDATE jobs SET prepared_at='${prepared}', submitted_at='${submitted}',
+            started_at='${started}', ended_at='${ended}' WHERE id='${id}';"
 }
 
 # ---------- job command group ----------
@@ -37,11 +48,36 @@ _seed_job() {
 
 # ---------- job status ----------
 
-@test "job status prints the state of a known job" {
+@test "job status prints the state of a known job on the first line" {
     _seed_job "abc123" "" "montecarlo" "running"
     run _knit_job_status --id "abc123"
     [ "$status" -eq 0 ]
-    [ "$output" = "running" ]
+    [ "${lines[0]}" = "running" ]
+}
+
+@test "job status renders the four timestamps in local time with a zone marker" {
+    _seed_job "abc123" "" "montecarlo" "completed"
+    _seed_job_times "abc123" \
+        "2026-11-27 10:00:00.000" "2026-11-27 10:00:01.000" \
+        "2026-11-27 10:00:02.000" "2026-11-27 10:00:09.000"
+    # Pin the zone so the rendered local time is deterministic: UTC 10:00 is
+    # 04:00 at -06:00 in America/Chicago (CST in November).
+    TZ="America/Chicago" run _knit_job_status --id "abc123"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"prepared_at:  2026-11-27 04:00:00 (-06:00)"* ]]
+    [[ "$output" == *"submitted_at: 2026-11-27 04:00:01 (-06:00)"* ]]
+    [[ "$output" == *"started_at:   2026-11-27 04:00:02 (-06:00)"* ]]
+    [[ "$output" == *"ended_at:     2026-11-27 04:00:09 (-06:00)"* ]]
+}
+
+@test "job status prints a dash for a timestamp not yet reached" {
+    _seed_job "abc123" "" "montecarlo" "prepared"
+    _seed_job_times "abc123" "2026-11-27 10:00:00.000" "" "" ""
+    run _knit_job_status --id "abc123"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"submitted_at: -"* ]]
+    [[ "$output" == *"started_at:   -"* ]]
+    [[ "$output" == *"ended_at:     -"* ]]
 }
 
 @test "job status fails for an unknown id" {

@@ -111,6 +111,20 @@ knit_with_output "backend:string" \
 knit_with_output "retries:integer" \
     "Number of times this job has been reset (re-queued) for a retry." \
     --unset "0"
+# Lifecycle timestamps, each written in the same update that advances the state:
+# prepared_at at build (login/launch node), submitted_at at dispatch (login/launch
+# node), started_at/ended_at compute-side via _knit_job_set_state. Stored as UTC
+# "YYYY-MM-DD HH:MM:SS.sss" strings (no "Z"), so they sort lexically and parse in
+# datetime()/julianday() on any SQLite version. Left NULL until their transition
+# happens (no --unset), the honest "not reached yet" state.
+knit_with_output "prepared_at:string" \
+    "UTC time the job row was created (build phase), as \"YYYY-MM-DD HH:MM:SS.sss\"."
+knit_with_output "submitted_at:string" \
+    "UTC time the job was sent to the scheduler, as \"YYYY-MM-DD HH:MM:SS.sss\"."
+knit_with_output "started_at:string" \
+    "UTC time the job started running (body began), as \"YYYY-MM-DD HH:MM:SS.sss\"."
+knit_with_output "ended_at:string" \
+    "UTC time the job reached a terminal state, as \"YYYY-MM-DD HH:MM:SS.sss\"."
 
 # ------------------------------------------------------------------------------
 # @fn _knit_submit()
@@ -366,6 +380,16 @@ _knit_prepare_build() {
         _owner_outputs["state"]="${target_state}"
     fi
 
+    # Record the build-phase timestamp. Both a direct `submit` and a `prepare`
+    # run the build phase, so every job row gets a prepared_at — for a direct
+    # submit a moment before submitted_at, for a prepared job the (possibly much
+    # earlier) prepare time. Written straight to submit's output map (like "job"
+    # and "state"), so the automatic row recording below persists it in the
+    # initial insert.
+    local prepared_ts
+    _knit_timestamp_now prepared_ts
+    _owner_outputs["prepared_at"]="${prepared_ts}"
+
     # Record a "used_by" edge from the setup this job references (if any) to this
     # submission, so the setup can be reached from the job by id. Emitted here on
     # the login side, where the setup was resolved and validated; the job's row id
@@ -577,9 +601,13 @@ _knit_submit_dispatch() {
 
     # Record native-cmd and advance the row to "submitted" before dispatching: a
     # blocking --wait job transitions this same row's state as it runs, so the
-    # recorded command and state must be in place first.
+    # recorded command and state must be in place first. submitted_at is written in
+    # the same update, so the row records when it was sent to the scheduler.
+    local submitted_ts
+    _knit_timestamp_now submitted_ts
     knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" \
-        "native-cmd=${native_cmd}" "state=submitted"
+        "native-cmd=${native_cmd}" "state=submitted" \
+        "submitted_at=${submitted_ts}"
 
     # Log the resolved command before issuing it, then submit. The backend
     # command's stderr is captured to a file so a rejection can report *why* the
@@ -755,6 +783,11 @@ _knit_submit_cleanup_rejected() {
 # job directory). Best-effort: status tracking must never take down the job
 # itself, so a failure is downgraded to a warning.
 #
+# A lifecycle timestamp is written in the same update as the state: "running"
+# sets started_at, and any terminal state (completed/failed/killed) sets
+# ended_at, so one function covers every terminal path (after-callback, kill
+# trap, fatal recorder, pilot kill). Other states carry no timestamp.
+#
 # @param[in] state New state value (e.g. running, completed, failed, killed).
 # ------------------------------------------------------------------------------
 _knit_job_set_state() {
@@ -763,7 +796,22 @@ _knit_job_set_state() {
     _knit_is_bootstrapped || return 0
     local uuid
     uuid="$(basename "${KNIT_JOB_PREFIX}")"
-    knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" "state=${state}" \
+
+    # Map the new state to its lifecycle timestamp column and fold it into the
+    # same update, so a transition records its state and its time together.
+    local -a assignments=("state=${state}")
+    local ts_column=""
+    case "${state}" in
+        running) ts_column="started_at" ;;
+        completed|failed|killed) ts_column="ended_at" ;;
+    esac
+    if [[ -n "${ts_column}" ]]; then
+        local now
+        _knit_timestamp_now now
+        assignments+=("${ts_column}=${now}")
+    fi
+
+    knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" "${assignments[@]}" \
         2>/dev/null \
         || knit_warning "Could not update job \"${uuid}\" state to \"${state}\"."
 }
