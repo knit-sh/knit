@@ -155,3 +155,33 @@ if there is nothing to reconcile or reset.
 ```bash
 ./exp.sh inspect --group grid
 ```
+
+### 7. Check timing and node placement
+
+Each `jobs` row records four UTC timestamps — `prepared_at`, `submitted_at`,
+`started_at`, and `ended_at`. Read them back with `query sql`, wrapping each
+displayed timestamp in `datetime(col, 'localtime')` so the printed value is in
+your own time zone:
+
+```bash
+./exp.sh query sql --exec \
+    "SELECT id, hostnames,
+            datetime(started_at, 'localtime') AS started,
+            datetime(ended_at,   'localtime') AS ended
+       FROM jobs WHERE job = 'train' ORDER BY id"
+```
+
+To prove no two sub-jobs ran on the same node at the same time, self-join the
+grid on matching `hostnames` and overlapping run windows. An empty result proves
+there was no double-booking:
+
+```bash
+./exp.sh query sql --exec \
+    "SELECT a.id, b.id, a.hostnames
+       FROM jobs a JOIN jobs b
+         ON a.hostnames = b.hostnames
+        AND a.id < b.id
+        AND a.started_at < b.ended_at
+        AND b.started_at < a.ended_at
+      WHERE a.job = 'train' AND b.job = 'train'"
+```

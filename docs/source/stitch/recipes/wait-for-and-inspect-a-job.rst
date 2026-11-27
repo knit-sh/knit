@@ -26,13 +26,24 @@ non-zero if the job was killed:
    $ ./exp.sh job wait --id "$id"
    completed
 
-Check the current state without blocking with ``job status``, and see everything
-recorded for the job --- its submission options and its own parameters --- with
-``job show`` (add ``--json`` for machine-readable output):
+Check the current state without blocking with ``job status``. It prints the
+state on the first line, then the four lifecycle timestamps
+(prepared/submitted/started/ended), each shown in your local time zone with an
+explicit offset (a stage not yet reached shows ``-``):
 
 .. code-block:: console
 
    $ ./exp.sh job status --id "$id"
    running
+   prepared_at:  2026-11-27 03:28:05 (-06:00)
+   submitted_at: 2026-11-27 03:28:06 (-06:00)
+   started_at:   2026-11-27 03:28:07 (-06:00)
+   ended_at:     -
+
+See everything recorded for the job --- its submission options and its own
+parameters --- with ``job show`` (add ``--json`` for machine-readable output):
+
+.. code-block:: console
+
    $ ./exp.sh job show --id "$id"
    $ ./exp.sh job show --id "$id" --json
