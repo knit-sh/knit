@@ -368,6 +368,10 @@ EOF
     # launcher id landed in .job.id.
     [ "$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT state FROM jobs WHERE id='abc';")" = "submitted" ]
+    # submitted_at was written in the same update as state=submitted.
+    [[ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT submitted_at FROM jobs WHERE id='abc';")" \
+        =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}$ ]]
     local recorded_cmd
     recorded_cmd="$(sqlite3 "${_KNIT_DATABASE}" \
         "SELECT native_cmd FROM jobs WHERE id='abc';")"

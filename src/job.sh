@@ -601,9 +601,13 @@ _knit_submit_dispatch() {
 
     # Record native-cmd and advance the row to "submitted" before dispatching: a
     # blocking --wait job transitions this same row's state as it runs, so the
-    # recorded command and state must be in place first.
+    # recorded command and state must be in place first. submitted_at is written in
+    # the same update, so the row records when it was sent to the scheduler.
+    local submitted_ts
+    _knit_timestamp_now submitted_ts
     knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" \
-        "native-cmd=${native_cmd}" "state=submitted"
+        "native-cmd=${native_cmd}" "state=submitted" \
+        "submitted_at=${submitted_ts}"
 
     # Log the resolved command before issuing it, then submit. The backend
     # command's stderr is captured to a file so a rejection can report *why* the
