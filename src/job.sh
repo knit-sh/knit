@@ -111,6 +111,20 @@ knit_with_output "backend:string" \
 knit_with_output "retries:integer" \
     "Number of times this job has been reset (re-queued) for a retry." \
     --unset "0"
+# Lifecycle timestamps, each written in the same update that advances the state:
+# prepared_at at build (login/launch node), submitted_at at dispatch (login/launch
+# node), started_at/ended_at compute-side via _knit_job_set_state. Stored as UTC
+# "YYYY-MM-DD HH:MM:SS.sss" strings (no "Z"), so they sort lexically and parse in
+# datetime()/julianday() on any SQLite version. Left NULL until their transition
+# happens (no --unset), the honest "not reached yet" state.
+knit_with_output "prepared_at:string" \
+    "UTC time the job row was created (build phase), as \"YYYY-MM-DD HH:MM:SS.sss\"."
+knit_with_output "submitted_at:string" \
+    "UTC time the job was sent to the scheduler, as \"YYYY-MM-DD HH:MM:SS.sss\"."
+knit_with_output "started_at:string" \
+    "UTC time the job started running (body began), as \"YYYY-MM-DD HH:MM:SS.sss\"."
+knit_with_output "ended_at:string" \
+    "UTC time the job reached a terminal state, as \"YYYY-MM-DD HH:MM:SS.sss\"."
 
 # ------------------------------------------------------------------------------
 # @fn _knit_submit()
@@ -365,6 +379,16 @@ _knit_prepare_build() {
     if [[ -n "${target_state}" ]]; then
         _owner_outputs["state"]="${target_state}"
     fi
+
+    # Record the build-phase timestamp. Both a direct `submit` and a `prepare`
+    # run the build phase, so every job row gets a prepared_at — for a direct
+    # submit a moment before submitted_at, for a prepared job the (possibly much
+    # earlier) prepare time. Written straight to submit's output map (like "job"
+    # and "state"), so the automatic row recording below persists it in the
+    # initial insert.
+    local prepared_ts
+    _knit_timestamp_now prepared_ts
+    _owner_outputs["prepared_at"]="${prepared_ts}"
 
     # Record a "used_by" edge from the setup this job references (if any) to this
     # submission, so the setup can be reached from the job by id. Emitted here on
