@@ -113,15 +113,16 @@ _knit_uuidv7() {
 # @param[out] __knit_ret Name of the variable to hold the timestamp string.
 # ------------------------------------------------------------------------------
 _knit_timestamp_now() {
+    # Assign straight to the nameref with no intermediate local: a caller that
+    # names its variable "now" (or any plain name) would otherwise be shadowed by
+    # an internal "local now" here (the nameref-shadow-collision gotcha).
     local -n __knit_ret=$1
-    local now
-    now="$(date -u +'%Y-%m-%d %H:%M:%S.%3N' 2>/dev/null)"
+    __knit_ret="$(date -u +'%Y-%m-%d %H:%M:%S.%3N' 2>/dev/null)"
     # A date(1) without %N leaves the literal "%3N" (or an "N") in the string;
     # fall back to second precision with a ".000" millisecond field.
-    if [[ ! "${now}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}$ ]]; then
-        now="$(date -u +'%Y-%m-%d %H:%M:%S').000"
+    if [[ ! "${__knit_ret}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}$ ]]; then
+        __knit_ret="$(date -u +'%Y-%m-%d %H:%M:%S').000"
     fi
-    __knit_ret="${now}"
 }
 
 # ------------------------------------------------------------------------------

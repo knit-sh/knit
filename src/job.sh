@@ -783,6 +783,11 @@ _knit_submit_cleanup_rejected() {
 # job directory). Best-effort: status tracking must never take down the job
 # itself, so a failure is downgraded to a warning.
 #
+# A lifecycle timestamp is written in the same update as the state: "running"
+# sets started_at, and any terminal state (completed/failed/killed) sets
+# ended_at, so one function covers every terminal path (after-callback, kill
+# trap, fatal recorder, pilot kill). Other states carry no timestamp.
+#
 # @param[in] state New state value (e.g. running, completed, failed, killed).
 # ------------------------------------------------------------------------------
 _knit_job_set_state() {
@@ -791,7 +796,22 @@ _knit_job_set_state() {
     _knit_is_bootstrapped || return 0
     local uuid
     uuid="$(basename "${KNIT_JOB_PREFIX}")"
-    knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" "state=${state}" \
+
+    # Map the new state to its lifecycle timestamp column and fold it into the
+    # same update, so a transition records its state and its time together.
+    local -a assignments=("state=${state}")
+    local ts_column=""
+    case "${state}" in
+        running) ts_column="started_at" ;;
+        completed|failed|killed) ts_column="ended_at" ;;
+    esac
+    if [[ -n "${ts_column}" ]]; then
+        local now
+        _knit_timestamp_now now
+        assignments+=("${ts_column}=${now}")
+    fi
+
+    knit_db_update_row "${_KNIT_JOBS_TABLE}" "${uuid}" "${assignments[@]}" \
         2>/dev/null \
         || knit_warning "Could not update job \"${uuid}\" state to \"${state}\"."
 }
