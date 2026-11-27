@@ -31,17 +31,23 @@ _ensure_jobs_table() {
     sqlite3 "${_KNIT_DATABASE}" \
         "CREATE TABLE IF NOT EXISTS jobs (
             id TEXT, state TEXT, \"group\" TEXT, job TEXT,
-            hostnames TEXT, native_cmd TEXT, retries INTEGER);"
+            hostnames TEXT, native_cmd TEXT, retries INTEGER,
+            prepared_at TEXT, submitted_at TEXT, started_at TEXT, ended_at TEXT);"
 }
 
-# Seed one job row and a job directory holding a stale .job.id.
+# Seed one job row and a job directory holding a stale .job.id. The lifecycle
+# timestamps are seeded non-NULL (a finished attempt) so a reset can be shown to
+# clear the downstream ones and keep prepared_at.
 #   _seed <id> <state> [group] [job] [retries]
 _seed() {
     local id="$1" state="$2" grp="${3:-}" job="${4:-myjob}" retries="${5:-0}"
     _ensure_jobs_table
     sqlite3 "${_KNIT_DATABASE}" \
-        "INSERT INTO jobs (id, state, \"group\", job, hostnames, native_cmd, retries)
-         VALUES ('${id}', '${state}', '${grp}', '${job}', 'nodeA,nodeB', 'sbatch x', ${retries});"
+        "INSERT INTO jobs (id, state, \"group\", job, hostnames, native_cmd, retries,
+                           prepared_at, submitted_at, started_at, ended_at)
+         VALUES ('${id}', '${state}', '${grp}', '${job}', 'nodeA,nodeB', 'sbatch x', ${retries},
+                 '2026-11-27 10:00:00.000', '2026-11-27 10:00:01.000',
+                 '2026-11-27 10:00:02.000', '2026-11-27 10:00:09.000');"
     local jobdir
     jobdir="$(_knit_job_dir "${id}")"
     mkdir -p "${jobdir}"
@@ -52,6 +58,9 @@ _state_of()     { sqlite3 "${_KNIT_DATABASE}" "SELECT state FROM jobs WHERE id='
 _retries_of()   { sqlite3 "${_KNIT_DATABASE}" "SELECT retries FROM jobs WHERE id='$1';"; }
 _hostnames_of() { sqlite3 "${_KNIT_DATABASE}" "SELECT hostnames FROM jobs WHERE id='$1';"; }
 _nativecmd_of() { sqlite3 "${_KNIT_DATABASE}" "SELECT native_cmd FROM jobs WHERE id='$1';"; }
+# Print the NULL-ness of a timestamp column as "NULL" or "SET".
+_ts_null_of()   { sqlite3 "${_KNIT_DATABASE}" \
+    "SELECT CASE WHEN $2 IS NULL THEN 'NULL' ELSE 'SET' END FROM jobs WHERE id='$1';"; }
 _has_job_id()   { [[ -f "$(_knit_job_dir "$1")/.job.id" ]]; }
 
 # ---------- resetting terminal-failed jobs ----------
@@ -80,6 +89,19 @@ _has_job_id()   { [[ -f "$(_knit_job_dir "$1")/.job.id" ]]; }
     [ "$(_nativecmd_of "k1")" = "" ]
     [ "$(_retries_of "k1")" = "1" ]
     ! _has_job_id "k1"
+}
+
+@test "job reset NULLs submitted_at/started_at/ended_at and keeps prepared_at" {
+    _seed "k1" "killed"
+    run _knit_job_reset --id "k1"
+    [ "$status" -eq 0 ]
+    [ "$(_ts_null_of "k1" prepared_at)" = "SET" ]
+    [ "$(_ts_null_of "k1" submitted_at)" = "NULL" ]
+    [ "$(_ts_null_of "k1" started_at)" = "NULL" ]
+    [ "$(_ts_null_of "k1" ended_at)" = "NULL" ]
+    # prepared_at keeps the original creation time.
+    [ "$(sqlite3 "${_KNIT_DATABASE}" \
+        "SELECT prepared_at FROM jobs WHERE id='k1';")" = "2026-11-27 10:00:00.000" ]
 }
 
 @test "job reset coalesces a NULL retries count to 0 before bumping" {

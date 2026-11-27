@@ -391,6 +391,15 @@ _knit_job_reset_one() {
     local new=$(( current + 1 ))
     knit_db_update_row "${_KNIT_JOBS_TABLE}" "${id}" \
         "state=prepared" "hostnames=" "native-cmd=" "retries=${new}"
+    # Clear the timing of the finished attempt so the row matches a freshly
+    # prepared job: submitted_at/started_at/ended_at go back to NULL (the honest
+    # "not reached yet" state the IS NOT NULL queries rely on), while prepared_at
+    # keeps the original creation time. knit_db_update_row writes only strings,
+    # so NULL them with a direct write.
+    local esc_id
+    _knit_sql_escape esc_id "${id}"
+    _knit_sqlite3_write \
+        "UPDATE jobs SET submitted_at = NULL, started_at = NULL, ended_at = NULL WHERE id = '${esc_id}';"
     local jobdir
     jobdir="$(_knit_job_dir "${id}")"
     rm -f "${jobdir}/.job.id"
@@ -533,8 +542,15 @@ _knit_job_reconcile_set_state() {
     local esc_id esc_state
     _knit_sql_escape esc_id "${id}"
     _knit_sql_escape esc_state "${new_state}"
+    # Set ended_at alongside the terminal state so a reconciled row is not left
+    # with a NULL ended_at. This is the reconcile time, a best-effort proxy: the
+    # true end is unknown (a hard kill wrote no timestamp), and reconcile runs on
+    # the login node, so the UTC clock is _knit_timestamp_now here.
+    local ended_ts esc_ended
+    _knit_timestamp_now ended_ts
+    _knit_sql_escape esc_ended "${ended_ts}"
     _knit_sqlite3_write \
-        "UPDATE jobs SET state = '${esc_state}' WHERE id = '${esc_id}' AND state IN ('running','submitting');"
+        "UPDATE jobs SET state = '${esc_state}', ended_at = '${esc_ended}' WHERE id = '${esc_id}' AND state IN ('running','submitting');"
 }
 
 # ------------------------------------------------------------------------------

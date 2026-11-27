@@ -7,9 +7,10 @@ setup() {
 
     _KNIT_TEST_TMPDIR="$(mktemp -d)"
 
-    # Minimal jobs table: only the columns reconcile touches.
+    # Minimal jobs table: only the columns reconcile touches (it also stamps
+    # ended_at when it writes a terminal state).
     sqlite3 "${_KNIT_DATABASE}" \
-        "CREATE TABLE jobs (id TEXT, job TEXT, \"group\" TEXT, state TEXT);"
+        "CREATE TABLE jobs (id TEXT, job TEXT, \"group\" TEXT, state TEXT, ended_at TEXT);"
 
     # Stub _knit_job_dir to resolve inside the test tree.
     _knit_job_dir() { printf '%s/jobs/%s\n' "${_KNIT_TEST_TMPDIR}" "$1"; }
@@ -28,11 +29,15 @@ teardown() {
 _seed_job() {
     local id="$1" state="$2" job="${3:-myjob}" group="${4:-}"
     sqlite3 "${_KNIT_DATABASE}" \
-        "INSERT INTO jobs VALUES ('${id}','${job}','${group}','${state}');"
+        "INSERT INTO jobs (id, job, \"group\", state) VALUES ('${id}','${job}','${group}','${state}');"
 }
 
 _job_state() {
     sqlite3 "${_KNIT_DATABASE}" "SELECT state FROM jobs WHERE id='$1';"
+}
+
+_job_ended_at() {
+    sqlite3 "${_KNIT_DATABASE}" "SELECT ended_at FROM jobs WHERE id='$1';"
 }
 
 _make_jobdir() {
@@ -52,10 +57,19 @@ _make_jobdir() {
     [ "$(_job_state "r1")" = "killed" ]
 }
 
+@test "reconcile_set_state stamps ended_at when it writes a terminal state" {
+    _seed_job "r1" "running"
+    _knit_job_reconcile_set_state "r1" "killed"
+    [[ "$(_job_ended_at "r1")" \
+        =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}$ ]]
+}
+
 @test "reconcile_set_state does not clobber a row already in terminal state" {
     _seed_job "r1" "killed"
     _knit_job_reconcile_set_state "r1" "completed"
     [ "$(_job_state "r1")" = "killed" ]
+    # The guard matched no row, so ended_at was not written either.
+    [ -z "$(_job_ended_at "r1")" ]
 }
 
 @test "reconcile_set_state updates a submitting row to the new state" {
